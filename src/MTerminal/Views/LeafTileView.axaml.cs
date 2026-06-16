@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using MTerminal.Models;
 using MTerminal.ViewModels;
 
 namespace MTerminal.Views;
@@ -9,6 +10,7 @@ public partial class LeafTileView : UserControl
 {
     private object? _currentContentVm;
     private string _originalTileName = "";
+    private LeafTileNodeViewModel? _subscribedLeaf;
 
     public LeafTileView()
     {
@@ -18,8 +20,41 @@ public partial class LeafTileView : UserControl
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
+        if (_subscribedLeaf != null)
+            _subscribedLeaf.PropertyChanged -= OnLeafPropertyChanged;
+
         if (DataContext is LeafTileNodeViewModel leaf)
+        {
+            _subscribedLeaf = leaf;
+            leaf.PropertyChanged += OnLeafPropertyChanged;
+            UpdateContentDisplay(leaf);
+        }
+    }
+
+    private void OnLeafPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(LeafTileNodeViewModel.Content) or nameof(LeafTileNodeViewModel.ContentType))
+        {
+            if (sender is LeafTileNodeViewModel leaf)
+                UpdateContentDisplay(leaf);
+        }
+    }
+
+    private void UpdateContentDisplay(LeafTileNodeViewModel leaf)
+    {
+        if (leaf.ContentType == TileContentType.Empty)
+        {
+            ContentChooser.IsVisible = true;
+            ContentHost.IsVisible = false;
+            ContentHost.Children.Clear();
+            _currentContentVm = null;
+        }
+        else
+        {
+            ContentChooser.IsVisible = false;
+            ContentHost.IsVisible = true;
             SetContent(leaf.Content);
+        }
     }
 
     private void SetContent(object? contentVm)
@@ -39,9 +74,6 @@ public partial class LeafTileView : UserControl
             _ => throw new InvalidOperationException($"Unknown content type: {contentVm.GetType()}")
         };
 
-        // TerminalControl renders a fixed character grid — leftover pixels below
-        // the last row stay empty. Match ContentHost bg to the content's own
-        // background so the gap is invisible.
         ContentHost.Background = contentVm switch
         {
             TerminalTileViewModel t => new SolidColorBrush(Color.Parse(t.Theme.Background)),

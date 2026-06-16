@@ -1,55 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MTerminal.ViewModels"
-             xmlns:m="using:MTerminal.Models"
              xmlns:views="using:MTerminal.Views"
              x:Class="MTerminal.Views.WorkspaceView"
              x:DataType="vm:WorkspaceViewModel"
              Background="{DynamicResource BgBase}">
 
-    <Panel>
-        <!-- Empty workspace -->
-        <StackPanel IsVisible="{Binding RootTile, Converter={x:Static ObjectConverters.IsNull}}"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Spacing="16">
-            <TextBlock Text="No tiles open"
-                       FontSize="{DynamicResource FontLg}"
-                       Foreground="{DynamicResource TextFaint}"
-                       HorizontalAlignment="Center" />
-
-            <TextBlock Text="Open a terminal or editor to get started"
-                       FontSize="{DynamicResource FontMd}"
-                       Foreground="{DynamicResource TextFaint}"
-                       HorizontalAlignment="Center" />
-
-            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
-                        Margin="0,8,0,0">
-                <ItemsControl ItemsSource="{Binding AvailableShells}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="8" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="m:ShellProfile">
-                            <Button Classes="accent"
-                                    Content="{Binding Name, StringFormat='> {0}'}"
-                                    Command="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).AddTerminalCommand}"
-                                    CommandParameter="{Binding}" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <Button Classes="accent"
-                        Content="# Note"
-                        Command="{Binding AddNoteCommand}" />
-            </StackPanel>
-        </StackPanel>
-
-        <!-- Tile tree -->
-        <views:TileNodeView x:Name="RootTileView"
-                            DataContext="{Binding RootTile}"
-                            IsVisible="{Binding $parent[UserControl].((vm:WorkspaceViewModel)DataContext).RootTile, Converter={x:Static ObjectConverters.IsNotNull}}" />
-    </Panel>
+    <views:TileNodeView x:Name="RootTileView"
+                        DataContext="{Binding RootTile}" />
 </UserControl>

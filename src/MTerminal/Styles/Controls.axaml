@@ -76,6 +76,27 @@
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
     </Style>
 
+    <!-- ======== BUTTON: chooser-card (tile type picker) ======== -->
+    <Style Selector="Button.chooser-card">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="Padding" Value="20,14" />
+        <Setter Property="MinWidth" Value="88" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.chooser-card:pointerover">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+    </Style>
+    <Style Selector="Button.chooser-card:pressed">
+        <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+    </Style>
+
     <!-- ======== BUTTON: ghost (remove/close, minimal) ======== -->
     <Style Selector="Button.ghost">
         <Setter Property="Background" Value="Transparent" />
@@ -150,22 +171,13 @@
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
     </Style>
 
-    <!-- ======== SCROLLBAR: fixed 8px, no Fluent thin/expand ======== -->
-    <Style Selector="ScrollBar:vertical">
+    <!-- ======== SCROLLBAR: disable Fluent auto-hide, custom thumb color ======== -->
+    <Style Selector="ScrollBar">
+        <Setter Property="AllowAutoHide" Value="False" />
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Width" Value="8" />
-        <Setter Property="MinWidth" Value="8" />
-    </Style>
-    <Style Selector="ScrollBar:horizontal">
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Height" Value="8" />
-        <Setter Property="MinHeight" Value="8" />
     </Style>
     <Style Selector="ScrollBar /template/ Thumb">
         <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
-        <Setter Property="Width" Value="8" />
-        <Setter Property="MinWidth" Value="8" />
-        <Setter Property="MinHeight" Value="8" />
     </Style>
     <Style Selector="ScrollBar:pointerover /template/ Thumb">
         <Setter Property="Background" Value="{DynamicResource BorderStrong}" />

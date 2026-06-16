@@ -37,30 +37,20 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             InitCountersFromDto(state.RootTile);
             RootTile = RestoreTree(state.RootTile);
         }
+        else
+        {
+            RootTile = CreateLeaf(TileContentType.Empty, null, "");
+        }
     }
 
-    [RelayCommand]
-    private void AddTerminal(ShellProfile? shell = null) => AddFirstTile(TileContentType.Terminal, shell);
-
-    [RelayCommand]
-    private void AddNote() => AddFirstTile(TileContentType.Note);
-
-    private void AddFirstTile(TileContentType type, ShellProfile? shell = null)
+    private LeafTileNodeViewModel CreateLeaf(TileContentType type, ObservableObject? content, string tileName)
     {
-        if (RootTile != null) return;
-        var content = CreateContent(type, WorkingDirectory, shell);
-        RootTile = CreateLeaf(type, content, AllocateTileName(type));
-        ScheduleSave();
-    }
-
-    private LeafTileNodeViewModel CreateLeaf(TileContentType type, ObservableObject content, string tileName)
-    {
-        return new LeafTileNodeViewModel(type, content, WorkingDirectory, (t, d) => CreateContent(t, d), AllocateTileName)
+        return new LeafTileNodeViewModel(type, content!, WorkingDirectory, (t, d) => CreateContent(t, d), AllocateTileName)
         {
             TileName = tileName,
             LayoutChanged = ScheduleSave,
             RootReplaced = newRoot => RootTile = ConfigureRoot(newRoot),
-            RootCleared = () => { RootTile = null; ScheduleSave(); }
+            RootCleared = () => { RootTile = CreateLeaf(TileContentType.Empty, null, ""); ScheduleSave(); }
         };
     }
 
@@ -78,7 +68,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         if (node is LeafTileNodeViewModel leaf)
         {
             leaf.RootReplaced = newRoot => RootTile = ConfigureRoot(newRoot);
-            leaf.RootCleared = () => { RootTile = null; ScheduleSave(); };
+            leaf.RootCleared = () => { RootTile = CreateLeaf(TileContentType.Empty, null, ""); ScheduleSave(); };
         }
         else if (node is SplitTileNodeViewModel split)
         {
@@ -91,6 +81,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         TileContentType.Terminal => $"Terminal #{++_terminalCount}",
         TileContentType.Note => $"Note #{++_noteCount}",
+        TileContentType.Empty => "",
         _ => type.ToString()
     };
 
@@ -130,6 +121,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
     }
+
 
     private NoteTileViewModel CreateNoteContent(string workingDir)
     {
@@ -172,19 +164,22 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         if (dto.IsLeaf)
         {
-            ObservableObject content;
-            if (dto.ContentType == TileContentType.Note && dto.NoteFilePath != null)
+            ObservableObject? content = null;
+            if (dto.ContentType != TileContentType.Empty)
             {
-                var s = _settingsService.Settings;
-                content = new NoteTileViewModel(dto.NoteFilePath, s.NoteFontFamily, s.NoteFontSize);
-            }
-            else
-            {
-                ShellProfile? shell = null;
-                if (dto.ShellName != null)
-                    shell = AvailableShells.FirstOrDefault(s =>
-                        s.Name.Equals(dto.ShellName, StringComparison.OrdinalIgnoreCase));
-                content = CreateContent(dto.ContentType, WorkingDirectory, shell);
+                if (dto.ContentType == TileContentType.Note && dto.NoteFilePath != null)
+                {
+                    var s = _settingsService.Settings;
+                    content = new NoteTileViewModel(dto.NoteFilePath, s.NoteFontFamily, s.NoteFontSize);
+                }
+                else
+                {
+                    ShellProfile? shell = null;
+                    if (dto.ShellName != null)
+                        shell = AvailableShells.FirstOrDefault(s =>
+                            s.Name.Equals(dto.ShellName, StringComparison.OrdinalIgnoreCase));
+                    content = CreateContent(dto.ContentType, WorkingDirectory, shell);
+                }
             }
 
             return CreateLeaf(dto.ContentType, content, dto.TileName ?? AllocateTileName(dto.ContentType));

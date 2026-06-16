@@ -52,55 +52,8 @@ public partial class NoteTileView : UserControl
         void OnceAttached(object? s, VisualTreeAttachmentEventArgs args)
         {
             AttachedToVisualTree -= OnceAttached;
-            Dispatcher.UIThread.Post(() =>
-            {
-                editor.TextArea?.Focus();
-                StyleScrollBars(editor);
-            }, DispatcherPriority.Loaded);
+            Dispatcher.UIThread.Post(() => editor.TextArea?.Focus(), DispatcherPriority.Input);
         }
     }
 
-    private static void StyleScrollBars(TextEditor editor)
-    {
-        foreach (var sb in FindAll<ScrollBar>(editor))
-        {
-            sb.Width = 8;
-            sb.MinWidth = 8;
-            sb.Background = Brushes.Transparent;
-            sb.Transitions = null;
-
-            // Fluent theme animates Grid columns inside the template —
-            // find the Grid and lock all column widths so nothing collapses.
-            foreach (var grid in FindAll<Grid>(sb))
-            {
-                grid.Transitions = null;
-                foreach (var col in grid.ColumnDefinitions)
-                    col.Width = new GridLength(col.Width.Value == 0 ? 0 : 8, GridUnitType.Pixel);
-                foreach (var row in grid.RowDefinitions)
-                    row.Height = new GridLength(row.Height.Value == 0 ? 0 : 8, GridUnitType.Pixel);
-            }
-        }
-        foreach (var thumb in FindAll<Thumb>(editor))
-        {
-            thumb.Width = 8;
-            thumb.MinWidth = 8;
-            thumb.Transitions = null;
-        }
-    }
-
-    private static List<T> FindAll<T>(Visual root) where T : Visual
-    {
-        var result = new List<T>();
-        var stack = new Stack<Visual>();
-        stack.Push(root);
-        while (stack.Count > 0)
-        {
-            var current = stack.Pop();
-            if (current is T match)
-                result.Add(match);
-            foreach (var child in current.GetVisualChildren())
-                if (child is Visual v) stack.Push(v);
-        }
-        return result;
-    }
 }

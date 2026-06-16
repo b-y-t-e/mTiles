@@ -55,36 +55,39 @@
                 </DockPanel>
             </Border>
 
-            <!-- Content type chooser: shown when tile is empty -->
-            <StackPanel x:Name="ContentChooser"
-                        IsVisible="False"
-                        Orientation="Vertical"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Spacing="8">
-                <TextBlock Text="Select tile type"
-                           HorizontalAlignment="Center"
-                           FontSize="{DynamicResource FontSm}"
-                           Foreground="{DynamicResource TextFaint}"
-                           Margin="0,0,0,4" />
-                <Button Classes="outlined"
-                        Command="{Binding SelectContentTypeCommand}"
-                        CommandParameter="{x:Static m:TileContentType.Terminal}"
-                        HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Center">
-                    Terminal
-                </Button>
-                <Button Classes="outlined"
-                        Command="{Binding SelectContentTypeCommand}"
-                        CommandParameter="{x:Static vm:TileContentTypeValues.Note}"
-                        HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Center">
-                    Note
-                </Button>
-            </StackPanel>
-
-            <!-- Content area: managed in code-behind -->
-            <Panel x:Name="ContentHost" />
+            <!-- Content area + chooser overlay -->
+            <Panel>
+                <StackPanel x:Name="ContentChooser"
+                            IsVisible="False"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="10">
+                    <Button Classes="chooser-card"
+                            Command="{Binding SelectContentTypeCommand}"
+                            CommandParameter="{x:Static m:TileContentType.Terminal}">
+                        <StackPanel Spacing="4" HorizontalAlignment="Center">
+                            <TextBlock Text="&gt;_" FontSize="18" FontWeight="Bold"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="Terminal" FontSize="{DynamicResource FontSm}"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="chooser-card"
+                            Command="{Binding SelectContentTypeCommand}"
+                            CommandParameter="{x:Static m:TileContentType.Note}">
+                        <StackPanel Spacing="4" HorizontalAlignment="Center">
+                            <TextBlock Text="#" FontSize="18" FontWeight="Bold"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="Note" FontSize="{DynamicResource FontSm}"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                <Panel x:Name="ContentHost" />
+            </Panel>
         </DockPanel>
     </Border>
 </UserControl>
