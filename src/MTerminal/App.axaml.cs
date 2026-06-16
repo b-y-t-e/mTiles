@@ -1,3 +1,6 @@
+using System;
+using System.Diagnostics;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -5,6 +8,7 @@ using Avalonia.Styling;
 using MTerminal.Services;
 using MTerminal.ViewModels;
 using MTerminal.Views;
+using Velopack;
 
 namespace MTerminal;
 
@@ -44,6 +48,28 @@ public partial class App : Application
             desktop.MainWindow = mainWindow;
         }
 
+        Task.Run(CheckForUpdates);
+
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static void CheckForUpdates()
+    {
+        try
+        {
+            var updateUrl = Environment.GetEnvironmentVariable("MTERMINAL_UPDATE_URL")
+                            ?? "https://else.net.pl/mterminal/";
+            var mgr = new UpdateManager(updateUrl);
+            var newVersion = mgr.CheckForUpdates();
+            if (newVersion == null)
+                return;
+
+            mgr.DownloadUpdates(newVersion);
+            mgr.ApplyUpdatesAndRestart(newVersion);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Update check failed: {ex.Message}");
+        }
     }
 }

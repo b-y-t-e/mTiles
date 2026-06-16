@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -11,6 +12,7 @@ public partial class LeafTileView : UserControl
     private object? _currentContentVm;
     private string _originalTileName = "";
     private LeafTileNodeViewModel? _subscribedLeaf;
+    private INotifyPropertyChanged? _subscribedContent;
 
     public LeafTileView()
     {
@@ -74,13 +76,29 @@ public partial class LeafTileView : UserControl
             _ => throw new InvalidOperationException($"Unknown content type: {contentVm.GetType()}")
         };
 
+        if (_subscribedContent != null)
+            _subscribedContent.PropertyChanged -= OnContentPropertyChanged;
+        _subscribedContent = contentVm as INotifyPropertyChanged;
+        if (_subscribedContent != null)
+            _subscribedContent.PropertyChanged += OnContentPropertyChanged;
+
+        UpdateContentBackground(contentVm);
+        ContentHost.Children.Add(view);
+    }
+
+    private void OnContentPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TerminalTileViewModel.Theme))
+            UpdateContentBackground(sender);
+    }
+
+    private void UpdateContentBackground(object? contentVm)
+    {
         ContentHost.Background = contentVm switch
         {
             TerminalTileViewModel t => new SolidColorBrush(Color.Parse(t.Theme.Background)),
             _ => this.FindBrush("BgBase") as SolidColorBrush
         };
-
-        ContentHost.Children.Add(view);
     }
 
     private void TileNameLabel_DoubleTapped(object? sender, TappedEventArgs e)

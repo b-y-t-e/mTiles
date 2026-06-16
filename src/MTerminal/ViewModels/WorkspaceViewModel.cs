@@ -116,7 +116,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         return type switch
         {
-            TileContentType.Terminal => new TerminalTileViewModel(workingDir, shell, _settingsService.Settings),
+            TileContentType.Terminal => new TerminalTileViewModel(workingDir, shell, _settingsService),
             TileContentType.Note => CreateNoteContent(workingDir),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };

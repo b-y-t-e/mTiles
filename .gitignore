@@ -34,3 +34,8 @@ bld/
 ## OS
 Thumbs.db
 .DS_Store
+
+## Deploy
+.env
+publish/
+Releases/
