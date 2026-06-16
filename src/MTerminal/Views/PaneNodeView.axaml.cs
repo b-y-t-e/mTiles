@@ -104,6 +104,7 @@ public partial class PaneNodeView : UserControl
         {
             Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255))
         };
+        splitter.DragCompleted += (_, _) => UpdateSplitRatio(split, grid);
 
         if (split.Orientation == Orientation.Vertical)
         {
@@ -131,6 +132,26 @@ public partial class PaneNodeView : UserControl
         grid.Children.Add(_secondChild);
 
         Content = grid;
+    }
+
+    private static void UpdateSplitRatio(SplitPaneNodeViewModel split, Grid grid)
+    {
+        if (split.Orientation == Orientation.Vertical && grid.ColumnDefinitions.Count >= 3)
+        {
+            var first = grid.ColumnDefinitions[0].Width.Value;
+            var second = grid.ColumnDefinitions[2].Width.Value;
+            var total = first + second;
+            if (total > 0)
+                split.SplitRatio = first / total;
+        }
+        else if (split.Orientation == Orientation.Horizontal && grid.RowDefinitions.Count >= 3)
+        {
+            var first = grid.RowDefinitions[0].Height.Value;
+            var second = grid.RowDefinitions[2].Height.Value;
+            var total = first + second;
+            if (total > 0)
+                split.SplitRatio = first / total;
+        }
     }
 
     private List<TerminalControl> SuspendTerminals()
