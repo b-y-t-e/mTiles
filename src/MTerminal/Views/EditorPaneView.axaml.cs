@@ -30,7 +30,7 @@ public partial class EditorPaneView : UserControl
         {
             FontFamily = new FontFamily(vm.FontFamily),
             FontSize = vm.FontSize,
-            ShowLineNumbers = true,
+            ShowLineNumbers = false,
             WordWrap = true,
             Background = new SolidColorBrush(Color.Parse("#1a1a2e")),
             Foreground = new SolidColorBrush(Color.Parse("#c0c8e0"))
