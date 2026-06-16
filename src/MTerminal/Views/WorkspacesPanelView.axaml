@@ -24,31 +24,19 @@
         </Border>
 
         <ListBox x:Name="WorkspaceList"
+                 Classes="sidebar-list"
                  ItemsSource="{Binding Workspaces}"
                  SelectedItem="{Binding SelectedWorkspace}"
                  Background="Transparent"
                  Margin="0,2">
-            <ListBox.Styles>
-                <Style Selector="ListBoxItem">
-                    <Setter Property="Padding" Value="10,6" />
-                    <Setter Property="Margin" Value="4,1" />
-                    <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
-                </Style>
-                <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
-                    <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
-                </Style>
-                <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-                    <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
-                </Style>
-            </ListBox.Styles>
             <ListBox.ItemTemplate>
                 <DataTemplate DataType="m:Workspace">
                     <DockPanel>
                         <Button DockPanel.Dock="Right"
-                                Content="x" Classes="ghost"
-                                FontSize="{DynamicResource FontXs}"
+                                Content="&#215;" Classes="ghost"
                                 Command="{Binding #WorkspaceList.((vm:WorkspacesPanelViewModel)DataContext).RemoveWorkspaceCommand}"
                                 CommandParameter="{Binding}"
+                                VerticalAlignment="Center"
                                 ToolTip.Tip="Remove workspace" />
                         <StackPanel Spacing="1">
                             <TextBlock Text="{Binding Name}" FontWeight="Medium"

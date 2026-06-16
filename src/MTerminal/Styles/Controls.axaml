@@ -100,13 +100,58 @@
     <!-- ======== BUTTON: ghost (remove/close, minimal) ======== -->
     <Style Selector="Button.ghost">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
         <Setter Property="Padding" Value="4,2" />
+        <Setter Property="MinWidth" Value="22" />
+        <Setter Property="MinHeight" Value="20" />
+        <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
         <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.ghost:pointerover">
+        <Setter Property="Background" Value="{DynamicResource DangerSubtle}" />
+        <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+    </Style>
+    <Style Selector="Button.ghost:pressed">
+        <Setter Property="Background" Value="{DynamicResource DangerSubtle}" />
+        <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+    </Style>
+
+    <!-- ======== BUTTON: tile-btn-close (tile close with danger hover) ======== -->
+    <Style Selector="Button.tile-btn-close">
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        <Setter Property="Padding" Value="6,2" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+        <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="MinWidth" Value="24" />
+        <Setter Property="MinHeight" Value="20" />
+    </Style>
+    <Style Selector="Button.tile-btn-close:pointerover">
+        <Setter Property="Background" Value="{DynamicResource DangerSubtle}" />
+        <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+    </Style>
+    <Style Selector="Button.tile-btn-close:pressed">
+        <Setter Property="Background" Value="{DynamicResource DangerSubtle}" />
+        <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+    </Style>
+
+    <!-- ======== LISTBOX: sidebar-list (workspace list etc.) ======== -->
+    <Style Selector="ListBox.sidebar-list ListBoxItem">
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="Margin" Value="4,1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
+    </Style>
+    <Style Selector="ListBox.sidebar-list ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+    </Style>
+    <Style Selector="ListBox.sidebar-list ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
     </Style>
 
     <!-- ======== TEXT: section header ======== -->
@@ -126,8 +171,8 @@
 
     <!-- ======== TEXT: caption (small meta text) ======== -->
     <Style Selector="TextBlock.caption">
-        <Setter Property="FontSize" Value="{DynamicResource FontXs}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
     </Style>
 
     <!-- ======== FORM: setting controls ======== -->
@@ -153,21 +198,25 @@
 
     <!-- ======== TEXTBOX: inline editor (tile name) ======== -->
     <Style Selector="TextBox.inline-editor">
-        <Setter Property="FontSize" Value="{DynamicResource FontXs}" />
+        <Setter Property="FontSize" Value="{DynamicResource FontMd}" />
+        <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
+        <Setter Property="SelectionForegroundBrush" Value="{DynamicResource TextHover}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
-        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
         <Setter Property="Padding" Value="4,1" />
-        <Setter Property="Margin" Value="2,0" />
-        <Setter Property="Height" Value="20" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Height" Value="22" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="MinWidth" Value="60" />
     </Style>
     <Style Selector="TextBox.inline-editor:focus /template/ Border#PART_BorderElement">
-        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
     </Style>
 

@@ -31,18 +31,18 @@
                             </Button.Flyout>
                         </Button>
 
-                        <Button Classes="tile-btn"
+                        <Button Classes="tile-btn-close"
                                 Command="{Binding CloseCommand}"
-                                ToolTip.Tip="Close tile">
-                            <TextBlock Text="x" FontSize="{DynamicResource FontSm}" />
-                        </Button>
+                                ToolTip.Tip="Close tile"
+                                Content="&#215;" />
                     </StackPanel>
 
                     <TextBlock x:Name="TileNameLabel"
                                Text="{Binding TileName}"
                                VerticalAlignment="Center"
-                               FontSize="{DynamicResource FontXs}"
-                               Foreground="{DynamicResource TextFaint}"
+                               FontSize="{DynamicResource FontMd}"
+                               FontWeight="Medium"
+                               Foreground="{DynamicResource TextPrimary}"
                                Margin="2,0"
                                Cursor="Hand"
                                DoubleTapped="TileNameLabel_DoubleTapped" />

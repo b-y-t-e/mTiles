@@ -28,6 +28,10 @@
     <SolidColorBrush x:Key="AccentDefault"       Color="#2d5a8a" />
     <SolidColorBrush x:Key="AccentHover"         Color="#3a6fa0" />
 
+    <!-- Danger (close/remove hover) -->
+    <SolidColorBrush x:Key="DangerSubtle"  Color="#2e1a24" />
+    <SolidColorBrush x:Key="DangerText"    Color="#c06878" />
+
     <!-- Overlay -->
     <SolidColorBrush x:Key="OverlayModal"   Color="#80000000" />
 

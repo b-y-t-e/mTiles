@@ -12,7 +12,7 @@
         <Border DockPanel.Dock="Top"
                 Background="{DynamicResource BgSurface}"
                 BorderBrush="{DynamicResource BorderSubtle}"
-                BorderThickness="{DynamicResource BorderBottom}"
+                BorderThickness="0,0,0,3"
                 Padding="4,0"
                 Height="38">
             <DockPanel>
