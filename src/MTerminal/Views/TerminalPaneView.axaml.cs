@@ -21,7 +21,6 @@ public partial class TerminalPaneView : UserControl
 
         if (vm.CachedControl is TerminalControl cached)
         {
-            // Reuse existing terminal — detach from old parent first
             if (cached.Parent is Panel p) p.Children.Remove(cached);
             else if (cached.Parent is ContentControl cc) cc.Content = null;
             else if (cached.Parent is Decorator d) d.Child = null;

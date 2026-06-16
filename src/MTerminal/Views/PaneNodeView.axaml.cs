@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Iciclecreek.Terminal;
 using MTerminal.ViewModels;
 
 namespace MTerminal.Views;
@@ -57,6 +58,7 @@ public partial class PaneNodeView : UserControl
         if (_isBuilding) return;
         _isBuilding = true;
 
+        var suspended = SuspendTerminals();
         try
         {
             if (_vm is LeafPaneNodeViewModel leaf)
@@ -68,6 +70,7 @@ public partial class PaneNodeView : UserControl
         }
         finally
         {
+            ResumeTerminals(suspended);
             _isBuilding = false;
         }
     }
@@ -88,13 +91,13 @@ public partial class PaneNodeView : UserControl
         if (_firstChild == null) _firstChild = new PaneNodeView();
         if (_secondChild == null) _secondChild = new PaneNodeView();
 
-        // Detach children from any existing parent
         DetachFromParent(_firstChild);
         DetachFromParent(_secondChild);
 
-        // Set DataContext BEFORE adding to grid to prevent inheritance issues
-        _firstChild.DataContext = split.First;
-        _secondChild.DataContext = split.Second;
+        if (_firstChild.DataContext != split.First)
+            _firstChild.DataContext = split.First;
+        if (_secondChild.DataContext != split.Second)
+            _secondChild.DataContext = split.Second;
 
         var grid = new Grid();
         var splitter = new GridSplitter
@@ -128,6 +131,43 @@ public partial class PaneNodeView : UserControl
         grid.Children.Add(_secondChild);
 
         Content = grid;
+    }
+
+    private List<TerminalControl> SuspendTerminals()
+    {
+        var terminals = new List<TerminalControl>();
+        CollectTerminals(this, terminals);
+        foreach (var tc in terminals)
+            tc.BeginReparent();
+        return terminals;
+    }
+
+    private static void ResumeTerminals(List<TerminalControl> terminals)
+    {
+        foreach (var tc in terminals)
+            tc.EndReparent();
+    }
+
+    private static void CollectTerminals(Control control, List<TerminalControl> result)
+    {
+        if (control is TerminalControl tc)
+        {
+            result.Add(tc);
+            return;
+        }
+
+        if (control is ContentControl cc && cc.Content is Control child)
+            CollectTerminals(child, result);
+        else if (control is Decorator dec && dec.Child is Control decChild)
+            CollectTerminals(decChild, result);
+        else if (control is Panel panel)
+        {
+            foreach (var c in panel.Children)
+            {
+                if (c is Control ctrl)
+                    CollectTerminals(ctrl, result);
+            }
+        }
     }
 
     private static void DetachFromParent(Control control)

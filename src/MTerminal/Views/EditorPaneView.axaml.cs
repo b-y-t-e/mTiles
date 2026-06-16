@@ -34,17 +34,12 @@ public partial class EditorPaneView : UserControl
             WordWrap = true,
             Background = Brushes.Transparent,
             Foreground = new SolidColorBrush(Color.Parse("#c0c8e0")),
-            IsReadOnly = false
+            IsReadOnly = false,
+            Focusable = true
         };
 
         editor.Text = vm.Text;
         editor.TextChanged += (_, _) => vm.Text = editor.Text;
-
-        // Focus editor on pointer press so it gets keyboard input
-        editor.PointerPressed += (_, args) =>
-        {
-            editor.Focus();
-        };
 
         vm.CachedControl = editor;
         Content = editor;
