@@ -3,6 +3,7 @@ echo Building and deploying MTerminal...
 
 REM Read version from version.txt
 set /p VERSION=<version.txt
+set OLD_VERSION=%VERSION%
 echo Current version: %VERSION%
 
 REM Parse version parts (assuming format X.Y.Z)
@@ -78,6 +79,15 @@ if %errorlevel% neq 0 set UPLOAD_OK=0
 
 if %UPLOAD_OK% equ 1 (
     echo Files uploaded successfully to FTP server!
+
+    REM Delete old nupkg from FTP
+    echo Deleting old package MTerminal-%OLD_VERSION%-full.nupkg from FTP...
+    curl -s --user %FTP_USER% "%FTP_BASE%" -Q "DELE MTerminal-%OLD_VERSION%-full.nupkg"
+    if %errorlevel% equ 0 (
+        echo Old package deleted.
+    ) else (
+        echo Could not delete old package ^(may not exist^).
+    )
 ) else (
     echo FTP upload failed for one or more files!
 )
