@@ -153,6 +153,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
                 IsLeaf = true,
                 ContentType = leaf.ContentType,
                 PaneName = leaf.PaneName,
+                ShellName = (leaf.Content as TerminalPaneViewModel)?.Shell.Name,
                 EditorFilePath = (leaf.Content as EditorPaneViewModel)?.FilePath
             },
             SplitPaneNodeViewModel split => new PaneNode
@@ -178,7 +179,13 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
                 content = new EditorPaneViewModel(dto.EditorFilePath, s.EditorFontFamily, s.EditorFontSize);
             }
             else
-                content = CreateContent(dto.ContentType, WorkingDirectory);
+            {
+                ShellProfile? shell = null;
+                if (dto.ShellName != null)
+                    shell = AvailableShells.FirstOrDefault(s =>
+                        s.Name.Equals(dto.ShellName, StringComparison.OrdinalIgnoreCase));
+                content = CreateContent(dto.ContentType, WorkingDirectory, shell);
+            }
 
             return CreateLeaf(dto.ContentType, content, dto.PaneName ?? AllocatePaneName(dto.ContentType));
         }

@@ -8,6 +8,7 @@ public sealed class PaneNode
 
     public PaneContentType ContentType { get; set; }
     public string? PaneName { get; set; }
+    public string? ShellName { get; set; }
     public string? EditorFilePath { get; set; }
 
     public Orientation SplitOrientation { get; set; } = Orientation.Vertical;
