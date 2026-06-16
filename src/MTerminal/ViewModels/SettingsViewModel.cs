@@ -1,4 +1,6 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using MTerminal.Models;
 using MTerminal.Services;
 
 namespace MTerminal.ViewModels;
@@ -6,8 +8,11 @@ namespace MTerminal.ViewModels;
 public partial class SettingsViewModel : ObservableObject
 {
     public static string[] Themes { get; } = ["Dark", "Light"];
+    public static string CustomShellOption => "Custom...";
 
     private readonly SettingsService _settingsService;
+
+    public ObservableCollection<string> ShellOptions { get; } = [];
 
     [ObservableProperty]
     private string _terminalFontFamily;
@@ -24,6 +29,18 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _theme;
 
+    [ObservableProperty]
+    private string _selectedShell;
+
+    [ObservableProperty]
+    private string _customShellPath;
+
+    [ObservableProperty]
+    private string _customShellArgs;
+
+    [ObservableProperty]
+    private bool _isCustomShell;
+
     public SettingsViewModel(SettingsService settingsService)
     {
         _settingsService = settingsService;
@@ -33,6 +50,27 @@ public partial class SettingsViewModel : ObservableObject
         _editorFontFamily = s.EditorFontFamily;
         _editorFontSize = s.EditorFontSize;
         _theme = s.Theme;
+        _customShellPath = s.CustomShellPath;
+        _customShellArgs = s.CustomShellArgs;
+
+        var detected = ShellProfile.Detect();
+        foreach (var shell in detected)
+            ShellOptions.Add(shell.Name);
+        ShellOptions.Add(CustomShellOption);
+
+        if (!string.IsNullOrEmpty(s.CustomShellPath))
+        {
+            _selectedShell = CustomShellOption;
+            _isCustomShell = true;
+        }
+        else if (!string.IsNullOrEmpty(s.DefaultShellName) && ShellOptions.Contains(s.DefaultShellName))
+        {
+            _selectedShell = s.DefaultShellName;
+        }
+        else
+        {
+            _selectedShell = ShellOptions.Count > 1 ? ShellOptions[0] : CustomShellOption;
+        }
     }
 
     partial void OnTerminalFontFamilyChanged(string value) { _settingsService.Settings.TerminalFontFamily = value; _settingsService.NotifyChanged(); }
@@ -40,4 +78,23 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnEditorFontFamilyChanged(string value) { _settingsService.Settings.EditorFontFamily = value; _settingsService.NotifyChanged(); }
     partial void OnEditorFontSizeChanged(double value) { _settingsService.Settings.EditorFontSize = value; _settingsService.NotifyChanged(); }
     partial void OnThemeChanged(string value) { _settingsService.Settings.Theme = value; _settingsService.NotifyChanged(); }
+
+    partial void OnSelectedShellChanged(string value)
+    {
+        IsCustomShell = value == CustomShellOption;
+        if (IsCustomShell)
+        {
+            _settingsService.Settings.DefaultShellName = "";
+        }
+        else
+        {
+            _settingsService.Settings.DefaultShellName = value;
+            _settingsService.Settings.CustomShellPath = "";
+            _settingsService.Settings.CustomShellArgs = "";
+        }
+        _settingsService.NotifyChanged();
+    }
+
+    partial void OnCustomShellPathChanged(string value) { _settingsService.Settings.CustomShellPath = value; _settingsService.NotifyChanged(); }
+    partial void OnCustomShellArgsChanged(string value) { _settingsService.Settings.CustomShellArgs = value; _settingsService.NotifyChanged(); }
 }

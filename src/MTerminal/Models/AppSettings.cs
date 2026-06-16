@@ -7,4 +7,8 @@ public sealed class AppSettings
     public string EditorFontFamily { get; set; } = "Cascadia Mono, Consolas, monospace";
     public double EditorFontSize { get; set; } = 14;
     public string Theme { get; set; } = "Dark";
+
+    public string DefaultShellName { get; set; } = "";
+    public string CustomShellPath { get; set; } = "";
+    public string CustomShellArgs { get; set; } = "";
 }

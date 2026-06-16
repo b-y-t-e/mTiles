@@ -51,6 +51,34 @@ public sealed class ShellProfile
         return profiles;
     }
 
+    public static ShellProfile ResolveDefault(AppSettings settings)
+    {
+        var detected = Detect();
+
+        if (!string.IsNullOrEmpty(settings.CustomShellPath))
+        {
+            var args = string.IsNullOrWhiteSpace(settings.CustomShellArgs)
+                ? []
+                : settings.CustomShellArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return new ShellProfile
+            {
+                Name = "Custom",
+                ExecutablePath = settings.CustomShellPath,
+                Args = args
+            };
+        }
+
+        if (!string.IsNullOrEmpty(settings.DefaultShellName))
+        {
+            var match = detected.FirstOrDefault(s =>
+                s.Name.Equals(settings.DefaultShellName, StringComparison.OrdinalIgnoreCase));
+            if (match != null) return match;
+        }
+
+        return detected.FirstOrDefault()
+            ?? new ShellProfile { Name = "Default", ExecutablePath = OperatingSystem.IsWindows() ? "powershell.exe" : "bash" };
+    }
+
     private static string? FindExecutable(string name)
     {
         var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";

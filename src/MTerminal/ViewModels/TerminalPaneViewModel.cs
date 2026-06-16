@@ -12,11 +12,10 @@ public partial class TerminalPaneViewModel : ObservableObject, IDisposable
     internal Control? CachedControl { get; set; }
     internal bool IsLaunched { get; set; }
 
-    public TerminalPaneViewModel(string workingDirectory, ShellProfile? shell = null)
+    public TerminalPaneViewModel(string workingDirectory, ShellProfile? shell = null, AppSettings? settings = null)
     {
         WorkingDirectory = workingDirectory;
-        Shell = shell ?? ShellProfile.Detect().FirstOrDefault()
-            ?? new ShellProfile { Name = "Default", ExecutablePath = OperatingSystem.IsWindows() ? "powershell.exe" : "bash" };
+        Shell = shell ?? ShellProfile.ResolveDefault(settings ?? new AppSettings());
     }
 
     public void Dispose()

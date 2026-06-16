@@ -83,7 +83,7 @@ public partial class WorkspaceViewModel : ObservableObject
     {
         return type switch
         {
-            PaneContentType.Terminal => new TerminalPaneViewModel(workingDir, shell),
+            PaneContentType.Terminal => new TerminalPaneViewModel(workingDir, shell, _settingsService.Settings),
             PaneContentType.TextEditor => CreateEditorContent(workingDir),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };

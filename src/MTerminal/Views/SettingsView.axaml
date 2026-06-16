@@ -5,52 +5,95 @@
              x:DataType="vm:SettingsViewModel"
              Width="320">
 
+    <UserControl.Styles>
+        <Style Selector="TextBlock.label">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="#6070a0" />
+        </Style>
+        <Style Selector="TextBlock.section">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#6070a0" />
+            <Setter Property="LetterSpacing" Value="1.5" />
+            <Setter Property="Margin" Value="0,8,0,0" />
+        </Style>
+        <Style Selector="TextBox.setting">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Background" Value="#16162a" />
+            <Setter Property="Foreground" Value="#c0c8e0" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+        <Style Selector="ComboBox.setting">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Background" Value="#16162a" />
+            <Setter Property="Foreground" Value="#c0c8e0" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="NumericUpDown.setting">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Background" Value="#16162a" />
+            <Setter Property="Foreground" Value="#c0c8e0" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+    </UserControl.Styles>
+
     <Border Background="#1e1e3a"
             BorderBrush="#2a2a4a"
             BorderThickness="1"
             Padding="16"
             CornerRadius="8"
             BoxShadow="0 4 16 0 #40000000">
-        <StackPanel Spacing="14">
-            <TextBlock Text="SETTINGS" FontSize="11" FontWeight="SemiBold"
-                       Foreground="#6070a0" LetterSpacing="1.5" />
+        <StackPanel Spacing="12">
+            <TextBlock Text="SETTINGS" Classes="section" Margin="0" />
 
+            <!-- Default Shell -->
             <StackPanel Spacing="4">
-                <TextBlock Text="Terminal Font" FontSize="11" Foreground="#6070a0" />
-                <TextBox Text="{Binding TerminalFontFamily}"
-                         PlaceholderText="Font family"
-                         FontSize="12"
-                         Background="#16162a"
-                         Foreground="#c0c8e0"
-                         CornerRadius="4" />
-                <NumericUpDown Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48"
-                               Increment="1" FontSize="12"
-                               Background="#16162a" Foreground="#c0c8e0"
-                               CornerRadius="4" />
+                <TextBlock Text="Default Shell" Classes="label" />
+                <ComboBox Classes="setting"
+                          SelectedItem="{Binding SelectedShell}"
+                          ItemsSource="{Binding ShellOptions}" />
+                <StackPanel Spacing="4" IsVisible="{Binding IsCustomShell}">
+                    <TextBox Classes="setting"
+                             Text="{Binding CustomShellPath}"
+                             PlaceholderText="Path to executable" />
+                    <TextBox Classes="setting"
+                             Text="{Binding CustomShellArgs}"
+                             PlaceholderText="Arguments (optional)" />
+                </StackPanel>
             </StackPanel>
 
+            <!-- Terminal Font -->
+            <TextBlock Text="TERMINAL" Classes="section" />
             <StackPanel Spacing="4">
-                <TextBlock Text="Editor Font" FontSize="11" Foreground="#6070a0" />
-                <TextBox Text="{Binding EditorFontFamily}"
-                         PlaceholderText="Font family"
-                         FontSize="12"
-                         Background="#16162a"
-                         Foreground="#c0c8e0"
-                         CornerRadius="4" />
-                <NumericUpDown Value="{Binding EditorFontSize}" Minimum="8" Maximum="48"
-                               Increment="1" FontSize="12"
-                               Background="#16162a" Foreground="#c0c8e0"
-                               CornerRadius="4" />
+                <TextBlock Text="Font Family" Classes="label" />
+                <TextBox Classes="setting"
+                         Text="{Binding TerminalFontFamily}"
+                         PlaceholderText="Font family" />
+                <TextBlock Text="Font Size" Classes="label" />
+                <NumericUpDown Classes="setting"
+                               Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
             </StackPanel>
 
+            <!-- Editor Font -->
+            <TextBlock Text="EDITOR" Classes="section" />
             <StackPanel Spacing="4">
-                <TextBlock Text="Theme" FontSize="11" Foreground="#6070a0" />
-                <ComboBox SelectedItem="{Binding Theme}"
-                          ItemsSource="{x:Static vm:SettingsViewModel.Themes}"
-                          FontSize="12"
-                          Background="#16162a"
-                          Foreground="#c0c8e0"
-                          CornerRadius="4" />
+                <TextBlock Text="Font Family" Classes="label" />
+                <TextBox Classes="setting"
+                         Text="{Binding EditorFontFamily}"
+                         PlaceholderText="Font family" />
+                <TextBlock Text="Font Size" Classes="label" />
+                <NumericUpDown Classes="setting"
+                               Value="{Binding EditorFontSize}" Minimum="8" Maximum="48" Increment="1" />
+            </StackPanel>
+
+            <!-- Theme -->
+            <TextBlock Text="APPEARANCE" Classes="section" />
+            <StackPanel Spacing="4">
+                <TextBlock Text="Theme" Classes="label" />
+                <ComboBox Classes="setting"
+                          SelectedItem="{Binding Theme}"
+                          ItemsSource="{x:Static vm:SettingsViewModel.Themes}" />
             </StackPanel>
         </StackPanel>
     </Border>
