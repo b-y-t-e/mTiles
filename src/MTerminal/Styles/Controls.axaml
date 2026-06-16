@@ -46,6 +46,8 @@
         <Setter Property="FontSize" Value="{DynamicResource FontMd}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.outlined:pointerover">
@@ -67,6 +69,8 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="MinWidth" Value="24" />
         <Setter Property="MinHeight" Value="20" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style Selector="Button.tile-btn:pointerover">
         <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
@@ -131,6 +135,8 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="MinWidth" Value="24" />
         <Setter Property="MinHeight" Value="20" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style Selector="Button.tile-btn-close:pointerover">
         <Setter Property="Background" Value="{DynamicResource DangerSubtle}" />

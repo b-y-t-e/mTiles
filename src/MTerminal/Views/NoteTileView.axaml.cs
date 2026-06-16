@@ -1,9 +1,9 @@
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using AvaloniaEdit;
 using MTerminal.ViewModels;
 
@@ -11,6 +11,8 @@ namespace MTerminal.Views;
 
 public partial class NoteTileView : UserControl
 {
+    private NoteTileViewModel? _subscribedVm;
+
     public NoteTileView()
     {
         InitializeComponent();
@@ -19,7 +21,13 @@ public partial class NoteTileView : UserControl
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
+        if (_subscribedVm != null)
+            _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
+
         if (DataContext is not NoteTileViewModel vm) return;
+
+        _subscribedVm = vm;
+        vm.PropertyChanged += OnVmPropertyChanged;
 
         if (vm.CachedControl is TextEditor cached)
         {
@@ -56,4 +64,22 @@ public partial class NoteTileView : UserControl
         }
     }
 
+    private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (sender is not NoteTileViewModel vm) return;
+        if (vm.CachedControl is not TextEditor editor) return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(NoteTileViewModel.FontFamily):
+                    editor.FontFamily = new FontFamily(vm.FontFamily);
+                    break;
+                case nameof(NoteTileViewModel.FontSize):
+                    editor.FontSize = vm.FontSize;
+                    break;
+            }
+        });
+    }
 }

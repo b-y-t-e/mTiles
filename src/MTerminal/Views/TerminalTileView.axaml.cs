@@ -73,21 +73,40 @@ public partial class TerminalTileView : UserControl
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName != nameof(TerminalTileViewModel.Theme)) return;
         if (sender is not TerminalTileViewModel vm) return;
         if (vm.CachedControl is not TerminalControl terminal) return;
 
-        Dispatcher.UIThread.Post(() => ApplyTheme(terminal, vm.Theme));
+        Dispatcher.UIThread.Post(() =>
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(TerminalTileViewModel.Theme):
+                    ApplyTheme(terminal, vm.Theme);
+                    break;
+                case nameof(TerminalTileViewModel.FontFamily):
+                    terminal.FontFamily = new FontFamily(vm.FontFamily);
+                    NudgeRerender(terminal);
+                    break;
+                case nameof(TerminalTileViewModel.FontSize):
+                    terminal.FontSize = vm.FontSize;
+                    NudgeRerender(terminal);
+                    break;
+            }
+        });
     }
 
-    private static async void ApplyTheme(TerminalControl terminal, TerminalTheme theme)
+    private static void ApplyTheme(TerminalControl terminal, TerminalTheme theme)
     {
         terminal.Background = new SolidColorBrush(Color.Parse(theme.Background));
         terminal.Foreground = new SolidColorBrush(Color.Parse(theme.Foreground));
         terminal.Options = CreateOptions(theme);
+        NudgeRerender(terminal);
+    }
 
-        // TerminalControl re-renders only on actual size change.
-        // Margin nudge forces layout recalc even under an overlay.
+    // TerminalControl re-renders only on actual size change.
+    // Margin nudge forces layout recalc even under an overlay.
+    private static async void NudgeRerender(TerminalControl terminal)
+    {
         terminal.Margin = new Thickness(0, 0, 20, 0);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
         terminal.Margin = default;

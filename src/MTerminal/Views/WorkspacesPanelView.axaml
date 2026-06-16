@@ -19,8 +19,7 @@
             <Button Content="+ Add Workspace"
                     Classes="outlined"
                     Command="{Binding AddWorkspaceCommand}"
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Center" />
+                    HorizontalAlignment="Stretch" />
         </Border>
 
         <ListBox x:Name="WorkspaceList"

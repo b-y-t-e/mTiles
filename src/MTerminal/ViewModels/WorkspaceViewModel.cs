@@ -125,10 +125,9 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private NoteTileViewModel CreateNoteContent(string workingDir)
     {
-        var s = _settingsService.Settings;
         var notesDir = Path.Combine(workingDir, ".mterminal", "notes");
         var filePath = Path.Combine(notesDir, $"{Guid.NewGuid():N}.md");
-        return new NoteTileViewModel(filePath, s.NoteFontFamily, s.NoteFontSize);
+        return new NoteTileViewModel(filePath, _settingsService);
     }
 
     private void ScheduleSave()
@@ -169,8 +168,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             {
                 if (dto.ContentType == TileContentType.Note && dto.NoteFilePath != null)
                 {
-                    var s = _settingsService.Settings;
-                    content = new NoteTileViewModel(dto.NoteFilePath, s.NoteFontFamily, s.NoteFontSize);
+                    content = new NoteTileViewModel(dto.NoteFilePath, _settingsService);
                 }
                 else
                 {

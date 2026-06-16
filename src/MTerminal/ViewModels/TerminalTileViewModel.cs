@@ -9,8 +9,12 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
 {
     public string WorkingDirectory { get; }
     public ShellProfile Shell { get; }
-    public string FontFamily { get; }
-    public double FontSize { get; }
+
+    [ObservableProperty]
+    private string _fontFamily;
+
+    [ObservableProperty]
+    private double _fontSize;
 
     [ObservableProperty]
     private TerminalTheme _theme;
@@ -27,17 +31,22 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
         WorkingDirectory = workingDirectory;
         Shell = shell ?? ShellDetector.ResolveDefault(s);
         _theme = TerminalTheme.GetByName(s.TerminalThemeName);
-        FontFamily = s.TerminalFontFamily;
-        FontSize = s.TerminalFontSize;
+        _fontFamily = s.TerminalFontFamily;
+        _fontSize = s.TerminalFontSize;
 
         _settingsService.SettingsChanged += OnSettingsChanged;
     }
 
     private void OnSettingsChanged()
     {
-        var newTheme = TerminalTheme.GetByName(_settingsService.Settings.TerminalThemeName);
+        var s = _settingsService.Settings;
+        var newTheme = TerminalTheme.GetByName(s.TerminalThemeName);
         if (newTheme.Name != Theme.Name)
             Theme = newTheme;
+        if (s.TerminalFontFamily != FontFamily)
+            FontFamily = s.TerminalFontFamily;
+        if (Math.Abs(s.TerminalFontSize - FontSize) > 0.01)
+            FontSize = s.TerminalFontSize;
     }
 
     public void Dispose()

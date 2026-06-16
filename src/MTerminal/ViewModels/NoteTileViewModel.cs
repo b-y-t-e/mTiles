@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
+using MTerminal.Services;
 
 namespace MTerminal.ViewModels;
 
@@ -8,24 +9,43 @@ public partial class NoteTileViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _text = string.Empty;
 
+    [ObservableProperty]
+    private string _fontFamily;
+
+    [ObservableProperty]
+    private double _fontSize;
+
     private readonly string _filePath;
+    private readonly SettingsService? _settingsService;
     private Timer? _saveTimer;
     private bool _isLoading;
 
     public string FilePath => _filePath;
-    public string FontFamily { get; }
-    public double FontSize { get; }
 
     internal Control? CachedControl { get; set; }
 
-    public NoteTileViewModel(string filePath, string? fontFamily = null, double? fontSize = null)
+    public NoteTileViewModel(string filePath, SettingsService? settingsService = null)
     {
         _filePath = filePath;
-        FontFamily = fontFamily ?? "Cascadia Mono, Consolas, monospace";
-        FontSize = fontSize ?? 14;
+        _settingsService = settingsService;
+        var s = settingsService?.Settings;
+        _fontFamily = s?.NoteFontFamily ?? "Cascadia Mono, Consolas, monospace";
+        _fontSize = s?.NoteFontSize ?? 14;
         _isLoading = true;
         LoadFromFile();
         _isLoading = false;
+
+        if (_settingsService != null)
+            _settingsService.SettingsChanged += OnSettingsChanged;
+    }
+
+    private void OnSettingsChanged()
+    {
+        var s = _settingsService!.Settings;
+        if (s.NoteFontFamily != FontFamily)
+            FontFamily = s.NoteFontFamily;
+        if (Math.Abs(s.NoteFontSize - FontSize) > 0.01)
+            FontSize = s.NoteFontSize;
     }
 
     partial void OnTextChanged(string value)
@@ -60,6 +80,8 @@ public partial class NoteTileViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_settingsService != null)
+            _settingsService.SettingsChanged -= OnSettingsChanged;
         _saveTimer?.Dispose();
         SaveToFile();
     }
