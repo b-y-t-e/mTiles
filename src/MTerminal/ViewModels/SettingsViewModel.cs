@@ -45,6 +45,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCustomShell;
 
+
     public SettingsViewModel(SettingsService settingsService)
     {
         _settingsService = settingsService;

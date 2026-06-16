@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using MTerminal.Services;
 using MTerminal.ViewModels;
 
@@ -8,6 +9,8 @@ namespace MTerminal.Views;
 public partial class MainWindow : Window
 {
     private SettingsService? _settingsService;
+    private ColumnDefinition? _panelColumn;
+    private double _lastPanelWidth = 240;
 
     public MainWindow()
     {
@@ -17,6 +20,7 @@ public partial class MainWindow : Window
     public void BindWindowState(SettingsService settingsService)
     {
         _settingsService = settingsService;
+        _panelColumn = MainGrid.ColumnDefinitions[0];
         var s = settingsService.Settings;
 
         if (s.WindowMaximized)
@@ -37,13 +41,70 @@ public partial class MainWindow : Window
                 WindowStartupLocation = WindowStartupLocation.Manual;
             }
         }
+
+        _lastPanelWidth = s.WorkspacesPanelWidth;
+        _panelColumn.Width = new GridLength(_lastPanelWidth, GridUnitType.Pixel);
+
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MainWindowViewModel.IsPanelOpen))
+                    UpdatePanelVisibility(vm.IsPanelOpen);
+            };
+            UpdatePanelVisibility(vm.IsPanelOpen);
+        }
+    }
+
+    private void UpdatePanelVisibility(bool isOpen)
+    {
+        if (_panelColumn == null) return;
+        if (isOpen)
+        {
+            _panelColumn.Width = new GridLength(_lastPanelWidth, GridUnitType.Pixel);
+            _panelColumn.MinWidth = 150;
+            _panelColumn.MaxWidth = 500;
+            PanelSplitter.IsVisible = true;
+        }
+        else
+        {
+            if (_panelColumn.Width.Value > 0)
+                _lastPanelWidth = _panelColumn.Width.Value;
+            _panelColumn.Width = new GridLength(0);
+            _panelColumn.MinWidth = 0;
+            _panelColumn.MaxWidth = 0;
+            PanelSplitter.IsVisible = false;
+        }
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && DataContext is MainWindowViewModel { IsSettingsOpen: true } vm)
+        {
+            vm.IsSettingsOpen = false;
+            e.Handled = true;
+            return;
+        }
+        base.OnKeyDown(e);
+    }
+
+    private void SettingsOverlay_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm)
+            vm.IsSettingsOpen = false;
+    }
+
+    private void SettingsDialog_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        e.Handled = true;
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         base.OnClosing(e);
         SaveWindowState();
-        (DataContext as MainWindowViewModel)?.DisposeAll();
+        if (DataContext is MainWindowViewModel vm)
+            vm.DisposeAll();
     }
 
     private void SaveWindowState()
@@ -60,6 +121,9 @@ public partial class MainWindow : Window
             s.WindowWidth = Width;
             s.WindowHeight = Height;
         }
+
+        if (_panelColumn != null && _panelColumn.Width.Value > 0)
+            s.WorkspacesPanelWidth = _panelColumn.Width.Value;
 
         _settingsService.Save();
     }

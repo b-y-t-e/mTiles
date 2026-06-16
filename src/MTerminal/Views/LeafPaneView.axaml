@@ -23,6 +23,10 @@
         <Style Selector="Button.pane-btn:pressed">
             <Setter Property="Background" Value="#3a3a5a" />
         </Style>
+        <Style Selector="TextBox.clearFocus:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderBrush" Value="#3a3a5a" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
     </UserControl.Styles>
 
     <Border BorderBrush="#252540"
@@ -63,11 +67,32 @@
                         </Button>
                     </StackPanel>
 
-                    <TextBlock Text="{Binding ContentType}"
+                    <TextBlock x:Name="PaneNameLabel"
+                               Text="{Binding PaneName}"
                                VerticalAlignment="Center"
                                FontSize="10"
                                Foreground="#4a5070"
-                               Margin="2,0" />
+                               Margin="2,0"
+                               Cursor="Hand"
+                               DoubleTapped="PaneNameLabel_DoubleTapped" />
+                    <TextBox x:Name="PaneNameEditor"
+                             Text="{Binding PaneName}"
+                             IsVisible="False"
+                             FontSize="10"
+                             Foreground="#c0c8e0"
+                             Background="#252540"
+                             BorderBrush="#3a3a5a"
+                             BorderThickness="1"
+                             Classes="clearFocus"
+                             CornerRadius="2"
+                             Padding="4,1"
+                             Margin="2,0"
+                             Height="20"
+                             VerticalAlignment="Center"
+                             VerticalContentAlignment="Center"
+                             MinWidth="60"
+                             LostFocus="PaneNameEditor_Confirm"
+                             KeyDown="PaneNameEditor_KeyDown" />
                 </DockPanel>
             </Border>
 

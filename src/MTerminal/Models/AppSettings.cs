@@ -13,6 +13,8 @@ public sealed class AppSettings
     public string CustomShellPath { get; set; } = "";
     public string CustomShellArgs { get; set; } = "";
 
+    public double WorkspacesPanelWidth { get; set; } = 240;
+
     public double WindowX { get; set; } = double.NaN;
     public double WindowY { get; set; } = double.NaN;
     public double WindowWidth { get; set; } = double.NaN;

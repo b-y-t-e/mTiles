@@ -16,6 +16,7 @@ public partial class WorkspacesPanelViewModel : ObservableObject
     private Workspace? _selectedWorkspace;
 
     public Func<Task<string?>>? FolderPicker { get; set; }
+    public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
     public WorkspacesPanelViewModel(WorkspaceService workspaceService)
     {
@@ -36,8 +37,14 @@ public partial class WorkspacesPanelViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void RemoveWorkspace(Workspace workspace)
+    private async Task RemoveWorkspaceAsync(Workspace workspace)
     {
+        if (ConfirmAction != null)
+        {
+            var confirmed = await ConfirmAction($"Remove workspace \"{workspace.Name}\"?");
+            if (!confirmed) return;
+        }
+
         _workspaceService.RemoveWorkspace(workspace.Id);
         Workspaces.Remove(workspace);
         if (SelectedWorkspace == workspace)

@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Iciclecreek.Terminal;
 using MTerminal.Models;
 using MTerminal.ViewModels;
@@ -64,6 +66,8 @@ public partial class TerminalPaneView : UserControl
             }
         };
 
+        terminal.AddHandler(KeyDownEvent, OnTerminalKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+
         vm.CachedControl = terminal;
         Content = terminal;
 
@@ -79,6 +83,36 @@ public partial class TerminalPaneView : UserControl
                 vm.IsLaunched = true;
                 await terminal.LaunchProcess(vm.WorkingDirectory, vm.Shell.ExecutablePath, vm.Shell.Args);
             }
+        }
+    }
+
+    private async void OnTerminalKeyDown(object? sender, KeyEventArgs e)
+    {
+        try
+        {
+            if (sender is not TerminalControl tc) return;
+
+            if (e.Key == Key.V && (e.KeyModifiers == KeyModifiers.Alt || e.KeyModifiers == KeyModifiers.Control))
+            {
+                e.Handled = true;
+                var tv = tc.GetVisualDescendants().OfType<TerminalView>().FirstOrDefault();
+                if (tv != null)
+                    await tv.PasteAsync();
+            }
+            else if (e.Key == Key.C && e.KeyModifiers == KeyModifiers.Control)
+            {
+                if (tc.Terminal?.Selection?.HasSelection == true)
+                {
+                    e.Handled = true;
+                    var tv = tc.GetVisualDescendants().OfType<TerminalView>().FirstOrDefault();
+                    if (tv != null)
+                        await tv.CopyAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning("Terminal key handler failed: {0}", ex.Message);
         }
     }
 }

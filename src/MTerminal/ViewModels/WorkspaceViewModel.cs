@@ -18,6 +18,9 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     public string WorkingDirectory { get; }
     public ObservableCollection<ShellProfile> AvailableShells { get; } = [];
 
+    private int _terminalCount;
+    private int _editorCount;
+
     public WorkspaceViewModel(Workspace workspace, PersistenceService persistenceService, SettingsService settingsService)
     {
         WorkspaceId = workspace.Id;
@@ -30,7 +33,10 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
         var state = persistenceService.LoadLayout(workspace.Id);
         if (state?.RootPane != null)
+        {
+            InitCountersFromDto(state.RootPane);
             RootPane = RestoreTree(state.RootPane);
+        }
     }
 
     [RelayCommand]
@@ -43,14 +49,19 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         if (RootPane != null) return;
         var content = CreateContent(type, WorkingDirectory, shell);
-        var leaf = new LeafPaneNodeViewModel(type, content, WorkingDirectory, (t, d) => CreateContent(t, d))
+        RootPane = CreateLeaf(type, content, AllocatePaneName(type));
+        ScheduleSave();
+    }
+
+    private LeafPaneNodeViewModel CreateLeaf(PaneContentType type, ObservableObject content, string paneName)
+    {
+        return new LeafPaneNodeViewModel(type, content, WorkingDirectory, (t, d) => CreateContent(t, d), AllocatePaneName)
         {
+            PaneName = paneName,
             LayoutChanged = ScheduleSave,
             RootReplaced = newRoot => RootPane = ConfigureRoot(newRoot),
             RootCleared = () => { RootPane = null; ScheduleSave(); }
         };
-        RootPane = leaf;
-        ScheduleSave();
     }
 
     private PaneNodeViewModel ConfigureRoot(PaneNodeViewModel node)
@@ -73,6 +84,40 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         {
             if (split.First != null) PropagateCallbacks(split.First);
             if (split.Second != null) PropagateCallbacks(split.Second);
+        }
+    }
+
+    private string AllocatePaneName(PaneContentType type) => type switch
+    {
+        PaneContentType.Terminal => $"Terminal #{++_terminalCount}",
+        PaneContentType.TextEditor => $"Note #{++_editorCount}",
+        _ => type.ToString()
+    };
+
+    private static readonly System.Text.RegularExpressions.Regex PaneNumberRegex = new(@"#(\d+)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private void InitCountersFromDto(PaneNode? node)
+    {
+        if (node == null) return;
+        if (node.IsLeaf)
+        {
+            if (node.PaneName != null)
+            {
+                var match = PaneNumberRegex.Match(node.PaneName);
+                if (match.Success)
+                {
+                    var num = int.Parse(match.Groups[1].Value);
+                    if (node.ContentType == PaneContentType.Terminal)
+                        _terminalCount = Math.Max(_terminalCount, num);
+                    else if (node.ContentType == PaneContentType.TextEditor)
+                        _editorCount = Math.Max(_editorCount, num);
+                }
+            }
+        }
+        else
+        {
+            InitCountersFromDto(node.First);
+            InitCountersFromDto(node.Second);
         }
     }
 
@@ -107,6 +152,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             {
                 IsLeaf = true,
                 ContentType = leaf.ContentType,
+                PaneName = leaf.PaneName,
                 EditorFilePath = (leaf.Content as EditorPaneViewModel)?.FilePath
             },
             SplitPaneNodeViewModel split => new PaneNode
@@ -134,13 +180,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             else
                 content = CreateContent(dto.ContentType, WorkingDirectory);
 
-            var leaf = new LeafPaneNodeViewModel(dto.ContentType, content, WorkingDirectory, (t, d) => CreateContent(t, d))
-            {
-                LayoutChanged = ScheduleSave,
-                RootReplaced = newRoot => RootPane = ConfigureRoot(newRoot),
-                RootCleared = () => { RootPane = null; ScheduleSave(); }
-            };
-            return leaf;
+            return CreateLeaf(dto.ContentType, content, dto.PaneName ?? AllocatePaneName(dto.ContentType));
         }
 
         var first = RestoreTree(dto.First!);

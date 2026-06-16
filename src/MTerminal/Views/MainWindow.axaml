@@ -37,35 +37,71 @@
             </DockPanel>
         </Border>
 
-        <!-- Main content -->
+        <!-- Main content with resizable panel -->
         <Panel>
-            <SplitView IsPaneOpen="{Binding IsPanelOpen}"
-                       DisplayMode="CompactInline"
-                       CompactPaneLength="0"
-                       OpenPaneLength="240">
-                <SplitView.Pane>
-                    <views:WorkspacesPanelView DataContext="{Binding WorkspacesPanel}" />
-                </SplitView.Pane>
-                <SplitView.Content>
-                    <Panel>
-                        <ContentControl Content="{Binding CurrentWorkspace}" />
-                        <TextBlock Text="Select or add a workspace to get started"
-                                   IsVisible="{Binding CurrentWorkspace, Converter={x:Static ObjectConverters.IsNull}}"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   FontSize="15"
-                                   Foreground="#4a4a6a" />
-                    </Panel>
-                </SplitView.Content>
-            </SplitView>
+            <Grid x:Name="MainGrid">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="240" MinWidth="150" MaxWidth="500" />
+                    <ColumnDefinition Width="3" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-            <!-- Settings flyout -->
-            <Border IsVisible="{Binding IsSettingsOpen}"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Top"
-                    Margin="0,4,4,0">
-                <ContentControl Content="{Binding Settings}" />
-            </Border>
+                <!-- Workspaces panel -->
+                <views:WorkspacesPanelView Grid.Column="0"
+                                           DataContext="{Binding WorkspacesPanel}" />
+
+                <!-- Resizer -->
+                <GridSplitter x:Name="PanelSplitter" Grid.Column="1"
+                              Background="#2a2a4a"
+                              ResizeDirection="Columns" />
+
+                <!-- Workspace content -->
+                <Panel Grid.Column="2">
+                    <ContentControl Content="{Binding CurrentWorkspace}" />
+                    <TextBlock Text="Select or add a workspace to get started"
+                               IsVisible="{Binding CurrentWorkspace, Converter={x:Static ObjectConverters.IsNull}}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="15"
+                               Foreground="#4a4a6a" />
+                </Panel>
+            </Grid>
+
+            <!-- Settings overlay -->
+            <Panel IsVisible="{Binding IsSettingsOpen}">
+                <Border Background="#80000000"
+                        PointerPressed="SettingsOverlay_PointerPressed" />
+                <Border HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        MaxWidth="380"
+                        MaxHeight="600"
+                        CornerRadius="10"
+                        Background="#1e1e3a"
+                        BorderBrush="#2a2a4a"
+                        BorderThickness="1"
+                        BoxShadow="0 8 32 0 #60000000"
+                        Padding="0"
+                        PointerPressed="SettingsDialog_PointerPressed">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Padding="16,12"
+                                BorderBrush="#2a2a4a" BorderThickness="0,0,0,1">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Classes="toolbar"
+                                        Content="x" FontSize="14"
+                                        Command="{Binding ToggleSettingsCommand}" />
+                                <TextBlock Text="SETTINGS" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="#6070a0" LetterSpacing="1.5"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Padding="0">
+                            <ContentControl Content="{Binding Settings}" />
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Panel>
         </Panel>
     </DockPanel>
 </Window>

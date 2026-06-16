@@ -2,8 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MTerminal.ViewModels"
              x:Class="MTerminal.Views.SettingsView"
-             x:DataType="vm:SettingsViewModel"
-             Width="320">
+             x:DataType="vm:SettingsViewModel">
 
     <UserControl.Styles>
         <Style Selector="TextBlock.label">
@@ -38,67 +37,58 @@
         </Style>
     </UserControl.Styles>
 
-    <Border Background="#1e1e3a"
-            BorderBrush="#2a2a4a"
-            BorderThickness="1"
-            Padding="16"
-            CornerRadius="8"
-            BoxShadow="0 4 16 0 #40000000">
-        <StackPanel Spacing="12">
-            <TextBlock Text="SETTINGS" Classes="section" Margin="0" />
-
-            <!-- Default Shell -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="Default Shell" Classes="label" />
-                <ComboBox Classes="setting"
-                          SelectedItem="{Binding SelectedShell}"
-                          ItemsSource="{Binding ShellOptions}" />
-                <StackPanel Spacing="4" IsVisible="{Binding IsCustomShell}">
-                    <TextBox Classes="setting"
-                             Text="{Binding CustomShellPath}"
-                             PlaceholderText="Path to executable" />
-                    <TextBox Classes="setting"
-                             Text="{Binding CustomShellArgs}"
-                             PlaceholderText="Arguments (optional)" />
-                </StackPanel>
-            </StackPanel>
-
-            <!-- Terminal -->
-            <TextBlock Text="TERMINAL" Classes="section" />
-            <StackPanel Spacing="4">
-                <TextBlock Text="Color Theme" Classes="label" />
-                <ComboBox Classes="setting"
-                          SelectedItem="{Binding TerminalThemeName}"
-                          ItemsSource="{x:Static vm:SettingsViewModel.TerminalThemeNames}" />
-                <TextBlock Text="Font Family" Classes="label" />
+    <StackPanel Spacing="12" Margin="16">
+        <!-- Default Shell -->
+        <StackPanel Spacing="4">
+            <TextBlock Text="Default Shell" Classes="label" />
+            <ComboBox Classes="setting"
+                      SelectedItem="{Binding SelectedShell}"
+                      ItemsSource="{Binding ShellOptions}" />
+            <StackPanel Spacing="4" IsVisible="{Binding IsCustomShell}">
                 <TextBox Classes="setting"
-                         Text="{Binding TerminalFontFamily}"
-                         PlaceholderText="Font family" />
-                <TextBlock Text="Font Size" Classes="label" />
-                <NumericUpDown Classes="setting"
-                               Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
-            </StackPanel>
-
-            <!-- Editor Font -->
-            <TextBlock Text="EDITOR" Classes="section" />
-            <StackPanel Spacing="4">
-                <TextBlock Text="Font Family" Classes="label" />
+                         Text="{Binding CustomShellPath}"
+                         PlaceholderText="Path to executable" />
                 <TextBox Classes="setting"
-                         Text="{Binding EditorFontFamily}"
-                         PlaceholderText="Font family" />
-                <TextBlock Text="Font Size" Classes="label" />
-                <NumericUpDown Classes="setting"
-                               Value="{Binding EditorFontSize}" Minimum="8" Maximum="48" Increment="1" />
-            </StackPanel>
-
-            <!-- Theme -->
-            <TextBlock Text="APPEARANCE" Classes="section" />
-            <StackPanel Spacing="4">
-                <TextBlock Text="Theme" Classes="label" />
-                <ComboBox Classes="setting"
-                          SelectedItem="{Binding Theme}"
-                          ItemsSource="{x:Static vm:SettingsViewModel.Themes}" />
+                         Text="{Binding CustomShellArgs}"
+                         PlaceholderText="Arguments (optional)" />
             </StackPanel>
         </StackPanel>
-    </Border>
+
+        <!-- Terminal -->
+        <TextBlock Text="TERMINAL" Classes="section" />
+        <StackPanel Spacing="4">
+            <TextBlock Text="Color Theme" Classes="label" />
+            <ComboBox Classes="setting"
+                      SelectedItem="{Binding TerminalThemeName}"
+                      ItemsSource="{x:Static vm:SettingsViewModel.TerminalThemeNames}" />
+            <TextBlock Text="Font Family" Classes="label" />
+            <TextBox Classes="setting"
+                     Text="{Binding TerminalFontFamily}"
+                     PlaceholderText="Font family" />
+            <TextBlock Text="Font Size" Classes="label" />
+            <NumericUpDown Classes="setting"
+                           Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
+        </StackPanel>
+
+        <!-- Editor -->
+        <TextBlock Text="EDITOR" Classes="section" />
+        <StackPanel Spacing="4">
+            <TextBlock Text="Font Family" Classes="label" />
+            <TextBox Classes="setting"
+                     Text="{Binding EditorFontFamily}"
+                     PlaceholderText="Font family" />
+            <TextBlock Text="Font Size" Classes="label" />
+            <NumericUpDown Classes="setting"
+                           Value="{Binding EditorFontSize}" Minimum="8" Maximum="48" Increment="1" />
+        </StackPanel>
+
+        <!-- Appearance -->
+        <TextBlock Text="APPEARANCE" Classes="section" />
+        <StackPanel Spacing="4">
+            <TextBlock Text="Theme" Classes="label" />
+            <ComboBox Classes="setting"
+                      SelectedItem="{Binding Theme}"
+                      ItemsSource="{x:Static vm:SettingsViewModel.Themes}" />
+        </StackPanel>
+    </StackPanel>
 </UserControl>

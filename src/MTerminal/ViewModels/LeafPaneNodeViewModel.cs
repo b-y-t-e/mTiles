@@ -13,19 +13,27 @@ public partial class LeafPaneNodeViewModel : PaneNodeViewModel
     [ObservableProperty]
     private PaneContentType _contentType;
 
+    [ObservableProperty]
+    private string _paneName = "";
+
+    partial void OnPaneNameChanged(string value) => NotifyLayoutChanged();
+
     private readonly Func<PaneContentType, string, ObservableObject>? _contentFactory;
+    private readonly Func<PaneContentType, string>? _nameFactory;
     private readonly string _workingDirectory;
 
     public Action<PaneNodeViewModel>? RootReplaced { get; set; }
     public Action? RootCleared { get; set; }
 
     public LeafPaneNodeViewModel(PaneContentType contentType, ObservableObject content, string workingDirectory,
-        Func<PaneContentType, string, ObservableObject>? contentFactory = null)
+        Func<PaneContentType, string, ObservableObject>? contentFactory = null,
+        Func<PaneContentType, string>? nameFactory = null)
     {
         _contentType = contentType;
         _content = content;
         _workingDirectory = workingDirectory;
         _contentFactory = contentFactory;
+        _nameFactory = nameFactory;
     }
 
     [RelayCommand]
@@ -45,8 +53,9 @@ public partial class LeafPaneNodeViewModel : PaneNodeViewModel
         var newContent = _contentFactory?.Invoke(newPaneType, _workingDirectory);
         if (newContent == null) return;
 
-        var newLeaf = new LeafPaneNodeViewModel(newPaneType, newContent, _workingDirectory, _contentFactory)
+        var newLeaf = new LeafPaneNodeViewModel(newPaneType, newContent, _workingDirectory, _contentFactory, _nameFactory)
         {
+            PaneName = _nameFactory?.Invoke(newPaneType) ?? newPaneType.ToString(),
             LayoutChanged = LayoutChanged,
             RootReplaced = RootReplaced,
             RootCleared = RootCleared

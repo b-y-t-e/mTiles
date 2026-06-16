@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using MTerminal.ViewModels;
 
 namespace MTerminal.Views;
@@ -6,6 +7,7 @@ namespace MTerminal.Views;
 public partial class LeafPaneView : UserControl
 {
     private object? _currentContentVm;
+    private string _originalPaneName = "";
 
     public LeafPaneView()
     {
@@ -37,5 +39,49 @@ public partial class LeafPaneView : UserControl
         };
 
         ContentHost.Children.Add(view);
+    }
+
+    private void PaneNameLabel_DoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (DataContext is LeafPaneNodeViewModel leaf)
+            _originalPaneName = leaf.PaneName;
+
+        PaneNameLabel.IsVisible = false;
+        PaneNameEditor.IsVisible = true;
+        PaneNameEditor.Focus();
+        PaneNameEditor.SelectAll();
+    }
+
+    private void PaneNameEditor_Confirm(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        CommitRename();
+    }
+
+    private void PaneNameEditor_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            CommitRename();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            if (DataContext is LeafPaneNodeViewModel leaf)
+                leaf.PaneName = _originalPaneName;
+            PaneNameEditor.IsVisible = false;
+            PaneNameLabel.IsVisible = true;
+            e.Handled = true;
+        }
+    }
+
+    private void CommitRename()
+    {
+        if (!PaneNameEditor.IsVisible) return;
+
+        if (DataContext is LeafPaneNodeViewModel leaf && string.IsNullOrWhiteSpace(leaf.PaneName))
+            leaf.PaneName = _originalPaneName;
+
+        PaneNameEditor.IsVisible = false;
+        PaneNameLabel.IsVisible = true;
     }
 }

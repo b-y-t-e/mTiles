@@ -7,6 +7,7 @@ public sealed class PaneNode
     public bool IsLeaf { get; set; }
 
     public PaneContentType ContentType { get; set; }
+    public string? PaneName { get; set; }
     public string? EditorFilePath { get; set; }
 
     public Orientation SplitOrientation { get; set; } = Orientation.Vertical;
