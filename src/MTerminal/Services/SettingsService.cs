@@ -5,7 +5,11 @@ namespace MTerminal.Services;
 
 public sealed class SettingsService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
     private readonly string _filePath;
     private Timer? _debounceTimer;
 
