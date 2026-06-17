@@ -42,6 +42,7 @@ public partial class NoteTileView : UserControl
             FontSize = vm.FontSize,
             ShowLineNumbers = false,
             WordWrap = true,
+            Padding = new Thickness(8, 8),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Visible,
             Background = Brushes.Transparent,
