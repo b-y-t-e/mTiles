@@ -47,6 +47,10 @@
     <CornerRadius x:Key="RadiusLg">6</CornerRadius>
     <CornerRadius x:Key="RadiusXl">10</CornerRadius>
 
+    <!-- Override Fluent theme collapsed scrollbar scale (default: scaleX(0.125) → invisible) -->
+    <TransformOperations x:Key="VerticalSmallScrollThumbScaleTransform">none</TransformOperations>
+    <TransformOperations x:Key="HorizontalSmallScrollThumbScaleTransform">none</TransformOperations>
+
     <Thickness x:Key="BorderThin">1</Thickness>
     <Thickness x:Key="BorderBottom">0,0,0,1</Thickness>
     <Thickness x:Key="BorderTop">0,1,0,0</Thickness>

@@ -245,21 +245,24 @@
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
     </Style>
 
-    <!-- ======== SCROLLBAR: disable Fluent auto-hide, force visible width ======== -->
+    <!-- ======== SCROLLBAR: force always-visible regardless of Windows overlay setting ======== -->
     <Style Selector="ScrollBar">
         <Setter Property="AllowAutoHide" Value="False" />
         <Setter Property="Background" Value="Transparent" />
     </Style>
-    <Style Selector="ScrollBar:vertical">
-        <Setter Property="Width" Value="14" />
-    </Style>
-    <Style Selector="ScrollBar:horizontal">
-        <Setter Property="Height" Value="14" />
+    <Style Selector="ScrollBar /template/ Rectangle#TrackRect">
+        <Setter Property="Opacity" Value="0" />
     </Style>
     <Style Selector="ScrollBar /template/ Thumb">
         <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
-        <Setter Property="MinWidth" Value="6" />
-        <Setter Property="MinHeight" Value="6" />
+    </Style>
+    <Style Selector="ScrollBar:vertical /template/ Thumb">
+        <Setter Property="MinWidth" Value="8" />
+        <Setter Property="Width" Value="8" />
+    </Style>
+    <Style Selector="ScrollBar:horizontal /template/ Thumb">
+        <Setter Property="MinHeight" Value="8" />
+        <Setter Property="Height" Value="8" />
     </Style>
     <Style Selector="ScrollBar:pointerover /template/ Thumb">
         <Setter Property="Background" Value="{DynamicResource BorderStrong}" />
