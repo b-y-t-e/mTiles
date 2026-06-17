@@ -114,6 +114,9 @@ public partial class TerminalTileView : UserControl
         terminal.Margin = default;
     }
 
+    // TUI apps (opencode, vim) enable SGR mouse tracking but may not disable it on
+    // exit (especially via Ctrl+C). Without this reset the shell gets flooded with
+    // raw escape sequences like "35;65;20M…" on every mouse move.
     private static void AttachAltBufferCleanup(TerminalControl terminal)
     {
         terminal.TemplateApplied += (_, e) =>
