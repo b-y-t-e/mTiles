@@ -23,7 +23,7 @@ public partial class WorkspacesPanelViewModel : ObservableObject
     public WorkspacesPanelViewModel(WorkspaceService workspaceService)
     {
         _workspaceService = workspaceService;
-        foreach (var w in workspaceService.Workspaces)
+        foreach (var w in workspaceService.Workspaces.OrderBy(w => w.Name, StringComparer.OrdinalIgnoreCase))
             Workspaces.Add(w);
     }
 
@@ -34,7 +34,10 @@ public partial class WorkspacesPanelViewModel : ObservableObject
         if (string.IsNullOrEmpty(path)) return;
 
         var workspace = _workspaceService.AddWorkspace(path);
-        Workspaces.Add(workspace);
+        var index = 0;
+        while (index < Workspaces.Count && string.Compare(Workspaces[index].Name, workspace.Name, StringComparison.OrdinalIgnoreCase) < 0)
+            index++;
+        Workspaces.Insert(index, workspace);
         SelectedWorkspace = workspace;
     }
 
