@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
+using MTerminal.Models;
 using MTerminal.Services;
 using MTerminal.ViewModels;
 using MTerminal.Views;
@@ -35,11 +36,14 @@ public partial class App : Application
             RequestedThemeVariant = theme == "Light"
                 ? ThemeVariant.Light
                 : ThemeVariant.Dark;
+            ThemeBridge.Apply(TerminalTheme.GetByName(_settingsService.Settings.TerminalThemeName));
         };
 
         RequestedThemeVariant = _settingsService.Settings.Theme == "Light"
             ? ThemeVariant.Light
             : ThemeVariant.Dark;
+
+        ThemeBridge.Apply(TerminalTheme.GetByName(_settingsService.Settings.TerminalThemeName));
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

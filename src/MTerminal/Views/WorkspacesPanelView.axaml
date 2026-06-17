@@ -6,47 +6,44 @@
              x:DataType="vm:WorkspacesPanelViewModel"
              Background="{DynamicResource BgSurface}">
 
-    <DockPanel>
-        <Border DockPanel.Dock="Top" Padding="14,10"
-                BorderBrush="{DynamicResource BorderSubtle}"
-                BorderThickness="{DynamicResource BorderBottom}">
-            <TextBlock Text="WORKSPACES" Classes="section" Margin="0" />
-        </Border>
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <ListBox x:Name="WorkspaceList"
+                     Classes="sidebar-list"
+                     ItemsSource="{Binding Workspaces}"
+                     SelectedItem="{Binding SelectedWorkspace}"
+                     Background="Transparent"
+                     Margin="0,2">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="m:Workspace">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right"
+                                    Content="&#215;" Classes="ghost"
+                                    Command="{Binding #WorkspaceList.((vm:WorkspacesPanelViewModel)DataContext).RemoveWorkspaceCommand}"
+                                    CommandParameter="{Binding}"
+                                    VerticalAlignment="Center"
+                                    ToolTip.Tip="Remove workspace" />
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="{Binding Name}" FontWeight="Medium"
+                                           FontSize="{DynamicResource FontMd}"
+                                           Foreground="{DynamicResource TextPrimary}" />
+                                <TextBlock Text="{Binding DirectoryPath}" Classes="caption"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </DockPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
 
-        <Border DockPanel.Dock="Bottom" Padding="8"
-                BorderBrush="{DynamicResource BorderSubtle}"
-                BorderThickness="{DynamicResource BorderTop}">
-            <Button Content="+ Add Workspace"
-                    Classes="outlined"
+            <Button Classes="add-workspace"
+                    Content="➕ Workspace"
                     Command="{Binding AddWorkspaceCommand}"
-                    HorizontalAlignment="Stretch" />
-        </Border>
-
-        <ListBox x:Name="WorkspaceList"
-                 Classes="sidebar-list"
-                 ItemsSource="{Binding Workspaces}"
-                 SelectedItem="{Binding SelectedWorkspace}"
-                 Background="Transparent"
-                 Margin="0,2">
-            <ListBox.ItemTemplate>
-                <DataTemplate DataType="m:Workspace">
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right"
-                                Content="&#215;" Classes="ghost"
-                                Command="{Binding #WorkspaceList.((vm:WorkspacesPanelViewModel)DataContext).RemoveWorkspaceCommand}"
-                                CommandParameter="{Binding}"
-                                VerticalAlignment="Center"
-                                ToolTip.Tip="Remove workspace" />
-                        <StackPanel Spacing="1">
-                            <TextBlock Text="{Binding Name}" FontWeight="Medium"
-                                       FontSize="{DynamicResource FontMd}"
-                                       Foreground="{DynamicResource TextPrimary}" />
-                            <TextBlock Text="{Binding DirectoryPath}" Classes="caption"
-                                       TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                    </DockPanel>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
-    </DockPanel>
+                    Margin="4,0, 4, 2"
+                    FontSize="{DynamicResource FontMd}"
+                    HorizontalAlignment="Stretch"
+                    Cursor="Hand" />
+            <!-- ➕ -->
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>
