@@ -24,9 +24,9 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
     internal Control? CachedControl { get; set; }
     internal bool IsLaunched { get; set; }
 
-    public TerminalTileViewModel(string workingDirectory, ShellProfile? shell = null, SettingsService? settingsService = null)
+    public TerminalTileViewModel(string workingDirectory, ShellProfile? shell, SettingsService settingsService)
     {
-        _settingsService = settingsService ?? new SettingsService();
+        _settingsService = settingsService;
         var s = _settingsService.Settings;
         WorkingDirectory = workingDirectory;
         Shell = shell ?? ShellDetector.ResolveDefault(s);
@@ -45,7 +45,7 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
             Theme = newTheme;
         if (s.TerminalFontFamily != FontFamily)
             FontFamily = s.TerminalFontFamily;
-        if (Math.Abs(s.TerminalFontSize - FontSize) > 0.01)
+        if (Math.Abs(s.TerminalFontSize - FontSize) > AppDefaults.FontSizeEpsilon)
             FontSize = s.TerminalFontSize;
     }
 

@@ -12,9 +12,9 @@ public sealed class WorkspaceService
 
     public WorkspaceService()
     {
-        var appDir = SettingsService.GetAppDataDirectory();
+        var appDir = AppPaths.GetAppDataDirectory();
         Directory.CreateDirectory(appDir);
-        _filePath = Path.Combine(appDir, "workspaces.json");
+        _filePath = AppPaths.GetWorkspacesFilePath();
         Load();
     }
 

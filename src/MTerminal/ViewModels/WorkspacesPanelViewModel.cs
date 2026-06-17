@@ -33,8 +33,8 @@ public partial class WorkspacesPanelViewModel : ObservableObject
         _settingsService = settingsService;
 
         var s = settingsService?.Settings;
-        _fontFamily = s?.FontFamily ?? "Cascadia Mono, Consolas, monospace";
-        _fontSize = s?.FontSize ?? 14;
+        _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
+        _fontSize = s?.FontSize ?? AppDefaults.FontSize;
 
         if (_settingsService != null)
             _settingsService.SettingsChanged += OnSettingsChanged;
@@ -48,7 +48,7 @@ public partial class WorkspacesPanelViewModel : ObservableObject
         var s = _settingsService!.Settings;
         if (s.FontFamily != FontFamily)
             FontFamily = s.FontFamily;
-        if (Math.Abs(s.FontSize - FontSize) > 0.01)
+        if (Math.Abs(s.FontSize - FontSize) > AppDefaults.FontSizeEpsilon)
             FontSize = s.FontSize;
     }
 
@@ -74,6 +74,8 @@ public partial class WorkspacesPanelViewModel : ObservableObject
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             Process.Start(new ProcessStartInfo("explorer.exe", path) { UseShellExecute = true });
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            Process.Start(new ProcessStartInfo("open", path) { UseShellExecute = true });
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             Process.Start(new ProcessStartInfo("xdg-open", path) { UseShellExecute = true });
     }

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
+using MTerminal.Models;
 using MTerminal.Services;
 
 namespace MTerminal.ViewModels;
@@ -29,8 +30,8 @@ public partial class NoteTileViewModel : ObservableObject, IFileContent, IDispos
         _filePath = filePath;
         _settingsService = settingsService;
         var s = settingsService?.Settings;
-        _fontFamily = s?.FontFamily ?? "Cascadia Mono, Consolas, monospace";
-        _fontSize = s?.FontSize ?? 14;
+        _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
+        _fontSize = s?.FontSize ?? AppDefaults.FontSize;
         _isLoading = true;
         LoadFromFile();
         _isLoading = false;
@@ -44,7 +45,7 @@ public partial class NoteTileViewModel : ObservableObject, IFileContent, IDispos
         var s = _settingsService!.Settings;
         if (s.FontFamily != FontFamily)
             FontFamily = s.FontFamily;
-        if (Math.Abs(s.FontSize - FontSize) > 0.01)
+        if (Math.Abs(s.FontSize - FontSize) > AppDefaults.FontSizeEpsilon)
             FontSize = s.FontSize;
     }
 
@@ -81,7 +82,7 @@ public partial class NoteTileViewModel : ObservableObject, IFileContent, IDispos
         _saveTimer?.Dispose();
         var path = _filePath;
         var text = value;
-        _saveTimer = new Timer(_ => SaveToFile(text, path), null, 2000, Timeout.Infinite);
+        _saveTimer = new Timer(_ => SaveToFile(text, path), null, AppDefaults.NoteSaveDebounceMs, Timeout.Infinite);
     }
 
     private void LoadFromFile()
@@ -93,28 +94,8 @@ public partial class NoteTileViewModel : ObservableObject, IFileContent, IDispos
         }
     }
 
-    private void SaveToFile(string text, string path)
-    {
-        try
-        {
-            var dir = Path.GetDirectoryName(path);
-            if (dir != null) Directory.CreateDirectory(dir);
-            File.WriteAllText(path, text);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning("NoteTile save failed, retrying: {0}", ex.Message);
-            try
-            {
-                Thread.Sleep(500);
-                File.WriteAllText(path, text);
-            }
-            catch (Exception ex2)
-            {
-                System.Diagnostics.Trace.TraceWarning("NoteTile save retry failed: {0}", ex2.Message);
-            }
-        }
-    }
+    private static void SaveToFile(string text, string path) =>
+        FileHelper.WriteWithRetry(path, p => File.WriteAllText(p, text));
 
     public void Dispose()
     {

@@ -8,6 +8,7 @@ using AvaloniaEdit.Rendering;
 using DiffPlex;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
+using MTerminal.Models;
 
 namespace MTerminal.Views;
 
@@ -23,7 +24,7 @@ public partial class DiffView : UserControl
         AvaloniaProperty.Register<DiffView, string>(nameof(NewContent), "");
 
     public static readonly StyledProperty<string> EditorFontFamilyProperty =
-        AvaloniaProperty.Register<DiffView, string>(nameof(EditorFontFamily), "Cascadia Mono, Consolas, monospace");
+        AvaloniaProperty.Register<DiffView, string>(nameof(EditorFontFamily), AppDefaults.FontFamily);
 
     public static readonly StyledProperty<double> EditorFontSizeProperty =
         AvaloniaProperty.Register<DiffView, double>(nameof(EditorFontSize), 13);

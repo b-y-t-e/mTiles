@@ -14,9 +14,9 @@ public sealed class SettingsService
 
     public SettingsService()
     {
-        var appDir = GetAppDataDirectory();
+        var appDir = AppPaths.GetAppDataDirectory();
         Directory.CreateDirectory(appDir);
-        _filePath = Path.Combine(appDir, "settings.json");
+        _filePath = AppPaths.GetSettingsFilePath();
         Load();
     }
 
@@ -43,7 +43,7 @@ public sealed class SettingsService
     public void DebouncedSave()
     {
         _debounceTimer?.Dispose();
-        _debounceTimer = new Timer(_ => Save(), null, 500, Timeout.Infinite);
+        _debounceTimer = new Timer(_ => Save(), null, AppDefaults.SettingsDebounceMs, Timeout.Infinite);
     }
 
     public void NotifyChanged()
@@ -52,10 +52,4 @@ public sealed class SettingsService
         DebouncedSave();
     }
 
-    public static string GetAppDataDirectory()
-    {
-        if (OperatingSystem.IsWindows())
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MTerminal");
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "MTerminal");
-    }
 }

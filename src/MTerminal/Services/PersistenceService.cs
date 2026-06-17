@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using MTerminal.Models;
 
@@ -10,7 +11,7 @@ public sealed class PersistenceService
 
     public PersistenceService()
     {
-        _workspacesDir = Path.Combine(SettingsService.GetAppDataDirectory(), "workspaces");
+        _workspacesDir = AppPaths.GetWorkspacesDirectory();
         Directory.CreateDirectory(_workspacesDir);
     }
 
@@ -23,8 +24,9 @@ public sealed class PersistenceService
             var json = File.ReadAllText(filePath);
             return JsonSerializer.Deserialize<WorkspaceState>(json, JsonDefaults.Options);
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceWarning("Failed to load workspace layout '{0}': {1}", workspaceId, ex.Message);
             return null;
         }
     }
@@ -46,8 +48,11 @@ public sealed class PersistenceService
         _debounceTimer = new Timer(_ =>
         {
             try { SaveLayout(workspaceId, getRootTile()); }
-            catch { }
-        }, null, 1000, Timeout.Infinite);
+            catch (Exception ex)
+            {
+                Trace.TraceWarning("Debounced save failed for workspace '{0}': {1}", workspaceId, ex.Message);
+            }
+        }, null, AppDefaults.SaveDebounceMs, Timeout.Infinite);
     }
 
     public void DeleteLayout(string workspaceId)

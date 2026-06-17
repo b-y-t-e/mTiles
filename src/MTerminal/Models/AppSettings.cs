@@ -2,14 +2,14 @@ namespace MTerminal.Models;
 
 public sealed class AppSettings
 {
-    public string TerminalFontFamily { get; set; } = "Cascadia Mono, Consolas, monospace";
-    public double TerminalFontSize { get; set; } = 14;
-    public string FontFamily { get; set; } = "Cascadia Mono, Consolas, monospace";
-    public double FontSize { get; set; } = 14;
-    public string Theme { get; set; } = "Dark";
+    public string TerminalFontFamily { get; set; } = AppDefaults.FontFamily;
+    public double TerminalFontSize { get; set; } = AppDefaults.FontSize;
+    public string FontFamily { get; set; } = AppDefaults.FontFamily;
+    public double FontSize { get; set; } = AppDefaults.FontSize;
+    public string Theme { get; set; } = AppDefaults.Theme;
 
-    public string ColorThemeName { get; set; } = "Monokai";
-    public string DefaultShellName { get; set; } = "Git Bash";
+    public string ColorThemeName { get; set; } = AppDefaults.ColorThemeName;
+    public string DefaultShellName { get; set; } = "";
     public string CustomShellPath { get; set; } = "";
     public string CustomShellArgs { get; set; } = "";
 

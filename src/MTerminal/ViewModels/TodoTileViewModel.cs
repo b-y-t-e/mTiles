@@ -42,8 +42,8 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         _filePath = filePath;
         _settingsService = settingsService;
         var s = settingsService?.Settings;
-        _fontFamily = s?.FontFamily ?? "Cascadia Mono, Consolas, monospace";
-        _fontSize = s?.FontSize ?? 14;
+        _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
+        _fontSize = s?.FontSize ?? AppDefaults.FontSize;
         UpdateSizeMetrics();
         _isLoading = true;
         LoadFromFile();
@@ -60,8 +60,8 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
 
     private void UpdateSizeMetrics()
     {
-        var scale = FontSize / 14.0;
-        CheckSize = FontSize * 1.4;
+        var scale = FontSize / AppDefaults.FontSize;
+        CheckSize = FontSize * AppDefaults.CheckSizeRatio;
         ItemPadding = new Thickness(3 * scale, 2 * scale);
     }
 
@@ -70,7 +70,7 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         var s = _settingsService!.Settings;
         if (s.FontFamily != FontFamily)
             FontFamily = s.FontFamily;
-        if (Math.Abs(s.FontSize - FontSize) > 0.01)
+        if (Math.Abs(s.FontSize - FontSize) > AppDefaults.FontSizeEpsilon)
         {
             FontSize = s.FontSize;
             UpdateSizeMetrics();
@@ -210,7 +210,7 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
                     SaveToFile(snapshot, path);
                     _hasPendingChanges = false;
                 });
-            }), null, 1000, Timeout.Infinite);
+            }), null, AppDefaults.SaveDebounceMs, Timeout.Infinite);
     }
 
     private static List<TodoItem> ParseMarkdown(string[] lines)
@@ -248,32 +248,11 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
 
     private void SaveToFile(List<TodoItem> snapshot, string path)
     {
-        try
-        {
-            var dir = Path.GetDirectoryName(path);
-            if (dir != null) Directory.CreateDirectory(dir);
-
-            var lines = snapshot.Select(item =>
-                $"[{(item.IsDone ? "x" : " ")}] {item.Text}");
-            var w = _watcher;
-            if (w != null) w.EnableRaisingEvents = false;
-            File.WriteAllLines(path, lines);
-            if (w != null) w.EnableRaisingEvents = true;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning("TodoTile save failed, retrying: {0}", ex.Message);
-            try
-            {
-                Thread.Sleep(500);
-                File.WriteAllLines(path, snapshot.Select(item =>
-                    $"[{(item.IsDone ? "x" : " ")}] {item.Text}"));
-            }
-            catch (Exception ex2)
-            {
-                System.Diagnostics.Trace.TraceWarning("TodoTile save retry failed: {0}", ex2.Message);
-            }
-        }
+        var lines = snapshot.Select(item => $"[{(item.IsDone ? "x" : " ")}] {item.Text}");
+        var w = _watcher;
+        if (w != null) w.EnableRaisingEvents = false;
+        FileHelper.WriteWithRetry(path, p => File.WriteAllLines(p, lines));
+        if (w != null) w.EnableRaisingEvents = true;
     }
 
     private void StartWatching()
@@ -304,7 +283,7 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
 
         _reloadTimer?.Dispose();
         _reloadTimer = new Timer(_ =>
-            Dispatcher.UIThread.Post(ReloadFromFile), null, 500, Timeout.Infinite);
+            Dispatcher.UIThread.Post(ReloadFromFile), null, AppDefaults.WatcherDebounceMs, Timeout.Infinite);
     }
 
     private void ReloadFromFile()
