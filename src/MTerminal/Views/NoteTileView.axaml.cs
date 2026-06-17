@@ -44,9 +44,12 @@ public partial class NoteTileView : UserControl
             WordWrap = true,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Visible,
-            Background = this.FindBrush("BgBase"),
-            Foreground = this.FindBrush("TextPrimary")
+            Background = Brushes.Transparent,
+            Foreground = Brushes.White
         };
+
+        editor.Bind(TextEditor.BackgroundProperty, editor.GetResourceObservable("BgBase"));
+        editor.Bind(TextEditor.ForegroundProperty, editor.GetResourceObservable("TextPrimary"));
 
         editor.Text = vm.Text;
 

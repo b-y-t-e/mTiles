@@ -130,11 +130,10 @@ public partial class LeafTileView : UserControl
 
     private void UpdateContentBackground(object? contentVm)
     {
-        ContentHost.Background = contentVm switch
-        {
-            TerminalTileViewModel t => new SolidColorBrush(Color.Parse(t.Theme.Background)),
-            _ => this.FindBrush("BgBase") as SolidColorBrush
-        };
+        if (contentVm is TerminalTileViewModel t)
+            ContentHost.Background = new SolidColorBrush(Color.Parse(t.Theme.Background));
+        else
+            ContentHost.Bind(Panel.BackgroundProperty, ContentHost.GetResourceObservable("BgBase"));
     }
 
     private void TileNameLabel_DoubleTapped(object? sender, TappedEventArgs e)

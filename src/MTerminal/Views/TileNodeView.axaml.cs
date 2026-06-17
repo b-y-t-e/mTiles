@@ -100,10 +100,8 @@ public partial class TileNodeView : UserControl
             _secondChild.DataContext = split.Second;
 
         var grid = new Grid();
-        var splitter = new GridSplitter
-        {
-            Background = this.FindBrush("BorderSubtle")
-        };
+        var splitter = new GridSplitter();
+        splitter.Bind(BackgroundProperty, splitter.GetResourceObservable("BorderSubtle"));
         splitter.DragCompleted += (_, _) => UpdateSplitRatio(split, grid);
 
         if (split.Orientation == Orientation.Vertical)
