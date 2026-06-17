@@ -4,5 +4,6 @@ public enum TileContentType
 {
     Empty,
     Terminal,
-    Note
+    Note,
+    Todo
 }

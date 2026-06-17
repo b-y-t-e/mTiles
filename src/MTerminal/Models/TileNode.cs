@@ -10,6 +10,7 @@ public sealed class TileNode
     public string? TileName { get; set; }
     public string? ShellName { get; set; }
     public string? NoteFilePath { get; set; }
+    public string? TodoFilePath { get; set; }
 
     public Orientation SplitOrientation { get; set; } = Orientation.Vertical;
     public double SplitRatio { get; set; } = 0.5;

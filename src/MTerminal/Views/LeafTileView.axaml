@@ -96,6 +96,17 @@
                                        HorizontalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                    <Button Classes="chooser-card"
+                            Command="{Binding SelectContentTypeCommand}"
+                            CommandParameter="{x:Static m:TileContentType.Todo}">
+                        <StackPanel Spacing="4" HorizontalAlignment="Center">
+                            <mi:MaterialIcon Kind="CheckboxMarkedOutline" Width="22" Height="22"
+                                             HorizontalAlignment="Center"
+                                             Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="Todo" FontSize="{DynamicResource FontSm}"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
                 <Panel x:Name="ContentHost" />
             </Panel>

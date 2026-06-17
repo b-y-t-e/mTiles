@@ -69,7 +69,8 @@ Refleksja na `_ptyConnection.WriterStream` jest konieczna bo TerminalView nie ek
 ## Konwencje
 
 - **Workspace** (nie "project") — katalog roboczy z tile'ami terminali/edytorów. PPM na workspace → context menu (Show in Explorer, Remove).
-- **Tile** (nie "pane"/"panel") — pojedynczy kafelek w workspace (terminal lub notatka), dzielony w drzewo binarne
+- **Tile** (nie "pane"/"panel") — pojedynczy kafelek w workspace (terminal, notatka lub todo), dzielony w drzewo binarne
 - **Note** (nie "editor") — tile z edytorem tekstu (AvaloniaEdit), TileContentType.Note
+- **Todo** — tile z listą zadań, TileContentType.Todo
 - ViewModele w `ViewModels/`, widoki w `Views/`
 - Brak DI container — ręczne wstrzykiwanie w `App.axaml.cs`

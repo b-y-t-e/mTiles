@@ -20,6 +20,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private int _terminalCount;
     private int _noteCount;
+    private int _todoCount;
 
     public WorkspaceViewModel(Workspace workspace, PersistenceService persistenceService, SettingsService settingsService)
     {
@@ -81,6 +82,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         TileContentType.Terminal => $"Terminal #{++_terminalCount}",
         TileContentType.Note => $"Note #{++_noteCount}",
+        TileContentType.Todo => $"Todo #{++_todoCount}",
         TileContentType.Empty => "",
         _ => type.ToString()
     };
@@ -102,6 +104,8 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
                         _terminalCount = Math.Max(_terminalCount, num);
                     else if (node.ContentType == TileContentType.Note)
                         _noteCount = Math.Max(_noteCount, num);
+                    else if (node.ContentType == TileContentType.Todo)
+                        _todoCount = Math.Max(_todoCount, num);
                 }
             }
         }
@@ -118,6 +122,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         {
             TileContentType.Terminal => new TerminalTileViewModel(workingDir, shell, _settingsService),
             TileContentType.Note => CreateNoteContent(workingDir),
+            TileContentType.Todo => CreateTodoContent(workingDir),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
     }
@@ -128,6 +133,13 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         var notesDir = Path.Combine(workingDir, ".mterminal", "notes");
         var filePath = Path.Combine(notesDir, $"{Guid.NewGuid():N}.md");
         return new NoteTileViewModel(filePath, _settingsService);
+    }
+
+    private TodoTileViewModel CreateTodoContent(string workingDir)
+    {
+        var todosDir = Path.Combine(workingDir, ".mterminal", "todos");
+        var filePath = Path.Combine(todosDir, $"{Guid.NewGuid():N}.json");
+        return new TodoTileViewModel(filePath, _settingsService);
     }
 
     private void ScheduleSave()
@@ -145,7 +157,8 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
                 ContentType = leaf.ContentType,
                 TileName = leaf.TileName,
                 ShellName = (leaf.Content as TerminalTileViewModel)?.Shell.Name,
-                NoteFilePath = (leaf.Content as NoteTileViewModel)?.FilePath
+                NoteFilePath = (leaf.Content as NoteTileViewModel)?.FilePath,
+                TodoFilePath = (leaf.Content as TodoTileViewModel)?.FilePath
             },
             SplitTileNodeViewModel split => new TileNode
             {
@@ -169,6 +182,10 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
                 if (dto.ContentType == TileContentType.Note && dto.NoteFilePath != null)
                 {
                     content = new NoteTileViewModel(dto.NoteFilePath, _settingsService);
+                }
+                else if (dto.ContentType == TileContentType.Todo && dto.TodoFilePath != null)
+                {
+                    content = new TodoTileViewModel(dto.TodoFilePath, _settingsService);
                 }
                 else
                 {

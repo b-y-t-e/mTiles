@@ -107,6 +107,7 @@ public partial class LeafTileView : UserControl
         {
             TerminalTileViewModel => new TerminalTileView { DataContext = contentVm },
             NoteTileViewModel => new NoteTileView { DataContext = contentVm },
+            TodoTileViewModel => new TodoTileView { DataContext = contentVm },
             _ => throw new InvalidOperationException($"Unknown content type: {contentVm.GetType()}")
         };
 

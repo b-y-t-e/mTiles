@@ -1,0 +1,113 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MTerminal.ViewModels"
+             xmlns:m="using:MTerminal.Models"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             x:Class="MTerminal.Views.TodoTileView"
+             x:DataType="vm:TodoTileViewModel">
+
+    <UserControl.Styles>
+        <!-- Item row — tight, borderless -->
+        <Style Selector="Border.todo-item">
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Margin" Value="0" />
+        </Style>
+        <Style Selector="Border.todo-item:pointerover">
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        </Style>
+
+        <!-- Delete button: invisible until row hover -->
+        <Style Selector="Border.todo-item Button.todo-delete">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="Border.todo-item:pointerover Button.todo-delete">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+
+        <!-- Inline text editor — chromeless, strip all Fluent minimum sizes -->
+        <Style Selector="TextBox.todo-inline">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="AcceptsReturn" Value="False" />
+        </Style>
+        <Style Selector="TextBox.todo-inline /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="TextBox.todo-inline /template/ DataValidationErrors">
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="TextBox.todo-inline:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
+        <!-- Delete button: strip Fluent min sizes -->
+        <Style Selector="Button.todo-delete">
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Padding" Value="2" />
+        </Style>
+
+        <!-- Done state: muted + reduced opacity -->
+        <Style Selector="TextBox.todo-done">
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
+
+        <!-- CheckBox compact -->
+        <Style Selector="CheckBox.todo-check">
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="20" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </UserControl.Styles>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding Items}"
+                      Padding="8,8,16,8"
+                      x:Name="ItemsList">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="m:TodoItem">
+                    <Border Classes="todo-item"
+                            Padding="{Binding $parent[ItemsControl].((vm:TodoTileViewModel)DataContext).ItemPadding}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right"
+                                    Classes="ghost todo-delete"
+                                    Command="{Binding $parent[ItemsControl].((vm:TodoTileViewModel)DataContext).RemoveItemCommand}"
+                                    CommandParameter="{Binding Id}"
+                                    ToolTip.Tip="Remove">
+                                <mi:MaterialIcon Kind="Close" Width="12" Height="12" />
+                            </Button>
+                            <Viewbox Width="{Binding $parent[ItemsControl].((vm:TodoTileViewModel)DataContext).CheckSize}"
+                                     Height="{Binding $parent[ItemsControl].((vm:TodoTileViewModel)DataContext).CheckSize}"
+                                     VerticalAlignment="Center">
+                                <CheckBox Classes="todo-check"
+                                          IsChecked="{Binding IsDone, Mode=OneWay}"
+                                          Command="{Binding $parent[ItemsControl].((vm:TodoTileViewModel)DataContext).ToggleItemCommand}"
+                                          CommandParameter="{Binding Id}" />
+                            </Viewbox>
+                            <TextBox Classes="todo-inline"
+                                     Classes.todo-done="{Binding IsDone}"
+                                     Text="{Binding Text, Mode=TwoWay}"
+                                     Tag="{Binding Id}" />
+                        </DockPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </ScrollViewer>
+</UserControl>

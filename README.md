@@ -9,8 +9,10 @@ Multiplatformowy terminal manager z systemem kafelkowych paneli. Windows, Linux 
 - **Terminale** — PowerShell, Git Bash, CMD (auto-detekcja), wybór domyślnego w ustawieniach
 - **Motywy terminala** — Default Dark, Dracula, Nord, Monokai, Solarized Dark, Catppuccin Mocha
 - **Edytor notatek** — AvaloniaEdit z numeracją linii, auto-zapis do `.mterminal/notes/`
-- **Skróty klawiszowe** — Ctrl+C/V (copy/paste), Alt+key (ESC sequences dla CLI tools)
-- **Rename paneli** — double-click na nazwę, auto-numeracja (Terminal #1, Note #1)
+- **Lista Todo** — inline-editable checklist, Enter dodaje element, checkbox przesuwa na dół, auto-zapis do `.mterminal/todos/`
+- **Skróty klawiszowe** — Ctrl+C/V (copy/paste), Alt+key (ESC sequences), Ctrl+Shift+R (restart shell)
+- **Context menu workspace** — PPM → otwórz folder w eksploratorze, usuń workspace
+- **Rename paneli** — double-click na nazwę, auto-numeracja (Terminal #1, Note #1, Todo #1)
 - **Resizable panel** — workspace panel z regulowaną szerokością
 - **Persystencja** — layout, workspaces, ustawienia, stan okna, profil shella
 
@@ -33,6 +35,7 @@ dotnet run --project src/MTerminal
 - AvaloniaEdit (edytor tekstu)
 - CommunityToolkit.Mvvm
 - MessageBox.Avalonia
+- Material.Icons.Avalonia
 
 ## Licencja
 
