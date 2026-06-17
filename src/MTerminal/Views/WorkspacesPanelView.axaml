@@ -14,10 +14,10 @@
                      ItemsSource="{Binding Workspaces}"
                      SelectedItem="{Binding SelectedWorkspace}"
                      Background="Transparent"
-                     Margin="0,2">
+                     Margin="3, 4">
                 <ListBox.ItemTemplate>
                     <DataTemplate DataType="m:Workspace">
-                        <DockPanel>
+                        <DockPanel Margin="0,0,0, 0">
                            <!-- <Button DockPanel.Dock="Right"
                                     Content="&#215;" Classes="ghost"
                                     Command="{Binding #WorkspaceList.((vm:WorkspacesPanelViewModel)DataContext).RemoveWorkspaceCommand}"
@@ -39,7 +39,7 @@
             <Button Classes="add-workspace"
                     Content="➕ Workspace"
                     Command="{Binding AddWorkspaceCommand}"
-                    Margin="4,0, 4, 2"
+                    Margin="8,0, 8, 2"
                     FontSize="{DynamicResource FontMd}"
                     HorizontalAlignment="Stretch"
                     Cursor="Hand" />

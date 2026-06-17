@@ -150,7 +150,7 @@
     <!-- ======== LISTBOX: sidebar-list (workspace list etc.) ======== -->
     <Style Selector="ListBox.sidebar-list ListBoxItem">
         <Setter Property="Padding" Value="10,6" />
-        <Setter Property="Margin" Value="4,1" />
+        <Setter Property="Margin" Value="4,2" />
         <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
     </Style>
     <Style Selector="ListBox.sidebar-list ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
