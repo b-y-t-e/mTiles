@@ -41,7 +41,12 @@ public partial class MainWindowViewModel : ObservableObject
         };
 
         if (_workspacesPanel.Workspaces.Count > 0)
-            _workspacesPanel.SelectedWorkspace = _workspacesPanel.Workspaces[0];
+        {
+            var lastId = _settingsService.Settings.LastWorkspaceId;
+            var target = _workspacesPanel.Workspaces.FirstOrDefault(w => w.Id == lastId)
+                         ?? _workspacesPanel.Workspaces[0];
+            _workspacesPanel.SelectedWorkspace = target;
+        }
     }
 
     [RelayCommand]
@@ -72,5 +77,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         CurrentWorkspace = vm;
+        _settingsService.Settings.LastWorkspaceId = workspace.Id;
+        _settingsService.DebouncedSave();
     }
 }

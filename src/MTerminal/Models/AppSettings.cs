@@ -15,6 +15,7 @@ public sealed class AppSettings
 
     public bool DiffTrimIndent { get; set; } = true;
 
+    public string? LastWorkspaceId { get; set; }
     public double WorkspacesPanelWidth { get; set; } = 240;
 
     public double WindowX { get; set; } = double.NaN;
