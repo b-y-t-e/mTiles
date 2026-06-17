@@ -44,7 +44,7 @@ public partial class NoteTileView : UserControl
             WordWrap = true,
             Padding = new Thickness(8, 8),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Visible,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Background = Brushes.Transparent,
             Foreground = Brushes.White
         };
