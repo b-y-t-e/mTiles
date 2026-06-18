@@ -9,6 +9,7 @@ public sealed class AiToolInfo
     public string? ExecutablePath { get; set; }
     public bool IsInstalled { get; set; }
     public bool IsCustomPath { get; set; }
+    public string? Url { get; init; }
     public bool IsUserDefined { get; init; }
     public string? UserToolId { get; init; }
 }

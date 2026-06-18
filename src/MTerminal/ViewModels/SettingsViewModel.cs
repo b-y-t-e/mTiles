@@ -289,7 +289,11 @@ public partial class SettingsViewModel : ObservableObject
 
         var customPaths = _settingsService.Settings.CustomAiToolPaths;
         var userTools = _settingsService.Settings.CustomAiTools;
-        var tools = await Task.Run(() => AiToolDetector.Detect(customPaths, userTools));
+        var detected = await Task.Run(() => AiToolDetector.Detect(customPaths, userTools));
+        var tools = detected
+            .OrderByDescending(t => t.IsInstalled)
+            .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {

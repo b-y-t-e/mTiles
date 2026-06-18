@@ -8,107 +8,128 @@
     <Panel>
 
         <!-- ═══════════════ TAB: General ═══════════════ -->
-        <StackPanel Spacing="20" Margin="20,16,20,24"
+        <StackPanel Spacing="12" Margin="20,16,20,24"
                     IsVisible="{Binding IsGeneralTab}">
 
             <!-- Default Shell -->
-            <StackPanel Spacing="8">
+            <StackPanel Spacing="6">
                 <TextBlock Text="DEFAULT SHELL" Classes="section" Margin="0" />
-                <Border Background="{DynamicResource BgSurface}"
-                        CornerRadius="{DynamicResource RadiusLg}"
-                        Padding="14,12">
-                    <StackPanel Spacing="10">
-                        <ComboBox Classes="setting"
-                                  SelectedItem="{Binding SelectedShell}"
-                                  ItemsSource="{Binding ShellOptions}" />
-                        <TextBlock FontSize="{DynamicResource FontSm}"
-                                   Foreground="{DynamicResource TextMuted}"
-                                   Margin="2,-4,0,0"
-                                   IsVisible="{Binding !IsCustomShell}"
-                                   Text="{Binding SelectedShell, Converter={x:Static vm:SettingsViewModel.ShellTypeConverter}}" />
-                        <StackPanel Spacing="8" IsVisible="{Binding IsCustomShell}">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="Path" Classes="label" />
-                                <TextBox Classes="setting"
-                                         Text="{Binding CustomShellPath}"
-                                         PlaceholderText="Path to executable" />
-                            </StackPanel>
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="Arguments" Classes="label" />
-                                <TextBox Classes="setting"
-                                         Text="{Binding CustomShellArgs}"
-                                         PlaceholderText="Arguments (optional)" />
-                            </StackPanel>
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="Type" Classes="label" />
-                                <ComboBox Classes="setting"
-                                          SelectedItem="{Binding CustomShellType}"
-                                          ItemsSource="{x:Static vm:SettingsViewModel.ShellTypeNames}" />
-                            </StackPanel>
-                        </StackPanel>
-                    </StackPanel>
+                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                    <Border Background="{DynamicResource BgSurface}" Padding="0">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Left" Width="3"
+                                    Background="{DynamicResource AccentDefault}" />
+                            <Border Padding="12,10">
+                                <StackPanel Spacing="10">
+                                    <ComboBox Classes="setting"
+                                              SelectedItem="{Binding SelectedShell}"
+                                              ItemsSource="{Binding ShellOptions}" />
+                                    <TextBlock FontSize="{DynamicResource FontSm}"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               Margin="2,-4,0,0"
+                                               IsVisible="{Binding !IsCustomShell}"
+                                               Text="{Binding SelectedShell, Converter={x:Static vm:SettingsViewModel.ShellTypeConverter}}" />
+                                    <StackPanel Spacing="10" IsVisible="{Binding IsCustomShell}">
+                                        <DockPanel>
+                                            <TextBlock Text="Path" Classes="label"
+                                                       VerticalAlignment="Center" Width="90" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding CustomShellPath}"
+                                                     PlaceholderText="Path to executable" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Arguments" Classes="label"
+                                                       VerticalAlignment="Center" Width="90" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding CustomShellArgs}"
+                                                     PlaceholderText="Arguments (optional)" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Type" Classes="label"
+                                                       VerticalAlignment="Center" Width="90" />
+                                            <ComboBox Classes="setting"
+                                                      SelectedItem="{Binding CustomShellType}"
+                                                      ItemsSource="{x:Static vm:SettingsViewModel.ShellTypeNames}" />
+                                        </DockPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DockPanel>
+                    </Border>
                 </Border>
             </StackPanel>
 
             <!-- Appearance -->
-            <StackPanel Spacing="8">
+            <StackPanel Spacing="6">
                 <TextBlock Text="APPEARANCE" Classes="section" Margin="0" />
-                <Border Background="{DynamicResource BgSurface}"
-                        CornerRadius="{DynamicResource RadiusLg}"
-                        Padding="14,12">
-                    <StackPanel Spacing="12">
+                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                    <Border Background="{DynamicResource BgSurface}" Padding="0">
                         <DockPanel>
-                            <TextBlock Text="Theme" Classes="label"
-                                       VerticalAlignment="Center" Width="110" />
-                            <ComboBox Classes="setting"
-                                      SelectedItem="{Binding Theme}"
-                                      ItemsSource="{x:Static vm:SettingsViewModel.Themes}" />
+                            <Border DockPanel.Dock="Left" Width="3"
+                                    Background="{DynamicResource AccentDefault}" />
+                            <Border Padding="12,10">
+                                <StackPanel Spacing="10">
+                                    <DockPanel>
+                                        <TextBlock Text="Theme" Classes="label"
+                                                   VerticalAlignment="Center" Width="90" />
+                                        <ComboBox Classes="setting"
+                                                  SelectedItem="{Binding Theme}"
+                                                  ItemsSource="{x:Static vm:SettingsViewModel.Themes}" />
+                                    </DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Text="Color Theme" Classes="label"
+                                                   VerticalAlignment="Center" Width="90" />
+                                        <ComboBox Classes="setting"
+                                                  SelectedItem="{Binding ColorThemeName}"
+                                                  ItemsSource="{x:Static vm:SettingsViewModel.ColorThemeNames}" />
+                                    </DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Text="Font Family" Classes="label"
+                                                   VerticalAlignment="Center" Width="90" />
+                                        <TextBox Classes="setting"
+                                                 Text="{Binding FontFamily}"
+                                                 PlaceholderText="Font family" />
+                                    </DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Text="Font Size" Classes="label"
+                                                   VerticalAlignment="Center" Width="90" />
+                                        <NumericUpDown Classes="setting"
+                                                       Value="{Binding FontSize}" Minimum="8" Maximum="48" Increment="1" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
                         </DockPanel>
-                        <DockPanel>
-                            <TextBlock Text="Color Theme" Classes="label"
-                                       VerticalAlignment="Center" Width="110" />
-                            <ComboBox Classes="setting"
-                                      SelectedItem="{Binding ColorThemeName}"
-                                      ItemsSource="{x:Static vm:SettingsViewModel.ColorThemeNames}" />
-                        </DockPanel>
-                        <DockPanel>
-                            <TextBlock Text="Font Family" Classes="label"
-                                       VerticalAlignment="Center" Width="110" />
-                            <TextBox Classes="setting"
-                                     Text="{Binding FontFamily}"
-                                     PlaceholderText="Font family" />
-                        </DockPanel>
-                        <DockPanel>
-                            <TextBlock Text="Font Size" Classes="label"
-                                       VerticalAlignment="Center" Width="110" />
-                            <NumericUpDown Classes="setting"
-                                           Value="{Binding FontSize}" Minimum="8" Maximum="48" Increment="1" />
-                        </DockPanel>
-                    </StackPanel>
+                    </Border>
                 </Border>
             </StackPanel>
 
             <!-- Terminal -->
-            <StackPanel Spacing="8">
+            <StackPanel Spacing="6">
                 <TextBlock Text="TERMINAL" Classes="section" Margin="0" />
-                <Border Background="{DynamicResource BgSurface}"
-                        CornerRadius="{DynamicResource RadiusLg}"
-                        Padding="14,12">
-                    <StackPanel Spacing="12">
+                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                    <Border Background="{DynamicResource BgSurface}" Padding="0">
                         <DockPanel>
-                            <TextBlock Text="Font Family" Classes="label"
-                                       VerticalAlignment="Center" Width="110" />
-                            <TextBox Classes="setting"
-                                     Text="{Binding TerminalFontFamily}"
-                                     PlaceholderText="Font family" />
+                            <Border DockPanel.Dock="Left" Width="3"
+                                    Background="{DynamicResource AccentDefault}" />
+                            <Border Padding="12,10">
+                                <StackPanel Spacing="10">
+                                    <DockPanel>
+                                        <TextBlock Text="Font Family" Classes="label"
+                                                   VerticalAlignment="Center" Width="90" />
+                                        <TextBox Classes="setting"
+                                                 Text="{Binding TerminalFontFamily}"
+                                                 PlaceholderText="Font family" />
+                                    </DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Text="Font Size" Classes="label"
+                                                   VerticalAlignment="Center" Width="90" />
+                                        <NumericUpDown Classes="setting"
+                                                       Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
                         </DockPanel>
-                        <DockPanel>
-                            <TextBlock Text="Font Size" Classes="label"
-                                       VerticalAlignment="Center" Width="110" />
-                            <NumericUpDown Classes="setting"
-                                           Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
-                        </DockPanel>
-                    </StackPanel>
+                    </Border>
                 </Border>
             </StackPanel>
 
@@ -342,6 +363,13 @@
                                                         IsVisible="{Binding IsInstalled}"
                                                         ToolTip.Tip="Open folder">
                                                     <mi:MaterialIcon Kind="FolderOutline" Width="13" Height="13" />
+                                                </Button>
+                                                <!-- Website -->
+                                                <Button Classes="tile-btn"
+                                                        Command="{Binding OpenUrlCommand}"
+                                                        IsVisible="{Binding HasUrl}"
+                                                        ToolTip.Tip="{Binding Url}">
+                                                    <mi:MaterialIcon Kind="OpenInNew" Width="13" Height="13" />
                                                 </Button>
                                                 <!-- Test -->
                                                 <Button Classes="tile-btn"

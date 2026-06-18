@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MTerminal.Models;
@@ -28,6 +29,8 @@ public partial class AiToolViewModel : ObservableObject
     private bool _isCustomPath;
 
     public bool IsUserDefined => Tool.IsUserDefined;
+    public string? Url => Tool.Url;
+    public bool HasUrl => !string.IsNullOrEmpty(Tool.Url);
 
     public Func<Task<string?>>? BrowseFile { get; set; }
     public Action<string, string>? OnCustomPathSet { get; set; }
@@ -76,6 +79,13 @@ public partial class AiToolViewModel : ObservableObject
         DetectedVersion = null;
 
         OnCustomPathSet?.Invoke(BinaryName, path);
+    }
+
+    [RelayCommand]
+    private void OpenUrl()
+    {
+        if (Url != null)
+            Process.Start(new ProcessStartInfo(Url) { UseShellExecute = true });
     }
 
     [RelayCommand]
