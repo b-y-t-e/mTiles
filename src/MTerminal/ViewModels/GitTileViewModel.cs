@@ -112,7 +112,8 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     public Func<string, string, Task>? ShowError { get; set; }
 
     private readonly SettingsService? _settingsService;
-    private readonly GitService _gitService;
+    private GitService _gitService;
+    private string _resolvedGitPath;
     private readonly GitDirectoryWatcher _watcher;
     private CancellationTokenSource? _refreshCts;
     private Dictionary<string, (string Status, bool IsChecked, DateTime Mtime)> _previousState = new();
@@ -122,7 +123,8 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     {
         _worktreePath = workingDirectory;
         _settingsService = settingsService;
-        _gitService = new GitService(workingDirectory);
+        _resolvedGitPath = GitService.ResolveGitPath(settingsService?.Settings.GitPath);
+        _gitService = new GitService(workingDirectory, _resolvedGitPath);
         _watcher = new GitDirectoryWatcher(workingDirectory);
         _watcher.Changed += OnGitDirectoryChanged;
 
@@ -153,11 +155,21 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
             FontSize = s.FontSize;
             UpdateSizeMetrics();
         }
+        var needsRefresh = false;
         if (s.GitHideMTerminalDir != GitHideMTerminalDir)
         {
             GitHideMTerminalDir = s.GitHideMTerminalDir;
-            Dispatcher.UIThread.Post(async () => { try { await RefreshAsync(); } catch { } });
+            needsRefresh = true;
         }
+        var newGitPath = GitService.ResolveGitPath(s.GitPath);
+        if (newGitPath != _resolvedGitPath)
+        {
+            _resolvedGitPath = newGitPath;
+            _gitService = new GitService(_worktreePath, newGitPath);
+            needsRefresh = true;
+        }
+        if (needsRefresh)
+            Dispatcher.UIThread.Post(async () => { try { await RefreshAsync(); } catch { } });
     }
 
     private void UpdateSizeMetrics()

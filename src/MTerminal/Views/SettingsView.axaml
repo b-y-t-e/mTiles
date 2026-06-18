@@ -135,21 +135,134 @@
 
             <!-- Git -->
             <StackPanel Spacing="6">
-                <TextBlock Text="GIT" Classes="section" Margin="0" />
+                <DockPanel Margin="0,0,0,2">
+                    <TextBlock Text="GIT" Classes="section" Margin="0"
+                               VerticalAlignment="Center" />
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                        <Button Classes="outlined"
+                                Command="{Binding DetectGitCommand}"
+                                Padding="10,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
+                                <TextBlock Text="Detect" />
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="outlined"
+                                Command="{Binding OpenGitDownloadCommand}"
+                                ToolTip.Tip="https://git-scm.com"
+                                Padding="10,5"
+                                IsVisible="{Binding !GitFound}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="Download" Width="14" Height="14" />
+                                <TextBlock Text="Get Git" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- Git tool card -->
+                <Border CornerRadius="{DynamicResource RadiusLg}"
+                        ClipToBounds="True">
+                    <Border Background="{DynamicResource BgSurface}" Padding="0">
+                        <DockPanel>
+                            <Panel DockPanel.Dock="Left" Width="3">
+                                <Border Background="{DynamicResource StatusSuccess}"
+                                        IsVisible="{Binding GitFound}" />
+                                <Border Background="{DynamicResource BorderSubtle}"
+                                        IsVisible="{Binding !GitFound}" />
+                            </Panel>
+                            <Border Padding="12,9,10,9">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                Spacing="2" VerticalAlignment="Center">
+                                        <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                Padding="6,2"
+                                                Background="{DynamicResource StatusSuccessSubtle}"
+                                                IsVisible="{Binding GitPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                            <TextBlock Text="CUSTOM" FontSize="9"
+                                                       FontWeight="SemiBold"
+                                                       LetterSpacing="0.8"
+                                                       Foreground="{DynamicResource StatusSuccessText}" />
+                                        </Border>
+                                        <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                Padding="6,2"
+                                                Background="{DynamicResource StatusMutedSubtle}"
+                                                IsVisible="{Binding !GitFound}">
+                                            <TextBlock Text="NOT FOUND" FontSize="9"
+                                                       FontWeight="SemiBold"
+                                                       LetterSpacing="0.8"
+                                                       Foreground="{DynamicResource TextMuted}" />
+                                        </Border>
+                                        <Button Classes="tile-btn"
+                                                Command="{Binding BrowseGitPathCommand}"
+                                                ToolTip.Tip="Set custom path">
+                                            <mi:MaterialIcon Kind="DotsHorizontal" Width="13" Height="13" />
+                                        </Button>
+                                        <Button Classes="tile-btn"
+                                                Command="{Binding ResetGitPathCommand}"
+                                                ToolTip.Tip="Reset to auto-detect"
+                                                IsVisible="{Binding GitPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                            <mi:MaterialIcon Kind="Refresh" Width="13" Height="13" />
+                                        </Button>
+                                    </StackPanel>
+                                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Ellipse Width="8" Height="8"
+                                                     VerticalAlignment="Center"
+                                                     Fill="{DynamicResource StatusSuccess}"
+                                                     IsVisible="{Binding GitFound}" />
+                                            <Ellipse Width="8" Height="8"
+                                                     VerticalAlignment="Center"
+                                                     Fill="{DynamicResource DangerText}"
+                                                     IsVisible="{Binding !GitFound}" />
+                                            <TextBlock Text="Git"
+                                                       FontWeight="Medium"
+                                                       Foreground="{DynamicResource TextPrimary}" />
+                                            <TextBlock Text="{Binding GitVersion}"
+                                                       FontSize="{DynamicResource FontSm}"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       Opacity="0.8"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding GitFound}" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="git"
+                                                       FontSize="{DynamicResource FontXs}"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       FontFamily="Consolas,Cascadia Code,monospace" />
+                                            <TextBlock Text="·"
+                                                       FontSize="{DynamicResource FontXs}"
+                                                       Foreground="{DynamicResource TextFaint}"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding GitDetectedPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            <TextBlock Text="{Binding GitDetectedPath}"
+                                                       FontSize="{DynamicResource FontXs}"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       Opacity="0.6"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding GitDetectedPath}"
+                                                       IsVisible="{Binding GitDetectedPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DockPanel>
+                    </Border>
+                </Border>
+
+                <!-- Git settings -->
                 <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
                     <Border Background="{DynamicResource BgSurface}" Padding="0">
                         <DockPanel>
                             <Border DockPanel.Dock="Left" Width="3"
                                     Background="{DynamicResource AccentDefault}" />
                             <Border Padding="12,10">
-                                <StackPanel Spacing="10">
-                                    <DockPanel>
-                                        <TextBlock Text="Hide .mterminal" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <ToggleSwitch IsChecked="{Binding GitHideMTerminalDir}"
-                                                      OnContent="On" OffContent="Off" />
-                                    </DockPanel>
-                                </StackPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Hide .mterminal" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <ToggleSwitch IsChecked="{Binding GitHideMTerminalDir}"
+                                                  OnContent="On" OffContent="Off" />
+                                </DockPanel>
                             </Border>
                         </DockPanel>
                     </Border>
@@ -307,14 +420,24 @@
             <DockPanel Margin="0,0,0,2">
                 <TextBlock Text="AI CODING TOOLS" Classes="section" Margin="0"
                            VerticalAlignment="Center" />
-                <Button DockPanel.Dock="Right" Classes="outlined"
-                        Command="{Binding TestAllToolsCommand}"
-                        Padding="10,5">
-                    <StackPanel Orientation="Horizontal" Spacing="5">
-                        <mi:MaterialIcon Kind="PlayCircleOutline" Width="14" Height="14" />
-                        <TextBlock Text="Test All" />
-                    </StackPanel>
-                </Button>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                    <Button Classes="outlined"
+                            Command="{Binding RedetectAiToolsCommand}"
+                            Padding="10,5">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
+                            <TextBlock Text="Re-detect" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="outlined"
+                            Command="{Binding TestAllToolsCommand}"
+                            Padding="10,5">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <mi:MaterialIcon Kind="PlayCircleOutline" Width="14" Height="14" />
+                            <TextBlock Text="Test All" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </DockPanel>
 
             <!-- Loading -->

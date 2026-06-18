@@ -21,9 +21,9 @@ public sealed class DiffResult
     public string NewContent { get; init; } = "";
 }
 
-public sealed partial class GitService(string workingDirectory)
+public sealed partial class GitService(string workingDirectory, string gitPath = "git")
 {
-    private readonly GitCommandRunner _git = new(workingDirectory);
+    private readonly GitCommandRunner _git = new(workingDirectory, gitPath);
 
     public string WorkingDirectory => workingDirectory;
 
@@ -316,11 +316,76 @@ public sealed partial class GitService(string workingDirectory)
                      .ToList();
     }
 
-    public static async Task<string> GetBranchNameAsync(string directory)
+    public static async Task<string> GetBranchNameAsync(string directory, string gitPath = "git")
     {
-        var runner = new GitCommandRunner(directory);
+        var runner = new GitCommandRunner(directory, gitPath);
         var result = await runner.RunAsync("rev-parse --abbrev-ref HEAD", throwOnError: false);
         var branch = result.Trim();
         return string.IsNullOrEmpty(branch) || branch.Contains(' ') ? "" : branch;
+    }
+
+    public static string ResolveGitPath(string? customPath)
+    {
+        if (!string.IsNullOrEmpty(customPath) && File.Exists(customPath))
+            return customPath;
+
+        if (OperatingSystem.IsWindows())
+        {
+            var found = ShellDetector.FindExecutable("git.exe")
+                        ?? ShellDetector.FindExecutable("git.cmd");
+            if (found != null) return found;
+
+            var wellKnown = new[]
+            {
+                @"C:\Program Files\Git\cmd\git.exe",
+                @"C:\Program Files (x86)\Git\cmd\git.exe",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                             "Programs", "Git", "cmd", "git.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                             "scoop", "shims", "git.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                             "scoop", "apps", "git", "current", "cmd", "git.exe"),
+            };
+            foreach (var p in wellKnown)
+                if (File.Exists(p)) return p;
+        }
+        else
+        {
+            var found = ShellDetector.FindExecutable("git");
+            if (found != null) return found;
+        }
+
+        return "git";
+    }
+
+    public static async Task<string?> TestGitAsync(string gitPath)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(gitPath, "--version")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            var process = System.Diagnostics.Process.Start(psi);
+            if (process == null) return null;
+
+            using (process)
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var stdoutTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+                var stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+                await Task.WhenAll(stdoutTask, stderrTask);
+                await process.WaitForExitAsync(cts.Token);
+                var line = (await stdoutTask).Trim().Split('\n')[0].Trim();
+                return string.IsNullOrEmpty(line) ? null : line;
+            }
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

@@ -30,6 +30,21 @@ public partial class SettingsView : UserControl
 
                 return files.Count > 0 ? files[0].TryGetLocalPath() : null;
             };
+
+            vm.BrowseGitFile = async () =>
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return null;
+
+                var files = await topLevel.StorageProvider.OpenFilePickerAsync(
+                    new FilePickerOpenOptions
+                    {
+                        Title = "Select git executable",
+                        AllowMultiple = false
+                    });
+
+                return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+            };
         }
     }
 }

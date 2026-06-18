@@ -3,7 +3,7 @@ using MTerminal.Models;
 
 namespace MTerminal.Services;
 
-public sealed class GitCommandRunner(string workingDirectory)
+public sealed class GitCommandRunner(string workingDirectory, string gitPath = "git")
 {
     public string WorkingDirectory { get; } = workingDirectory;
 
@@ -12,7 +12,7 @@ public sealed class GitCommandRunner(string workingDirectory)
 
     public async Task<string> RunAsync(string arguments, bool throwOnError, CancellationToken ct = default)
     {
-        var psi = new ProcessStartInfo("git", arguments)
+        var psi = new ProcessStartInfo(gitPath, arguments)
         {
             WorkingDirectory = WorkingDirectory,
             RedirectStandardOutput = true,

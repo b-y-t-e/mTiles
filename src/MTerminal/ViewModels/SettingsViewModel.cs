@@ -85,6 +85,22 @@ public partial class SettingsViewModel : ObservableObject
     private bool _gitHideMTerminalDir;
 
     [ObservableProperty]
+    private string _gitPath;
+
+    [ObservableProperty]
+    private string _gitDetectedPath = "";
+
+    [ObservableProperty]
+    private string _gitVersion = "";
+
+    [ObservableProperty]
+    private bool _gitFound;
+
+    public Func<Task<string?>>? BrowseGitFile { get; set; }
+
+    private CancellationTokenSource? _gitDetectCts;
+
+    [ObservableProperty]
     private bool _isEditingProfile;
 
     [ObservableProperty]
@@ -141,6 +157,9 @@ public partial class SettingsViewModel : ObservableObject
         _customShellArgs = s.CustomShellArgs;
         _customShellType = s.CustomShellType.ToString();
         _gitHideMTerminalDir = s.GitHideMTerminalDir;
+        _gitPath = s.GitPath;
+
+        _ = DetectGitAsync();
 
         var detected = ShellDetector.Detect();
         foreach (var shell in detected)
@@ -175,6 +194,55 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnFontSizeChanged(double value) { _settingsService.Settings.FontSize = value; _settingsService.NotifyChanged(); }
     partial void OnThemeChanged(string value) { _settingsService.Settings.Theme = value; _settingsService.NotifyChanged(); }
     partial void OnGitHideMTerminalDirChanged(bool value) { _settingsService.Settings.GitHideMTerminalDir = value; _settingsService.NotifyChanged(); }
+    partial void OnGitPathChanged(string value) { _settingsService.Settings.GitPath = value; _settingsService.NotifyChanged(); _ = DetectGitAsync(); }
+
+    [RelayCommand]
+    private async Task BrowseGitPathAsync()
+    {
+        if (BrowseGitFile == null) return;
+        var path = await BrowseGitFile();
+        if (!string.IsNullOrEmpty(path))
+            GitPath = path;
+    }
+
+    [RelayCommand]
+    private void ResetGitPath()
+    {
+        GitPath = "";
+    }
+
+    [RelayCommand]
+    private async Task DetectGitAsync()
+    {
+        _gitDetectCts?.Cancel();
+        _gitDetectCts?.Dispose();
+        var cts = _gitDetectCts = new CancellationTokenSource();
+
+        try
+        {
+            await Task.Delay(300, cts.Token);
+            var resolved = await Task.Run(() => GitService.ResolveGitPath(string.IsNullOrEmpty(GitPath) ? null : GitPath), cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+            GitDetectedPath = resolved;
+            var version = await GitService.TestGitAsync(resolved);
+            cts.Token.ThrowIfCancellationRequested();
+            GitFound = version != null;
+            GitVersion = version ?? "Not found";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            GitFound = false;
+            GitVersion = "Not found";
+            System.Diagnostics.Trace.TraceWarning("Git detection failed: {0}", ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenGitDownload()
+    {
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://git-scm.com") { UseShellExecute = true });
+    }
 
     partial void OnSelectedShellChanged(string value)
     {
@@ -321,6 +389,14 @@ public partial class SettingsViewModel : ObservableObject
         });
 
         _ = TestAllToolsAsync();
+    }
+
+    [RelayCommand]
+    private async Task RedetectAiToolsAsync()
+    {
+        _aiToolsLoaded = false;
+        AiTools.Clear();
+        await LoadAiToolsAsync();
     }
 
     [RelayCommand]

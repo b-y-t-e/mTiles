@@ -57,11 +57,12 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
 
     private async Task RefreshAllBranchesAsync()
     {
+        var gitPath = GitService.ResolveGitPath(_settingsService?.Settings.GitPath);
         foreach (var item in Workspaces.ToList())
         {
             try
             {
-                var branch = await GitService.GetBranchNameAsync(item.DirectoryPath);
+                var branch = await GitService.GetBranchNameAsync(item.DirectoryPath, gitPath);
                 if (branch != item.BranchName)
                     item.BranchName = branch;
             }
@@ -92,7 +93,8 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
         Workspaces.Insert(index, item);
         SelectedWorkspace = item;
 
-        try { item.BranchName = await GitService.GetBranchNameAsync(item.DirectoryPath); }
+        var gitPath = GitService.ResolveGitPath(_settingsService?.Settings.GitPath);
+        try { item.BranchName = await GitService.GetBranchNameAsync(item.DirectoryPath, gitPath); }
         catch (Exception ex) { Trace.TraceWarning("Branch lookup failed: {0}", ex.Message); }
     }
 
