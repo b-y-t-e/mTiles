@@ -10,6 +10,7 @@ public static class AppDefaults
     public const double FontSizeEpsilon = 0.01;
     public const double CheckSizeRatio = 1.4;
     public const double LogoFontSizeRatio = 1.2;
+    public const double SmallFontSizeRatio = 0.8;
 
     public const int LogRetentionDays = 7;
     public const string LogSubdirectory = "logs";

@@ -63,5 +63,6 @@ public partial class App : Application
         Resources["UiFontFamily"] = new FontFamily(s.FontFamily);
         Resources["UiFontSize"] = s.FontSize;
         Resources["LogoFontSize"] = s.FontSize * AppDefaults.LogoFontSizeRatio;
+        Resources["UiFontSizeSm"] = s.FontSize * AppDefaults.SmallFontSizeRatio;
     }
 }

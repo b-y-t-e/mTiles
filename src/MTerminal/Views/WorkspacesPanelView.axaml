@@ -30,6 +30,7 @@
                                            Foreground="{DynamicResource TextPrimary}" />
                                 <TextBlock Text="{Binding DirectoryPath}"
                                            Foreground="{DynamicResource TextMuted}"
+                                           FontSize="{DynamicResource UiFontSizeSm}"
                                            TextTrimming="CharacterEllipsis"
                                            Opacity="0.8" />
                             </StackPanel>
