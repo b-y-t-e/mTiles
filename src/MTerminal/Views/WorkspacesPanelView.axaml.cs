@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia;
@@ -9,6 +10,7 @@ using Avalonia.VisualTree;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using MTerminal.Models;
+using CommunityToolkit.Mvvm.Input;
 using MTerminal.ViewModels;
 
 namespace MTerminal.Views;
@@ -42,6 +44,16 @@ public partial class WorkspacesPanelView : UserControl
                     Header = "Show in Explorer",
                     Command = vm.OpenInFileManagerCommand,
                     CommandParameter = workspaceItem
+                },
+                new MenuItem
+                {
+                    Header = "Copy path",
+                    Command = new AsyncRelayCommand(async () =>
+                    {
+                        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                        if (clipboard != null)
+                            await clipboard.SetTextAsync(workspaceItem.DirectoryPath);
+                    })
                 },
                 new Separator(),
                 new MenuItem
