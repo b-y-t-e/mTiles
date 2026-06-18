@@ -55,7 +55,6 @@
 
                 <!-- Resizer -->
                 <GridSplitter x:Name="PanelSplitter" Grid.Column="1"
-                              Background="{DynamicResource BorderSubtle}"
                               ResizeDirection="Columns" />
 
                 <!-- Workspace content -->

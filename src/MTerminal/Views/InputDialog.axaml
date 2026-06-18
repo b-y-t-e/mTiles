@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MTerminal.Views.InputDialog"
+        Title=""
+        Width="360"
+        SizeToContent="Height"
+        MinWidth="280" MinHeight="200"
+        MaxHeight="420"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgElevated}"
+        ExtendClientAreaToDecorationsHint="True"
+        WindowDecorations="BorderOnly">
+
+    <Border Padding="16,12"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="1"
+            CornerRadius="{DynamicResource RadiusLg}">
+        <DockPanel>
+            <TextBlock x:Name="TitleText"
+                       DockPanel.Dock="Top"
+                       FontFamily="{DynamicResource UiFontFamily}"
+                       FontSize="{DynamicResource FontLg}"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimary}"
+                       Margin="0,0,0,10" />
+
+            <StackPanel DockPanel.Dock="Bottom"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="6"
+                        Margin="0,10,0,0">
+                <Button x:Name="CancelButton"
+                        Content="Cancel"
+                        MinWidth="70"
+                        Padding="12,5"
+                        MinHeight="0"
+                        Background="{DynamicResource BgSurface}"
+                        Foreground="{DynamicResource TextSecondary}"
+                        BorderBrush="{DynamicResource BorderSubtle}"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource RadiusMd}"
+                        FontFamily="{DynamicResource UiFontFamily}"
+                        FontSize="{DynamicResource UiFontSizeSm}"
+                        Cursor="Hand" />
+                <Button x:Name="OkButton"
+                        Content="OK"
+                        MinWidth="70"
+                        Padding="12,5"
+                        MinHeight="0"
+                        Background="{DynamicResource AccentDefault}"
+                        Foreground="{DynamicResource TextPrimary}"
+                        BorderThickness="0"
+                        CornerRadius="{DynamicResource RadiusMd}"
+                        FontFamily="{DynamicResource UiFontFamily}"
+                        FontSize="{DynamicResource UiFontSizeSm}"
+                        Cursor="Hand" />
+            </StackPanel>
+
+            <DockPanel>
+                <TextBox x:Name="InputBox"
+                         DockPanel.Dock="Top"
+                         FontFamily="{DynamicResource UiFontFamily}"
+                         FontSize="{DynamicResource UiFontSizeSm}"
+                         Background="{DynamicResource BgSurface}"
+                         Foreground="{DynamicResource TextPrimary}"
+                         CaretBrush="{DynamicResource TextSecondary}"
+                         SelectionBrush="{DynamicResource AccentDefault}"
+                         BorderBrush="{DynamicResource BorderSubtle}"
+                         BorderThickness="1"
+                         CornerRadius="{DynamicResource RadiusMd}"
+                         Padding="8,5"
+                         MinHeight="0"
+                         AcceptsReturn="False" />
+
+                <TextBlock x:Name="SuggestionsLabel"
+                           DockPanel.Dock="Top"
+                           Text="Recent tags"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           FontSize="{DynamicResource FontXs}"
+                           Foreground="{DynamicResource TextMuted}"
+                           Margin="0,10,0,4" />
+
+                <Border CornerRadius="{DynamicResource RadiusMd}"
+                        BorderBrush="{DynamicResource BorderSubtle}"
+                        BorderThickness="1"
+                        Background="{DynamicResource BgSurface}"
+                        MaxHeight="200">
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <ListBox x:Name="SuggestionsList"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Padding="2">
+                            <ListBox.Styles>
+                                <Style Selector="ListBoxItem">
+                                    <Setter Property="Padding" Value="8,4" />
+                                    <Setter Property="Margin" Value="0" />
+                                    <Setter Property="MinHeight" Value="0" />
+                                    <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+                                    <Setter Property="Cursor" Value="Hand" />
+                                </Style>
+                                <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                                    <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+                                </Style>
+                                <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+                                    <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+                                </Style>
+                            </ListBox.Styles>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}"
+                                               FontFamily="{DynamicResource UiFontFamily}"
+                                               FontSize="{DynamicResource UiFontSizeSm}"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </ScrollViewer>
+                </Border>
+            </DockPanel>
+        </DockPanel>
+    </Border>
+</Window>

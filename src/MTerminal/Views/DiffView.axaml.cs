@@ -114,10 +114,8 @@ public partial class DiffView : UserControl
 
             var splitter = new GridSplitter
             {
-                Width = 2,
                 ResizeBehavior = GridResizeBehavior.PreviousAndNext
             };
-            splitter.Bind(GridSplitter.BackgroundProperty, splitter.GetResourceObservable("BorderSubtle"));
 
             _splitGrid = new Grid
             {

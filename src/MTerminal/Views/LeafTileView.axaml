@@ -6,10 +6,7 @@
              x:Class="MTerminal.Views.LeafTileView"
              x:DataType="vm:LeafTileNodeViewModel">
 
-    <Border BorderBrush="{DynamicResource BorderSubtle}"
-            BorderThickness="{DynamicResource BorderThin}"
-            CornerRadius="{DynamicResource RadiusSm}"
-            ClipToBounds="True">
+    <Border ClipToBounds="True">
         <DockPanel>
             <!-- Active indicator strip -->
             <Border x:Name="ActiveStrip"
