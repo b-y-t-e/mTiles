@@ -16,7 +16,7 @@ dotnet run --project src/MTerminal
 - `ViewModels/` — MVVM z CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) i globalne style kontrolek (`Controls.axaml`). Kolory UI wyłącznie przez `DynamicResource`, terminal ANSI colors osobno w `TerminalTheme`
-- `Services/` — persystencja JSON (PersistenceService, SettingsService, WorkspaceService), detekcja shelli (ShellDetector), ThemeBridge, JsonDefaults, AppPaths, GitService/GitCommandRunner/GitDirectoryWatcher, DiffFormatter, FileHelper, TileFactory, TileTreeSerializer, UpdateService
+- `Services/` — persystencja JSON (PersistenceService, SettingsService, WorkspaceService), detekcja shelli (ShellDetector), ThemeBridge, JsonDefaults, AppPaths, GitService/GitCommandRunner/GitDirectoryWatcher, DiffFormatter, FileHelper, TileFactory, TileTreeSerializer, UpdateService, CrashHandler, FileLogWriter, LogTraceListener
 - `Views/PtyWriter.cs` — statyczny helper do zapisu do PTY przez refleksję (`TerminalView._ptyConnection.WriterStream`). Używany przez `TerminalKeyHandler` i startup script w `TerminalTileView`
 
 ## Kluczowe biblioteki
@@ -78,12 +78,19 @@ Dialog Settings jako modal overlay z responsywnym rozmiarem (50% szerokości / 8
 
 `AppTheme.axaml` nadpisuje `VerticalSmallScrollThumbScaleTransform` / `HorizontalSmallScrollThumbScaleTransform` na `none`. Bez tego Fluent theme skaluje thumb do 12.5% na maszynach z domyślnym Windows "auto-hide scrollbars".
 
+## Crash handling i logowanie
+
+`CrashHandler` przechwytuje wyjątki z trzech źródeł: `AppDomain.UnhandledException`, `TaskScheduler.UnobservedTaskException`, `Dispatcher.UIThread.UnhandledException`. Inicjalizowany w `Program.Main()` przed startem Avalonia.
+
+`FileLogWriter` zapisuje logi do `%APPDATA%/MTerminal/logs/mterminal-YYYY-MM-DD.log` z automatycznym czyszczeniem plików starszych niż 7 dni. `LogTraceListener` przekierowuje `Trace` do plików logów.
+
 ## Persystencja
 
 - `%APPDATA%/MTerminal/` (Windows) lub `~/.config/MTerminal/` (Linux)
 - `settings.json` — ustawienia (fonty, theme terminala, default shell, shell profiles, stan okna)
 - `workspaces.json` — lista workspace'ów (id, nazwa, ścieżka)
 - `workspaces/{id}.json` — layout tile'ów per workspace (shell name, user profile id, tile name)
+- `logs/` — logi aplikacji (dzienne pliki, retencja 7 dni)
 - Auto-save z debounce
 
 ## Konwencje
@@ -93,5 +100,14 @@ Dialog Settings jako modal overlay z responsywnym rozmiarem (50% szerokości / 8
 - **Note** (nie "editor") — tile z edytorem tekstu (AvaloniaEdit), TileContentType.Note
 - **Todo** — tile z listą zadań, TileContentType.Todo
 - ViewModele w `ViewModels/`, widoki w `Views/`
-- **Git** — tile z podglądem zmian (diff, commit, stash), TileContentType.Git
+- **Git** — tile z podglądem zmian (diff, commit, stash, context menu, discard), TileContentType.Git
 - Brak DI container — ręczne wstrzykiwanie w `App.axaml.cs`, `TileFactory` jako fabryka contentu tile'ów
+- **ConfirmAction pattern** — destructive actions (discard, remove workspace) używają `Func<string, Task<bool>>? ConfirmAction` w ViewModel, podpięty z View jako `MessageBox.Avalonia` dialog (YesNo)
+
+## Git tile — szczegóły
+
+`GitDirectoryWatcher` obserwuje zarówno `.git/` jak i cały katalog roboczy (worktree). Lista ignorowanych katalogów pobierana z `git ls-files --ignored` i aktualizowana przy każdym refresh. Handlery `Error` na watcherach logują przepełnienie bufora i triggerują refresh.
+
+`ReconcileChanges` w `GitTileViewModel` zachowuje stan checkboxów (`IsChecked`) między refresh'ami na podstawie klucza (FilePath + Status + mtime). Dwupoziomowy cache (currentState + previousState) chroni przed utratą stanu przy "migających" plikach. Przy pierwszym ładowaniu checkboxy = false, przy kolejnych refresh'ach nowe/zmienione pliki = true.
+
+Context menu (PPM) na liście plików: Show in Explorer, Open in default program, Copy filename/folder/filepath, Discard changes (z dialogiem potwierdzenia). Multi-select: PPM pokazuje tylko Discard z liczbą plików. Space toggle'uje checkboxy zaznaczonych plików.
