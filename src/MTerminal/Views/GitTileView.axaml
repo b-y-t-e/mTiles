@@ -450,10 +450,10 @@
                          IsVisible="{Binding ShowHistory}"
                          ItemsSource="{Binding CommitLog}"
                          SelectedItem="{Binding SelectedCommit}"
-                         Margin="4,2">
+                         Margin="4,0">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="m:CommitLogEntry">
-                            <DockPanel>
+                            <DockPanel Margin="{Binding $parent[ListBox].((vm:GitTileViewModel)DataContext).ItemPadding}">
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="{Binding Hash}"
                                            FontFamily="{DynamicResource UiFontFamily}"
