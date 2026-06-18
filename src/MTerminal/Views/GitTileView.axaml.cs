@@ -4,6 +4,9 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using MsBox.Avalonia;
+using MsBox.Avalonia.Enums;
 using MTerminal.Models;
 using MTerminal.ViewModels;
 
@@ -21,11 +24,15 @@ public partial class GitTileView : UserControl
         SizeChanged += OnSizeChanged;
         DataContextChanged += OnDataContextChanged;
         AddHandler(KeyDownEvent, OnFilesListKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        FilesListBox.AddHandler(Avalonia.Input.InputElement.PointerReleasedEvent, OnFilesPointerReleased,
+            Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
     private void OnFilesListKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Space) return;
+        if (!FilesListBox.IsFocused && !FilesListBox.IsKeyboardFocusWithin) return;
+        if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox) return;
         if (DataContext is not GitTileViewModel vm) return;
 
         var selected = FilesListBox.SelectedItems;
@@ -36,7 +43,39 @@ public partial class GitTileView : UserControl
         foreach (var file in files)
             file.IsChecked = newState;
 
-        vm.CommitCommand.NotifyCanExecuteChanged();
+        e.Handled = true;
+    }
+
+    private void OnFilesPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Right) return;
+        if (DataContext is not GitTileViewModel vm) return;
+
+        var item = (e.Source as Visual)?.FindAncestorOfType<ListBoxItem>();
+        if (item?.DataContext is not GitFileChange change) return;
+
+        var selected = FilesListBox.SelectedItems?.OfType<GitFileChange>().ToList() ?? [];
+        if (!selected.Contains(change))
+            selected = [change];
+
+        var isMulti = selected.Count > 1;
+        object discardParam = isMulti ? selected : change;
+        var discardHeader = isMulti ? $"Discard changes ({selected.Count} files)" : "Discard changes";
+
+        var menu = new ContextMenu();
+        if (!isMulti)
+        {
+            menu.Items.Add(new MenuItem { Header = "Show in Explorer", Command = vm.ShowInExplorerCommand, CommandParameter = change });
+            menu.Items.Add(new MenuItem { Header = "Open in default program", Command = vm.OpenInDefaultProgramCommand, CommandParameter = change });
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "Copy filename", Command = vm.CopyFilenameCommand, CommandParameter = change });
+            menu.Items.Add(new MenuItem { Header = "Copy folder", Command = vm.CopyFolderCommand, CommandParameter = change });
+            menu.Items.Add(new MenuItem { Header = "Copy filepath", Command = vm.CopyFilepathCommand, CommandParameter = change });
+            menu.Items.Add(new Separator());
+        }
+        menu.Items.Add(new MenuItem { Header = discardHeader, Command = vm.DiscardChangesCommand, CommandParameter = discardParam });
+
+        menu.Open(item);
         e.Handled = true;
     }
 
@@ -49,6 +88,17 @@ public partial class GitTileView : UserControl
 
         _subscribedVm = vm;
         vm.PropertyChanged += OnVmPropertyChanged;
+        vm.GetClipboard = () => TopLevel.GetTopLevel(this)?.Clipboard;
+        vm.ConfirmAction = async message =>
+        {
+            var window = TopLevel.GetTopLevel(this) as Window;
+            if (window == null) return true;
+
+            var box = MessageBoxManager.GetMessageBoxStandard(
+                "Confirm", message, ButtonEnum.YesNo, Icon.Question);
+            var result = await box.ShowWindowDialogAsync(window);
+            return result == ButtonResult.Yes;
+        };
 
         FontFamily = new FontFamily(vm.FontFamily);
         FontSize = vm.FontSize;

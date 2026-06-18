@@ -31,7 +31,7 @@ public sealed class GitService(string workingDirectory)
             return new GitStatusResult { IsGitRepo = false };
 
         var branchTask = _git.RunAsync("rev-parse --abbrev-ref HEAD", ct);
-        var statusTask = _git.RunAsync("status --porcelain", ct);
+        var statusTask = _git.RunAsync("-c core.quotePath=false status --porcelain -uall", ct);
         var logTask = _git.RunAsync("log --oneline -30", ct);
         var stashTask = _git.RunAsync("stash list", ct);
 
@@ -120,12 +120,29 @@ public sealed class GitService(string workingDirectory)
 
     public async Task StashPopAsync() => await _git.RunAsync("stash pop");
 
+    public async Task DiscardAsync(string filePath) =>
+        await _git.RunAsync($"checkout -- \"{filePath}\"");
+
     private async Task<string> ReadWorkingFileAsync(string relativePath)
     {
         var fullPath = Path.Combine(workingDirectory, relativePath);
         if (!File.Exists(fullPath)) return "";
         try { return await File.ReadAllTextAsync(fullPath); }
         catch { return ""; }
+    }
+
+    public async Task<HashSet<string>> GetIgnoredDirsAsync(CancellationToken ct = default)
+    {
+        var output = await _git.RunAsync("ls-files --others --ignored --exclude-standard --directory --no-empty-directory", ct);
+        var dirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.TrimEnd('\r');
+            if (!trimmed.EndsWith('/')) continue;
+            var fullPath = Path.GetFullPath(Path.Combine(_git.WorkingDirectory, trimmed));
+            dirs.Add(fullPath);
+        }
+        return dirs;
     }
 
     private static List<GitFileChange> ParseChanges(string statusOutput)
@@ -138,6 +155,7 @@ public sealed class GitService(string workingDirectory)
             if (change != null)
                 changes.Add(change);
         }
+        changes.Sort((a, b) => string.Compare(a.FilePath, b.FilePath, StringComparison.OrdinalIgnoreCase));
         return changes;
     }
 

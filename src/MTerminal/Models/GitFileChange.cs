@@ -11,6 +11,8 @@ public partial class GitFileChange : ObservableObject
 
     public string DisplayPath => OldFilePath != null ? $"{OldFilePath} → {FilePath}" : FilePath;
 
+    public DateTime SnapshotMtime { get; set; }
+
     [ObservableProperty]
-    private bool _isChecked = true;
+    private bool _isChecked;
 }

@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Avalonia;
+using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -48,7 +50,7 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     private bool _isGitRepo = true;
 
     [ObservableProperty]
-    private bool _allChecked = true;
+    private bool _allChecked;
 
     [ObservableProperty]
     private bool _showDiffPanel = true;
@@ -86,6 +88,8 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     private readonly GitService _gitService;
     private readonly GitDirectoryWatcher _watcher;
     private CancellationTokenSource? _refreshCts;
+    private Dictionary<string, (string Status, bool IsChecked, DateTime Mtime)> _previousState = new();
+    private bool _batchUpdate;
 
     public GitTileViewModel(string workingDirectory, SettingsService? settingsService = null)
     {
@@ -151,12 +155,12 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
             BranchName = status.BranchName;
 
             var oldSelected = SelectedChange?.FilePath;
-            Changes.Clear();
-            foreach (var change in status.Changes)
-                Changes.Add(change);
 
-            if (oldSelected != null)
-                SelectedChange = Changes.FirstOrDefault(c => c.FilePath == oldSelected);
+            ReconcileChanges(status.Changes);
+
+            SelectedChange = (oldSelected != null
+                ? Changes.FirstOrDefault(c => c.FilePath == oldSelected)
+                : null) ?? Changes.FirstOrDefault();
 
             CommitLog.Clear();
             foreach (var entry in status.CommitLog)
@@ -164,6 +168,7 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
 
             StashCount = status.StashCount;
 
+            _watcher.UpdateIgnoredDirs(await _gitService.GetIgnoredDirsAsync(ct));
             _watcher.Start();
         }
         catch (OperationCanceledException) { }
@@ -291,10 +296,109 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ToggleAllChecked()
     {
-        AllChecked = !AllChecked;
+        _batchUpdate = true;
+        var newState = !Changes.All(c => c.IsChecked);
         foreach (var change in Changes)
-            change.IsChecked = AllChecked;
+            change.IsChecked = newState;
+        _batchUpdate = false;
+        SyncAllChecked();
+    }
+
+    private void OnFileCheckedChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (!_batchUpdate && e.PropertyName == nameof(GitFileChange.IsChecked))
+            SyncAllChecked();
+    }
+
+    private void SyncAllChecked()
+    {
+        AllChecked = Changes.Count > 0 && Changes.All(c => c.IsChecked);
         CommitCommand.NotifyCanExecuteChanged();
+    }
+
+    public Func<IClipboard?>? GetClipboard { get; set; }
+    public Func<string, Task<bool>>? ConfirmAction { get; set; }
+
+    private string GetFullPath(GitFileChange change) =>
+        Path.GetFullPath(Path.Combine(_worktreePath, change.FilePath));
+
+    [RelayCommand]
+    private void ShowInExplorer(GitFileChange change)
+    {
+        var fullPath = GetFullPath(change);
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{fullPath}\"") { UseShellExecute = true });
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            Process.Start(new ProcessStartInfo("open", $"-R \"{fullPath}\"") { UseShellExecute = true });
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            Process.Start(new ProcessStartInfo("xdg-open", Path.GetDirectoryName(fullPath)!) { UseShellExecute = true });
+    }
+
+    [RelayCommand]
+    private async Task CopyFilename(GitFileChange change)
+    {
+        var clipboard = GetClipboard?.Invoke();
+        if (clipboard == null) return;
+        await clipboard.SetTextAsync(Path.GetFileName(change.FilePath));
+    }
+
+    [RelayCommand]
+    private async Task CopyFolder(GitFileChange change)
+    {
+        var clipboard = GetClipboard?.Invoke();
+        if (clipboard == null) return;
+        var dir = Path.GetDirectoryName(GetFullPath(change));
+        if (dir != null) await clipboard.SetTextAsync(dir);
+    }
+
+    [RelayCommand]
+    private async Task CopyFilepath(GitFileChange change)
+    {
+        var clipboard = GetClipboard?.Invoke();
+        if (clipboard == null) return;
+        await clipboard.SetTextAsync(GetFullPath(change));
+    }
+
+    [RelayCommand]
+    private async Task DiscardChanges(object parameter)
+    {
+        List<GitFileChange> files;
+        if (parameter is List<GitFileChange> list)
+            files = list;
+        else if (parameter is GitFileChange single)
+            files = [single];
+        else
+            return;
+
+        if (ConfirmAction != null)
+        {
+            var message = files.Count == 1
+                ? $"Discard changes to \"{files[0].FilePath}\"?"
+                : $"Discard changes to {files.Count} files?";
+            if (!await ConfirmAction(message)) return;
+        }
+
+        foreach (var file in files)
+        {
+            if (file.Status == "?")
+            {
+                var fullPath = GetFullPath(file);
+                if (File.Exists(fullPath)) File.Delete(fullPath);
+            }
+            else
+            {
+                await _gitService.DiscardAsync(file.FilePath);
+            }
+        }
+        await RefreshAsync();
+    }
+
+    [RelayCommand]
+    private void OpenInDefaultProgram(GitFileChange change)
+    {
+        var fullPath = GetFullPath(change);
+        if (!File.Exists(fullPath)) return;
+        Process.Start(new ProcessStartInfo(fullPath) { UseShellExecute = true });
     }
 
     partial void OnCommitMessageChanged(string value) => CommitCommand.NotifyCanExecuteChanged();
@@ -344,6 +448,46 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     private string FormatDiff(string rawDiff) =>
         DiffFormatter.StripHeader(DiffTrimIndent ? DiffFormatter.TrimCommonIndent(rawDiff) : rawDiff);
 
+    private void ReconcileChanges(List<GitFileChange> newChanges)
+    {
+        var currentState = new Dictionary<string, (string Status, bool IsChecked, DateTime Mtime)>();
+        foreach (var c in Changes)
+            currentState[c.FilePath] = (c.Status, c.IsChecked, c.SnapshotMtime);
+
+        foreach (var c in Changes)
+            c.PropertyChanged -= OnFileCheckedChanged;
+        Changes.Clear();
+
+        var isFirstLoad = currentState.Count == 0 && _previousState.Count == 0;
+        foreach (var change in newChanges)
+        {
+            var mtime = GetMtime(change.FilePath);
+            if (currentState.TryGetValue(change.FilePath, out var prev) && prev.Status == change.Status && prev.Mtime == mtime)
+                change.IsChecked = prev.IsChecked;
+            else if (_previousState.TryGetValue(change.FilePath, out var old) && old.Status == change.Status && old.Mtime == mtime)
+                change.IsChecked = old.IsChecked;
+            else if (!isFirstLoad)
+                change.IsChecked = true;
+
+            change.SnapshotMtime = mtime;
+            change.PropertyChanged += OnFileCheckedChanged;
+            Changes.Add(change);
+        }
+
+        SyncAllChecked();
+        _previousState = currentState;
+    }
+
+    private DateTime GetMtime(string relativePath)
+    {
+        try
+        {
+            var fullPath = Path.Combine(_worktreePath, relativePath);
+            return File.GetLastWriteTimeUtc(fullPath);
+        }
+        catch { return DateTime.MinValue; }
+    }
+
     private void OnGitDirectoryChanged()
     {
         Dispatcher.UIThread.Post(async () =>
@@ -355,6 +499,8 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        foreach (var c in Changes)
+            c.PropertyChanged -= OnFileCheckedChanged;
         if (_settingsService != null)
             _settingsService.SettingsChanged -= OnSettingsChanged;
         _watcher.Dispose();
