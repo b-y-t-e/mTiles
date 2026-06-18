@@ -12,10 +12,10 @@ dotnet run --project src/MTerminal
 ## Struktura
 
 - `src/MTerminal/` — jedyny projekt w solucji
-- `Models/` — DTO i modele danych (Workspace, TileNode, AppSettings, AppDefaults, ShellProfile, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool)
+- `Models/` — DTO i modele danych (Workspace, TileNode, AppSettings, AppDefaults, ShellProfile, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, WorkspaceItemViewModel)
 - `ViewModels/` — MVVM z CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
-- `Styles/` — design tokens (`AppTheme.axaml`) i globalne style kontrolek (`Controls.axaml`). Kolory UI wyłącznie przez `DynamicResource`, terminal ANSI colors osobno w `TerminalTheme`
+- `Styles/` — design tokens (`AppTheme.axaml`) i globalne style kontrolek (`Controls.axaml`, w tym GridSplitter). Kolory UI wyłącznie przez `DynamicResource`, terminal ANSI colors osobno w `TerminalTheme`
 - `Services/` — persystencja JSON (PersistenceService, SettingsService, WorkspaceService), detekcja shelli (ShellDetector), detekcja AI tools (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, GitService/GitCommandRunner/GitDirectoryWatcher, DiffFormatter, FileHelper, TileFactory, TileTreeSerializer, UpdateService, CrashHandler, FileLogWriter, LogTraceListener
 - `Views/PtyWriter.cs` — statyczny helper do zapisu do PTY przez refleksję (`TerminalView._ptyConnection.WriterStream`). Używany przez `TerminalKeyHandler` i startup script w `TerminalTileView`
 
@@ -124,9 +124,11 @@ Zakładka AI Tools w Settings wykrywa zainstalowane CLI AI coding tools i pozwal
 - **Note** (nie "editor") — tile z edytorem tekstu (AvaloniaEdit), TileContentType.Note
 - **Todo** — tile z listą zadań, TileContentType.Todo
 - ViewModele w `ViewModels/`, widoki w `Views/`
-- **Git** — tile z podglądem zmian (diff, commit, stash, context menu, discard), TileContentType.Git
+- **Git** — tile z podglądem zmian (diff, commit, stash, push, fetch, tags, undo, context menu, discard), TileContentType.Git
 - Brak DI container — ręczne wstrzykiwanie w `App.axaml.cs`, `TileFactory` jako fabryka contentu tile'ów
-- **ConfirmAction pattern** — destructive actions (discard, remove workspace) używają `Func<string, Task<bool>>? ConfirmAction` w ViewModel, podpięty z View jako `MessageBox.Avalonia` dialog (YesNo)
+- **ConfirmAction pattern** — destructive actions (discard, remove workspace, undo commit) używają `Func<string, Task<bool>>? ConfirmAction` w ViewModel, podpięty z View jako `MessageBox.Avalonia` dialog (YesNo)
+- **PromptInput pattern** — `Func<string, string, IEnumerable<string>?, Task<string?>>? PromptInput` w ViewModel, podpięty z View jako `InputDialog` (title + text input + suggestions list). Używany np. przy tworzeniu taga.
+- **ShowError pattern** — `Func<string, string, Task>? ShowError` w ViewModel, podpięty z View jako `MessageBox.Avalonia` (Ok). Używany przy błędach push/fetch/tag/undo.
 
 ## Git tile — szczegóły
 
@@ -135,3 +137,25 @@ Zakładka AI Tools w Settings wykrywa zainstalowane CLI AI coding tools i pozwal
 `ReconcileChanges` w `GitTileViewModel` zachowuje stan checkboxów (`IsChecked`) między refresh'ami na podstawie klucza (FilePath + Status + mtime). Dwupoziomowy cache (currentState + previousState) chroni przed utratą stanu przy "migających" plikach. Przy pierwszym ładowaniu checkboxy = false, przy kolejnych refresh'ach nowe/zmienione pliki = true.
 
 Context menu (PPM) na liście plików: Show in Explorer, Open in default program, Copy filename/folder/filepath, Discard changes (z dialogiem potwierdzenia). Multi-select: PPM pokazuje tylko Discard z liczbą plików. Space toggle'uje checkboxy zaznaczonych plików.
+
+Context menu (PPM) na liście commitów: Add tag..., Copy commit hash.
+
+**Push/Fetch/Undo:** Przyciski w tab barze Git tile. Push wykrywa upstream (brak → `push -u origin`). Fetch robi `fetch --all --prune`. Undo = `reset --soft HEAD~1`, dostępny tylko gdy ostatni commit jest lokalny (niepushowany). Wszystkie z error dialog.
+
+**Tags:** Wyświetlane w historii commitów (kolor `TagColor`). Tworzenie przez context menu → `InputDialog` z listą ostatnich tagów. Walidacja nazwy regexem `[a-zA-Z0-9._/\-]+`.
+
+**Unpushed commits:** Oznaczone `*` (kolor `DangerText`) w historii. Licznik `(N)` przy przycisku Push. Logika: `git log upstream..HEAD`.
+
+**Commit suggestions:** Popup przy polu commit message (ikona zegara). Top-3 najczęstsze + 10 ostatnich unikalnych z `git log --format=%s -50`.
+
+**`.mterminal/` filtering:** Setting `GitHideMTerminalDir` (default true) ukrywa pliki `.mterminal/` w liście zmian Git tile.
+
+**DiffFontSize:** Panel diff używa 80% rozmiaru fontu (`FontSize * 0.8`).
+
+## Workspace panel — branch names
+
+`WorkspaceItemViewModel` — wrapper na `Workspace` z `ObservableProperty BranchName`. Panel workspace'ów wyświetla branch name obok ścieżki (ikona SourceBranch + nazwa). `DispatcherTimer` co 30s odpytuje `GitService.GetBranchNameAsync` (statyczna metoda, tworzy tymczasowy `GitCommandRunner`). Dispose w `MainWindowViewModel.OnClosing`.
+
+## InputDialog
+
+Reusable modal dialog (`Views/InputDialog.axaml`): tytuł, TextBox z placeholder, opcjonalna lista sugestii (ListBox). Enter = OK, Escape = Cancel. Klik na sugestię wpisuje ją do TextBoxa. `ShowDialog<string?>` zwraca trimmed text lub null.
