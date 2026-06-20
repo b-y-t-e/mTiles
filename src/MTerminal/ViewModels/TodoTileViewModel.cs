@@ -1,9 +1,5 @@
-using System.Collections.ObjectModel;
-using System.Text.RegularExpressions;
-using Avalonia;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using MTerminal.Models;
 using MTerminal.Services;
 
@@ -11,9 +7,6 @@ namespace MTerminal.ViewModels;
 
 public partial class TodoTileViewModel : ObservableObject, IFileContent, IDisposable
 {
-    private static readonly Regex MdLineRegex = new(@"^(?:- )?\[([ xX])\] (.*)$", RegexOptions.Compiled);
-    private static readonly Regex ImageLinkRegex = new(@"\s*!\[[^\]]*\]\(([^)]+)\)\s*$", RegexOptions.Compiled);
-
     [ObservableProperty]
     private string _fontFamily;
 
@@ -21,12 +14,7 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
     private double _fontSize;
 
     [ObservableProperty]
-    private double _checkSize = 20.0;
-
-    [ObservableProperty]
-    private Thickness _itemPadding = new(2, 1);
-
-    public ObservableCollection<TodoItem> Items { get; } = [];
+    private string? _mdText;
 
     private string _filePath;
     private readonly SettingsService? _settingsService;
@@ -45,13 +33,9 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         var s = settingsService?.Settings;
         _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
         _fontSize = s?.FontSize ?? AppDefaults.FontSize;
-        UpdateSizeMetrics();
         _isLoading = true;
         LoadFromFile();
         _isLoading = false;
-
-        if (Items.Count == 0)
-            Items.Add(CreateItem());
 
         if (_settingsService != null)
             _settingsService.SettingsChanged += OnSettingsChanged;
@@ -59,11 +43,9 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         StartWatching();
     }
 
-    private void UpdateSizeMetrics()
+    partial void OnMdTextChanged(string? value)
     {
-        var scale = FontSize / AppDefaults.FontSize;
-        CheckSize = FontSize * AppDefaults.CheckSizeRatio;
-        ItemPadding = new Thickness(3 * scale, 2 * scale);
+        ScheduleSave();
     }
 
     private void OnSettingsChanged()
@@ -72,93 +54,7 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         if (s.FontFamily != FontFamily)
             FontFamily = s.FontFamily;
         if (Math.Abs(s.FontSize - FontSize) > AppDefaults.FontSizeEpsilon)
-        {
             FontSize = s.FontSize;
-            UpdateSizeMetrics();
-        }
-    }
-
-    public string InsertItemAfter(int index)
-    {
-        var item = CreateItem();
-        var insertAt = index + 1;
-
-        var firstDoneIdx = -1;
-        for (int i = 0; i < Items.Count; i++)
-        {
-            if (Items[i].IsDone) { firstDoneIdx = i; break; }
-        }
-
-        if (firstDoneIdx >= 0 && insertAt > firstDoneIdx)
-            insertAt = firstDoneIdx;
-
-        Items.Insert(insertAt, item);
-        ScheduleSave();
-        return item.Id;
-    }
-
-    [RelayCommand]
-    private void ToggleItem(string? id)
-    {
-        if (id == null) return;
-        var idx = -1;
-        for (int i = 0; i < Items.Count; i++)
-        {
-            if (Items[i].Id == id) { idx = i; break; }
-        }
-        if (idx < 0) return;
-
-        var item = Items[idx];
-        item.IsDone = !item.IsDone;
-        Items.RemoveAt(idx);
-
-        if (item.IsDone)
-        {
-            Items.Add(item);
-        }
-        else
-        {
-            var insertIdx = Items.Count;
-            for (int i = 0; i < Items.Count; i++)
-            {
-                if (Items[i].IsDone) { insertIdx = i; break; }
-            }
-            Items.Insert(insertIdx, item);
-        }
-
-        ScheduleSave();
-    }
-
-    [RelayCommand]
-    private void RemoveItem(string? id)
-    {
-        if (id == null) return;
-        for (int i = 0; i < Items.Count; i++)
-        {
-            if (Items[i].Id == id)
-            {
-                Items.RemoveAt(i);
-                if (Items.Count == 0)
-                    Items.Add(CreateItem());
-                ScheduleSave();
-                return;
-            }
-        }
-    }
-
-    public void OnItemTextChanged()
-    {
-        ScheduleSave();
-    }
-
-    private static TodoItem CreateItem(string text = "")
-    {
-        return new TodoItem
-        {
-            Id = Guid.NewGuid().ToString("N"),
-            Text = text,
-            IsDone = false
-        };
     }
 
     public void RenameFile(string newName)
@@ -174,7 +70,7 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
 
         _saveTimer?.Dispose();
         _saveTimer = null;
-        SaveToFile([.. Items], _filePath);
+        SaveToFile(_filePath);
 
         try
         {
@@ -202,64 +98,15 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         _hasPendingChanges = true;
         _saveTimer?.Dispose();
         _saveTimer = new Timer(_ =>
-            Dispatcher.UIThread.Post(() =>
-            {
-                var snapshot = Items.ToList();
-                var path = _filePath;
-                Task.Run(() =>
-                {
-                    SaveToFile(snapshot, path);
-                    _hasPendingChanges = false;
-                });
-            }), null, AppDefaults.SaveDebounceMs, Timeout.Infinite);
-    }
-
-    public void SetItemImage(string id, string absolutePath)
-    {
-        for (int i = 0; i < Items.Count; i++)
         {
-            if (Items[i].Id == id)
+            var text = MdText ?? "";
+            var path = _filePath;
+            Task.Run(() =>
             {
-                Items[i].ImagePath = absolutePath;
-                ScheduleSave();
-                return;
-            }
-        }
-    }
-
-    private List<TodoItem> ParseMarkdown(string[] lines)
-    {
-        var baseDir = Path.GetDirectoryName(_filePath) ?? ".";
-        var items = new List<TodoItem>();
-        foreach (var line in lines)
-        {
-            var match = MdLineRegex.Match(line);
-            if (match.Success)
-            {
-                var text = match.Groups[2].Value;
-                string? imagePath = null;
-
-                var imgMatch = ImageLinkRegex.Match(text);
-                if (imgMatch.Success)
-                {
-                    var imgFile = imgMatch.Groups[1].Value;
-                    var resolved = Path.IsPathRooted(imgFile)
-                        ? imgFile
-                        : Path.Combine(baseDir, imgFile);
-                    imagePath = resolved;
-                    text = text[..imgMatch.Index].TrimEnd();
-                }
-
-                items.Add(new TodoItem
-                {
-                    Id = Guid.NewGuid().ToString("N"),
-                    Text = text,
-                    IsDone = match.Groups[1].Value != " ",
-                    ImagePath = imagePath
-                });
-            }
-        }
-        return items;
+                SaveContent(text, path);
+                _hasPendingChanges = false;
+            });
+        }, null, AppDefaults.SaveDebounceMs, Timeout.Infinite);
     }
 
     private void LoadFromFile()
@@ -267,8 +114,7 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         if (!File.Exists(_filePath)) return;
         try
         {
-            foreach (var item in ParseMarkdown(File.ReadAllLines(_filePath)))
-                Items.Add(item);
+            MdText = File.ReadAllText(_filePath);
         }
         catch (Exception ex)
         {
@@ -276,22 +122,16 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         }
     }
 
-    private void SaveToFile(List<TodoItem> snapshot, string path)
+    private void SaveToFile(string path)
     {
-        var baseDir = Path.GetDirectoryName(path) ?? ".";
-        var lines = snapshot.Select(item =>
-        {
-            var line = $"[{(item.IsDone ? "x" : " ")}] {item.Text}";
-            if (!string.IsNullOrEmpty(item.ImagePath))
-            {
-                var relative = Path.GetRelativePath(baseDir, item.ImagePath);
-                line += $" ![]({relative.Replace('\\', '/')})";
-            }
-            return line;
-        });
+        SaveContent(MdText ?? "", path);
+    }
+
+    private void SaveContent(string text, string path)
+    {
         var w = _watcher;
         if (w != null) w.EnableRaisingEvents = false;
-        FileHelper.WriteWithRetry(path, p => File.WriteAllLines(p, lines));
+        FileHelper.WriteWithRetry(path, p => File.WriteAllText(p, text));
         if (w != null) w.EnableRaisingEvents = true;
     }
 
@@ -331,14 +171,8 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
         if (!File.Exists(_filePath)) return;
         try
         {
-            var newItems = ParseMarkdown(File.ReadAllLines(_filePath));
-
             _isLoading = true;
-            Items.Clear();
-            foreach (var item in newItems)
-                Items.Add(item);
-            if (Items.Count == 0)
-                Items.Add(CreateItem());
+            MdText = File.ReadAllText(_filePath);
             _isLoading = false;
         }
         catch (Exception ex)
@@ -354,7 +188,7 @@ public partial class TodoTileViewModel : ObservableObject, IFileContent, IDispos
             _settingsService.SettingsChanged -= OnSettingsChanged;
         _saveTimer?.Dispose();
         _reloadTimer?.Dispose();
-        SaveToFile([.. Items], _filePath);
+        SaveToFile(_filePath);
         _watcher?.Dispose();
     }
 }

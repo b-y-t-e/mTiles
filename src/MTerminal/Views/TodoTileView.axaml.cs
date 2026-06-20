@@ -1,339 +1,135 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
-using Avalonia;
+using System.Text.RegularExpressions;
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Input.Platform;
-using Avalonia.Media;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
-using MTerminal.Services;
+using Avalonia.Media.Imaging;
 using MTerminal.ViewModels;
+using TodoList.Avalonia.Model;
 
 namespace MTerminal.Views;
 
 public partial class TodoTileView : UserControl
 {
+    private static readonly Regex ImagePattern = new(@"!\[[^\]]*\]\(([^)]+)\)", RegexOptions.Compiled);
+
+    private EventHandler<ImagePastedEventArgs>? _imagePastedHandler;
+    private readonly ObservableCollection<TodoImageEntry> _images = [];
     private TodoTileViewModel? _subscribedVm;
+    private string? _baseDir;
 
     public TodoTileView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
-        AddHandler(KeyDownEvent, OnTunnelKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
-        AddHandler(TextBox.TextChangedEvent, OnTextChanged, Avalonia.Interactivity.RoutingStrategies.Bubble);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
-        if (_subscribedVm != null)
-            _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
+        Cleanup();
 
         if (DataContext is not TodoTileViewModel vm) return;
 
         _subscribedVm = vm;
+        _baseDir = Path.GetDirectoryName(vm.FilePath) ?? ".";
+        Editor.Images = _images;
+
         vm.PropertyChanged += OnVmPropertyChanged;
 
-        FontFamily = new FontFamily(vm.FontFamily);
-        FontSize = vm.FontSize;
+        SyncImagesWithMarkdown(vm.MdText);
 
-        AttachedToVisualTree -= OnceAttached;
-        AttachedToVisualTree += OnceAttached;
-    }
-
-    private void OnceAttached(object? s, VisualTreeAttachmentEventArgs args)
-    {
-        AttachedToVisualTree -= OnceAttached;
-        if (_subscribedVm?.Items.Count > 0)
-            Dispatcher.UIThread.Post(() => FocusItemAt(0), DispatcherPriority.Input);
-    }
-
-    private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (DataContext is not TodoTileViewModel vm) return;
-        if (e.Source is not TextBox tb || !tb.Classes.Contains("todo-inline")) return;
-
-        var id = tb.Tag as string;
-        if (id == null) return;
-
-        if (e.Key == Key.Enter)
+        _imagePastedHandler = (_, args) =>
         {
-            var idx = IndexOfItem(vm, id);
-            if (idx < 0) return;
-
-            var newId = vm.InsertItemAfter(idx);
-            Dispatcher.UIThread.Post(() => FocusItemById(newId), DispatcherPriority.Background);
-            e.Handled = true;
-        }
-        else if ((e.Key == Key.Back || e.Key == Key.Delete) && string.IsNullOrEmpty(tb.Text))
-        {
-            var idx = IndexOfItem(vm, id);
-            if (idx < 0 || vm.Items.Count <= 1) return;
-
-            var focusIdx = e.Key == Key.Back && idx > 0 ? idx - 1 : Math.Min(idx, vm.Items.Count - 2);
-            vm.RemoveItemCommand.Execute(id);
-            FocusItemAt(focusIdx, moveCursorToEnd: true);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Up)
-        {
-            var idx = IndexOfItem(vm, id);
-            if (idx > 0) FocusItemAt(idx - 1);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Down)
-        {
-            var idx = IndexOfItem(vm, id);
-            if (idx >= 0 && idx < vm.Items.Count - 1) FocusItemAt(idx + 1);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Home && e.KeyModifiers == KeyModifiers.Control)
-        {
-            FocusItemAt(0);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.End && e.KeyModifiers == KeyModifiers.Control)
-        {
-            FocusItemAt(vm.Items.Count - 1);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.PageUp)
-        {
-            var idx = IndexOfItem(vm, id);
-            FocusItemAt(Math.Max(0, idx - 10));
-            e.Handled = true;
-        }
-        else if (e.Key == Key.PageDown)
-        {
-            var idx = IndexOfItem(vm, id);
-            FocusItemAt(Math.Min(vm.Items.Count - 1, idx + 10));
-            e.Handled = true;
-        }
-        else if (e.Key == Key.V && e.KeyModifiers == KeyModifiers.Control)
-        {
-            HandleImagePaste(e, vm, id);
-        }
-    }
-
-    private async void HandleImagePaste(KeyEventArgs e, TodoTileViewModel vm, string id)
-    {
-        e.Handled = true;
-        try
-        {
-            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-            if (clipboard == null) return;
-
-            var bitmap = await ImagePasteService.TryGetClipboardBitmapAsync(clipboard);
-            if (bitmap == null)
+            Directory.CreateDirectory(_baseDir);
+            var fileName = $"img_{Guid.NewGuid():N}.png";
+            var fullPath = Path.Combine(_baseDir, fileName);
+            try
             {
-                var text = await clipboard.TryGetTextAsync();
-                if (text == null) return;
-
-                var lines = text.Split('\n', StringSplitOptions.None);
-                if (lines.Length > 1 || ImagePasteService.ContainsImageLink(text))
-                    PasteMultiline(vm, id, lines);
-                else
-                    PasteSingleLine(id, text);
-                return;
+                args.Bitmap.Save(fullPath);
+                args.NewKey = fileName;
+                _images.Add(new TodoImageEntry(fileName, args.Bitmap));
             }
-
-            using (bitmap)
+            catch (Exception ex)
             {
-                var dir = Path.GetDirectoryName(vm.FilePath) ?? ".";
-                var fileName = ImagePasteService.SaveBitmapToDirectory(bitmap, dir);
-                vm.SetItemImage(id, Path.Combine(dir, fileName));
+                System.Diagnostics.Trace.TraceWarning("TodoTile image save failed: {0}", ex.Message);
             }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning("TodoTile paste failed: {0}", ex.Message);
-        }
-    }
-
-    private void PasteMultiline(TodoTileViewModel vm, string id, string[] lines)
-    {
-        var idx = IndexOfItem(vm, id);
-        if (idx < 0) return;
-
-        var todoDir = Path.GetDirectoryName(vm.FilePath) ?? ".";
-
-        var tb = FindTextBoxByTag(id);
-        var current = tb?.Text ?? "";
-        var caret = tb?.CaretIndex ?? current.Length;
-        int selStart = tb?.SelectionStart ?? caret;
-        int selEnd = tb?.SelectionEnd ?? caret;
-        int from = Math.Min(selStart, selEnd);
-        int to = Math.Max(selStart, selEnd);
-        if (selStart == selEnd) { from = caret; to = caret; }
-
-        var before = current[..from];
-        var after = current[to..];
-
-        var firstLine = lines[0].TrimEnd('\r');
-
-        if (ImagePasteService.ImageLineRegex.IsMatch(firstLine))
-        {
-            var imgPath = ImagePasteService.ResolveAndCopyImage(firstLine, todoDir);
-            if (imgPath != null)
-                vm.SetItemImage(vm.Items[idx].Id, imgPath);
-        }
-        else if (!string.IsNullOrWhiteSpace(firstLine) || !string.IsNullOrEmpty(before))
-        {
-            vm.Items[idx].Text = before + firstLine;
-        }
-
-        var lastItemId = vm.Items[idx].Id;
-        var insertAt = idx + 1;
-        string? lastNewId = null;
-
-        for (int i = 1; i < lines.Length; i++)
-        {
-            var lineText = lines[i].TrimEnd('\r');
-            var isLast = i == lines.Length - 1;
-            var isImage = ImagePasteService.ImageLineRegex.IsMatch(lineText);
-
-            if (isLast && !string.IsNullOrEmpty(after) && !isImage)
-                lineText += after;
-
-            if (isImage)
-            {
-                var imgPath = ImagePasteService.ResolveAndCopyImage(lineText, todoDir);
-                if (imgPath != null)
-                    PasteImageToItem(vm, imgPath, ref lastItemId, ref insertAt, ref lastNewId);
-            }
-            else if (!string.IsNullOrWhiteSpace(lineText))
-            {
-                lastNewId = vm.InsertItemAfter(insertAt - 1);
-                var newIdx = IndexOfItem(vm, lastNewId);
-                if (newIdx >= 0)
-                {
-                    vm.Items[newIdx].Text = lineText;
-                    lastItemId = lastNewId;
-                    insertAt = newIdx + 1;
-                }
-            }
-        }
-
-        if (!string.IsNullOrEmpty(after) && lines.Length > 1
-            && ImagePasteService.ImageLineRegex.IsMatch(lines[^1].TrimEnd('\r')))
-        {
-            lastNewId = vm.InsertItemAfter(insertAt - 1);
-            var newIdx = IndexOfItem(vm, lastNewId);
-            if (newIdx >= 0)
-                vm.Items[newIdx].Text = after;
-        }
-
-        if (lastNewId != null)
-            Dispatcher.UIThread.Post(() => FocusItemById(lastNewId), DispatcherPriority.Background);
-    }
-
-    private static void PasteImageToItem(
-        TodoTileViewModel vm, string imgPath,
-        ref string lastItemId, ref int insertAt, ref string? lastNewId)
-    {
-        var lastIdx = IndexOfItem(vm, lastItemId);
-        if (lastIdx >= 0 && string.IsNullOrEmpty(vm.Items[lastIdx].ImagePath))
-        {
-            vm.SetItemImage(lastItemId, imgPath);
-        }
-        else
-        {
-            lastNewId = vm.InsertItemAfter(insertAt - 1);
-            var newIdx = IndexOfItem(vm, lastNewId);
-            if (newIdx >= 0)
-            {
-                vm.SetItemImage(lastNewId, imgPath);
-                lastItemId = lastNewId;
-                insertAt = newIdx + 1;
-            }
-        }
-    }
-
-    private void PasteSingleLine(string id, string text)
-    {
-        var tb = FindTextBoxByTag(id);
-        if (tb == null) return;
-
-        var selStart = tb.SelectionStart;
-        var selEnd = tb.SelectionEnd;
-        var current = tb.Text ?? "";
-
-        if (selStart != selEnd)
-        {
-            var from = Math.Min(selStart, selEnd);
-            var to = Math.Max(selStart, selEnd);
-            tb.Text = current[..from] + text + current[to..];
-            tb.CaretIndex = from + text.Length;
-        }
-        else
-        {
-            var caret = tb.CaretIndex;
-            tb.Text = current.Insert(caret, text);
-            tb.CaretIndex = caret + text.Length;
-        }
-    }
-
-    private static int IndexOfItem(TodoTileViewModel vm, string id)
-    {
-        for (int i = 0; i < vm.Items.Count; i++)
-            if (vm.Items[i].Id == id) return i;
-        return -1;
-    }
-
-    private void FocusItemById(string id)
-    {
-        var tb = FindTextBoxByTag(id);
-        tb?.Focus();
-    }
-
-    private void FocusItemAt(int index, bool moveCursorToEnd = false)
-    {
-        if (DataContext is not TodoTileViewModel vm) return;
-        if (index < 0 || index >= vm.Items.Count) return;
-
-        var id = vm.Items[index].Id;
-        Dispatcher.UIThread.Post(() =>
-        {
-            var tb = FindTextBoxByTag(id);
-            if (tb != null)
-            {
-                tb.Focus();
-                if (moveCursorToEnd)
-                    tb.CaretIndex = tb.Text?.Length ?? 0;
-            }
-        }, DispatcherPriority.Input);
-    }
-
-    private TextBox? FindTextBoxByTag(string id)
-    {
-        foreach (var tb in ItemsList.GetVisualDescendants().OfType<TextBox>())
-        {
-            if (tb.Tag is string tag && tag == id)
-                return tb;
-        }
-        return null;
-    }
-
-    private void OnTextChanged(object? sender, TextChangedEventArgs e)
-    {
-        if (e.Source is TextBox tb && tb.Classes.Contains("todo-inline"))
-            _subscribedVm?.OnItemTextChanged();
+        };
+        Editor.ImagePasted += _imagePastedHandler;
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (sender is not TodoTileViewModel vm) return;
+        if (e.PropertyName == nameof(TodoTileViewModel.MdText))
+            SyncImagesWithMarkdown(_subscribedVm?.MdText);
+    }
 
-        Dispatcher.UIThread.Post(() =>
+    protected override void OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
+    {
+        Cleanup();
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void Cleanup()
+    {
+        if (_subscribedVm != null)
         {
-            switch (e.PropertyName)
+            _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
+            _subscribedVm = null;
+        }
+
+        if (_imagePastedHandler != null)
+        {
+            Editor.ImagePasted -= _imagePastedHandler;
+            _imagePastedHandler = null;
+        }
+
+        DisposeImages();
+    }
+
+    private void SyncImagesWithMarkdown(string? markdown)
+    {
+        var activeKeys = new HashSet<string>();
+        if (!string.IsNullOrEmpty(markdown))
+        {
+            foreach (Match match in ImagePattern.Matches(markdown))
+                activeKeys.Add(match.Groups[1].Value);
+        }
+
+        for (int i = _images.Count - 1; i >= 0; i--)
+        {
+            if (!activeKeys.Contains(_images[i].Key))
             {
-                case nameof(TodoTileViewModel.FontFamily):
-                    FontFamily = new FontFamily(vm.FontFamily);
-                    break;
-                case nameof(TodoTileViewModel.FontSize):
-                    FontSize = vm.FontSize;
-                    break;
+                _images[i].Bitmap?.Dispose();
+                _images.RemoveAt(i);
             }
-        });
+        }
+
+        if (_baseDir == null) return;
+
+        foreach (var key in activeKeys)
+        {
+            if (_images.Any(i => i.Key == key)) continue;
+
+            var fullPath = Path.IsPathRooted(key) ? key : Path.Combine(_baseDir, key);
+            if (!File.Exists(fullPath)) continue;
+
+            try
+            {
+                _images.Add(new TodoImageEntry(key, new Bitmap(fullPath)));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceWarning("TodoTile image load failed: {0}", ex.Message);
+            }
+        }
+    }
+
+    private void DisposeImages()
+    {
+        // Clear collection first so the control removes references from _imageCache,
+        // then dispose the bitmaps (avoids use-after-dispose in the control's renderer).
+        var toDispose = _images.ToList();
+        _images.Clear();
+        foreach (var entry in toDispose)
+            entry.Bitmap?.Dispose();
     }
 }
