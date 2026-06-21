@@ -24,6 +24,7 @@
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <ProjectReference Include="..\..\..\Iciclecreek.Avalonia.Terminal\src\Iciclecreek.Avalonia.TerminalWindow\Iciclecreek.Avalonia.Terminal.csproj" />
     <ProjectReference Include="..\..\..\TodoListControl\TodoList.Avalonia\TodoList.Avalonia.csproj" />
+    <ProjectReference Include="..\..\..\Notepad.Avalonia\Notepad.Avalonia\Notepad.Avalonia.csproj" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.*" />
     <PackageReference Include="AvaloniaEdit.TextMate" Version="12.0.*" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />

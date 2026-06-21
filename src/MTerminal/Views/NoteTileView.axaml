@@ -1,7 +1,18 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MTerminal.ViewModels"
+             xmlns:note="using:Notepad.Avalonia.Controls"
              x:Class="MTerminal.Views.NoteTileView"
              x:DataType="vm:NoteTileViewModel">
-    <!-- TextEditor created in code-behind for caching -->
+
+    <note:NoteEditor x:Name="Editor"
+                     MarkdownText="{Binding MdText, Mode=TwoWay}"
+                     DefaultFontName="{Binding FontFamily}"
+                     DefaultFontSize="{Binding FontSize}"
+                     ColorTheme="None"
+                     BackgroundBrush="{DynamicResource BgBase}"
+                     Foreground="{DynamicResource TextPrimary}"
+                     SelectionBrush="{DynamicResource AccentDefault}"
+                     CaretBrush="{DynamicResource TextSecondary}"
+                     ImageDisplay="Block" />
 </UserControl>

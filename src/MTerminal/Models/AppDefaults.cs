@@ -18,6 +18,5 @@ public static class AppDefaults
     public const int SaveDebounceMs = 1000;
     public const int SettingsDebounceMs = 500;
     public const int WatcherDebounceMs = 500;
-    public const int NoteSaveDebounceMs = 2000;
     public const int FileRetryDelayMs = 500;
 }
