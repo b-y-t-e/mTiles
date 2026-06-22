@@ -5,22 +5,19 @@
              x:Class="MTerminal.Views.TodoTileView"
              x:DataType="vm:TodoTileViewModel">
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollBarVisibility="Disabled">
-        <todo:TodoListEditor x:Name="Editor"
-                             MarkdownText="{Binding MdText, Mode=TwoWay}"
-                             DefaultFontName="{Binding FontFamily}"
-                             DefaultFontSize="{Binding FontSize}"
-                             ColorTheme="None"
-                             BackgroundBrush="{DynamicResource BgBase}"
-                             Foreground="{DynamicResource TextPrimary}"
-                             CheckedForeground="{DynamicResource TextMuted}"
-                             SelectionBrush="{DynamicResource AccentDefault}"
-                             CaretBrush="{DynamicResource TextSecondary}"
-                             CheckboxCheckedBrush="{DynamicResource AccentDefault}"
-                             CheckboxUncheckedBrush="{DynamicResource BgElevated}"
-                             CheckboxBorderBrush="{DynamicResource BorderSubtle}"
-                             CheckmarkBrush="{DynamicResource TextPrimary}"
-                             ImageDisplay="Block" />
-    </ScrollViewer>
+    <todo:TodoListEditor x:Name="Editor"
+                         MarkdownText="{Binding MdText, Mode=TwoWay}"
+                         DefaultFontName="{Binding FontFamily}"
+                         DefaultFontSize="{Binding FontSize}"
+                         ColorTheme="None"
+                         BackgroundBrush="{DynamicResource BgBase}"
+                         Foreground="{DynamicResource TextPrimary}"
+                         CheckedForeground="{DynamicResource TextMuted}"
+                         SelectionBrush="{DynamicResource AccentDefault}"
+                         CaretBrush="{DynamicResource TextSecondary}"
+                         CheckboxCheckedBrush="{DynamicResource AccentDefault}"
+                         CheckboxUncheckedBrush="{DynamicResource BgElevated}"
+                         CheckboxBorderBrush="{DynamicResource BorderSubtle}"
+                         CheckmarkBrush="{DynamicResource TextPrimary}"
+                         ImageDisplay="Block" />
 </UserControl>

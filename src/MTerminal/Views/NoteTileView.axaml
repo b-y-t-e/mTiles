@@ -5,17 +5,14 @@
              x:Class="MTerminal.Views.NoteTileView"
              x:DataType="vm:NoteTileViewModel">
 
-    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                  VerticalScrollBarVisibility="Auto">
-        <note:NoteEditor x:Name="Editor"
-                         MarkdownText="{Binding MdText, Mode=TwoWay}"
-                         DefaultFontName="{Binding FontFamily}"
-                         DefaultFontSize="{Binding FontSize}"
-                         ColorTheme="None"
-                         BackgroundBrush="{DynamicResource BgBase}"
-                         Foreground="{DynamicResource TextPrimary}"
-                         SelectionBrush="{DynamicResource AccentDefault}"
-                         CaretBrush="{DynamicResource TextSecondary}"
-                         ImageDisplay="Block" />
-    </ScrollViewer>
+    <note:NoteEditor x:Name="Editor"
+                     MarkdownText="{Binding MdText, Mode=TwoWay}"
+                     DefaultFontName="{Binding FontFamily}"
+                     DefaultFontSize="{Binding FontSize}"
+                     ColorTheme="None"
+                     BackgroundBrush="{DynamicResource BgBase}"
+                     Foreground="{DynamicResource TextPrimary}"
+                     SelectionBrush="{DynamicResource AccentDefault}"
+                     CaretBrush="{DynamicResource TextSecondary}"
+                     ImageDisplay="Block" />
 </UserControl>

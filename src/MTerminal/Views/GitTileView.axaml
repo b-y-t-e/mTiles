@@ -271,7 +271,7 @@
                     DockPanel.Dock="Bottom"
                     BorderBrush="{DynamicResource BorderSubtle}"
                     BorderThickness="0,1,0,0"
-                    Padding="8,6"
+                    Padding="8,8"
                     IsVisible="{Binding IsGitRepo}">
                 <StackPanel Spacing="4"
                             IsVisible="{Binding !ShowHistory}">

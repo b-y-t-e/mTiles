@@ -24,24 +24,28 @@ public static class DirectLauncher
         IReadOnlyList<string> commands, ShellProfile shell, bool autoRelaunch = true)
     {
         var chainStart = Environment.TickCount64;
+        var success = false;
 
         for (var i = 0; i < commands.Count; i++)
         {
             var (exe, args) = WrapCommand(commands[i], shell);
             await terminal.LaunchProcess(workingDir, exe, args);
 
-            if (i < commands.Count - 1)
+            var exited = await WaitForProcessExit(terminal, FallbackTimeoutMs);
+            if (!exited)
             {
-                var exited = await WaitForProcessExit(terminal, FallbackTimeoutMs);
-                if (!exited)
-                    break;
-
-                try { terminal.Kill(); } catch { }
-                await Task.Delay(200);
-                continue;
+                success = true;
+                break;
             }
 
-            break;
+            try { terminal.Kill(); } catch { }
+            await Task.Delay(200);
+        }
+
+        if (!success)
+        {
+            await terminal.LaunchProcess(workingDir, shell.ExecutablePath, shell.Args);
+            return;
         }
 
         if (autoRelaunch)

@@ -76,19 +76,10 @@ public sealed class SettingsService
         var dirty = false;
         foreach (var profile in defaults)
         {
-            var existing = Settings.ShellProfiles
-                .FirstOrDefault(p => p.Name.Equals(profile.Name, StringComparison.OrdinalIgnoreCase));
-            if (existing != null)
-            {
-                if (existing.StartupScript != profile.StartupScript ||
-                    existing.FallbackScript != profile.FallbackScript)
-                {
-                    existing.StartupScript = profile.StartupScript;
-                    existing.FallbackScript = profile.FallbackScript;
-                    dirty = true;
-                }
+            var exists = Settings.ShellProfiles
+                .Any(p => p.Name.Equals(profile.Name, StringComparison.OrdinalIgnoreCase));
+            if (exists)
                 continue;
-            }
             Settings.ShellProfiles.Add(profile);
             dirty = true;
         }
