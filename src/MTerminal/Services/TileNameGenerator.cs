@@ -44,7 +44,7 @@ public static class TileNameGenerator
         {
             var adj = Adjectives[Random.Shared.Next(Adjectives.Length)];
             var animal = Animals[Random.Shared.Next(Animals.Length)];
-            var name = $"Terminal#{adj} {animal}";
+            var name = $"Terminal#{adj}{animal}";
             if (!usedNames.Contains(name))
                 return name;
         }
@@ -53,7 +53,7 @@ public static class TileNameGenerator
         foreach (var adj in Adjectives)
         foreach (var animal in Animals)
         {
-            var name = $"Terminal#{adj} {animal}";
+            var name = $"Terminal#{adj}{animal}";
             if (!usedNames.Contains(name))
                 return name;
         }
