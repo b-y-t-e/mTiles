@@ -73,14 +73,13 @@ public sealed class TileFactory
             git.ShowDiffPanel = el.GetBoolean();
     }
 
-    public static string AllocateTileName(TileContentType type, ref int terminalCount, ref int noteCount, ref int todoCount, ref int gitCount)
+    public static string AllocateTileName(TileContentType type, ref int noteCount, ref int todoCount, ref int gitCount)
     {
         return type switch
         {
-            TileContentType.Terminal => $"Terminal #{++terminalCount}",
-            TileContentType.Note => $"Note #{++noteCount}",
-            TileContentType.Todo => $"Todo #{++todoCount}",
-            TileContentType.Git => $"Git #{++gitCount}",
+            TileContentType.Note => $"Note#{++noteCount}",
+            TileContentType.Todo => $"Todo#{++todoCount}",
+            TileContentType.Git => $"Git#{++gitCount}",
             TileContentType.Empty => "",
             _ => type.ToString()
         };

@@ -29,10 +29,10 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private DateTime _detectionCacheTime;
     private static readonly TimeSpan DetectionCacheTtl = TimeSpan.FromSeconds(30);
 
-    private int _terminalCount;
     private int _noteCount;
     private int _todoCount;
     private int _gitCount;
+    private readonly HashSet<string> _usedTerminalNames = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly Regex TileNumberRegex = new(@"#(\d+)$", RegexOptions.Compiled);
 
@@ -166,8 +166,16 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         }
     }
 
-    private string AllocateTileName(TileContentType type) =>
-        TileFactory.AllocateTileName(type, ref _terminalCount, ref _noteCount, ref _todoCount, ref _gitCount);
+    private string AllocateTileName(TileContentType type)
+    {
+        if (type == TileContentType.Terminal)
+        {
+            var name = TileNameGenerator.Generate(_usedTerminalNames);
+            _usedTerminalNames.Add(name);
+            return name;
+        }
+        return TileFactory.AllocateTileName(type, ref _noteCount, ref _todoCount, ref _gitCount);
+    }
 
     private void InitCountersFromDto(TileNode? node)
     {
@@ -176,18 +184,23 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         {
             if (node.TileName != null)
             {
-                var match = TileNumberRegex.Match(node.TileName);
-                if (match.Success)
+                if (node.ContentType == TileContentType.Terminal)
                 {
-                    var num = int.Parse(match.Groups[1].Value);
-                    if (node.ContentType == TileContentType.Terminal)
-                        _terminalCount = Math.Max(_terminalCount, num);
-                    else if (node.ContentType == TileContentType.Note)
-                        _noteCount = Math.Max(_noteCount, num);
-                    else if (node.ContentType == TileContentType.Todo)
-                        _todoCount = Math.Max(_todoCount, num);
-                    else if (node.ContentType == TileContentType.Git)
-                        _gitCount = Math.Max(_gitCount, num);
+                    _usedTerminalNames.Add(node.TileName);
+                }
+                else
+                {
+                    var match = TileNumberRegex.Match(node.TileName);
+                    if (match.Success)
+                    {
+                        var num = int.Parse(match.Groups[1].Value);
+                        if (node.ContentType == TileContentType.Note)
+                            _noteCount = Math.Max(_noteCount, num);
+                        else if (node.ContentType == TileContentType.Todo)
+                            _todoCount = Math.Max(_todoCount, num);
+                        else if (node.ContentType == TileContentType.Git)
+                            _gitCount = Math.Max(_gitCount, num);
+                    }
                 }
             }
         }
