@@ -64,17 +64,21 @@ Refleksja na PTY stream wyekstrahowana do `PtyWriter` (statyczny helper, wspóln
 
 ## Shell Profiles
 
-Użytkownik definiuje profile shella w Settings → zakładka Profiles. Każdy `UserShellProfile` ma: `Id` (GUID), `Name`, `ShellName` (referencja do wykrytego shella), `StartupScript` (komendy wysyłane do PTY po starcie), `RequiredAiToolBinaryName` (opcjonalny — binary name narzędzia AI wymaganego do wyświetlenia profilu).
+Użytkownik definiuje profile shella w Settings → zakładka Profiles. Każdy `UserShellProfile` ma: `Id` (GUID), `Name`, `ShellName` (referencja do wykrytego shella), `StartupScript` (komendy wysyłane do PTY po starcie), `FallbackScript` (uruchamiany gdy StartupScript zfailuje), `RequiredAiToolBinaryName` (opcjonalny — binary name narzędzia AI wymaganego do wyświetlenia profilu).
+
+**Seed domyślnych profili:** `SettingsService.SeedDefaultProfiles()` dodaje 4 profile (Claude Code, OpenCode, Codex, Pi Agent) jeśli nie istnieje profil o takiej nazwie (case-insensitive). Nigdy nie nadpisuje istniejących profili.
 
 **Filtrowanie profili:** Profil jest widoczny na empty tile tylko jeśli:
 - `RequiredAiToolBinaryName` jest puste LUB narzędzie AI jest zainstalowane (`AiToolDetector.Detect`)
 
 Filtrowanie realizowane w `WorkspaceViewModel.GetAvailableProfiles()` z cache (30s TTL) na wyniki `AiToolDetector.Detect()`.
 
+**DirectLauncher** (`Views/DirectLauncher.cs`): gdy profil ma `FallbackScript` → `IsDirectLaunch = true`. Komendy uruchamiane przez `shell -c "command"` (nie interaktywnie). Chain: startup → fail (<5s) → fallback → fail → normalny interaktywny shell. Jeśli komenda przeżyje >5s → sukces → auto-relaunch po wyjściu (gdy lifetime >10s). Bez `FallbackScript` → klasyczny tryb: shell startuje interaktywnie, startup script wpisywany przez `PtyWriter`.
+
 Flow tworzenia terminala z profilem:
 1. Empty tile → klik Terminal → jeśli są profile, pojawia się ProfileChooser (Back / Default / przyciski profili)
 2. Wybór profilu → `TileFactory.CreateContent(..., UserShellProfile)` → `ShellDetector.ResolveFromUserProfile()` → `TerminalTileViewModel` z shellem + startup scriptem
-3. Po `LaunchProcess` w `TerminalTileView`, `ShellReady` event triggeruje wysłanie startup scriptu linia po linii przez `PtyWriter`
+3. `IsDirectLaunch` → `DirectLauncher.LaunchWithFallback()`, else → `PtyWriter.AttachStartupScript()` + `LaunchProcess`
 
 Persystencja profilu w layout: `TileNode.UserProfileId` → przy deserializacji `TileFactory.CreateTerminalFromDto` szuka profilu po Id w `AppSettings.ShellProfiles`. Jeśli profil usunięty — graceful fallback na `ShellName`.
 

@@ -19,5 +19,7 @@
                          CheckboxUncheckedBrush="{DynamicResource BgElevated}"
                          CheckboxBorderBrush="{DynamicResource BorderSubtle}"
                          CheckmarkBrush="{DynamicResource TextPrimary}"
+                         ScrollTrackBrush="Transparent"
+                         ScrollThumbBrush="{DynamicResource BorderSubtle}"
                          ImageDisplay="Block" />
 </UserControl>

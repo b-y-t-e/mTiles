@@ -60,6 +60,21 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
             FontSize = s.TerminalFontSize;
     }
 
+    public (string? startupScript, string? fallbackScript, bool isDirectLaunch) ResolveCurrentScripts()
+    {
+        if (UserProfileId == null)
+            return (StartupScript, FallbackScript, IsDirectLaunch);
+
+        var profile = _settingsService.Settings.ShellProfiles
+            .FirstOrDefault(p => p.Id == UserProfileId);
+        if (profile == null)
+            return (StartupScript, FallbackScript, IsDirectLaunch);
+
+        var startup = string.IsNullOrWhiteSpace(profile.StartupScript) ? null : profile.StartupScript;
+        var fallback = string.IsNullOrWhiteSpace(profile.FallbackScript) ? null : profile.FallbackScript;
+        return (startup, fallback, !string.IsNullOrEmpty(profile.FallbackScript));
+    }
+
     public void Dispose()
     {
         _settingsService.SettingsChanged -= OnSettingsChanged;

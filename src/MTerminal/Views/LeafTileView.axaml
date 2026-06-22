@@ -83,46 +83,74 @@
                     <Button Classes="chooser-card"
                             Command="{Binding SelectContentTypeCommand}"
                             CommandParameter="{x:Static m:TileContentType.Terminal}">
-                        <StackPanel Spacing="4" HorizontalAlignment="Center">
-                            <mi:MaterialIcon Kind="Console" Width="22" Height="22"
-                                             HorizontalAlignment="Center"
-                                             Foreground="{DynamicResource TextMuted}" />
-                            <TextBlock Text="Terminal" FontSize="{DynamicResource FontSm}"
-                                       HorizontalAlignment="Center" />
-                        </StackPanel>
+                        <Grid>
+                            <Border Background="{DynamicResource TileAccentTerminal}"
+                                    Width="3" CornerRadius="2"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Stretch"
+                                    Margin="-16,0,0,0" />
+                            <StackPanel Spacing="4" HorizontalAlignment="Center">
+                                <mi:MaterialIcon Kind="Console" Width="22" Height="22"
+                                                 HorizontalAlignment="Center"
+                                                 Foreground="{DynamicResource TileAccentTerminal}" />
+                                <TextBlock Text="Terminal" FontSize="{DynamicResource FontSm}"
+                                           HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
                     </Button>
                     <Button Classes="chooser-card"
                             Command="{Binding SelectContentTypeCommand}"
                             CommandParameter="{x:Static m:TileContentType.Note}">
-                        <StackPanel Spacing="4" HorizontalAlignment="Center">
-                            <mi:MaterialIcon Kind="NoteEditOutline" Width="22" Height="22"
-                                             HorizontalAlignment="Center"
-                                             Foreground="{DynamicResource TextMuted}" />
-                            <TextBlock Text="Note" FontSize="{DynamicResource FontSm}"
-                                       HorizontalAlignment="Center" />
-                        </StackPanel>
+                        <Grid>
+                            <Border Background="{DynamicResource TileAccentNote}"
+                                    Width="3" CornerRadius="2"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Stretch"
+                                    Margin="-16,0,0,0" />
+                            <StackPanel Spacing="4" HorizontalAlignment="Center">
+                                <mi:MaterialIcon Kind="NoteEditOutline" Width="22" Height="22"
+                                                 HorizontalAlignment="Center"
+                                                 Foreground="{DynamicResource TileAccentNote}" />
+                                <TextBlock Text="Note" FontSize="{DynamicResource FontSm}"
+                                           HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
                     </Button>
                     <Button Classes="chooser-card"
                             Command="{Binding SelectContentTypeCommand}"
                             CommandParameter="{x:Static m:TileContentType.Todo}">
-                        <StackPanel Spacing="4" HorizontalAlignment="Center">
-                            <mi:MaterialIcon Kind="CheckboxMarkedOutline" Width="22" Height="22"
-                                             HorizontalAlignment="Center"
-                                             Foreground="{DynamicResource TextMuted}" />
-                            <TextBlock Text="Todo" FontSize="{DynamicResource FontSm}"
-                                       HorizontalAlignment="Center" />
-                        </StackPanel>
+                        <Grid>
+                            <Border Background="{DynamicResource TileAccentTodo}"
+                                    Width="3" CornerRadius="2"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Stretch"
+                                    Margin="-16,0,0,0" />
+                            <StackPanel Spacing="4" HorizontalAlignment="Center">
+                                <mi:MaterialIcon Kind="CheckboxMarkedOutline" Width="22" Height="22"
+                                                 HorizontalAlignment="Center"
+                                                 Foreground="{DynamicResource TileAccentTodo}" />
+                                <TextBlock Text="Todo" FontSize="{DynamicResource FontSm}"
+                                           HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
                     </Button>
                     <Button Classes="chooser-card"
                             Command="{Binding SelectContentTypeCommand}"
                             CommandParameter="{x:Static m:TileContentType.Git}">
-                        <StackPanel Spacing="4" HorizontalAlignment="Center">
-                            <mi:MaterialIcon Kind="SourceBranch" Width="22" Height="22"
-                                             HorizontalAlignment="Center"
-                                             Foreground="{DynamicResource TextMuted}" />
-                            <TextBlock Text="Git" FontSize="{DynamicResource FontSm}"
-                                       HorizontalAlignment="Center" />
-                        </StackPanel>
+                        <Grid>
+                            <Border Background="{DynamicResource TileAccentGit}"
+                                    Width="3" CornerRadius="2"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Stretch"
+                                    Margin="-16,0,0,0" />
+                            <StackPanel Spacing="4" HorizontalAlignment="Center">
+                                <mi:MaterialIcon Kind="SourceBranch" Width="22" Height="22"
+                                                 HorizontalAlignment="Center"
+                                                 Foreground="{DynamicResource TileAccentGit}" />
+                                <TextBlock Text="Git" FontSize="{DynamicResource FontSm}"
+                                           HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
                     </Button>
                 </WrapPanel>
 
@@ -132,7 +160,7 @@
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
                            Orientation="Horizontal">
-                    <Button Classes="chooser-card"
+                    <Button Classes="chooser-back"
                             Command="{Binding CancelProfileSelectionCommand}">
                         <StackPanel Spacing="4" HorizontalAlignment="Center">
                             <mi:MaterialIcon Kind="ArrowLeft" Width="22" Height="22"
@@ -144,13 +172,20 @@
                     </Button>
                     <Button Classes="chooser-card"
                             Command="{Binding SelectDefaultTerminalCommand}">
-                        <StackPanel Spacing="4" HorizontalAlignment="Center">
-                            <mi:MaterialIcon Kind="Console" Width="22" Height="22"
-                                             HorizontalAlignment="Center"
-                                             Foreground="{DynamicResource TextMuted}" />
-                            <TextBlock Text="Default" FontSize="{DynamicResource FontSm}"
-                                       HorizontalAlignment="Center" />
-                        </StackPanel>
+                        <Grid>
+                            <Border Background="{DynamicResource AccentDefault}"
+                                    Width="3" CornerRadius="2"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Stretch"
+                                    Margin="-16,0,0,0" />
+                            <StackPanel Spacing="4" HorizontalAlignment="Center">
+                                <mi:MaterialIcon Kind="Console" Width="22" Height="22"
+                                                 HorizontalAlignment="Center"
+                                                 Foreground="{DynamicResource TextMuted}" />
+                                <TextBlock Text="Default" FontSize="{DynamicResource FontSm}"
+                                           HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
                     </Button>
                     <ItemsControl x:Name="ProfileItems"
                                   ItemsSource="{Binding AvailableProfiles}">
@@ -164,13 +199,20 @@
                                 <Button Classes="chooser-card"
                                         Command="{Binding $parent[UserControl].((vm:LeafTileNodeViewModel)DataContext).SelectProfileCommand}"
                                         CommandParameter="{Binding}">
-                                    <StackPanel Spacing="4" HorizontalAlignment="Center">
-                                        <mi:MaterialIcon Kind="ScriptOutline" Width="22" Height="22"
-                                                         HorizontalAlignment="Center"
-                                                         Foreground="{DynamicResource TextMuted}" />
-                                        <TextBlock Text="{Binding Name}" FontSize="{DynamicResource FontSm}"
-                                                   HorizontalAlignment="Center" />
-                                    </StackPanel>
+                                    <Grid>
+                                        <Border Background="{DynamicResource AccentDefault}"
+                                                Width="3" CornerRadius="2"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Stretch"
+                                                Margin="-16,0,0,0" />
+                                        <StackPanel Spacing="4" HorizontalAlignment="Center">
+                                            <mi:MaterialIcon Kind="ScriptOutline" Width="22" Height="22"
+                                                             HorizontalAlignment="Center"
+                                                             Foreground="{DynamicResource TextMuted}" />
+                                            <TextBlock Text="{Binding Name}" FontSize="{DynamicResource FontSm}"
+                                                       HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Grid>
                                 </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

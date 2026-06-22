@@ -28,6 +28,12 @@
     <SolidColorBrush x:Key="AccentDefault"       Color="#2d5a8a" />
     <SolidColorBrush x:Key="AccentHover"         Color="#3a6fa0" />
 
+    <!-- Tile type accents -->
+    <SolidColorBrush x:Key="TileAccentTerminal" Color="#2d5a8a" />
+    <SolidColorBrush x:Key="TileAccentNote"     Color="#8a6d2d" />
+    <SolidColorBrush x:Key="TileAccentTodo"     Color="#2d8a5a" />
+    <SolidColorBrush x:Key="TileAccentGit"      Color="#7a3d8a" />
+
     <!-- Danger (close/remove hover) -->
     <SolidColorBrush x:Key="DangerSubtle"  Color="#2e1a24" />
     <SolidColorBrush x:Key="DangerText"    Color="#c06878" />

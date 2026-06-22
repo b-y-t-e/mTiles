@@ -14,5 +14,7 @@
                      Foreground="{DynamicResource TextPrimary}"
                      SelectionBrush="{DynamicResource AccentDefault}"
                      CaretBrush="{DynamicResource TextSecondary}"
+                     ScrollTrackBrush="Transparent"
+                     ScrollThumbBrush="{DynamicResource BorderSubtle}"
                      ImageDisplay="Block" />
 </UserControl>
