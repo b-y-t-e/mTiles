@@ -10,6 +10,9 @@ public partial class WorkspaceItemViewModel : ObservableObject
     [ObservableProperty]
     private string _branchName = "";
 
+    [ObservableProperty]
+    private bool _isSelected;
+
     public string Id => Workspace.Id;
     public string Name => Workspace.Name;
     public string DirectoryPath => Workspace.DirectoryPath;

@@ -13,6 +13,7 @@ public partial class SettingsViewModel : ObservableObject
     public static string[] Themes { get; } = ["Dark", "Light"];
     public static string CustomShellOption => "Custom...";
     public static string[] ColorThemeNames { get; } = TerminalTheme.BuiltIn.Select(t => t.Name).ToArray();
+    private static readonly string[] KnownShellNames = ["Git Bash", "PowerShell", "CMD", "bash", "zsh", "fish"];
 
     private readonly SettingsService _settingsService;
 
@@ -28,8 +29,24 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsGeneralTab));
         OnPropertyChanged(nameof(IsProfilesTab));
         OnPropertyChanged(nameof(IsAiToolsTab));
+        if (value == 1)
+            LoadAiToolOptions();
         if (value == 2 && !_aiToolsLoaded)
             _ = LoadAiToolsSafeAsync();
+    }
+
+    private void LoadAiToolOptions()
+    {
+        var s = _settingsService.Settings;
+        var aiTools = AiToolDetector.Detect(s.CustomAiToolPaths, s.CustomAiTools);
+        var sorted = aiTools
+            .OrderByDescending(t => t.IsInstalled)
+            .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase);
+
+        AiToolOptions.Clear();
+        AiToolOptions.Add(new ComboOption("", "(none)", true));
+        foreach (var t in sorted)
+            AiToolOptions.Add(new ComboOption(t.BinaryName, t.Name, t.IsInstalled));
     }
 
     [RelayCommand]
@@ -45,7 +62,7 @@ public partial class SettingsViewModel : ObservableObject
     });
 
     public ObservableCollection<string> ShellOptions { get; } = [];
-    public List<string> ProfileShellOptions { get; } = [];
+    public ObservableCollection<ComboOption> ProfileShellOptions { get; } = [];
     public ObservableCollection<UserShellProfile> ShellProfiles { get; } = [];
 
     [ObservableProperty]
@@ -107,13 +124,15 @@ public partial class SettingsViewModel : ObservableObject
     private string _editProfileName = "";
 
     [ObservableProperty]
-    private string _editProfileShell = "";
+    private ComboOption? _editProfileShell;
 
     [ObservableProperty]
     private string _editProfileScript = "";
 
     [ObservableProperty]
-    private string _editProfileShellType = "";
+    private ComboOption? _editProfileAiTool;
+
+    public ObservableCollection<ComboOption> AiToolOptions { get; } = [];
 
     private UserShellProfile? _editingProfile;
 
@@ -162,10 +181,17 @@ public partial class SettingsViewModel : ObservableObject
         _ = DetectGitAsync();
 
         var detected = ShellDetector.Detect();
+        var detectedNames = new HashSet<string>(detected.Select(s => s.Name), StringComparer.OrdinalIgnoreCase);
+        ProfileShellOptions.Add(new ComboOption("", "(default)", true));
         foreach (var shell in detected)
         {
             ShellOptions.Add(shell.Name);
-            ProfileShellOptions.Add(shell.Name);
+            ProfileShellOptions.Add(new ComboOption(shell.Name, shell.Name, true));
+        }
+        foreach (var name in KnownShellNames)
+        {
+            if (!detectedNames.Contains(name))
+                ProfileShellOptions.Add(new ComboOption(name, name, false));
         }
         ShellOptions.Add(CustomShellOption);
 
@@ -272,27 +298,23 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
-    partial void OnEditProfileShellChanged(string value)
-    {
-        EditProfileShellType = GetShellTypeForName(value);
-    }
+    private ComboOption? FindShellOption(string value) =>
+        ProfileShellOptions.FirstOrDefault(o => o.Value == value)
+        ?? ProfileShellOptions.FirstOrDefault();
 
-    private static string GetShellTypeForName(string shellName)
-    {
-        var t = ShellDetector.GetTypeByName(shellName);
-        return t != ShellType.Other ? t.ToString() : "";
-    }
+    private ComboOption? FindAiToolOption(string? value) =>
+        AiToolOptions.FirstOrDefault(o => o.Value == (value ?? ""))
+        ?? AiToolOptions.FirstOrDefault();
 
     [RelayCommand]
     private void AddProfile()
     {
-        var defaultShell = IsCustomShell
-            ? (ProfileShellOptions.Count > 0 ? ProfileShellOptions[0] : "")
-            : SelectedShell;
-        _editingProfile = new UserShellProfile { Name = "New Profile", ShellName = defaultShell };
+        var defaultShellName = IsCustomShell ? "" : SelectedShell;
+        _editingProfile = new UserShellProfile { Name = "New Profile", ShellName = defaultShellName };
         EditProfileName = _editingProfile.Name;
-        EditProfileShell = _editingProfile.ShellName;
+        EditProfileShell = FindShellOption(defaultShellName);
         EditProfileScript = "";
+        EditProfileAiTool = FindAiToolOption(null);
         IsEditingProfile = true;
     }
 
@@ -301,8 +323,9 @@ public partial class SettingsViewModel : ObservableObject
     {
         _editingProfile = profile;
         EditProfileName = profile.Name;
-        EditProfileShell = profile.ShellName;
+        EditProfileShell = FindShellOption(profile.ShellName);
         EditProfileScript = profile.StartupScript;
+        EditProfileAiTool = FindAiToolOption(profile.RequiredAiToolBinaryName);
         IsEditingProfile = true;
     }
 
@@ -322,8 +345,9 @@ public partial class SettingsViewModel : ObservableObject
         if (_editingProfile == null) return;
 
         _editingProfile.Name = EditProfileName;
-        _editingProfile.ShellName = EditProfileShell;
+        _editingProfile.ShellName = EditProfileShell?.Value ?? "";
         _editingProfile.StartupScript = EditProfileScript;
+        _editingProfile.RequiredAiToolBinaryName = string.IsNullOrEmpty(EditProfileAiTool?.Value) ? null : EditProfileAiTool.Value;
 
         if (!ShellProfiles.Contains(_editingProfile))
         {

@@ -4,6 +4,8 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using MsBox.Avalonia;
+using MsBox.Avalonia.Enums;
 using MTerminal.Models;
 using MTerminal.ViewModels;
 
@@ -50,12 +52,26 @@ public partial class LeafTileView : UserControl
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
         if (_subscribedLeaf != null)
+        {
             _subscribedLeaf.PropertyChanged -= OnLeafPropertyChanged;
+            _subscribedLeaf.FocusRequested -= FocusContent;
+        }
 
         if (DataContext is LeafTileNodeViewModel leaf)
         {
             _subscribedLeaf = leaf;
             leaf.PropertyChanged += OnLeafPropertyChanged;
+            leaf.FocusRequested += FocusContent;
+            leaf.ConfirmAction = async message =>
+            {
+                var window = TopLevel.GetTopLevel(this) as Window;
+                if (window == null) return true;
+                var box = MessageBoxManager.GetMessageBoxStandard(
+                    "Confirm", message, ButtonEnum.YesNo, Icon.Question);
+                var result = await box.ShowWindowDialogAsync(window);
+                return result == ButtonResult.Yes;
+            };
+            UpdateActiveIndicator(leaf.IsActive);
             UpdateContentDisplay(leaf);
         }
     }
@@ -78,9 +94,6 @@ public partial class LeafTileView : UserControl
             ActiveStrip.GetResourceObservable(isActive ? "AccentHover" : "BgSurface"));
         TileToolbar.Bind(Border.BackgroundProperty,
             TileToolbar.GetResourceObservable(isActive ? "BgElevated" : "BgSurface"));
-
-        if (isActive)
-            Dispatcher.UIThread.Post(FocusContent, DispatcherPriority.Input);
     }
 
     private void UpdateContentDisplay(LeafTileNodeViewModel leaf)
@@ -202,8 +215,11 @@ public partial class LeafTileView : UserControl
         TileNameLabel.IsVisible = true;
     }
 
+    // Suppress activation during Focus() to prevent GotFocus → Activate → FocusContent ping-pong
     private void FocusContent()
     {
+        if (_subscribedLeaf == null) return;
+        using var _ = _subscribedLeaf.ActivationScope.SuppressActivation();
         var focusable = ContentHost.GetVisualDescendants()
             .OfType<InputElement>()
             .FirstOrDefault(e => e.Focusable);

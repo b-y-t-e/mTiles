@@ -59,7 +59,7 @@
 
                 <!-- Workspace content -->
                 <Panel Grid.Column="2">
-                    <ContentControl Content="{Binding CurrentWorkspace}" />
+                    <Panel x:Name="WorkspaceHost" />
                     <TextBlock Text="Select or add a workspace to get started"
                                IsVisible="{Binding CurrentWorkspace, Converter={x:Static ObjectConverters.IsNull}}"
                                HorizontalAlignment="Center"

@@ -4,13 +4,11 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
-using Avalonia;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using CommunityToolkit.Mvvm.Input;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
-using MTerminal.Models;
-using CommunityToolkit.Mvvm.Input;
 using MTerminal.ViewModels;
 
 namespace MTerminal.Views;
@@ -23,18 +21,27 @@ public partial class WorkspacesPanelView : UserControl
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
-        WorkspaceList.AddHandler(InputElement.PointerReleasedEvent, OnListPointerReleased,
-            Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
-    private void OnListPointerReleased(object? sender, PointerReleasedEventArgs e)
+    private void WorkspaceItem_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.InitialPressMouseButton != MouseButton.Right) return;
         if (DataContext is not WorkspacesPanelViewModel vm) return;
 
-        var item = (e.Source as Visual)?.FindAncestorOfType<ListBoxItem>();
-        if (item?.DataContext is not WorkspaceItemViewModel workspaceItem) return;
+        var border = sender as Border;
+        if (border?.DataContext is not WorkspaceItemViewModel item) return;
 
+        if (e.GetCurrentPoint(border).Properties.IsRightButtonPressed)
+        {
+            ShowContextMenu(vm, item, border);
+            e.Handled = true;
+            return;
+        }
+
+        vm.SelectWorkspaceCommand.Execute(item);
+    }
+
+    private void ShowContextMenu(WorkspacesPanelViewModel vm, WorkspaceItemViewModel item, Control anchor)
+    {
         var menu = new ContextMenu
         {
             Items =
@@ -43,7 +50,7 @@ public partial class WorkspacesPanelView : UserControl
                 {
                     Header = "Show in Explorer",
                     Command = vm.OpenInFileManagerCommand,
-                    CommandParameter = workspaceItem
+                    CommandParameter = item
                 },
                 new MenuItem
                 {
@@ -52,7 +59,7 @@ public partial class WorkspacesPanelView : UserControl
                     {
                         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
                         if (clipboard != null)
-                            await clipboard.SetTextAsync(workspaceItem.DirectoryPath);
+                            await clipboard.SetTextAsync(item.DirectoryPath);
                     })
                 },
                 new Separator(),
@@ -60,13 +67,12 @@ public partial class WorkspacesPanelView : UserControl
                 {
                     Header = "Remove",
                     Command = vm.RemoveWorkspaceCommand,
-                    CommandParameter = workspaceItem
+                    CommandParameter = item
                 }
             }
         };
 
-        menu.Open(item);
-        e.Handled = true;
+        menu.Open(anchor);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

@@ -17,6 +17,9 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
     private string _tileName = "";
 
     [ObservableProperty]
+    private string _tileId = Guid.NewGuid().ToString();
+
+    [ObservableProperty]
     private bool _isActive;
 
     [ObservableProperty]
@@ -24,8 +27,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
 
     partial void OnTileNameChanged(string value) => NotifyLayoutChanged();
 
-    private static event Action<LeafTileNodeViewModel>? ActiveTileChanged;
-
+    private readonly TileActivationScope _activationScope;
     private readonly Func<TileContentType, string, ObservableObject>? _contentFactory;
     private readonly Func<TileContentType, string>? _nameFactory;
     private readonly Func<IReadOnlyList<UserShellProfile>>? _profilesProvider;
@@ -34,10 +36,13 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
 
     public IReadOnlyList<UserShellProfile>? AvailableProfiles { get; private set; }
 
+    public TileActivationScope ActivationScope => _activationScope;
     public Action<TileNodeViewModel>? RootReplaced { get; set; }
     public Action? RootCleared { get; set; }
+    public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
     public LeafTileNodeViewModel(TileContentType contentType, ObservableObject? content, string workingDirectory,
+        TileActivationScope activationScope,
         Func<TileContentType, string, ObservableObject>? contentFactory = null,
         Func<TileContentType, string>? nameFactory = null,
         Func<IReadOnlyList<UserShellProfile>>? profilesProvider = null,
@@ -46,14 +51,19 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
         _contentType = contentType;
         _content = content;
         _workingDirectory = workingDirectory;
+        _activationScope = activationScope;
         _contentFactory = contentFactory;
         _nameFactory = nameFactory;
         _profilesProvider = profilesProvider;
         _profileContentFactory = profileContentFactory;
-        ActiveTileChanged += OnActiveTileChanged;
+        _activationScope.ActiveTileChanged += OnActiveTileChanged;
     }
 
-    public void Activate() => ActiveTileChanged?.Invoke(this);
+    public event Action? FocusRequested;
+
+    public void Activate() => _activationScope.Activate(this);
+
+    public void RequestFocus() => FocusRequested?.Invoke();
 
     private void OnActiveTileChanged(LeafTileNodeViewModel active) => IsActive = active == this;
 
@@ -63,8 +73,24 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
         if (Content is not TerminalTileViewModel tvm) return;
         if (tvm.CachedControl is not Iciclecreek.Terminal.TerminalControl tc) return;
 
+        tvm.TileId = TileId;
         tc.Kill();
+
+        if (tvm.StartupScript != null)
+            Views.PtyWriter.AttachStartupScript(tc, tvm.StartupScript, TileId);
+
         _ = tc.LaunchProcess(_workingDirectory, tvm.Shell.ExecutablePath, tvm.Shell.Args);
+    }
+
+    [RelayCommand]
+    private async Task ResetTileIdAsync()
+    {
+        if (ConfirmAction != null && !await ConfirmAction("Generate new Tile ID and restart shell?"))
+            return;
+
+        TileId = Guid.NewGuid().ToString();
+        NotifyLayoutChanged();
+        RestartTerminal();
     }
 
     [RelayCommand]
@@ -107,6 +133,9 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
         var newContent = _profileContentFactory?.Invoke(profile, _workingDirectory);
         if (newContent == null) return;
 
+        if (newContent is TerminalTileViewModel tvm)
+            tvm.TileId = TileId;
+
         Content = newContent;
         ContentType = TileContentType.Terminal;
         TileName = _nameFactory?.Invoke(TileContentType.Terminal) ?? "Terminal";
@@ -124,6 +153,9 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
         var newContent = _contentFactory?.Invoke(type, _workingDirectory);
         if (newContent == null) return;
 
+        if (newContent is TerminalTileViewModel tvm)
+            tvm.TileId = TileId;
+
         Content = newContent;
         ContentType = type;
         TileName = _nameFactory?.Invoke(type) ?? type.ToString();
@@ -134,7 +166,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
     private void Split(Orientation orientation)
     {
         var newLeaf = new LeafTileNodeViewModel(TileContentType.Empty, null, _workingDirectory,
-            _contentFactory, _nameFactory, _profilesProvider, _profileContentFactory)
+            _activationScope, _contentFactory, _nameFactory, _profilesProvider, _profileContentFactory)
         {
             TileName = "",
             LayoutChanged = LayoutChanged,
@@ -171,7 +203,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
     [RelayCommand]
     private void Close()
     {
-        ActiveTileChanged -= OnActiveTileChanged;
+        _activationScope.ActiveTileChanged -= OnActiveTileChanged;
 
         if (Content is IDisposable disposable)
             disposable.Dispose();

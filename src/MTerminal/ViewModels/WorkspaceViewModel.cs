@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using MTerminal.Models;
 using MTerminal.Services;
+using System.Linq;
 
 namespace MTerminal.ViewModels;
 
@@ -21,6 +22,12 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     public string WorkspaceId { get; }
     public string WorkingDirectory { get; }
     public ObservableCollection<ShellProfile> AvailableShells { get; } = [];
+
+    private readonly TileActivationScope _activationScope = new();
+
+    private HashSet<string>? _cachedAiToolBinaries;
+    private DateTime _detectionCacheTime;
+    private static readonly TimeSpan DetectionCacheTtl = TimeSpan.FromSeconds(30);
 
     private int _terminalCount;
     private int _noteCount;
@@ -46,7 +53,9 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             AvailableShells,
             WorkingDirectory,
             AllocateTileName,
-            ConfigureLeafCallbacks);
+            ConfigureLeafCallbacks,
+            GetAvailableProfiles,
+            _activationScope);
 
         var state = persistenceService.LoadLayout(workspace.Id);
         if (state?.RootTile != null)
@@ -65,9 +74,10 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private LeafTileNodeViewModel CreateLeaf(TileContentType type, ObservableObject? content, string tileName)
     {
         var leaf = new LeafTileNodeViewModel(type, content, WorkingDirectory,
+            _activationScope,
             (t, d) => _tileFactory.CreateContent(t, d),
             AllocateTileName,
-            () => _settingsService.Settings.ShellProfiles,
+            GetAvailableProfiles,
             (profile, dir) => _tileFactory.CreateContent(TileContentType.Terminal, dir, profile))
         {
             TileName = tileName,
@@ -77,9 +87,46 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         return leaf;
     }
 
+    private IReadOnlyList<UserShellProfile> GetAvailableProfiles()
+    {
+        var profiles = _settingsService.Settings.ShellProfiles;
+        if (profiles.Count == 0) return profiles;
+
+        if (!profiles.Any(p => !string.IsNullOrEmpty(p.RequiredAiToolBinaryName)))
+            return profiles;
+
+        var now = DateTime.UtcNow;
+        if (now - _detectionCacheTime > DetectionCacheTtl)
+        {
+            _detectionCacheTime = now;
+            _cachedAiToolBinaries = null;
+        }
+
+        _cachedAiToolBinaries ??= new HashSet<string>(
+            AiToolDetector.Detect(
+                _settingsService.Settings.CustomAiToolPaths,
+                _settingsService.Settings.CustomAiTools)
+            .Where(t => t.IsInstalled).Select(t => t.BinaryName),
+            StringComparer.OrdinalIgnoreCase);
+
+        return profiles.Where(p =>
+        {
+            if (!string.IsNullOrEmpty(p.RequiredAiToolBinaryName))
+                return _cachedAiToolBinaries.Contains(p.RequiredAiToolBinaryName);
+            return true;
+        }).ToList();
+    }
+
+    public TileActivationScope ActivationScope => _activationScope;
+
     public void ActivateLastTile()
     {
         _lastActiveLeaf?.Activate();
+    }
+
+    public void FocusActiveTile()
+    {
+        _lastActiveLeaf?.RequestFocus();
     }
 
     private void ConfigureLeafCallbacks(LeafTileNodeViewModel leaf)

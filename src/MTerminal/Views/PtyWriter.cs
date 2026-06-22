@@ -25,4 +25,15 @@ public static class PtyWriter
         stream.Write(bytes);
         stream.Flush();
     }
+
+    public static void AttachStartupScript(TerminalControl terminal, string script, string tileId)
+    {
+        terminal.ShellReady += OnShellReady;
+        void OnShellReady(object? s, EventArgs args)
+        {
+            terminal.ShellReady -= OnShellReady;
+            foreach (var line in script.TrimEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                Write(terminal, line.TrimEnd('\r').Replace("${tileId}", tileId) + "\r");
+        }
+    }
 }

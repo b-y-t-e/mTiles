@@ -17,7 +17,8 @@ dotnet run --project src/MTerminal
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) i globalne style kontrolek (`Controls.axaml`, w tym GridSplitter). Kolory UI wyłącznie przez `DynamicResource`, terminal ANSI colors osobno w `TerminalTheme`
 - `Services/` — persystencja JSON (PersistenceService, SettingsService, WorkspaceService), detekcja shelli (ShellDetector), detekcja AI tools (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, GitService/GitCommandRunner/GitDirectoryWatcher, DiffFormatter, FileHelper, TileFactory, TileTreeSerializer, UpdateService, CrashHandler, FileLogWriter, LogTraceListener
-- `Views/PtyWriter.cs` — statyczny helper do zapisu do PTY przez refleksję (`TerminalView._ptyConnection.WriterStream`). Używany przez `TerminalKeyHandler` i startup script w `TerminalTileView`
+- `Views/PtyWriter.cs` — statyczny helper do zapisu do PTY przez refleksję (`TerminalView._ptyConnection.WriterStream`). Używany przez `TerminalKeyHandler` i startup script. `AttachStartupScript` podpina ShellReady handler z substitucją `${tileId}`
+- `ViewModels/TileActivationScope.cs` — per-workspace scope aktywacji tile'ów z mechanizmem supresji
 
 ## Kluczowe biblioteki
 
@@ -32,7 +33,17 @@ dotnet run --project src/MTerminal
 
 Rekurencyjne drzewo binarne: `LeafTileNodeViewModel` (terminal/edytor) lub `SplitTileNodeViewModel` (H/V + dwoje dzieci). `TileNodeView` zarządza widokami ręcznie (nie DataTemplate) i wywołuje `SuspendTerminals()`/`ResumeTerminals()` wokół Rebuild żeby zachować live terminale.
 
-`LeafTileNodeViewModel.IsActive` — globalny static event `ActiveTileChanged` gwarantuje, że tylko jeden tile jest aktywny. `LeafTileView` reaguje na `IsActive` — kolorowy pasek (`ActiveStrip`, 2px) na górze toolbara + jaśniejsze tło (`BgElevated`).
+`LeafTileNodeViewModel.IsActive` — `TileActivationScope` (instancja per workspace) gwarantuje, że tylko jeden tile jest aktywny. `LeafTileView` reaguje na `IsActive` — kolorowy pasek (`ActiveStrip`, 2px) na górze toolbara + jaśniejsze tło (`BgElevated`).
+
+`TileActivationScope.SuppressActivation()` — guard (IDisposable) blokujący kaskadę GotFocus → Activate podczas programmatycznych Focus() i Rebuild. Używany w `LeafTileView.FocusContent()` i `TileNodeView.Rebuild()`.
+
+## Tile ID
+
+Każdy tile ma persystentny `TileId` (`Guid.NewGuid().ToString()`, format z myślnikami). Generowany przy tworzeniu, zapisywany w `TileNode.TileId` w workspace JSON. Propagowany do `TerminalTileViewModel.TileId`.
+
+Przycisk "Reset ID" (ikona `Identifier`) w headerze tile'a — generuje nowy GUID, restartuje shell (po potwierdzeniu dialogiem). Dostępny tylko dla terminali.
+
+W startup script `${tileId}` jest podmieniane na aktualny `TileId` — zarówno przy pierwszym uruchomieniu jak i przy restarcie.
 
 ## Obsługa klawiszy terminala
 
@@ -53,7 +64,12 @@ Refleksja na PTY stream wyekstrahowana do `PtyWriter` (statyczny helper, wspóln
 
 ## Shell Profiles
 
-Użytkownik definiuje profile shella w Settings → zakładka Profiles. Każdy `UserShellProfile` ma: `Id` (GUID), `Name`, `ShellName` (referencja do wykrytego shella), `StartupScript` (komendy wysyłane do PTY po starcie).
+Użytkownik definiuje profile shella w Settings → zakładka Profiles. Każdy `UserShellProfile` ma: `Id` (GUID), `Name`, `ShellName` (referencja do wykrytego shella), `StartupScript` (komendy wysyłane do PTY po starcie), `RequiredAiToolBinaryName` (opcjonalny — binary name narzędzia AI wymaganego do wyświetlenia profilu).
+
+**Filtrowanie profili:** Profil jest widoczny na empty tile tylko jeśli:
+- `RequiredAiToolBinaryName` jest puste LUB narzędzie AI jest zainstalowane (`AiToolDetector.Detect`)
+
+Filtrowanie realizowane w `WorkspaceViewModel.GetAvailableProfiles()` z cache (30s TTL) na wyniki `AiToolDetector.Detect()`.
 
 Flow tworzenia terminala z profilem:
 1. Empty tile → klik Terminal → jeśli są profile, pojawia się ProfileChooser (Back / Default / przyciski profili)
@@ -113,7 +129,7 @@ Zakładka AI Tools w Settings wykrywa zainstalowane CLI AI coding tools i pozwal
 - `%APPDATA%/MTerminal/` (Windows) lub `~/.config/MTerminal/` (Linux)
 - `settings.json` — ustawienia (fonty, theme terminala, default shell, shell profiles, custom AI tool paths/tools, stan okna)
 - `workspaces.json` — lista workspace'ów (id, nazwa, ścieżka)
-- `workspaces/{id}.json` — layout tile'ów per workspace (shell name, user profile id, tile name)
+- `workspaces/{id}.json` — layout tile'ów per workspace (shell name, user profile id, tile id, tile name). Backward compat: `RootPane` → `RootTile` migracja w `WorkspaceState`
 - `logs/` — logi aplikacji (dzienne pliki, retencja 7 dni)
 - Auto-save z debounce
 
@@ -151,6 +167,10 @@ Context menu (PPM) na liście commitów: Add tag..., Copy commit hash.
 **`.mterminal/` filtering:** Setting `GitHideMTerminalDir` (default true) ukrywa pliki `.mterminal/` w liście zmian Git tile.
 
 **DiffFontSize:** Panel diff używa 80% rozmiaru fontu (`FontSize * 0.8`).
+
+## Workspace view caching
+
+`MainWindow` cachuje `WorkspaceView` instancje w `Dictionary<string, WorkspaceView>`. Przełączanie workspace'ów przez `IsVisible` toggle zamiast DataTemplate — terminale nie są zabijane/odtwarzane. `WorkspaceRemoved` event czyści cache i usuwa widok z visual tree.
 
 ## Workspace panel — branch names
 

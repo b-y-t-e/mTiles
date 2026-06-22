@@ -70,17 +70,7 @@ public partial class TerminalTileView : UserControl
                 vm.IsLaunched = true;
 
                 if (vm.StartupScript != null)
-                {
-                    var script = vm.StartupScript;
-                    terminal.ShellReady += OnShellReady;
-
-                    void OnShellReady(object? s, EventArgs args)
-                    {
-                        terminal.ShellReady -= OnShellReady;
-                        foreach (var line in script.TrimEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                            PtyWriter.Write(terminal, line.TrimEnd('\r') + "\r");
-                    };
-                }
+                    PtyWriter.AttachStartupScript(terminal, vm.StartupScript, vm.TileId);
 
                 await terminal.LaunchProcess(vm.WorkingDirectory, vm.Shell.ExecutablePath, vm.Shell.Args);
             }

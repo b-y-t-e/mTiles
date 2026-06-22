@@ -29,6 +29,13 @@
                             <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
                         </Button>
                         <Button Classes="tile-btn"
+                                Command="{Binding ResetTileIdCommand}"
+                                ToolTip.Tip="Reset Tile ID and restart shell"
+                                Opacity="0.5"
+                                IsVisible="{Binding ContentType, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:TileContentType.Terminal}}">
+                            <mi:MaterialIcon Kind="Identifier" Width="12" Height="12" />
+                        </Button>
+                        <Button Classes="tile-btn"
                                 Command="{Binding SplitVerticalCommand}"
                                 ToolTip.Tip="Split Right">
                             <mi:MaterialIcon Kind="DockRight" Width="14" Height="14" />

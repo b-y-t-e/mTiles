@@ -58,6 +58,8 @@ public partial class TileNodeView : UserControl
         if (_isBuilding) return;
         _isBuilding = true;
 
+        var scope = FindActivationScope();
+        var guard = scope?.SuppressActivation();
         var suspended = SuspendTerminals();
         try
         {
@@ -71,8 +73,26 @@ public partial class TileNodeView : UserControl
         finally
         {
             ResumeTerminals(suspended);
+            guard?.Dispose();
             _isBuilding = false;
         }
+    }
+
+    private TileActivationScope? FindActivationScope()
+    {
+        return _vm switch
+        {
+            LeafTileNodeViewModel leaf => leaf.ActivationScope,
+            SplitTileNodeViewModel => FindLeafScope(_vm),
+            _ => null
+        };
+    }
+
+    private static TileActivationScope? FindLeafScope(TileNodeViewModel? node)
+    {
+        while (node is SplitTileNodeViewModel split)
+            node = split.First;
+        return (node as LeafTileNodeViewModel)?.ActivationScope;
     }
 
     private void ShowLeaf(LeafTileNodeViewModel leaf)

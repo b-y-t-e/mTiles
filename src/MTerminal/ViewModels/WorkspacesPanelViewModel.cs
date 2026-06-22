@@ -20,6 +20,12 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private WorkspaceItemViewModel? _selectedWorkspace;
 
+    partial void OnSelectedWorkspaceChanged(WorkspaceItemViewModel? oldValue, WorkspaceItemViewModel? newValue)
+    {
+        if (oldValue != null) oldValue.IsSelected = false;
+        if (newValue != null) newValue.IsSelected = true;
+    }
+
     [ObservableProperty]
     private string _fontFamily;
 
@@ -28,6 +34,7 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
 
     public Func<Task<string?>>? FolderPicker { get; set; }
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
+    public Action? FocusWorkspaceRequested { get; set; }
 
     public WorkspacesPanelViewModel(WorkspaceService workspaceService, SettingsService? settingsService = null)
     {
@@ -77,6 +84,13 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
             FontFamily = s.FontFamily;
         if (Math.Abs(s.FontSize - FontSize) > AppDefaults.FontSizeEpsilon)
             FontSize = s.FontSize;
+    }
+
+    [RelayCommand]
+    private void SelectWorkspace(WorkspaceItemViewModel item)
+    {
+        SelectedWorkspace = item;
+        FocusWorkspaceRequested?.Invoke();
     }
 
     [RelayCommand]

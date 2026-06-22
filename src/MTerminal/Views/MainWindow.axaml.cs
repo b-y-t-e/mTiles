@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Threading;
 using MTerminal.Services;
 using MTerminal.ViewModels;
 
@@ -11,6 +12,8 @@ public partial class MainWindow : Window
     private SettingsService? _settingsService;
     private ColumnDefinition? _panelColumn;
     private double _lastPanelWidth = 240;
+    private readonly Dictionary<string, WorkspaceView> _viewCache = new();
+    private WorkspaceView? _activeWorkspaceView;
 
     public MainWindow()
     {
@@ -54,8 +57,18 @@ public partial class MainWindow : Window
                     UpdatePanelVisibility(vm.IsPanelOpen);
                 else if (e.PropertyName == nameof(MainWindowViewModel.IsSettingsOpen))
                     UpdateSettingsDialogSize();
+                else if (e.PropertyName == nameof(MainWindowViewModel.CurrentWorkspace))
+                    SwitchWorkspaceView(vm.CurrentWorkspace);
             };
+            vm.WorkspaceRemoved += id =>
+            {
+                if (_viewCache.Remove(id, out var removed))
+                    WorkspaceHost.Children.Remove(removed);
+            };
+            vm.WorkspacesPanel.FocusWorkspaceRequested += () =>
+                vm.CurrentWorkspace?.FocusActiveTile();
             UpdatePanelVisibility(vm.IsPanelOpen);
+            SwitchWorkspaceView(vm.CurrentWorkspace);
         }
     }
 
@@ -78,6 +91,30 @@ public partial class MainWindow : Window
             _panelColumn.MaxWidth = 0;
             PanelSplitter.IsVisible = false;
         }
+    }
+
+    // Cached workspace views — toggle IsVisible instead of recreating via DataTemplate
+    private void SwitchWorkspaceView(WorkspaceViewModel? workspace)
+    {
+        if (_activeWorkspaceView != null)
+            _activeWorkspaceView.IsVisible = false;
+
+        if (workspace == null)
+        {
+            _activeWorkspaceView = null;
+            return;
+        }
+
+        if (!_viewCache.TryGetValue(workspace.WorkspaceId, out var view))
+        {
+            view = new WorkspaceView { DataContext = workspace };
+            _viewCache[workspace.WorkspaceId] = view;
+            WorkspaceHost.Children.Add(view);
+        }
+
+        view.IsVisible = true;
+        _activeWorkspaceView = view;
+        Dispatcher.UIThread.Post(() => workspace.FocusActiveTile(), DispatcherPriority.Input);
     }
 
     protected override void OnKeyDown(KeyEventArgs e)

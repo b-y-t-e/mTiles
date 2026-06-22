@@ -11,6 +11,7 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
     public ShellProfile Shell { get; }
     public string? StartupScript { get; }
     public string? UserProfileId { get; }
+    public string TileId { get; set; } = "";
 
     [ObservableProperty]
     private string _fontFamily;

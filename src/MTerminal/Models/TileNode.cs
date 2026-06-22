@@ -7,6 +7,7 @@ public sealed class TileNode
     public bool IsLeaf { get; set; }
 
     public TileContentType ContentType { get; set; }
+    public string? TileId { get; set; }
     public string? TileName { get; set; }
     public string? ShellName { get; set; }
     public string? UserProfileId { get; set; }

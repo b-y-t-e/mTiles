@@ -10,39 +10,44 @@
     <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                   VerticalScrollBarVisibility="Auto">
         <StackPanel>
-            <ListBox x:Name="WorkspaceList"
-                     Classes="sidebar-list"
-                     ItemsSource="{Binding Workspaces}"
-                     SelectedItem="{Binding SelectedWorkspace}"
-                     Background="Transparent"
-                     Margin="3, 4">
-                <ListBox.ItemTemplate>
+            <ItemsControl x:Name="WorkspaceList"
+                          ItemsSource="{Binding Workspaces}"
+                          Margin="3, 4">
+                <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:WorkspaceItemViewModel">
-                        <StackPanel Spacing="1">
-                            <TextBlock Text="{Binding Name}" FontWeight="Medium"
-                                       Foreground="{DynamicResource TextPrimary}" />
-                            <DockPanel>
-                                <StackPanel DockPanel.Dock="Right"
-                                            Orientation="Horizontal" Spacing="3"
-                                            IsVisible="{Binding BranchName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                            VerticalAlignment="Center"
-                                            Margin="6,0,0,0">
-                                    <mi:MaterialIcon Kind="SourceBranch" Width="10" Height="10"
-                                                     Foreground="{DynamicResource AccentDefault}" />
-                                    <TextBlock Text="{Binding BranchName}"
-                                               FontSize="{DynamicResource FontXs}"
-                                               Foreground="{DynamicResource AccentDefault}" />
-                                </StackPanel>
-                                <TextBlock Text="{Binding DirectoryPath}"
-                                           Foreground="{DynamicResource TextMuted}"
-                                           FontSize="{DynamicResource UiFontSizeSm}"
-                                           TextTrimming="CharacterEllipsis"
-                                           Opacity="0.8" />
-                            </DockPanel>
-                        </StackPanel>
+                        <Border Classes="workspace-item"
+                                Classes.workspace-item-selected="{Binding IsSelected}"
+                                Padding="10,6"
+                                Margin="4,2"
+                                CornerRadius="{DynamicResource RadiusLg}"
+                                Cursor="Hand"
+                                PointerPressed="WorkspaceItem_PointerPressed">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="{Binding Name}" FontWeight="Medium"
+                                           Foreground="{DynamicResource TextPrimary}" />
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Right"
+                                                Orientation="Horizontal" Spacing="3"
+                                                IsVisible="{Binding BranchName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                VerticalAlignment="Center"
+                                                Margin="6,0,0,0">
+                                        <mi:MaterialIcon Kind="SourceBranch" Width="10" Height="10"
+                                                         Foreground="{DynamicResource AccentDefault}" />
+                                        <TextBlock Text="{Binding BranchName}"
+                                                   FontSize="{DynamicResource FontXs}"
+                                                   Foreground="{DynamicResource AccentDefault}" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding DirectoryPath}"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               FontSize="{DynamicResource UiFontSizeSm}"
+                                               TextTrimming="CharacterEllipsis"
+                                               Opacity="0.8" />
+                                </DockPanel>
+                            </StackPanel>
+                        </Border>
                     </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
             <Button Classes="add-workspace"
                     Command="{Binding AddWorkspaceCommand}"

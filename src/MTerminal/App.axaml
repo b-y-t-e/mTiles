@@ -21,9 +21,6 @@
     </Application.Resources>
 
     <Application.DataTemplates>
-        <DataTemplate DataType="vm:WorkspaceViewModel">
-            <views:WorkspaceView />
-        </DataTemplate>
         <DataTemplate DataType="vm:TerminalTileViewModel">
             <views:TerminalTileView />
         </DataTemplate>

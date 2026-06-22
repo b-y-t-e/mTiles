@@ -39,6 +39,19 @@ public partial class MainWindowViewModel : ObservableObject
             if (e.PropertyName == nameof(WorkspacesPanelViewModel.SelectedWorkspace))
                 SwitchToWorkspace(_workspacesPanel.SelectedWorkspace?.Workspace);
         };
+        _workspacesPanel.Workspaces.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+            {
+                foreach (var id in _workspaceCache.Keys.ToList())
+                    OnWorkspaceRemoved(id);
+            }
+            else if (e.OldItems != null)
+            {
+                foreach (WorkspaceItemViewModel item in e.OldItems)
+                    OnWorkspaceRemoved(item.Id);
+            }
+        };
 
         if (_workspacesPanel.Workspaces.Count > 0)
         {
@@ -55,12 +68,21 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private void ToggleSettings() => IsSettingsOpen = !IsSettingsOpen;
 
+    public event Action<string>? WorkspaceRemoved;
+
     public void DisposeAll()
     {
         foreach (var vm in _workspaceCache.Values)
             vm.Dispose();
         _workspaceCache.Clear();
         _workspacesPanel.Dispose();
+    }
+
+    private void OnWorkspaceRemoved(string workspaceId)
+    {
+        if (!_workspaceCache.Remove(workspaceId, out var vm)) return;
+        vm.Dispose();
+        WorkspaceRemoved?.Invoke(workspaceId);
     }
 
     private void SwitchToWorkspace(Workspace? workspace)
