@@ -5,25 +5,23 @@ namespace mTiles.Services.Database;
 
 public static class ClaudeLocalMdWriter
 {
+    private static readonly string[] TargetFiles = ["claude.local.md", "AGENTS.md", "GEMINI.md"];
+
     public static void Update(string workspaceDir, IReadOnlyList<WorkspaceDatabaseConfig> databases,
         DbRegistry registry, int httpPort)
     {
-        var claudeMdPath = Path.Combine(workspaceDir, "claude.local.md");
+        var dbSection = databases.Count > 0 ? BuildDatabaseSection(databases, registry, httpPort) : null;
 
-        if (databases.Count == 0)
+        foreach (var fileName in TargetFiles)
         {
-            if (File.Exists(claudeMdPath))
-            {
-                var content = File.ReadAllText(claudeMdPath);
-                var cleaned = RemoveDatabaseSection(content);
-                if (string.IsNullOrWhiteSpace(cleaned))
-                    File.Delete(claudeMdPath);
-                else
-                    File.WriteAllText(claudeMdPath, cleaned);
-            }
-            return;
+            var path = Path.Combine(workspaceDir, fileName);
+            UpdateFile(path, dbSection);
         }
+    }
 
+    private static string? BuildDatabaseSection(IReadOnlyList<WorkspaceDatabaseConfig> databases,
+        DbRegistry registry, int httpPort)
+    {
         var resolvedDbs = new List<(WorkspaceDatabaseConfig Config, DatabaseInstance Info)>();
         foreach (var dbConfig in databases)
         {
@@ -32,7 +30,7 @@ public static class ClaudeLocalMdWriter
         }
 
         if (resolvedDbs.Count == 0)
-            return;
+            return null;
 
         var baseUrl = $"http://localhost:{httpPort}";
         var sb = new StringBuilder();
@@ -50,20 +48,37 @@ public static class ClaudeLocalMdWriter
             sb.AppendLine($"- **{info.DisplayName}** ({info.Provider}, {rw}): `{baseUrl}/query/{urlPath}?sql=...` or POST sql body");
         }
 
-        string dbSection = sb.ToString();
+        return sb.ToString();
+    }
 
-        if (File.Exists(claudeMdPath))
+    private static void UpdateFile(string path, string? dbSection)
+    {
+        if (dbSection == null)
         {
-            var existing = File.ReadAllText(claudeMdPath);
+            if (File.Exists(path))
+            {
+                var content = File.ReadAllText(path);
+                var cleaned = RemoveDatabaseSection(content);
+                if (string.IsNullOrWhiteSpace(cleaned))
+                    File.Delete(path);
+                else
+                    File.WriteAllText(path, cleaned);
+            }
+            return;
+        }
+
+        if (File.Exists(path))
+        {
+            var existing = File.ReadAllText(path);
             var cleaned = RemoveDatabaseSection(existing).TrimEnd();
-            File.WriteAllText(claudeMdPath, cleaned.Length == 0
+            File.WriteAllText(path, cleaned.Length == 0
                 ? dbSection
                 : cleaned + "\n\n" + dbSection);
         }
         else
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(claudeMdPath)!);
-            File.WriteAllText(claudeMdPath, dbSection);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, dbSection);
         }
     }
 
