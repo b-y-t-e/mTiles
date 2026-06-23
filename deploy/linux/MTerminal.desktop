@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=MTerminal
+Exec=MTerminal
+Icon=mterminal
+Type=Application
+Categories=Development;System;TerminalEmulator;
+Comment=Multiplatform terminal manager
+Terminal=false

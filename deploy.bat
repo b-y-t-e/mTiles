@@ -52,44 +52,22 @@ echo Deployment completed successfully!
 echo Files generated in Releases folder:
 dir Releases
 
-REM Upload to FTP server
-echo Uploading files to FTP server...
-
-REM Load credentials from .env
-for /f "usebackq tokens=1,* delims==" %%A in (".env") do set %%A=%%B
-set UPLOAD_OK=1
-
-curl -s -T "Releases\MTerminal-win-Setup.exe" --user %FTP_USER% "%FTP_BASE%MTerminal-win-Setup.exe"
-if %errorlevel% neq 0 set UPLOAD_OK=0
-
-curl -s -T "Releases\MTerminal-%VERSION%-full.nupkg" --user %FTP_USER% "%FTP_BASE%MTerminal-%VERSION%-full.nupkg"
-if %errorlevel% neq 0 set UPLOAD_OK=0
-
-curl -s -T "Releases\MTerminal-win-Portable.zip" --user %FTP_USER% "%FTP_BASE%MTerminal-win-Portable.zip"
-if %errorlevel% neq 0 set UPLOAD_OK=0
-
-curl -s -T "Releases\RELEASES" --user %FTP_USER% "%FTP_BASE%RELEASES"
-if %errorlevel% neq 0 set UPLOAD_OK=0
-
-curl -s -T "Releases\releases.win.json" --user %FTP_USER% "%FTP_BASE%releases.win.json"
-if %errorlevel% neq 0 set UPLOAD_OK=0
-
-curl -s -T "Releases\assets.win.json" --user %FTP_USER% "%FTP_BASE%assets.win.json"
-if %errorlevel% neq 0 set UPLOAD_OK=0
-
-if %UPLOAD_OK% equ 1 (
-    echo Files uploaded successfully to FTP server!
-
-    REM Delete all old nupkg files from FTP
-    echo Cleaning up old packages from FTP...
-    curl -s --user %FTP_USER% --list-only "%FTP_BASE%" > _ftp_list.tmp
-    for /f "tokens=*" %%F in ('findstr /i "full.nupkg" _ftp_list.tmp') do (
-        if /i not "%%F"=="MTerminal-%VERSION%-full.nupkg" (
-            echo Deleting %%F ...
-            curl -s --user %FTP_USER% "%FTP_BASE%" -Q "-DELE %%F" -o nul
-        )
-    )
-    del _ftp_list.tmp 2>nul
+REM Create GitHub Release with all Velopack artifacts
+echo.
+echo Creating GitHub Release v%VERSION%...
+gh release create v%VERSION% ^
+    "Releases\MTerminal-win-Setup.exe" ^
+    "Releases\MTerminal-win-Portable.zip" ^
+    "Releases\MTerminal-%VERSION%-full.nupkg" ^
+    "Releases\RELEASES" ^
+    "Releases\releases.win.json" ^
+    "Releases\assets.win.json" ^
+    --repo b-y-t-e/mTerminal ^
+    --title "MTerminal v%VERSION%" ^
+    --notes "MTerminal v%VERSION%" ^
+    --latest
+if %errorlevel% equ 0 (
+    echo GitHub Release v%VERSION% created successfully!
 ) else (
-    echo FTP upload failed for one or more files!
+    echo GitHub Release creation failed!
 )
