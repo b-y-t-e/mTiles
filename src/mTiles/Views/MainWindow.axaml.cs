@@ -11,7 +11,6 @@ public partial class MainWindow : Window
 {
     private SettingsService? _settingsService;
     private ColumnDefinition? _panelColumn;
-    private double _lastPanelWidth = 240;
     private readonly Dictionary<string, WorkspaceView> _viewCache = new();
     private WorkspaceView? _activeWorkspaceView;
 
@@ -46,16 +45,13 @@ public partial class MainWindow : Window
             }
         }
 
-        _lastPanelWidth = s.WorkspacesPanelWidth;
-        _panelColumn.Width = new GridLength(_lastPanelWidth, GridUnitType.Pixel);
+        _panelColumn.Width = new GridLength(s.WorkspacesPanelWidth, GridUnitType.Pixel);
 
         if (DataContext is MainWindowViewModel vm)
         {
             vm.PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName == nameof(MainWindowViewModel.IsPanelOpen))
-                    UpdatePanelVisibility(vm.IsPanelOpen);
-                else if (e.PropertyName == nameof(MainWindowViewModel.IsSettingsOpen))
+                if (e.PropertyName == nameof(MainWindowViewModel.IsSettingsOpen))
                     UpdateSettingsDialogSize();
                 else if (e.PropertyName == nameof(MainWindowViewModel.CurrentWorkspace))
                     SwitchWorkspaceView(vm.CurrentWorkspace);
@@ -67,33 +63,10 @@ public partial class MainWindow : Window
             };
             vm.WorkspacesPanel.FocusWorkspaceRequested += () =>
                 vm.CurrentWorkspace?.FocusActiveTile();
-            UpdatePanelVisibility(vm.IsPanelOpen);
             SwitchWorkspaceView(vm.CurrentWorkspace);
         }
     }
 
-    private void UpdatePanelVisibility(bool isOpen)
-    {
-        if (_panelColumn == null) return;
-        if (isOpen)
-        {
-            _panelColumn.Width = new GridLength(_lastPanelWidth, GridUnitType.Pixel);
-            _panelColumn.MinWidth = 150;
-            _panelColumn.MaxWidth = 500;
-            PanelSplitter.IsVisible = true;
-        }
-        else
-        {
-            if (_panelColumn.Width.Value > 0)
-                _lastPanelWidth = _panelColumn.Width.Value;
-            _panelColumn.Width = new GridLength(0);
-            _panelColumn.MinWidth = 0;
-            _panelColumn.MaxWidth = 0;
-            PanelSplitter.IsVisible = false;
-        }
-    }
-
-    // Cached workspace views — toggle IsVisible instead of recreating via DataTemplate
     private void SwitchWorkspaceView(WorkspaceViewModel? workspace)
     {
         if (_activeWorkspaceView != null)

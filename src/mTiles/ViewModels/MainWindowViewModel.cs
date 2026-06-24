@@ -14,9 +14,6 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly Dictionary<string, WorkspaceViewModel> _workspaceCache = new();
 
     [ObservableProperty]
-    private bool _isPanelOpen = true;
-
-    [ObservableProperty]
     private WorkspacesPanelViewModel _workspacesPanel;
 
     [ObservableProperty]
@@ -64,9 +61,6 @@ public partial class MainWindowViewModel : ObservableObject
             _workspacesPanel.SelectedWorkspace = target;
         }
     }
-
-    [RelayCommand]
-    private void TogglePanel() => IsPanelOpen = !IsPanelOpen;
 
     [RelayCommand]
     private void ToggleSettings() => IsSettingsOpen = !IsSettingsOpen;
