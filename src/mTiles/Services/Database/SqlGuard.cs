@@ -29,7 +29,11 @@ public static class SqlGuard
             throw new UnauthorizedAccessException(
                 $"Statement '{firstWord.ToUpperInvariant()}' is not allowed when modifications are disabled.");
 
-        if (ContainsSemicolonOutsideStrings(stripped, profile.SupportsDollarQuoting))
+        var trimmedForSemicolon = stripped.TrimEnd();
+        if (trimmedForSemicolon.Length > 0 && trimmedForSemicolon[^1] == ';')
+            trimmedForSemicolon = trimmedForSemicolon[..^1];
+
+        if (ContainsSemicolonOutsideStrings(trimmedForSemicolon, profile.SupportsDollarQuoting))
             throw new UnauthorizedAccessException(
                 "Multiple statements are not allowed when modifications are disabled.");
 
