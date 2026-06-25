@@ -218,7 +218,7 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
         }
 
         StatusText = _dbManager.IsRunning
-            ? $"{_dbManager.Registry.Count} detected, {WorkspaceDatabases.Count} selected"
+            ? $"{WorkspaceDatabases.Count}/{_dbManager.Registry.Count} databases"
             : "Databases";
 
         ApplyDetectedFilter();
