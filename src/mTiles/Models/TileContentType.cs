@@ -7,5 +7,6 @@ public enum TileContentType
     Note,
     Todo,
     Git,
-    Database
+    Database,
+    Goal
 }

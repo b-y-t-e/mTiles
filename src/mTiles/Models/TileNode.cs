@@ -13,6 +13,7 @@ public sealed class TileNode
     public string? UserProfileId { get; set; }
     public string? NoteFilePath { get; set; }
     public string? TodoFilePath { get; set; }
+    public string? GoalFilePath { get; set; }
     public bool IsActive { get; set; }
 
     public Dictionary<string, object?>? Settings { get; set; }

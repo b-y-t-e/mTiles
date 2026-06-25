@@ -1,0 +1,169 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             xmlns:m="using:mTiles.Models"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             x:Class="mTiles.Views.GoalTileView"
+             x:DataType="vm:GoalTileViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="Button.goal-btn">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="FontSize" Value="{DynamicResource FontXs}" />
+            <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        </Style>
+        <Style Selector="Button.goal-btn:pointerover">
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+        <Style Selector="Button.goal-btn:pressed">
+            <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+        </Style>
+
+        <!-- Message bubbles -->
+        <Style Selector="Border.msg-user">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="40,2,4,2" />
+        </Style>
+        <Style Selector="Border.msg-assistant">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="4,2,40,2" />
+        </Style>
+        <Style Selector="Border.msg-system">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="20,2" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+        <!-- Header bar -->
+        <Border DockPanel.Dock="Top" Padding="6,3"
+                Background="{DynamicResource BgSurface}">
+            <DockPanel>
+                <!-- Right side buttons -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                    <Button Classes="goal-btn"
+                            Command="{Binding PauseCommand}"
+                            IsVisible="{Binding IsRunning}"
+                            ToolTip.Tip="Pause">
+                        <mi:MaterialIcon Kind="Pause" Width="14" Height="14" />
+                    </Button>
+                    <Button Classes="goal-btn"
+                            Command="{Binding ResumeCommand}"
+                            IsVisible="{Binding IsPaused}"
+                            ToolTip.Tip="Resume">
+                        <mi:MaterialIcon Kind="Play" Width="14" Height="14"
+                                         Foreground="{DynamicResource AccentDefault}" />
+                    </Button>
+                    <Button Classes="goal-btn"
+                            Command="{Binding NewGoalCommand}"
+                            IsEnabled="{Binding !IsRunning}"
+                            ToolTip.Tip="New Goal">
+                        <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
+                    </Button>
+                </StackPanel>
+
+                <!-- Tool and model selectors -->
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <ComboBox ItemsSource="{Binding AvailableTools}"
+                              SelectedItem="{Binding SelectedToolName}"
+                              FontSize="{DynamicResource FontXs}"
+                              FontFamily="{DynamicResource UiFontFamily}"
+                              MinHeight="0" Padding="4,1"
+                              BorderThickness="0"
+                              Background="Transparent" />
+                    <ComboBox ItemsSource="{Binding AvailableModels}"
+                              SelectedItem="{Binding SelectedModel}"
+                              FontSize="{DynamicResource FontXs}"
+                              FontFamily="{DynamicResource UiFontFamily}"
+                              MinHeight="0" Padding="4,1"
+                              BorderThickness="0"
+                              Background="Transparent" />
+                    <Ellipse x:Name="PhaseDot" Width="6" Height="6"
+                             VerticalAlignment="Center"
+                             Margin="8,0,0,0" />
+                    <TextBlock Text="{Binding PhaseLabel}"
+                               FontSize="{DynamicResource FontXs}"
+                               FontFamily="{DynamicResource UiFontFamily}"
+                               Foreground="{DynamicResource TextMuted}"
+                               VerticalAlignment="Center"
+                               Margin="4,0,0,0" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Input bar at bottom -->
+        <Border DockPanel.Dock="Bottom" Padding="6,4"
+                Background="{DynamicResource BgSurface}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2"
+                            Margin="4,0,0,0">
+                    <Button Classes="goal-btn"
+                            Command="{Binding SubmitCommand}"
+                            IsEnabled="{Binding !IsRunning}"
+                            ToolTip.Tip="Send (Enter)">
+                        <mi:MaterialIcon Kind="Send" Width="14" Height="14" />
+                    </Button>
+                </StackPanel>
+                <TextBox x:Name="InputBox"
+                         Text="{Binding InputText}"
+                         Watermark="Type a goal or answer..."
+                         FontSize="{DynamicResource FontSm}"
+                         FontFamily="{DynamicResource UiFontFamily}"
+                         BorderThickness="1"
+                         BorderBrush="{DynamicResource BorderSubtle}"
+                         Background="{DynamicResource BgBase}"
+                         Padding="6,3"
+                         MinHeight="0"
+                         CornerRadius="{DynamicResource RadiusSm}"
+                         KeyDown="InputBox_KeyDown" />
+            </DockPanel>
+        </Border>
+
+        <!-- Chat log -->
+        <ScrollViewer x:Name="ChatScroll"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Messages}"
+                          Margin="0,4">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="m:GoalMessage">
+                        <Border Classes.msg-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
+                                Classes.msg-assistant="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.Assistant}}"
+                                Classes.msg-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Left"
+                                           VerticalAlignment="Top"
+                                           Margin="0,0,6,0"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}">
+                                    <TextBlock.Text>
+                                        <Binding Path="Role" />
+                                    </TextBlock.Text>
+                                </TextBlock>
+                                <TextBlock Text="{Binding Text}"
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontSm}"
+                                           FontFamily="{DynamicResource UiFontFamily}"
+                                           Foreground="{DynamicResource TextPrimary}" />
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

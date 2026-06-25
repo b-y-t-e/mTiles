@@ -34,6 +34,14 @@
     <SolidColorBrush x:Key="TileAccentTodo"     Color="#2d8a5a" />
     <SolidColorBrush x:Key="TileAccentGit"      Color="#7a3d8a" />
     <SolidColorBrush x:Key="TileAccentDatabase" Color="#2d7a8a" />
+    <SolidColorBrush x:Key="TileAccentGoal"     Color="#8a5a2d" />
+
+    <!-- Goal phase colors -->
+    <SolidColorBrush x:Key="GoalPhaseClarify"   Color="#5a7a8a" />
+    <SolidColorBrush x:Key="GoalPhasePlan"      Color="#8a7a5a" />
+    <SolidColorBrush x:Key="GoalPhaseImplement" Color="#5a8a6a" />
+    <SolidColorBrush x:Key="GoalPhaseReview"    Color="#7a5a8a" />
+    <SolidColorBrush x:Key="GoalPhaseSummary"   Color="#6a8a5a" />
 
     <!-- Danger (close/remove hover) -->
     <SolidColorBrush x:Key="DangerSubtle"  Color="#2e1a24" />

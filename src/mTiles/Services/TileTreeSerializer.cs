@@ -49,6 +49,7 @@ public sealed class TileTreeSerializer
                 UserProfileId = (leaf.Content as TerminalTileViewModel)?.UserProfileId,
                 NoteFilePath = (leaf.Content as NoteTileViewModel)?.FilePath,
                 TodoFilePath = (leaf.Content as TodoTileViewModel)?.FilePath,
+                GoalFilePath = (leaf.Content as GoalTileViewModel)?.FilePath,
                 IsActive = leaf.IsActive,
                 Settings = TileFactory.SerializeSettings(leaf)
             },

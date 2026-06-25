@@ -31,6 +31,7 @@ public sealed class TileFactory
             TileContentType.Database when _dbManager != null =>
                 new DatabaseTileViewModel(workingDir, _settingsService, _dbManager) { TileSettingsChanged = _onTileSettingsChanged },
             TileContentType.Database => throw new InvalidOperationException("DatabaseServiceManager is not initialized."),
+            TileContentType.Goal => new GoalTileViewModel(workingDir, _settingsService) { TileSettingsChanged = _onTileSettingsChanged },
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
     }
@@ -63,6 +64,8 @@ public sealed class TileFactory
             TileContentType.Database when _dbManager != null =>
                 new DatabaseTileViewModel(workingDir, _settingsService, _dbManager) { TileSettingsChanged = scheduleSave },
             TileContentType.Database => null,
+            TileContentType.Goal when dto.GoalFilePath != null =>
+                new GoalTileViewModel(dto.GoalFilePath, workingDir, _settingsService) { TileSettingsChanged = scheduleSave },
             TileContentType.Terminal =>
                 CreateTerminalFromDto(workingDir, dto.ShellName, dto.UserProfileId, availableShells),
             _ => CreateContent(dto.ContentType, workingDir)
@@ -83,7 +86,7 @@ public sealed class TileFactory
             git.ShowDiffPanel = el.GetBoolean();
     }
 
-    public static string AllocateTileName(TileContentType type, ref int noteCount, ref int todoCount, ref int gitCount, ref int dbCount)
+    public static string AllocateTileName(TileContentType type, ref int noteCount, ref int todoCount, ref int gitCount, ref int dbCount, ref int goalCount)
     {
         return type switch
         {
@@ -91,6 +94,7 @@ public sealed class TileFactory
             TileContentType.Todo => $"Todo#{++todoCount}",
             TileContentType.Git => $"Git#{++gitCount}",
             TileContentType.Database => $"DB#{++dbCount}",
+            TileContentType.Goal => $"Goal#{++goalCount}",
             TileContentType.Empty => "",
             _ => type.ToString()
         };

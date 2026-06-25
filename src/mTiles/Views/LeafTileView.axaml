@@ -172,6 +172,24 @@
                                 </StackPanel>
                             </Grid>
                         </Button>
+                        <Button Classes="chooser-card"
+                                Command="{Binding SelectContentTypeCommand}"
+                                CommandParameter="{x:Static m:TileContentType.Goal}">
+                            <Grid>
+                                <Border Background="{DynamicResource TileAccentGoal}"
+                                        Width="3" CornerRadius="2"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Stretch"
+                                        Margin="-16,0,0,0" />
+                                <StackPanel Spacing="4" HorizontalAlignment="Center">
+                                    <mi:MaterialIcon Kind="BullseyeArrow" Width="22" Height="22"
+                                                     HorizontalAlignment="Center"
+                                                     Foreground="{DynamicResource TileAccentGoal}" />
+                                    <TextBlock Text="Goal" FontSize="{DynamicResource FontSm}"
+                                               HorizontalAlignment="Center" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
                     </WrapPanel>
 
                     <!-- Profile chooser -->
@@ -190,7 +208,8 @@
                                            HorizontalAlignment="Center" />
                             </StackPanel>
                         </Button>
-                        <Button Classes="chooser-card"
+                        <Button x:Name="ProfileButtonsMarker"
+                                Classes="chooser-card"
                                 Command="{Binding SelectDefaultTerminalCommand}">
                             <Grid>
                                 <Border Background="{DynamicResource TileAccentTerminal}"
@@ -207,36 +226,6 @@
                                 </StackPanel>
                             </Grid>
                         </Button>
-                        <ItemsControl x:Name="ProfileItems"
-                                      ItemsSource="{Binding AvailableProfiles}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Button Classes="chooser-card"
-                                            Command="{Binding $parent[UserControl].((vm:LeafTileNodeViewModel)DataContext).SelectProfileCommand}"
-                                            CommandParameter="{Binding}">
-                                        <Grid>
-                                            <Border Background="{DynamicResource TileAccentTerminal}"
-                                                    Width="3" CornerRadius="2"
-                                                    HorizontalAlignment="Left"
-                                                    VerticalAlignment="Stretch"
-                                                    Margin="-16,0,0,0" />
-                                            <StackPanel Spacing="4" HorizontalAlignment="Center">
-                                                <mi:MaterialIcon Kind="ScriptOutline" Width="22" Height="22"
-                                                                 HorizontalAlignment="Center"
-                                                                 Foreground="{DynamicResource TextMuted}" />
-                                                <TextBlock Text="{Binding Name}" FontSize="{DynamicResource FontSm}"
-                                                           HorizontalAlignment="Center" />
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
                     </WrapPanel>
 
                     <Panel x:Name="ContentHost" />

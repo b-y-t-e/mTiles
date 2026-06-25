@@ -2,7 +2,7 @@ namespace mTiles.Models;
 
 public sealed class AppSettings
 {
-    public string TerminalFontFamily { get; set; } = AppDefaults.FontFamily;
+    public string TerminalFontFamily { get; set; } = AppDefaults.TerminalFontFamily;
     public double TerminalFontSize { get; set; } = AppDefaults.FontSize;
     public string FontFamily { get; set; } = AppDefaults.FontFamily;
     public double FontSize { get; set; } = AppDefaults.FontSize;
@@ -18,6 +18,8 @@ public sealed class AppSettings
     public List<UserAiTool> CustomAiTools { get; set; } = [];
 
     public DatabaseSettings Database { get; set; } = new();
+
+    public Dictionary<string, string> GoalDefaultModels { get; set; } = [];
 
     public bool DiffTrimIndent { get; set; } = true;
     public bool GitHideMTerminalDir { get; set; } = true;

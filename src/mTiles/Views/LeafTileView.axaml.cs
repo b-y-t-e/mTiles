@@ -5,6 +5,8 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Material.Icons;
+using Material.Icons.Avalonia;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using mTiles.Models;
@@ -114,6 +116,8 @@ public partial class LeafTileView : UserControl
         {
             ContentChooser.IsVisible = !leaf.IsChoosingProfile;
             ProfileChooser.IsVisible = leaf.IsChoosingProfile;
+            if (leaf.IsChoosingProfile)
+                PopulateProfileButtons(leaf);
             ContentHost.IsVisible = false;
             ContentHost.Children.Clear();
             _currentContentVm = null;
@@ -132,6 +136,63 @@ public partial class LeafTileView : UserControl
         if (leaf.ContentType != TileContentType.Empty) return;
         ContentChooser.IsVisible = !leaf.IsChoosingProfile;
         ProfileChooser.IsVisible = leaf.IsChoosingProfile;
+        if (leaf.IsChoosingProfile)
+            PopulateProfileButtons(leaf);
+    }
+
+    private void PopulateProfileButtons(LeafTileNodeViewModel leaf)
+    {
+        var markerIndex = ProfileChooser.Children.IndexOf(ProfileButtonsMarker);
+        if (markerIndex < 0) return;
+        while (ProfileChooser.Children.Count > markerIndex + 1)
+            ProfileChooser.Children.RemoveAt(ProfileChooser.Children.Count - 1);
+
+        var profiles = leaf.AvailableProfiles;
+        if (profiles == null) return;
+
+        foreach (var profile in profiles)
+        {
+            var icon = new MaterialIcon
+            {
+                Kind = MaterialIconKind.ScriptOutline, Width = 22, Height = 22,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            };
+            icon.Bind(MaterialIcon.ForegroundProperty, icon.GetResourceObservable("TextMuted"));
+
+            var label = new TextBlock
+            {
+                Text = profile.Name,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            };
+            label.Bind(TextBlock.FontSizeProperty, label.GetResourceObservable("FontSm"));
+
+            var accent = new Border
+            {
+                Width = 3, CornerRadius = new CornerRadius(2),
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
+                Margin = new Thickness(-16, 0, 0, 0),
+            };
+            accent.Bind(Border.BackgroundProperty, accent.GetResourceObservable("TileAccentTerminal"));
+
+            var btn = new Button { Classes = { "chooser-card" } };
+            btn.Command = leaf.SelectProfileCommand;
+            btn.CommandParameter = profile;
+            btn.Content = new Grid
+            {
+                Children =
+                {
+                    accent,
+                    new StackPanel
+                    {
+                        Spacing = 4,
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                        Children = { icon, label }
+                    }
+                }
+            };
+            ProfileChooser.Children.Add(btn);
+        }
     }
 
     private void SetContent(object? contentVm)
@@ -157,6 +218,7 @@ public partial class LeafTileView : UserControl
             TodoTileViewModel => new TodoTileView { DataContext = contentVm },
             GitTileViewModel => new GitTileView { DataContext = contentVm },
             DatabaseTileViewModel => new DatabaseTileView { DataContext = contentVm },
+            GoalTileViewModel => new GoalTileView { DataContext = contentVm },
             _ => throw new InvalidOperationException($"Unknown content type: {contentVm.GetType()}")
         };
 

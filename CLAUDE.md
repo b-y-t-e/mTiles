@@ -114,6 +114,22 @@ The AI Tools tab in Settings detects installed CLI AI coding tools and allows ma
 
 **Tool card UI:** Left status strip (3px, green/gray), name + version, binary in monospace + path, badge (CUSTOM/NOT FOUND), buttons (delete/browse/folder/url/test). "Add Custom Tool" as `add-row` at the end of the list.
 
+## Goal tile
+
+Iterative AI-driven development workflow tile (inspired by Karpathy's autoresearch). Automates the loop: **user goal → AI clarifying questions → user answers → AI creates plan → user approves/rejects → AI implements code changes → AI reviews → iterate if needed → summary**.
+
+**Workflow phases** (`GoalPhase` enum): Goal → Clarify → Plan → Implement → Review → Summary. The Clarify↔Plan cycle repeats until user approves. Clarify verifies the goal is specific, measurable, and achievable. Plan creates a concise implementation plan with clear steps and success criteria. User types "ok" to approve or describes what to change (→ back to Clarify). The implement-review loop runs up to 5 iterations automatically. After VERDICT: PASS or max iterations, shows summary. All prompts enforce Clean Code and SOLID (S, O) principles.
+
+**AI tool integration:** Uses `AiProcessRunner` with `IAiToolRunner` interface (OCP). `ClaudeToolRunner` launches `claude -p "prompt" --model <model> --output-format text --max-turns 20` via `ProcessStartInfo.ArgumentList` (no shell injection). New tools (OpenCode, Pi Agent) implement `IAiToolRunner`.
+
+**Model configuration:** Per-tool default model stored in `AppSettings.GoalDefaultModels` (Dict<string, string>, key = binary name). UI has ComboBox selectors for tool and model. Model changes persist immediately.
+
+**Persistence:** State saved to `.mterminal/goals/{guid}.json` — goal text, messages, phase, tool/model selection. `TileNode.GoalFilePath` for layout persistence.
+
+**UI:** Chat-like scrollable log with message bubbles (user/assistant/system roles, different styles). Header bar with tool/model selectors and phase label. Input bar at bottom with Send and Reset. Stop button visible during AI execution.
+
+**Services:** `AiProcessRunner` (static, `Services/AiProcessRunner.cs`) — process launcher with `ArgumentList`-based arg passing, concurrent stdout/stderr reading (deadlock-safe). `IAiToolRunner` / `ClaudeToolRunner` — per-tool process configuration and output parsing.
+
 ## Database tile
 
 Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query local databases directly via HTTP — without manual connection setup. The tile auto-generates context files (`claude.local.md`, `AGENTS.md`, `GEMINI.md`) so agents discover available databases and how to call them.
