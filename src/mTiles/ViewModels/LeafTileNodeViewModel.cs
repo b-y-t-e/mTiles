@@ -25,6 +25,9 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
     [ObservableProperty]
     private bool _isChoosingProfile;
 
+    public bool HasProfile => Content is TerminalTileViewModel { UserProfileId: not null };
+
+    partial void OnContentChanged(ObservableObject? value) => OnPropertyChanged(nameof(HasProfile));
     partial void OnTileNameChanged(string value) => NotifyLayoutChanged();
 
     private readonly TileActivationScope _activationScope;
@@ -68,7 +71,26 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
     private void OnActiveTileChanged(LeafTileNodeViewModel active) => IsActive = active == this;
 
     [RelayCommand]
-    private void RestartTerminal()
+    private async Task RestartTerminalAsync()
+    {
+        if (ConfirmAction != null && !await ConfirmAction("Restart shell?"))
+            return;
+
+        DoRestartTerminal();
+    }
+
+    [RelayCommand]
+    private async Task ResetTileIdAsync()
+    {
+        if (ConfirmAction != null && !await ConfirmAction("Generate new Tile ID and restart shell?"))
+            return;
+
+        TileId = Guid.NewGuid().ToString();
+        NotifyLayoutChanged();
+        DoRestartTerminal();
+    }
+
+    private void DoRestartTerminal()
     {
         if (Content is not TerminalTileViewModel tvm) return;
         if (tvm.CachedControl is not Iciclecreek.Terminal.TerminalControl tc) return;
@@ -90,17 +112,6 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
 
             _ = tc.LaunchProcess(_workingDirectory, tvm.Shell.ExecutablePath, tvm.Shell.Args);
         }
-    }
-
-    [RelayCommand]
-    private async Task ResetTileIdAsync()
-    {
-        if (ConfirmAction != null && !await ConfirmAction("Generate new Tile ID and restart shell?"))
-            return;
-
-        TileId = Guid.NewGuid().ToString();
-        NotifyLayoutChanged();
-        RestartTerminal();
     }
 
     [RelayCommand]
@@ -211,8 +222,11 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
     }
 
     [RelayCommand]
-    private void Close()
+    private async Task CloseAsync()
     {
+        if (ConfirmAction != null && !await ConfirmAction("Close tile?"))
+            return;
+
         _activationScope.ActiveTileChanged -= OnActiveTileChanged;
 
         if (Content is IDisposable disposable)

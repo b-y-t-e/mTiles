@@ -32,10 +32,9 @@
                             </Button>
                             <Button Classes="tile-btn"
                                     Command="{Binding ResetTileIdCommand}"
-                                    ToolTip.Tip="Reset Tile ID and restart shell"
-                                    Opacity="0.5"
-                                    IsVisible="False">
-                                <mi:MaterialIcon Kind="Identifier" Width="12" Height="12" />
+                                    ToolTip.Tip="New session"
+                                    IsVisible="{Binding HasProfile}">
+                                <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
                             </Button>
                             <Button Classes="tile-btn"
                                     Command="{Binding SplitVerticalCommand}"
