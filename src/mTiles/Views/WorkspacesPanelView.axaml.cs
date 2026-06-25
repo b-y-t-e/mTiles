@@ -1,11 +1,11 @@
 using System.ComponentModel;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.Input;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
@@ -16,23 +16,39 @@ namespace mTiles.Views;
 public partial class WorkspacesPanelView : UserControl
 {
     private WorkspacesPanelViewModel? _subscribedVm;
+    private bool _isCollapsed;
+    private const double CollapseThreshold = 80;
 
     public WorkspacesPanelView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        SizeChanged += OnSizeChanged;
     }
 
-    private void WorkspaceItem_PointerPressed(object? sender, PointerPressedEventArgs e)
+    private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        var collapsed = e.NewSize.Width < CollapseThreshold;
+        if (collapsed == _isCollapsed) return;
+        _isCollapsed = collapsed;
+        ExpandedPanel.IsVisible = !collapsed;
+        CollapsedPanel.IsVisible = collapsed;
+    }
+
+    private void WorkspaceItem_PointerPressed(object? sender, PointerPressedEventArgs e) =>
+        HandleWorkspacePointerPressed(sender, e);
+
+    private void CollapsedItem_PointerPressed(object? sender, PointerPressedEventArgs e) =>
+        HandleWorkspacePointerPressed(sender, e);
+
+    private void HandleWorkspacePointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (DataContext is not WorkspacesPanelViewModel vm) return;
+        if (sender is not Control { DataContext: WorkspaceItemViewModel item } control) return;
 
-        var border = sender as Border;
-        if (border?.DataContext is not WorkspaceItemViewModel item) return;
-
-        if (e.GetCurrentPoint(border).Properties.IsRightButtonPressed)
+        if (e.GetCurrentPoint(control).Properties.IsRightButtonPressed)
         {
-            ShowContextMenu(vm, item, border);
+            ShowContextMenu(vm, item, control);
             e.Handled = true;
             return;
         }

@@ -372,6 +372,14 @@
         <Setter Property="IsVisible" Value="False" />
     </Style>
 
+    <!-- ======== COLLAPSED WORKSPACE ICONS ======== -->
+    <Style Selector="Border.workspace-icon-selected">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+    </Style>
+    <Style Selector="Border.workspace-icon-selected TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource AccentDefault}" />
+    </Style>
+
     <!-- ======== GRID SPLITTER ======== -->
     <Style Selector="GridSplitter">
         <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
