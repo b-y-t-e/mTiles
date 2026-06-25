@@ -10,19 +10,19 @@ public static class AiToolDetector
         new() { Name = "Aider", BinaryName = "aider", Description = "AI pair programming in terminal", Url = "https://aider.chat" },
         new() { Name = "Amazon Q", BinaryName = "q", Description = "AWS AI developer tool", Url = "https://aws.amazon.com/q/developer" },
         new() { Name = "Amp", BinaryName = "amp", Description = "Sourcegraph coding agent", Url = "https://ampcode.com" },
-        new() { Name = "Antigravity", BinaryName = "antigravity", Description = "Google agentic dev platform", Url = "https://antigravity.dev" },
+        new() { Name = "Antigravity CLI", BinaryName = "agy", Description = "Google agentic dev platform", VersionArgs = "--version", Url = "https://antigravity.google/product/antigravity-cli" },
         new() { Name = "Claude Code", BinaryName = "claude", Description = "Anthropic CLI for Claude", Url = "https://docs.anthropic.com/en/docs/claude-code" },
         new() { Name = "Cline", BinaryName = "cline", Description = "Open-source coding agent", Url = "https://cline.bot" },
         new() { Name = "Codex", BinaryName = "codex", Description = "OpenAI Codex CLI", Url = "https://github.com/openai/codex" },
         new() { Name = "Copilot CLI", BinaryName = "copilot", Description = "GitHub AI coding agent", Url = "https://githubnext.com/projects/copilot-cli" },
         new() { Name = "Devin", BinaryName = "devin", Description = "Cognition AI engineer", Url = "https://devin.ai" },
-        new() { Name = "Gemini CLI", BinaryName = "gemini", Description = "Google Gemini CLI agent", Url = "https://github.com/google-gemini/gemini-cli" },
         new() { Name = "Goose", BinaryName = "goose", Description = "Open-source AI agent", Url = "https://block.github.io/goose" },
         new() { Name = "Grok Build", BinaryName = "grok-build", Description = "xAI terminal agent", Url = "https://x.ai" },
         new() { Name = "Kilo Code", BinaryName = "kilo", Description = "Multi-agent coding CLI", Url = "https://kilocode.ai" },
         new() { Name = "Kimi Code", BinaryName = "kimi", Description = "Moonshot AI coding agent", Url = "https://github.com/MoonshotAI/kimi-code" },
+        new() { Name = "Open Claude", BinaryName = "openclaude", Description = "Open-source Claude Code fork", Url = "https://openclaude.gitlawb.com" },
         new() { Name = "OpenCode", BinaryName = "opencode", Description = "Open-source AI coding agent", VersionArgs = "--version", Url = "https://opencode.ai" },
-        new() { Name = "Pi Agent", BinaryName = "pi", Description = "Minimal BYOK coding agent", Url = "https://github.com/mariozechner/pi-coding-agent" },
+        new() { Name = "Pi Agent", BinaryName = "pi", Description = "Minimal BYOK coding agent", VersionArgs = "--version", Url = "https://github.com/mariozechner/pi-coding-agent" },
         new() { Name = "Qwen Code", BinaryName = "qwen", Description = "Alibaba terminal agent", Url = "https://github.com/QwenLM/qwen-code" },
         new() { Name = "Trae", BinaryName = "trae", Description = "ByteDance coding agent", Url = "https://github.com/bytedance/trae-agent" },
     ];
@@ -104,7 +104,7 @@ public static class AiToolDetector
                 FileName = tool.ExecutablePath,
                 Arguments = tool.VersionArgs,
                 RedirectStandardOutput = true,
-                RedirectStandardError = false,
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
@@ -112,11 +112,16 @@ public static class AiToolDetector
             using var process = Process.Start(psi);
             if (process == null) return null;
 
-            var output = await process.StandardOutput.ReadToEndAsync(cts.Token);
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+            var stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
 
             try { await process.WaitForExitAsync(cts.Token); }
             catch (OperationCanceledException) { try { process.Kill(); } catch { } }
 
+            var output = string.IsNullOrWhiteSpace(stdout) ? stderr : stdout;
             var firstLine = output.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
             return string.IsNullOrEmpty(firstLine) ? null : firstLine;
         }

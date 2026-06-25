@@ -57,6 +57,14 @@ public sealed class SettingsService
             },
             new()
             {
+                Name = "Open Claude",
+                ShellName = "",
+                RequiredAiToolBinaryName = "openclaude",
+                StartupScript = "openclaude --resume ${tileId}",
+                FallbackScript = "openclaude --session-id ${tileId}"
+            },
+            new()
+            {
                 Name = "OpenCode",
                 ShellName = "",
                 RequiredAiToolBinaryName = "opencode",
