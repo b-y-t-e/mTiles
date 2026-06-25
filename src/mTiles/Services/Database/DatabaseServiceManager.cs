@@ -15,6 +15,7 @@ public sealed class DatabaseServiceManager : IDisposable
     private readonly ConcurrentDictionary<string, WorkspaceGrant> _workspaceGrants = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTime> _temporaryWriteGrants = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _grantLock = new();
+    private Timer? _stateChangedDebounce;
 
     public DbRegistry Registry => _registry;
     public DbLogger Logger => _logger;
@@ -28,7 +29,7 @@ public sealed class DatabaseServiceManager : IDisposable
         _settingsService = settingsService;
         _registry = new DbRegistry();
         _logger = new DbLogger(Path.Combine(AppPaths.GetAppDataDirectory(), "db-logs"));
-        _registry.Changed += () => StateChanged?.Invoke();
+        _registry.Changed += OnRegistryChanged;
     }
 
     public void Start()
@@ -249,8 +250,15 @@ public sealed class DatabaseServiceManager : IDisposable
         }
     }
 
+    private void OnRegistryChanged()
+    {
+        _stateChangedDebounce?.Dispose();
+        _stateChangedDebounce = new Timer(_ => StateChanged?.Invoke(), null, 300, Timeout.Infinite);
+    }
+
     public void Dispose()
     {
+        _stateChangedDebounce?.Dispose();
         Stop();
         _logger.Dispose();
     }
