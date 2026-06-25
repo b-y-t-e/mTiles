@@ -19,7 +19,6 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _fontFamily;
     [ObservableProperty] private double _fontSize;
     [ObservableProperty] private bool _isServiceRunning;
-    [ObservableProperty] private bool _isEnabled;
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private int _httpPort;
     [ObservableProperty] private int _selectedTab;
@@ -46,7 +45,6 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
 
     private List<WorkspaceDatabaseConfig> _workspaceConfigs = [];
     private const int MaxWorkspaceDatabases = 10;
-    private bool _loading;
 
     public DatabaseTileViewModel(string workingDirectory, SettingsService settingsService,
         DatabaseServiceManager dbManager)
@@ -66,9 +64,7 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
         dbManager.WriteAccessRequested += OnWriteAccessRequested;
         dbManager.Logger.EntryLogged += OnLogEntryLogged;
 
-        _loading = true;
         LoadWorkspaceConfig();
-        _loading = false;
         RefreshDatabaseList();
         SyncGrants();
     }
@@ -88,7 +84,6 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
 
     private async Task<bool> OnWriteAccessRequested(string databaseKey, string sql)
     {
-        if (!IsEnabled) return false;
         if (!_workspaceConfigs.Any(c => c.DatabaseKey.Equals(databaseKey, StringComparison.OrdinalIgnoreCase)))
             return false;
 
@@ -132,11 +127,6 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
         });
     }
 
-    partial void OnIsEnabledChanged(bool value)
-    {
-        if (!_loading) SaveWorkspaceConfig();
-    }
-
     private void LoadWorkspaceConfig()
     {
         var configPath = GetWorkspaceConfigPath();
@@ -150,13 +140,11 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
                 var cfg = JsonSerializer.Deserialize<WorkspaceDatabaseTileConfig>(json, JsonDefaults.Options);
                 if (cfg != null)
                 {
-                    IsEnabled = cfg.Enabled;
                     _workspaceConfigs = cfg.Databases;
                     return;
                 }
             }
             _workspaceConfigs = JsonSerializer.Deserialize<List<WorkspaceDatabaseConfig>>(json, JsonDefaults.Options) ?? [];
-            IsEnabled = _workspaceConfigs.Count > 0;
         }
         catch (Exception ex)
         {
@@ -169,18 +157,18 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
     {
         var configPath = GetWorkspaceConfigPath();
         Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-        var cfg = new WorkspaceDatabaseTileConfig { Enabled = IsEnabled, Databases = _workspaceConfigs };
+        var cfg = new WorkspaceDatabaseTileConfig { Databases = _workspaceConfigs };
         var json = JsonSerializer.Serialize(cfg, JsonDefaults.Options);
         File.WriteAllText(configPath, json);
 
         SyncGrants();
-        _dbManager.UpdateClaudeLocalMd(_workingDirectory, IsEnabled, _workspaceConfigs);
+        _dbManager.UpdateClaudeLocalMd(_workingDirectory, _workspaceConfigs);
         TileSettingsChanged?.Invoke();
     }
 
     private void SyncGrants()
     {
-        _dbManager.RegisterWorkspace(_workingDirectory, IsEnabled, _workspaceConfigs);
+        _dbManager.RegisterWorkspace(_workingDirectory, _workspaceConfigs);
     }
 
     private string GetWorkspaceConfigPath() =>
@@ -311,6 +299,6 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
         _dbManager.WriteAccessRequested -= OnWriteAccessRequested;
         _dbManager.Logger.EntryLogged -= OnLogEntryLogged;
         _dbManager.UnregisterWorkspace(_workingDirectory);
-        _dbManager.UpdateClaudeLocalMd(_workingDirectory, false, _workspaceConfigs);
+        _dbManager.UpdateClaudeLocalMd(_workingDirectory, []);
     }
 }

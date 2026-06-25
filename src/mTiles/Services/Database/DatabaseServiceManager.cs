@@ -84,7 +84,7 @@ public sealed class DatabaseServiceManager : IDisposable
     {
         var port = _settingsService.Settings.Database.HttpPort;
         foreach (var (workspaceDir, grant) in _workspaceGrants)
-            ClaudeLocalMdWriter.Update(workspaceDir, grant.Enabled ? grant.Databases : [], _registry, port);
+            ClaudeLocalMdWriter.Update(workspaceDir, _started ? grant.Databases : [], _registry, port);
     }
 
     public void RunDiscoveryNow()
@@ -94,11 +94,11 @@ public sealed class DatabaseServiceManager : IDisposable
 
     // -- Workspace grant management --
 
-    public void RegisterWorkspace(string workspaceDir, bool enabled, List<WorkspaceDatabaseConfig> databases)
+    public void RegisterWorkspace(string workspaceDir, List<WorkspaceDatabaseConfig> databases)
     {
         lock (_grantLock)
         {
-            _workspaceGrants[workspaceDir] = new WorkspaceGrant(enabled, databases.ToList());
+            _workspaceGrants[workspaceDir] = new WorkspaceGrant(databases.ToList());
             RecalculateAllowModifications();
         }
         StateChanged?.Invoke();
@@ -118,7 +118,6 @@ public sealed class DatabaseServiceManager : IDisposable
     {
         foreach (var grant in _workspaceGrants.Values)
         {
-            if (!grant.Enabled) continue;
             if (grant.Databases.Any(d => d.DatabaseKey.Equals(databaseKey, StringComparison.OrdinalIgnoreCase)))
                 return true;
         }
@@ -132,7 +131,6 @@ public sealed class DatabaseServiceManager : IDisposable
 
         foreach (var grant in _workspaceGrants.Values)
         {
-            if (!grant.Enabled) continue;
             var db = grant.Databases.FirstOrDefault(d =>
                 d.DatabaseKey.Equals(databaseKey, StringComparison.OrdinalIgnoreCase));
             if (db is { AllowModifications: true })
@@ -173,9 +171,9 @@ public sealed class DatabaseServiceManager : IDisposable
             entry.Info.AllowModifications = IsDatabaseWriteAllowed(entry.Info.Key);
     }
 
-    public void UpdateClaudeLocalMd(string workspaceDir, bool enabled, List<WorkspaceDatabaseConfig> databases)
+    public void UpdateClaudeLocalMd(string workspaceDir, List<WorkspaceDatabaseConfig> databases)
     {
-        var effectiveDbs = enabled ? databases : [];
+        var effectiveDbs = _started && databases.Count > 0 ? databases : [];
         ClaudeLocalMdWriter.Update(workspaceDir, effectiveDbs, _registry, _settingsService.Settings.Database.HttpPort);
     }
 
@@ -257,5 +255,5 @@ public sealed class DatabaseServiceManager : IDisposable
         _logger.Dispose();
     }
 
-    private sealed record WorkspaceGrant(bool Enabled, IReadOnlyList<WorkspaceDatabaseConfig> Databases);
+    private sealed record WorkspaceGrant(IReadOnlyList<WorkspaceDatabaseConfig> Databases);
 }

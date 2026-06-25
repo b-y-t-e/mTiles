@@ -103,12 +103,8 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Left: enable toggle + icon + label -->
+                <!-- Left: icon + label -->
                 <StackPanel Orientation="Horizontal" Spacing="5">
-                    <CheckBox IsChecked="{Binding IsEnabled}"
-                              VerticalAlignment="Center"
-                              MinWidth="0" Padding="0" Margin="0"
-                              ToolTip.Tip="Write selected databases to claude.local.md" />
                     <mi:MaterialIcon Kind="DatabaseOutline" Width="12" Height="12"
                                      Foreground="{DynamicResource TileAccentDatabase}"
                                      VerticalAlignment="Center" />

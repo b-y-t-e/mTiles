@@ -138,11 +138,11 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 
 **Write protection (SQL Guard):** INSERT/UPDATE/DELETE blocked by default. User unlocks per-database with the RW toggle. DROP/TRUNCATE/ALTER always blocked regardless. If the agent sends a write query and write is disabled, a confirmation dialog appears — the user approves or denies in real time. Block comments (`/* */`) and line comments (`--`) are stripped before keyword scanning to prevent bypass attempts.
 
-**Tile UI:** `Enabled` checkbox (controls context file generation), list of selected databases with RW/RO toggle, list of all discovered databases with add button. Tile reacts to `DatabaseServiceManager.StateChanged` and `SettingsChanged`.
+**Tile UI:** List of selected databases with RW/RO toggle, list of all discovered databases with add button. Context file generation is automatic — driven by global database service setting (Settings) and whether any databases are selected in the tile. Tile reacts to `DatabaseServiceManager.StateChanged` and `SettingsChanged`.
 
 **Architecture:** `DatabaseServiceManager` (singleton in App) manages `DbRegistry`, `DbLogger`, `DiscoveryService` and `DbHttpServer`. Tile registers its workspace with the manager (`RegisterWorkspace`/`UnregisterWorkspace`).
 
-**Access control:** HTTP server exposes only databases selected in at least one workspace tile with `Enabled = true`. `IsDatabaseAllowed(key)` checks the union of grants across all workspaces. `GET /databases` returns only allowed databases. Host header validated to `localhost`/`127.0.0.1`/`::1` — blocks DNS rebinding attacks from browser tabs.
+**Access control:** HTTP server exposes only databases selected in at least one workspace tile. `IsDatabaseAllowed(key)` checks the union of grants across all workspaces. `GET /databases` returns only allowed databases. Host header validated to `localhost`/`127.0.0.1`/`::1` — blocks DNS rebinding attacks from browser tabs.
 
 **Database discovery:** SQL Server via UDP broadcast on port 1434 (SQL Browser). PostgreSQL via port scanning (default 5432, 5433, 5434) on localhost and the local network. Manual connections also supported. Discovery runs periodically (default every 30 min).
 
@@ -154,7 +154,7 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 
 **Context file generation:** `ClaudeLocalMdWriter` writes the `# Database access` section to `claude.local.md` (Claude Code), `AGENTS.md` (OpenCode, Codex), and `GEMINI.md` (Gemini CLI). Existing content in these files is preserved — only the database section is replaced.
 
-**Workspace config:** `.mterminal/databases.json` — `WorkspaceDatabaseTileConfig` with `Enabled` (bool) and `Databases` (list). On change, context files are generated (only when `Enabled = true`).
+**Workspace config:** `.mterminal/databases.json` — `WorkspaceDatabaseTileConfig` with `Databases` (list). Context files are generated when database service is running and the list is non-empty.
 
 **Settings:** Database tab in Settings — enable service, HTTP port, SQL Server (Windows Auth / SQL Auth), PostgreSQL (credentials, ports), scan interval, manual connections (CRUD with inline edit form, test connection). Save & Apply restarts the service automatically. Passwords encrypted with DPAPI.
 
