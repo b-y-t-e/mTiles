@@ -26,7 +26,7 @@ dotnet run --project src/mTiles
 - **Iciclecreek.Avalonia.Terminal** — terminal with built-in PTY (Porta.Pty).
   - `BeginReparent()`/`EndReparent()` prevents process killing when moving in the visual tree
   - `Process = string.Empty` blocks auto-launch of the default shell
-  - Class handlers (`OnKeyDown`) ignore `e.Handled` — they cannot be blocked by regular handlers
+  - `OnKeyDown` class handler respects `e.Handled` — tunnel handlers can block it. Ctrl+C copy handled natively (≥2.6.0)
 - **AvaloniaEdit** — text editor. Requires `StyleInclude` in App.axaml. Text sync via `Document.Changed`.
 - **Material.Icons.Avalonia** — Material Design icons. Requires `<MaterialIconStyles />` in `App.axaml` Styles. Usage: `<mi:MaterialIcon Kind="Close" />`.
 
@@ -48,8 +48,9 @@ In startup script `${tileId}` is replaced with the current `TileId` — both on 
 
 `TerminalKeyHandler` (separate class, SRP) handles:
 - **Ctrl+V** — paste via `PasteAsync()`
-- **Ctrl+C** — copy selected text (pre-captured in `PointerReleased`, because TerminalView clears selection on every keydown)
 - **Alt+key** — sends `ESC+char` directly to PTY stream (fix for missing Alt handling in TerminalView)
+
+**Ctrl+C** copy is handled natively by the terminal library (≥2.6.0).
 
 PTY stream reflection extracted to `PtyWriter` (static helper, shared between key handler and startup script).
 

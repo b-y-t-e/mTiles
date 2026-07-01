@@ -1,23 +1,20 @@
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Iciclecreek.Terminal;
 
 namespace mTiles.Views;
 
 // Workaround for Iciclecreek.Terminal keyboard limitations:
-// - TerminalView.OnKeyDown is a class handler (always runs, ignores e.Handled)
-// - It clears selection on ANY keypress (including modifier-only like Ctrl)
 // - It doesn't send ESC prefix for Alt+key combinations
+// - Ctrl+V paste needs to be handled before the library sends raw ^V to PTY
 // - WriterStream is not exposed publicly (requires reflection)
+// Ctrl+C copy is handled natively by the library (≥2.6.0).
 public sealed class TerminalKeyHandler
 {
     private TerminalControl? _terminalControl;
     private TerminalView? _terminalView;
-    private string? _lastSelectedText;
     private bool _registered;
 
     public void Attach(Control parent, TerminalControl tc)
@@ -26,22 +23,6 @@ public sealed class TerminalKeyHandler
         if (tv == null || tv == _terminalView) return;
         _terminalControl = tc;
         _terminalView = tv;
-
-        // Pre-capture selection text on mouse release — TerminalView clears it on
-        // the next keydown (even Ctrl alone), so it's gone before Ctrl+C arrives.
-        tv.AddHandler(
-            InputElement.PointerReleasedEvent,
-            (_, _) =>
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    _lastSelectedText = tv.Terminal?.Selection?.HasSelection == true
-                        ? tv.Terminal.Selection.GetSelectionText()
-                        : null;
-                }, DispatcherPriority.Background);
-            },
-            RoutingStrategies.Bubble,
-            handledEventsToo: true);
 
         if (!_registered)
         {
@@ -68,14 +49,6 @@ public sealed class TerminalKeyHandler
             {
                 e.Handled = true;
                 PtyWriter.Write(_terminalControl, $"\x1b{ch}");
-            }
-            else if (e.Key == Key.C && e.KeyModifiers == KeyModifiers.Control && !string.IsNullOrEmpty(_lastSelectedText))
-            {
-                e.Handled = true;
-                var topLevel = TopLevel.GetTopLevel(_terminalView);
-                if (topLevel?.Clipboard != null)
-                    await topLevel.Clipboard.SetTextAsync(_lastSelectedText);
-                _lastSelectedText = null;
             }
         }
         catch (Exception ex)
