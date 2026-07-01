@@ -47,6 +47,7 @@ public partial class TerminalTileView : UserControl
             FontFamily = new FontFamily(vm.FontFamily),
             FontSize = vm.FontSize,
             BufferSize = 5000,
+            CopyOnSelect = true,
             Background = new SolidColorBrush(Color.Parse(theme.Background)),
             Foreground = new SolidColorBrush(Color.Parse(theme.Foreground)),
             Options = CreateOptions(theme)
