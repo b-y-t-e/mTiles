@@ -47,12 +47,11 @@ In startup script `${tileId}` is replaced with the current `TileId` — both on 
 ## Terminal key handling
 
 `TerminalKeyHandler` (separate class, SRP) handles:
-- **Ctrl+V** — paste via `PasteAsync()`
-- **Alt+key** — sends `ESC+char` directly to PTY stream (fix for missing Alt handling in TerminalView)
+- **Ctrl+V** — paste via `PasteAsync()` (library intentionally sends raw `\x16` for Ctrl+V)
 
-**Ctrl+C** copy is handled natively by the terminal library (≥2.6.0).
+**Ctrl+C** copy and **Alt+key** ESC prefix are handled natively by the terminal library (≥2.6.0).
 
-PTY stream reflection extracted to `PtyWriter` (static helper, shared between key handler and startup script).
+PTY stream reflection extracted to `PtyWriter` (static helper, shared between startup script and DirectLauncher).
 
 ## Alt-buffer cleanup (TUI apps)
 
