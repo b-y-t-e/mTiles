@@ -85,6 +85,9 @@ public partial class SettingsViewModel : ObservableObject
     private double _terminalFontSize;
 
     [ObservableProperty]
+    private bool _terminalCopyOnSelect;
+
+    [ObservableProperty]
     private string _fontFamily;
 
     [ObservableProperty]
@@ -234,6 +237,7 @@ public partial class SettingsViewModel : ObservableObject
         _colorThemeName = s.ColorThemeName;
         _terminalFontFamily = s.TerminalFontFamily;
         _terminalFontSize = s.TerminalFontSize;
+        _terminalCopyOnSelect = s.TerminalCopyOnSelect;
         _fontFamily = s.FontFamily;
         _fontSize = s.FontSize;
         _customShellPath = s.CustomShellPath;
@@ -280,6 +284,7 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnColorThemeNameChanged(string value) { _settingsService.Settings.ColorThemeName = value; _settingsService.NotifyChanged(); }
     partial void OnTerminalFontFamilyChanged(string value) { _settingsService.Settings.TerminalFontFamily = value; _settingsService.NotifyChanged(); }
     partial void OnTerminalFontSizeChanged(double value) { _settingsService.Settings.TerminalFontSize = value; _settingsService.NotifyChanged(); }
+    partial void OnTerminalCopyOnSelectChanged(bool value) { _settingsService.Settings.TerminalCopyOnSelect = value; _settingsService.NotifyChanged(); }
     partial void OnFontFamilyChanged(string value) { _settingsService.Settings.FontFamily = value; _settingsService.NotifyChanged(); }
     partial void OnFontSizeChanged(double value) { _settingsService.Settings.FontSize = value; _settingsService.NotifyChanged(); }
     partial void OnGitHideMTerminalDirChanged(bool value) { _settingsService.Settings.GitHideMTerminalDir = value; _settingsService.NotifyChanged(); }

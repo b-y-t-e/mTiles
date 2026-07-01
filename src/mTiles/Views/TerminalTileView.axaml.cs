@@ -47,7 +47,7 @@ public partial class TerminalTileView : UserControl
             FontFamily = new FontFamily(vm.FontFamily),
             FontSize = vm.FontSize,
             BufferSize = 5000,
-            CopyOnSelect = true,
+            CopyOnSelect = vm.CopyOnSelect,
             Background = new SolidColorBrush(Color.Parse(theme.Background)),
             Foreground = new SolidColorBrush(Color.Parse(theme.Foreground)),
             Options = CreateOptions(theme)
@@ -105,6 +105,9 @@ public partial class TerminalTileView : UserControl
                 case nameof(TerminalTileViewModel.FontSize):
                     terminal.FontSize = vm.FontSize;
                     NudgeRerender(terminal);
+                    break;
+                case nameof(TerminalTileViewModel.CopyOnSelect):
+                    terminal.CopyOnSelect = vm.CopyOnSelect;
                     break;
             }
         });

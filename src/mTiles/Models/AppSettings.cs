@@ -4,6 +4,7 @@ public sealed class AppSettings
 {
     public string TerminalFontFamily { get; set; } = AppDefaults.TerminalFontFamily;
     public double TerminalFontSize { get; set; } = AppDefaults.FontSize;
+    public bool TerminalCopyOnSelect { get; set; } = AppDefaults.TerminalCopyOnSelect;
     public string FontFamily { get; set; } = AppDefaults.FontFamily;
     public double FontSize { get; set; } = AppDefaults.FontSize;
     public string ColorThemeName { get; set; } = AppDefaults.ColorThemeName;

@@ -84,7 +84,7 @@ Profile persistence in layout: `TileNode.UserProfileId` → during deserializati
 ## Settings UI
 
 Settings dialog as a modal overlay with responsive sizing (50% window width / 80% window height, min 420×400). Four tabs:
-- **General** — Default Shell, Appearance (color theme, font), Terminal (font)
+- **General** — Default Shell, Appearance (color theme, font), Terminal (font, copy-on-select)
 - **Profiles** — Shell profile CRUD (list + inline edit with accent border)
 - **AI Tools** — auto-detection of CLI AI coding tools, version testing, custom tools
 - **Database** — enable service, HTTP port, SQL Server/PostgreSQL credentials, scan interval, manual connections

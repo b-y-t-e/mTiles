@@ -6,6 +6,7 @@ public static class AppDefaults
     public const string TerminalFontFamily = "Cascadia Mono, JetBrains Mono, Fira Code, Consolas, Liberation Mono, DejaVu Sans Mono, Noto Sans Mono, monospace";
     public const double FontSize = 14;
     public const string ColorThemeName = "Monokai";
+    public const bool TerminalCopyOnSelect = true;
 
     public const double FontSizeEpsilon = 0.01;
     public const double CheckSizeRatio = 1.4;

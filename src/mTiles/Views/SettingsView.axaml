@@ -134,6 +134,12 @@
                                         <NumericUpDown Classes="setting"
                                                        Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
                                     </DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Text="Copy on select" Classes="label"
+                                                   VerticalAlignment="Center" Width="90" />
+                                        <ToggleSwitch IsChecked="{Binding TerminalCopyOnSelect}"
+                                                      OnContent="On" OffContent="Off" />
+                                    </DockPanel>
                                 </StackPanel>
                             </Border>
                         </DockPanel>

@@ -22,6 +22,9 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
     private double _fontSize;
 
     [ObservableProperty]
+    private bool _copyOnSelect;
+
+    [ObservableProperty]
     private TerminalTheme _theme;
 
     private readonly SettingsService _settingsService;
@@ -44,6 +47,7 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
         _theme = TerminalTheme.GetByName(s.ColorThemeName);
         _fontFamily = s.TerminalFontFamily;
         _fontSize = s.TerminalFontSize;
+        _copyOnSelect = s.TerminalCopyOnSelect;
 
         _settingsService.SettingsChanged += OnSettingsChanged;
     }
@@ -58,6 +62,8 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
             FontFamily = s.TerminalFontFamily;
         if (Math.Abs(s.TerminalFontSize - FontSize) > AppDefaults.FontSizeEpsilon)
             FontSize = s.TerminalFontSize;
+        if (s.TerminalCopyOnSelect != CopyOnSelect)
+            CopyOnSelect = s.TerminalCopyOnSelect;
     }
 
     public (string? startupScript, string? fallbackScript, bool isDirectLaunch) ResolveCurrentScripts()
