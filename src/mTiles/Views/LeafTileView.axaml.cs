@@ -302,13 +302,18 @@ public partial class LeafTileView : UserControl
     {
         if (_subscribedLeaf == null) return;
 
-        // Last focusable ≈ najgłębiej zagnieżdżony descendant. Dla terminala to
-        // wewnętrzny TerminalView (pod TerminalControl) — fokus trafia od razu na
-        // niego, bez polegania na kruchym odroczonym hand-off w TerminalControl.OnGotFocus.
-        // Pozostaje generyczne dla Note/Git/Todo.
-        var focusable = ContentHost.GetVisualDescendants()
+        // Dla terminala fokusuj JAWNIE wewnętrzny TerminalView (deterministycznie).
+        // Wcześniejsze podejścia zawodziły: FirstOrDefault trafiał w zewnętrzny
+        // TerminalControl (kruchy odroczony hand-off w OnGotFocus), a LastOrDefault
+        // mógł trafić w focusable element ScrollBara z template (jest po TerminalView
+        // w drzewie) → terminal nie dostawał fokusu i żadne klawisze nie działały.
+        // Dla Note/Git/Todo fallback na pierwszy focusable.
+        InputElement? focusable = ContentHost.GetVisualDescendants()
+            .OfType<Iciclecreek.Terminal.TerminalView>()
+            .FirstOrDefault();
+        focusable ??= ContentHost.GetVisualDescendants()
             .OfType<InputElement>()
-            .LastOrDefault(e => e.Focusable);
+            .FirstOrDefault(e => e.Focusable);
         if (focusable == null) return;
 
         using (_subscribedLeaf.ActivationScope.SuppressActivation())
