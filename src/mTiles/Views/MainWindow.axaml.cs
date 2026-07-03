@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = $"mTiles {AppInfo.Version}";
         SizeChanged += (_, _) => UpdateSettingsDialogSize();
     }
 
