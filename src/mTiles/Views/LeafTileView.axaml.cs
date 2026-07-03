@@ -302,9 +302,13 @@ public partial class LeafTileView : UserControl
     {
         if (_subscribedLeaf == null) return;
         using var _ = _subscribedLeaf.ActivationScope.SuppressActivation();
+        // Last focusable ≈ najgłębiej zagnieżdżony descendant. Dla terminala to
+        // wewnętrzny TerminalView (pod TerminalControl) — fokus trafia od razu na
+        // niego, bez polegania na kruchym odroczonym hand-off w TerminalControl.OnGotFocus.
+        // Pozostaje generyczne dla Note/Git/Todo.
         var focusable = ContentHost.GetVisualDescendants()
             .OfType<InputElement>()
-            .FirstOrDefault(e => e.Focusable);
+            .LastOrDefault(e => e.Focusable);
         focusable?.Focus();
     }
 
