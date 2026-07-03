@@ -130,7 +130,27 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     public void FocusActiveTile()
     {
-        _lastActiveLeaf?.RequestFocus();
+        // Po rebuildzie/restarcie _lastActiveLeaf może wskazywać na zdetachowany
+        // liść (spoza bieżącego drzewa) → fokus nie idzie nigdzie. Fallback: pierwszy
+        // liść w aktualnym drzewie.
+        var target = _lastActiveLeaf;
+        if (target == null || !EnumerateLeaves(RootTile).Contains(target))
+            target = EnumerateLeaves(RootTile).FirstOrDefault();
+        target?.RequestFocus();
+    }
+
+    private static IEnumerable<LeafTileNodeViewModel> EnumerateLeaves(TileNodeViewModel? node)
+    {
+        switch (node)
+        {
+            case LeafTileNodeViewModel leaf:
+                yield return leaf;
+                break;
+            case SplitTileNodeViewModel split:
+                foreach (var l in EnumerateLeaves(split.First)) yield return l;
+                foreach (var l in EnumerateLeaves(split.Second)) yield return l;
+                break;
+        }
     }
 
     private void ConfigureLeafCallbacks(LeafTileNodeViewModel leaf)

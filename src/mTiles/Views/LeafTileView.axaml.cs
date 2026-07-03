@@ -301,7 +301,7 @@ public partial class LeafTileView : UserControl
     private void FocusContent()
     {
         if (_subscribedLeaf == null) return;
-        using var _ = _subscribedLeaf.ActivationScope.SuppressActivation();
+
         // Last focusable ≈ najgłębiej zagnieżdżony descendant. Dla terminala to
         // wewnętrzny TerminalView (pod TerminalControl) — fokus trafia od razu na
         // niego, bez polegania na kruchym odroczonym hand-off w TerminalControl.OnGotFocus.
@@ -309,7 +309,23 @@ public partial class LeafTileView : UserControl
         var focusable = ContentHost.GetVisualDescendants()
             .OfType<InputElement>()
             .LastOrDefault(e => e.Focusable);
-        focusable?.Focus();
+        if (focusable == null) return;
+
+        using (_subscribedLeaf.ActivationScope.SuppressActivation())
+            focusable.Focus();
+
+        // Przy zmianie workspace/terminala widok bywa jeszcze nierozłożony w chwili
+        // pierwszej próby (post na Input jest za wcześnie) → fokus nie siada. Jedna
+        // ponowna próba po layoucie (Loaded). Twardy limit = 1 (bez pętli).
+        // Guard IsActive: nie kradnij fokusu, jeśli użytkownik w międzyczasie
+        // uaktywnił inny kafel.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_subscribedLeaf is not { IsActive: true }) return;
+            if (focusable.IsFocused) return;
+            using (_subscribedLeaf.ActivationScope.SuppressActivation())
+                focusable.Focus();
+        }, DispatcherPriority.Loaded);
     }
 
     #region Drag & Drop
