@@ -19,6 +19,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         Title = $"mTiles {AppInfo.Version}";
         SizeChanged += (_, _) => UpdateSettingsDialogSize();
+        TerminalClipboardCoordinator.Attach(this);
     }
 
     public void BindWindowState(SettingsService settingsService)

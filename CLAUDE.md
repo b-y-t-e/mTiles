@@ -18,7 +18,7 @@ dotnet run --project src/mTiles
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`
 - `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), shell detection (ShellDetector), AI tools detection (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, GitService/GitCommandRunner/GitDirectoryWatcher, DiffFormatter, FileHelper, TileFactory, TileTreeSerializer, UpdateService, CrashHandler, FileLogWriter, LogTraceListener
 - `Services/Database/` — DatabaseServiceManager, DbHttpServer, DiscoveryService, DbRegistry, DbLogger, QueryHandler, SqlGuard, SqlGuardProfile, SqlServerProvider, PostgreSqlProvider, SubnetScanner, IDbProvider, ClaudeLocalMdWriter
-- `Views/PtyWriter.cs` — static helper for writing to PTY via reflection (`TerminalView._ptyConnection.WriterStream`). Used by `TerminalKeyHandler` and startup script. `AttachStartupScript` hooks a ShellReady handler with `${tileId}` substitution
+- `Views/PtyWriter.cs` — static helper for writing to PTY via reflection (`TerminalView._ptyConnection.WriterStream`). Used by startup script and DirectLauncher. `AttachStartupScript` hooks a ShellReady handler with `${tileId}` substitution
 - `ViewModels/TileActivationScope.cs` — per-workspace tile activation scope with suppression mechanism
 
 ## Key libraries
@@ -26,7 +26,8 @@ dotnet run --project src/mTiles
 - **Iciclecreek.Avalonia.Terminal** — terminal with built-in PTY (Porta.Pty).
   - `BeginReparent()`/`EndReparent()` prevents process killing when moving in the visual tree
   - `Process = string.Empty` blocks auto-launch of the default shell
-  - `OnKeyDown` class handler respects `e.Handled` — tunnel handlers can block it. Ctrl+C copy handled natively (≥2.6.0)
+  - `OnKeyDown` class handler respects `e.Handled` — tunnel handlers can block it. Ctrl+C copy and Alt+key handled natively; `PasteOnCtrlV` (≥2.7.4) pastes clipboard text on plain Ctrl+V and forwards the raw keystroke when the clipboard has no text (image paste in TUI apps)
+  - Public API (≥2.7.4): `TerminalView.HasSelection`, `SendTextAsync()`, `PasteAsync()`/`CopyAsync()` return `Task<bool>`; input modes (win32-input, mouse tracking, bracketed paste, alt-screen) are reset on `LaunchProcess`
 - **AvaloniaEdit** — text editor. Requires `StyleInclude` in App.axaml. Text sync via `Document.Changed`.
 - **Material.Icons.Avalonia** — Material Design icons. Requires `<MaterialIconStyles />` in `App.axaml` Styles. Usage: `<mi:MaterialIcon Kind="Close" />`.
 
@@ -46,16 +47,15 @@ In startup script `${tileId}` is replaced with the current `TileId` — both on 
 
 ## Terminal key handling
 
-`TerminalKeyHandler` (separate class, SRP) handles:
-- **Ctrl+V** — paste via `PasteAsync()` (library intentionally sends raw `\x16` for Ctrl+V)
+`TerminalClipboardCoordinator` (static, window-level) handles **Ctrl+C / Ctrl+Shift+C** copy across all tiles: a single tunnel KeyDown handler on `MainWindow` copies from whichever terminal holds a selection (focused first → most recent selection owner, tracked via window PointerReleased → any live terminal from the weak registry). Without a selection Ctrl+C falls through and keeps SIGINT semantics. Text-editing controls (TextBox, AvaloniaEdit) are never hijacked. Terminals register in `TerminalTileView.AttachTerminalViewHooks` (on `TemplateApplied`).
 
-**Ctrl+C** copy and **Alt+key** ESC prefix are handled natively by the terminal library (≥2.6.0).
+**Ctrl+V** is handled by the library (`PasteOnCtrlV = true` on `TerminalControl`): clipboard text → paste (bracketed); no text (e.g. image) → raw Ctrl+V forwarded to the app so Claude Code can paste the image itself. **Ctrl+Shift+V** always pastes text. **Alt+key**: on Windows ConPTY enables win32-input-mode, so keys travel as win32 INPUT_RECORD sequences (with real scan codes since 2.7.4), not ESC prefix.
 
 PTY stream reflection extracted to `PtyWriter` (static helper, shared between startup script and DirectLauncher).
 
 ## Alt-buffer cleanup (TUI apps)
 
-`AttachAltBufferCleanup` in `TerminalTileView` resets mouse tracking (reflection on `XTerm.Terminal._mouseTracker`) when `IsAlternateBuffer` changes from `true` to `false`. Without this, after exiting opencode/vim the terminal is flooded with SGR mouse sequences.
+`AttachTerminalViewHooks` in `TerminalTileView` resets mouse tracking (reflection on `XTerm.Terminal._mouseTracker`) when `IsAlternateBuffer` changes from `true` to `false`. Without this, after exiting opencode/vim the terminal is flooded with SGR mouse sequences. Additionally the library (≥2.7.4) resets all sticky input modes on every `LaunchProcess` (restart).
 
 ## ThemeBridge — UI synchronization with terminal theme
 

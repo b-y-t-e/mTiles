@@ -13,7 +13,6 @@ namespace mTiles.Views;
 
 public partial class TerminalTileView : UserControl
 {
-    private readonly TerminalKeyHandler _keyHandler = new();
     private TerminalTileViewModel? _subscribedVm;
 
     public TerminalTileView()
@@ -36,7 +35,6 @@ public partial class TerminalTileView : UserControl
         {
             ControlHelper.DetachFromParent(cached);
             Content = cached;
-            Dispatcher.UIThread.Post(() => _keyHandler.Attach(this, cached), DispatcherPriority.Loaded);
             return;
         }
 
@@ -48,12 +46,17 @@ public partial class TerminalTileView : UserControl
             FontSize = vm.FontSize,
             BufferSize = 5000,
             CopyOnSelect = vm.CopyOnSelect,
+            PasteOnCtrlV = true,
+            // Left-drag always selects locally, even when a TUI app (claude, opencode,
+            // vim) enables mouse tracking — copying from agent tiles is the primary
+            // workflow. Wheel scrolling is still forwarded to the app.
+            SelectionOverridesMouseTracking = true,
             Background = new SolidColorBrush(Color.Parse(theme.Background)),
             Foreground = new SolidColorBrush(Color.Parse(theme.Foreground)),
             Options = CreateOptions(theme)
         };
 
-        AttachAltBufferCleanup(terminal);
+        AttachTerminalViewHooks(terminal);
         vm.CachedControl = terminal;
         Content = terminal;
 
@@ -63,8 +66,6 @@ public partial class TerminalTileView : UserControl
         {
             AttachedToVisualTree -= OnceAttached;
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-
-            _keyHandler.Attach(this, terminal);
 
             if (!vm.IsLaunched)
             {
@@ -130,15 +131,20 @@ public partial class TerminalTileView : UserControl
         terminal.Margin = default;
     }
 
-    // TUI apps (opencode, vim) enable SGR mouse tracking but may not disable it on
-    // exit (especially via Ctrl+C). Without this reset the shell gets flooded with
-    // raw escape sequences like "35;65;20M…" on every mouse move.
-    private static void AttachAltBufferCleanup(TerminalControl terminal)
+    // One-time setup on the inner TerminalView (fires once per TerminalControl —
+    // cached controls keep their applied template across re-parenting):
+    // 1. Registration in TerminalClipboardCoordinator (window-level Ctrl+C copy).
+    // 2. Alt-buffer cleanup: TUI apps (opencode, vim) enable SGR mouse tracking but
+    //    may not disable it on exit (especially via Ctrl+C). Without this reset the
+    //    shell gets flooded with raw escape sequences like "35;65;20M…" on mouse move.
+    private static void AttachTerminalViewHooks(TerminalControl terminal)
     {
         terminal.TemplateApplied += (_, e) =>
         {
             var tv = e.NameScope.Find<TerminalView>("PART_TerminalView");
             if (tv == null) return;
+
+            TerminalClipboardCoordinator.Register(tv);
 
             tv.PropertyChanged += (_, args) =>
             {
