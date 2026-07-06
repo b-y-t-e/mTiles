@@ -45,7 +45,6 @@ public partial class TerminalTileView : UserControl
             FontFamily = new FontFamily(vm.FontFamily),
             FontSize = vm.FontSize,
             BufferSize = 5000,
-            CopyOnSelect = vm.CopyOnSelect,
             PasteOnCtrlV = true,
             // Left-drag always selects locally, even when a TUI app (claude, opencode,
             // vim) enables mouse tracking — copying from agent tiles is the primary
@@ -106,9 +105,6 @@ public partial class TerminalTileView : UserControl
                 case nameof(TerminalTileViewModel.FontSize):
                     terminal.FontSize = vm.FontSize;
                     NudgeRerender(terminal);
-                    break;
-                case nameof(TerminalTileViewModel.CopyOnSelect):
-                    terminal.CopyOnSelect = vm.CopyOnSelect;
                     break;
             }
         });
