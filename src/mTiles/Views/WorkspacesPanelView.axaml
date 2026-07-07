@@ -51,7 +51,7 @@
                      Text="{Binding FilterText, Mode=TwoWay}"
                      PlaceholderText="Filter..."
                      IsVisible="{Binding ShowFilter}"
-                     Margin="5,5,5,0"
+                     Margin="5,7,5,0"
                      Padding="9,6"
                      FontSize="{DynamicResource FontSm}">
                 <TextBox.InnerRightContent>
@@ -68,7 +68,7 @@
             <ScrollViewer Classes="scroll-left"
                           HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto"
-                          Margin="1, 5, 0, 0">
+                          Margin="1, 7, 0, 0">
                 <StackPanel Margin="0">
                     <ItemsControl x:Name="WorkspaceList"
                                   ItemsSource="{Binding FilteredWorkspaces}"
