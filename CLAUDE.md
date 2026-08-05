@@ -7,33 +7,45 @@ Cross-platform terminal manager — .NET 10 + Avalonia 12.
 ```bash
 dotnet build
 dotnet run --project src/mTiles
+dotnet test                     # tests/mTiles.Tests
 ```
 
 ## Structure
 
-- `src/mTiles/` — the only project in the solution
+- `src/mTiles/` — the application
+- `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `DirectLaunchSession.Timings` exists so a test drives the chain in milliseconds instead of sleeping through the real five- and ten-second rules
 - `Models/` — DTOs and data models (Workspace, TileNode, AppSettings, AppDefaults, ShellProfile, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, WorkspaceItemViewModel, DatabaseSettings, DatabaseInstance, WorkspaceDatabaseConfig)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`
 - `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), shell detection (ShellDetector), AI tools detection (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, GitService/GitCommandRunner/GitDirectoryWatcher, DiffFormatter, FileHelper, TileFactory, TileTreeSerializer, UpdateService, CrashHandler, FileLogWriter, LogTraceListener
 - `Services/Database/` — DatabaseServiceManager, DbHttpServer, DiscoveryService, DbRegistry, DbLogger, QueryHandler, SqlGuard, SqlGuardProfile, SqlServerProvider, PostgreSqlProvider, SubnetScanner, IDbProvider, ClaudeLocalMdWriter
-- `Views/PtyWriter.cs` — static helper for writing to PTY via reflection (`TerminalView._ptyConnection.WriterStream`). Used by startup script and DirectLauncher. `AttachStartupScript` hooks a ShellReady handler with `${tileId}` substitution
+- `Services/ShellStarter.cs` — one call that replaces whatever session a `TerminalControl` holds and hands the shell its startup script (`${tileId}` substituted, one line per `\r`). The control owns the rest: killing the old session, waiting for it, and gating the script on `ShellReady` for *that* session
+- `Services/TileLauncher.cs` — launching a terminal tile: disposes the previous launch, picks the profile's current scripts, then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it
+- `Services/DirectLaunchSession.cs` — one tile's command chain (see Shell Profiles below); disposable, and disposing it is what stops it relaunching
+- `Services/TerminalClipboardCoordinator.cs` — window-level Ctrl+C across tiles (see Terminal key handling)
+
+These four drive a `TerminalControl` but draw nothing, so they live in `Services/` rather than `Views/` — which also keeps `ViewModels/` from reaching into `Views/`.
+
 - `ViewModels/TileActivationScope.cs` — per-workspace tile activation scope with suppression mechanism
 
 ## Key libraries
 
-- **Iciclecreek.Avalonia.Terminal** — terminal with built-in PTY (Porta.Pty).
-  - `BeginReparent()`/`EndReparent()` prevents process killing when moving in the visual tree
-  - `Process = string.Empty` blocks auto-launch of the default shell
-  - `OnKeyDown` class handler respects `e.Handled` — tunnel handlers can block it. Ctrl+C copy and Alt+key handled natively; `PasteOnCtrlV` (≥2.7.4) pastes clipboard text on plain Ctrl+V and forwards the raw keystroke when the clipboard has no text (image paste in TUI apps)
-  - Public API (≥2.7.4): `TerminalView.HasSelection`, `SendTextAsync()`, `PasteAsync()`/`CopyAsync()` return `Task<bool>`; input modes (win32-input, mouse tracking, bracketed paste, alt-screen) are reset on `LaunchProcess`
+- **Terminal.Avalonia** (`ProjectReference` → `D:\work\sources\Terminal.Avalonia`) — our own control: VT engine, ConPTY/forkpty and rendering, no third-party terminal or PTY package.
+  - **The path is absolute and outside this repo, so `release.yml` cannot build — deliberately.** No NuGet package is published while the migration is in progress; releases are on hold until it is done. Not a defect to "fix" by adding a checkout or a submodule.
+  - It **is** the terminal: no template, no inner view, no `PART_TerminalView`. Focus it directly.
+  - Detaching from the visual tree does **not** end the session (only UI timers pause), so moving tiles between panes needs no bracketing.
+  - It never launches on its own, and never twice at once: `RestartAsync(options, startupInput)` is what this app uses — it kills the live session, waits for it to be reported dead, starts the new one and types the startup script into it once *that* session is ready.
+  - **A session has an identity.** `SessionId` and `SessionExitedEventArgs.SessionId` are how a relaunch-on-exit tells its own session from the next one. Never infer it from elapsed time.
+  - API used here: `RestartAsync`/`Dispose`/`IsRunning`/`IsDisposed`/`SessionId`, `Exited`, `WhenNotRunningAsync`, `SendText`, `Copy`/`ClearSelection`/`HasSelection`/`SelectionChanged`, `Palette`, `ScrollbackCapacity`, `RedrawShellOnResize`. **`Kill()` is deliberately unused**: it only asks the child to die, and the exit is reported when it actually does, so anything that kills and then starts races that report. `RestartAsync` sequences kill → wait → start and serialises overlapping restarts; `Dispose` ends the tile for good. Note this does *not* avoid the stall — `RestartAsync` calls `Kill()` itself and it blocks the UI thread for as long as the child takes (up to 2s). That is Open risk #3 in the library's ROADMAP, not something the host can fix.
+  - Ctrl+C copies when there is a selection and sends SIGINT otherwise; Ctrl+V / Ctrl+Shift+V / Shift+Insert paste clipboard **text** (filtered). Keys go out as win32 INPUT_RECORDs whenever the child enabled `?9001`.
+  - Ships the open-source console host (`conpty/<arch>/OpenConsole.exe`), which is what fixed opencode taking the shell down with it. The files must stay next to the app — without them it silently falls back to the in-box `conhost.exe`.
 - **AvaloniaEdit** — text editor. Requires `StyleInclude` in App.axaml. Text sync via `Document.Changed`.
 - **Material.Icons.Avalonia** — Material Design icons. Requires `<MaterialIconStyles />` in `App.axaml` Styles. Usage: `<mi:MaterialIcon Kind="Close" />`.
 
 ## Split tiles architecture
 
-Recursive binary tree: `LeafTileNodeViewModel` (terminal/editor) or `SplitTileNodeViewModel` (H/V + two children). `TileNodeView` manages views manually (not DataTemplate) and calls `SuspendTerminals()`/`ResumeTerminals()` around Rebuild to preserve live terminals.
+Recursive binary tree: `LeafTileNodeViewModel` (terminal/editor) or `SplitTileNodeViewModel` (H/V + two children). `TileNodeView` manages views manually (not DataTemplate); rebuilding the tree re-parents live terminals with no bracketing, because detaching one does not end its session.
 
 `LeafTileNodeViewModel.IsActive` — `TileActivationScope` (per-workspace instance) guarantees that only one tile is active. `LeafTileView` reacts to `IsActive` — colored strip (`ActiveStrip`, 2px) at the top of the toolbar + brighter background (`BgElevated`).
 
@@ -47,15 +59,21 @@ In startup script `${tileId}` is replaced with the current `TileId` — both on 
 
 ## Terminal key handling
 
-`TerminalClipboardCoordinator` (static, window-level) handles **Ctrl+C / Ctrl+Shift+C** copy across all tiles: a single tunnel KeyDown handler on `MainWindow` copies from whichever terminal holds a selection (focused first → most recent selection owner, tracked via window PointerReleased → any live terminal from the weak registry). Without a selection Ctrl+C falls through and keeps SIGINT semantics. Text-editing controls (TextBox, AvaloniaEdit) are never hijacked. Terminals register in `TerminalTileView.AttachTerminalViewHooks` (on `TemplateApplied`).
+`TerminalClipboardCoordinator` (static, window-level) handles **Ctrl+C / Ctrl+Shift+C** copy across all tiles: a single tunnel KeyDown handler on `MainWindow` copies from whichever terminal holds a selection (focused first → most recent selection owner, tracked via the control's `SelectionChanged` → any live terminal from the weak registry). Without a selection Ctrl+C falls through and keeps SIGINT semantics. Text-editing controls (TextBox, AvaloniaEdit) are never hijacked. Terminals register in `TerminalTileView` right after construction and unregister in `TerminalTileViewModel.Dispose`. Ctrl+C is marked handled only if the copy succeeded — a refused clipboard must not cost the user the interrupt as well.
 
-**Ctrl+V** is handled by the library (`PasteOnCtrlV = true` on `TerminalControl`): clipboard text → paste (bracketed); no text (e.g. image) → raw Ctrl+V forwarded to the app so Claude Code can paste the image itself. **Ctrl+Shift+V** always pastes text. **Alt+key**: on Windows ConPTY enables win32-input-mode, so keys travel as win32 INPUT_RECORD sequences (with real scan codes since 2.7.4), not ESC prefix.
+**Ctrl+V** is handled by the control: clipboard **text** is pasted (filtered, bracketed when the app asked for it). **Ctrl+Shift+V** / **Shift+Insert** paste as well. **Alt+key** and everything else travel as win32 INPUT_RECORDs whenever the child enabled `?9001` (PSReadLine does, for every prompt).
 
-PTY stream reflection extracted to `PtyWriter` (static helper, shared between startup script and DirectLauncher).
+**Image paste into a TUI** works through `ForwardCtrlVWhenClipboardHasNoText = true` (set in `TerminalTileView`): the control pastes text when there is text, and otherwise sends the Ctrl+V keystroke on to the child, so Claude Code reads the image off the clipboard itself. The control's default is off (Windows Terminal parity); this app opts in because hosting AI agents is what it is for.
+
+**Text wins when the clipboard holds both.** A copy from a browser or a screenshot tool often puts text *and* an image on the clipboard; the rule above asks only about text, so the text is pasted and the agent never gets the chance to take the image. Deliberate — the alternative is guessing which one the user meant — and **Alt+V** remains the way to hand Claude Code the image regardless (the control never intercepts it; it goes through as `ESC v`).
+
+### One thing the old control did and this one does not
+
+**A left-drag no longer always selects locally.** mTiles used to set `SelectionOverridesMouseTracking`; `Terminal.Avalonia` rejects a one-way override (see its `docs/MTERMINAL-COMPAT.md` → *Deliberately not adopted*) because it leaves an application with no way to receive the mouse at all — mc, vim, opencode click targets. Inside a full-screen app that grabbed the mouse, selection now needs **Shift** held: the xterm convention, but a habit users have to learn. Recorded so nobody rediscovers it as a bug.
 
 ## Alt-buffer cleanup (TUI apps)
 
-`AttachTerminalViewHooks` in `TerminalTileView` resets mouse tracking (reflection on `XTerm.Terminal._mouseTracker`) when `IsAlternateBuffer` changes from `true` to `false`. Without this, after exiting opencode/vim the terminal is flooded with SGR mouse sequences. Additionally the library (≥2.7.4) resets all sticky input modes on every `LaunchProcess` (restart).
+Handled by the control, no app-side code: leaving the alternate screen releases the mouse grab, and **Shift** overrides a grab that is still latched. A TUI killed with Ctrl+C therefore no longer floods the shell with SGR mouse sequences.
 
 ## ThemeBridge — UI synchronization with terminal theme
 
@@ -72,12 +90,14 @@ Users define shell profiles in Settings → Profiles tab. Each `UserShellProfile
 
 Filtering is implemented in `WorkspaceViewModel.GetAvailableProfiles()` with cache (30s TTL) on `AiToolDetector.Detect()` results.
 
-**DirectLauncher** (`Views/DirectLauncher.cs`): when a profile has `FallbackScript` → `IsDirectLaunch = true`. Commands are run via `shell -c "command"` (not interactively). Chain: startup → fail (<5s) → fallback → fail → normal interactive shell. If the command survives >5s → success → auto-relaunch on exit (when lifetime >10s). Without `FallbackScript` → classic mode: shell starts interactively, startup script written via `PtyWriter`.
+**DirectLaunchSession** (`Services/DirectLaunchSession.cs`): when a profile has `FallbackScript` → `IsDirectLaunch = true`. Commands are run via `shell -c "command"` (not interactively). Chain: startup → fail (<5s) → fallback → fail → normal interactive shell. If the command survives >5s → success → the session is *watched* and relaunched when it exits (unless it lived <10s, which is a crash loop). Without `FallbackScript` → classic mode: shell starts interactively with the startup script as the session's startup input.
+
+The instance **owns** the tile's chain: it relaunches only the session whose `SessionId` it started, and whoever replaces the chain (restart, tile close) disposes it first — `TerminalTileViewModel.ReplaceLaunchSession`, which owns that invariant so no caller can break it. Without both, a restart leaves two chains fighting over one tile and closing a tile resurrects its shell as an orphan process.
 
 Terminal creation flow with profile:
 1. Empty tile → click Terminal → if profiles exist, ProfileChooser appears (Back / Default / profile buttons)
 2. Profile selection → `TileFactory.CreateContent(..., UserShellProfile)` → `ShellDetector.ResolveFromUserProfile()` → `TerminalTileViewModel` with shell + startup script
-3. `IsDirectLaunch` → `DirectLauncher.LaunchWithFallback()`, else → `PtyWriter.AttachStartupScript()` + `LaunchProcess`
+3. `TileLauncher.Launch` → `IsDirectLaunch` → `DirectLaunchSession.Start()`, else → `ShellStarter.StartAsync()` with the startup script
 
 Profile persistence in layout: `TileNode.UserProfileId` → during deserialization `TileFactory.CreateTerminalFromDto` looks up the profile by Id in `AppSettings.ShellProfiles`. If the profile was deleted — graceful fallback to `ShellName`.
 
@@ -164,7 +184,9 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 
 ## Restart shell
 
-`RestartTerminal` in `LeafTileNodeViewModel` — kill + relaunch PTY. Available via the Restart icon in the tile header and Ctrl+Shift+R. Workaround for ConPTY hang after Ctrl+C in TUI apps (known opencode bug on Windows).
+`RestartTerminal` in `LeafTileNodeViewModel` — relaunches the tile through `TileLauncher.Launch` (which replaces the session; nothing kills it first). Available via the Restart icon in the tile header and Ctrl+Shift+R.
+
+It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (an opencode bug on Windows). **That reason is gone** — it was the in-box `conhost.exe` crashing, and the terminal control now ships OpenConsole. The command stays as a feature.
 
 ## Scrollbar Fluent theme fix
 

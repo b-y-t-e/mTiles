@@ -15,7 +15,7 @@ Unlike Warp, Wave, or WezTerm — mTiles doesn't try to be an AI itself. It mana
 
 **SQL Guard** — write protection enabled by default. INSERT/UPDATE/DELETE require explicit per-database unlock. DROP/TRUNCATE/ALTER always blocked. If the agent attempts a write in read-only mode, a real-time confirmation dialog appears. Keyword scanning strips comments to prevent bypass.
 
-**AI tool profiles** — named shell profiles tied to specific AI binaries (Claude Code, OpenCode, Codex, Pi Agent). Auto-detection of 18+ CLI tools, startup/fallback scripts, DirectLauncher with auto-restart. Profiles appear only when the tool is installed.
+**AI tool profiles** — named shell profiles tied to specific AI binaries (Claude Code, OpenCode, Codex, Pi Agent). Auto-detection of 18+ CLI tools, startup/fallback scripts, and a launch chain that falls back to the next command when one fails and brings the tool back when it exits. Profiles appear only when the tool is installed.
 
 **ThemeBridge** — terminal ANSI palette drives the entire UI. Change the color theme and every surface updates — not just the terminal background. 17 themes (Catppuccin, Tokyo Night, Gruvbox, Rosé Pine, One Dark, Solarized, and more), dark and light.
 
@@ -35,9 +35,13 @@ dotnet run --project src/mTiles
 
 Requires [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
+> **Building from source is temporarily broken for anyone outside this machine.** The terminal control
+> is referenced as a local project on disk while it is being finished, so the checkout above will not
+> restore. It goes back to a package reference — and releases resume — once the migration is done.
+
 ## Tech
 
-.NET 10, Avalonia 12, CommunityToolkit.Mvvm, Iciclecreek.Avalonia.Terminal (PTY), AvaloniaEdit.
+.NET 10, Avalonia 12, CommunityToolkit.Mvvm, AvaloniaEdit, and **Terminal.Avalonia** — our own terminal control (VT engine, ConPTY/forkpty, rendering), written for this app and not yet published separately.
 
 ## License
 
