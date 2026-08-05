@@ -132,7 +132,26 @@ public partial class MarkdownTileViewModel : ObservableObject, IFileContent, IDi
 
     private static void SaveContent(string text, string path)
     {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            DeleteFile(path);
+            return;
+        }
+
         FileHelper.WriteWithRetry(path, p => File.WriteAllText(p, text));
+    }
+
+    private static void DeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning("MarkdownTile delete failed: {0}", ex.Message);
+        }
     }
 
     private void StartWatching()
