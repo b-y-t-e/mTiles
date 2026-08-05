@@ -202,14 +202,10 @@ public partial class LeafTileView : UserControl
 
         _currentContentVm = contentVm;
 
-        var suspended = ControlHelper.SuspendTerminals(ContentHost);
         ContentHost.Children.Clear();
 
         if (contentVm == null)
-        {
-            ControlHelper.ResumeTerminals(suspended);
             return;
-        }
 
         UserControl view = contentVm switch
         {
@@ -230,7 +226,6 @@ public partial class LeafTileView : UserControl
 
         UpdateContentBackground(contentVm);
         ContentHost.Children.Add(view);
-        ControlHelper.ResumeTerminals(suspended);
     }
 
     private void OnContentPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -302,14 +297,11 @@ public partial class LeafTileView : UserControl
     {
         if (_subscribedLeaf == null) return;
 
-        // Dla terminala fokusuj JAWNIE wewnętrzny TerminalView (deterministycznie).
-        // Wcześniejsze podejścia zawodziły: FirstOrDefault trafiał w zewnętrzny
-        // TerminalControl (kruchy odroczony hand-off w OnGotFocus), a LastOrDefault
-        // mógł trafić w focusable element ScrollBara z template (jest po TerminalView
-        // w drzewie) → terminal nie dostawał fokusu i żadne klawisze nie działały.
+        // Terminal najpierw i wprost: kontrolka terminala sama czyta klawiaturę (nie ma
+        // template'u ani wewnętrznego ScrollBara), więc fokus siada deterministycznie.
         // Dla Note/Git/Todo fallback na pierwszy focusable.
         InputElement? focusable = ContentHost.GetVisualDescendants()
-            .OfType<Iciclecreek.Terminal.TerminalView>()
+            .OfType<Terminal.Avalonia.TerminalControl>()
             .FirstOrDefault();
         focusable ??= ContentHost.GetVisualDescendants()
             .OfType<InputElement>()

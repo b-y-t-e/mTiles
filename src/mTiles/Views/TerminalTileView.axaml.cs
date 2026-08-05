@@ -1,13 +1,11 @@
 using System.ComponentModel;
-using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
-using Iciclecreek.Terminal;
-using mTiles.Models;
+using mTiles.Services;
 using mTiles.ViewModels;
-using XTerm.Options;
+using TerminalControl = Terminal.Avalonia.TerminalControl;
 
 namespace mTiles.Views;
 
@@ -38,25 +36,25 @@ public partial class TerminalTileView : UserControl
             return;
         }
 
-        var theme = vm.Theme;
         var terminal = new TerminalControl
         {
-            Process = string.Empty,
             FontFamily = new FontFamily(vm.FontFamily),
             FontSize = vm.FontSize,
-            BufferSize = 5000,
-            PasteOnCtrlV = true,
-            // Left-drag always selects locally, even when a TUI app (claude, opencode,
-            // vim) enables mouse tracking — copying from agent tiles is the primary
-            // workflow. Wheel scrolling is still forwarded to the app.
-            SelectionOverridesMouseTracking = true,
-            Background = new SolidColorBrush(Color.Parse(theme.Background)),
-            Foreground = new SolidColorBrush(Color.Parse(theme.Foreground)),
-            Options = CreateOptions(theme)
+            ScrollbackCapacity = 5000,
+            Palette = ThemeBridge.ToPalette(vm.Theme),
+            // Tiles are resized constantly — splitting and dragging a splitter is the main interaction
+            // here — and a width change leaves PSReadLine anchored to the old prompt width, so the next
+            // keystroke overwrites the prompt. The control's fix sends one Ctrl+L at the final width,
+            // primary screen only. Its cost: that Ctrl+L reaches a raw stdin reader too, so a password
+            // typed at a prompt that was resized mid-entry picks up a stray control character.
+            RedrawShellOnResize = true,
+            // Claude Code (and other agents) read an image off the clipboard when they see Ctrl+V.
+            // Swallowing the key on a non-text clipboard, which is the control's default, is the
+            // difference between image paste working and silently doing nothing.
+            ForwardCtrlVWhenClipboardHasNoText = true,
         };
 
-        AttachTerminalViewHooks(terminal);
-        vm.CachedControl = terminal;
+        vm.AttachControl(terminal);
         Content = terminal;
 
         AttachedToVisualTree += OnceAttached;
@@ -64,25 +62,13 @@ public partial class TerminalTileView : UserControl
         async void OnceAttached(object? s, VisualTreeAttachmentEventArgs args)
         {
             AttachedToVisualTree -= OnceAttached;
+            // The shell is sized from the control's measured cell grid, so launching before layout has
+            // run would start it at the default 80x24 and reflow it a moment later.
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
 
-            if (!vm.IsLaunched)
-            {
-                vm.IsLaunched = true;
-
-                if (vm.IsDirectLaunch && vm.StartupScript != null)
-                {
-                    var commands = DirectLauncher.BuildCommands(vm.StartupScript!, vm.FallbackScript ?? "", vm.TileId);
-                    await DirectLauncher.LaunchWithFallback(terminal, vm.WorkingDirectory, commands, vm.Shell);
-                }
-                else
-                {
-                    if (vm.StartupScript != null)
-                        PtyWriter.AttachStartupScript(terminal, vm.StartupScript, vm.TileId);
-
-                    await terminal.LaunchProcess(vm.WorkingDirectory, vm.Shell.ExecutablePath, vm.Shell.Args);
-                }
-            }
+            if (vm.IsLaunched) return;
+            vm.IsLaunched = true;
+            TileLauncher.Launch(terminal, vm);
         }
     }
 
@@ -91,100 +77,21 @@ public partial class TerminalTileView : UserControl
         if (sender is not TerminalTileViewModel vm) return;
         if (vm.CachedControl is not TerminalControl terminal) return;
 
+        // Font, palette and size changes repaint on their own — no layout nudge needed.
         Dispatcher.UIThread.Post(() =>
         {
             switch (e.PropertyName)
             {
                 case nameof(TerminalTileViewModel.Theme):
-                    ApplyTheme(terminal, vm.Theme);
+                    terminal.Palette = ThemeBridge.ToPalette(vm.Theme);
                     break;
                 case nameof(TerminalTileViewModel.FontFamily):
                     terminal.FontFamily = new FontFamily(vm.FontFamily);
-                    NudgeRerender(terminal);
                     break;
                 case nameof(TerminalTileViewModel.FontSize):
                     terminal.FontSize = vm.FontSize;
-                    NudgeRerender(terminal);
                     break;
             }
         });
     }
-
-    private static void ApplyTheme(TerminalControl terminal, TerminalTheme theme)
-    {
-        terminal.Background = new SolidColorBrush(Color.Parse(theme.Background));
-        terminal.Foreground = new SolidColorBrush(Color.Parse(theme.Foreground));
-        terminal.Options = CreateOptions(theme);
-        NudgeRerender(terminal);
-    }
-
-    // TerminalControl re-renders only on actual size change.
-    // Margin nudge forces layout recalc even under an overlay.
-    private static async void NudgeRerender(TerminalControl terminal)
-    {
-        terminal.Margin = new Thickness(0, 0, 20, 0);
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
-        terminal.Margin = default;
-    }
-
-    // One-time setup on the inner TerminalView (fires once per TerminalControl —
-    // cached controls keep their applied template across re-parenting):
-    // 1. Registration in TerminalClipboardCoordinator (window-level Ctrl+C copy).
-    // 2. Alt-buffer cleanup: TUI apps (opencode, vim) enable SGR mouse tracking but
-    //    may not disable it on exit (especially via Ctrl+C). Without this reset the
-    //    shell gets flooded with raw escape sequences like "35;65;20M…" on mouse move.
-    private static void AttachTerminalViewHooks(TerminalControl terminal)
-    {
-        terminal.TemplateApplied += (_, e) =>
-        {
-            var tv = e.NameScope.Find<TerminalView>("PART_TerminalView");
-            if (tv == null) return;
-
-            TerminalClipboardCoordinator.Register(tv);
-
-            tv.PropertyChanged += (_, args) =>
-            {
-                if (args.Property.Name != "IsAlternateBuffer") return;
-                if (args.NewValue is true || args.OldValue is not true) return;
-
-                var xterm = terminal.Terminal;
-                if (xterm == null) return;
-
-                var tracker = xterm.GetType()
-                    .GetField("_mouseTracker", BindingFlags.NonPublic | BindingFlags.Instance)
-                    ?.GetValue(xterm);
-                if (tracker == null) return;
-
-                tracker.GetType().GetProperty("TrackingMode")?.SetValue(tracker, 0);
-                tracker.GetType().GetProperty("Encoding")?.SetValue(tracker, 0);
-            };
-        };
-    }
-
-    private static TerminalOptions CreateOptions(TerminalTheme theme) => new()
-    {
-        Theme = new ThemeOptions
-        {
-            Foreground = theme.Foreground,
-            Background = theme.Background,
-            Cursor = theme.Cursor,
-            Selection = theme.Selection,
-            Black = theme.Black,
-            Red = theme.Red,
-            Green = theme.Green,
-            Yellow = theme.Yellow,
-            Blue = theme.Blue,
-            Magenta = theme.Magenta,
-            Cyan = theme.Cyan,
-            White = theme.White,
-            BrightBlack = theme.BrightBlack,
-            BrightRed = theme.BrightRed,
-            BrightGreen = theme.BrightGreen,
-            BrightYellow = theme.BrightYellow,
-            BrightBlue = theme.BrightBlue,
-            BrightMagenta = theme.BrightMagenta,
-            BrightCyan = theme.BrightCyan,
-            BrightWhite = theme.BrightWhite
-        }
-    };
 }

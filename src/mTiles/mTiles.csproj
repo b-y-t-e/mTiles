@@ -17,6 +17,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Startup-script assembly (ShellStarter) is internal — hosts of a tile, not an API. The tests
+         still need it directly: `${tileId}` substitution is a contract with the user's own profiles. -->
+    <InternalsVisibleTo Include="mTiles.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <AvaloniaResource Include="Assets\mterminal-icon.png" />
     <AvaloniaResource Include="Assets\mTerminal-logo.png" />
   </ItemGroup>
@@ -30,7 +36,7 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="MTerminal.Avalonia.Terminal" Version="2.7.8" />
+    <ProjectReference Include="..\..\..\Terminal.Avalonia\src\Terminal.Avalonia\Terminal.Avalonia.csproj" />
     <PackageReference Include="TodoList.Avalonia" Version="0.2.10" />
     <PackageReference Include="Notepad.Avalonia" Version="0.1.4" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.*" />

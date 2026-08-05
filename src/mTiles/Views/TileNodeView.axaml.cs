@@ -59,7 +59,6 @@ public partial class TileNodeView : UserControl
 
         var scope = FindActivationScope();
         var guard = scope?.SuppressActivation();
-        var suspended = ControlHelper.SuspendTerminals(this);
         try
         {
             if (_vm is LeafTileNodeViewModel leaf)
@@ -71,7 +70,6 @@ public partial class TileNodeView : UserControl
         }
         finally
         {
-            ControlHelper.ResumeTerminals(suspended);
             guard?.Dispose();
             _isBuilding = false;
         }

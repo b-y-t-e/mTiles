@@ -93,25 +93,16 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel
     private void DoRestartTerminal()
     {
         if (Content is not TerminalTileViewModel tvm) return;
-        if (tvm.CachedControl is not Iciclecreek.Terminal.TerminalControl tc) return;
+        if (tvm.CachedControl is not Terminal.Avalonia.TerminalControl tc) return;
 
+        // No Kill() first. Not because it would stall — the restart kills the child itself, and that
+        // call blocks the UI thread for as long as the child takes either way — but because killing
+        // here races the restart: it would leave the launcher waiting on a session that had already
+        // gone, and the previous chain seeing an exit it is entitled to relaunch. Sequencing the kill,
+        // the wait and the start is precisely what RestartAsync exists for, and it serialises
+        // overlapping restarts on top.
         tvm.TileId = TileId;
-        tc.Kill();
-
-        var (startupScript, fallbackScript, isDirectLaunch) = tvm.ResolveCurrentScripts();
-
-        if (isDirectLaunch && startupScript != null)
-        {
-            var commands = Views.DirectLauncher.BuildCommands(startupScript, fallbackScript ?? "", TileId);
-            _ = Views.DirectLauncher.LaunchWithFallback(tc, _workingDirectory, commands, tvm.Shell);
-        }
-        else
-        {
-            if (startupScript != null)
-                Views.PtyWriter.AttachStartupScript(tc, startupScript, TileId);
-
-            _ = tc.LaunchProcess(_workingDirectory, tvm.Shell.ExecutablePath, tvm.Shell.Args);
-        }
+        Services.TileLauncher.Launch(tc, tvm);
     }
 
     [RelayCommand]

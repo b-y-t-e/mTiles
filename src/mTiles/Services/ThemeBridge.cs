@@ -4,8 +4,35 @@ using mTiles.Models;
 
 namespace mTiles.Services;
 
+/// <summary>
+/// The single translation of a <see cref="TerminalTheme"/> into colours: the terminal's own palette
+/// (<see cref="ToPalette"/>) and the application's UI resources (<see cref="Apply"/>), which are derived
+/// from the same background, foreground and accents so the chrome always matches what the shell renders.
+/// <para>Dark or light follows <c>TerminalTheme.IsDark</c> — there is no separate UI theme to keep in
+/// step, by design.</para>
+/// </summary>
 public static class ThemeBridge
 {
+    /// <summary>
+    /// The same theme as the terminal control reads it: our hex strings mapped onto its palette.
+    /// <para>Here rather than in the terminal tile's view because this is the one place that knows how
+    /// a <see cref="TerminalTheme"/> becomes colours — the UI resources below are the other half of the
+    /// same mapping, and they went out of step when the two lived apart.</para>
+    /// </summary>
+    public static Terminal.Avalonia.TerminalTheme ToPalette(TerminalTheme theme) => new(
+        background: Color.Parse(theme.Background),
+        foreground: Color.Parse(theme.Foreground),
+        cursor: Color.Parse(theme.Cursor),
+        selection: Color.Parse(theme.Selection),
+        ansi16:
+        [
+            Color.Parse(theme.Black), Color.Parse(theme.Red), Color.Parse(theme.Green), Color.Parse(theme.Yellow),
+            Color.Parse(theme.Blue), Color.Parse(theme.Magenta), Color.Parse(theme.Cyan), Color.Parse(theme.White),
+            Color.Parse(theme.BrightBlack), Color.Parse(theme.BrightRed), Color.Parse(theme.BrightGreen),
+            Color.Parse(theme.BrightYellow), Color.Parse(theme.BrightBlue), Color.Parse(theme.BrightMagenta),
+            Color.Parse(theme.BrightCyan), Color.Parse(theme.BrightWhite),
+        ]);
+
     public static void Apply(TerminalTheme theme)
     {
         var app = Application.Current;
