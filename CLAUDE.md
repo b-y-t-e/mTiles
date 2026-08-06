@@ -13,8 +13,8 @@ dotnet test                     # tests/mTiles.Tests
 ## Structure
 
 - `src/mTiles/` — the application
-- `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `DirectLaunchSession.Timings` exists so a test drives the chain in milliseconds instead of sleeping through the real five- and ten-second rules
-- `Models/` — DTOs and data models (Workspace, TileNode, AppSettings, AppDefaults, ShellProfile, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, WorkspaceItemViewModel, DatabaseSettings, DatabaseInstance, WorkspaceDatabaseConfig)
+- `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
+- `Models/` — DTOs and data models (Workspace, TileNode, AppSettings, AppDefaults, ShellProfile, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, WorkspaceItemViewModel, DatabaseSettings, DatabaseInstance, WorkspaceDatabaseConfig)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`
@@ -24,22 +24,23 @@ dotnet test                     # tests/mTiles.Tests
 - `Services/TileLauncher.cs` — launching a terminal tile: disposes the previous launch, picks the profile's current scripts, then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it
 - `Services/DirectLaunchSession.cs` — one tile's command chain (see Shell Profiles below); disposable, and disposing it is what stops it relaunching
 - `Services/TerminalClipboardCoordinator.cs` — window-level Ctrl+C across tiles (see Terminal key handling)
+- `Services/ShellCommandLine.cs` — wraps a command for the shell that runs it (`-c` / `/c` / `-Command`). Deliberately without the profile's own args: those are the interactive-startup flags
 
-These four drive a `TerminalControl` but draw nothing, so they live in `Services/` rather than `Views/` — which also keeps `ViewModels/` from reaching into `Views/`.
+The first four drive a `TerminalControl` but draw nothing, so they live in `Services/` rather than `Views/` — which also keeps `ViewModels/` from reaching into `Views/`.
 
 - `ViewModels/TileActivationScope.cs` — per-workspace tile activation scope with suppression mechanism
 
 ## Key libraries
 
-- **Terminal.Avalonia** (`ProjectReference` → `D:\work\sources\Terminal.Avalonia`) — our own control: VT engine, ConPTY/forkpty and rendering, no third-party terminal or PTY package.
-  - **The path is absolute and outside this repo, so `release.yml` cannot build — deliberately.** No NuGet package is published while the migration is in progress; releases are on hold until it is done. Not a defect to "fix" by adding a checkout or a submodule.
+- **Terminal.Avalonia** (`PackageReference`, NuGet) — our own control: VT engine, ConPTY/forkpty and rendering, no third-party terminal or PTY package. Source lives at `D:\work\sources\Terminal.Avalonia`; to try an unreleased change, swap the `PackageReference` for a `ProjectReference` locally and swap it back before committing.
+  - Three packages: `Terminal.Avalonia` → `Terminal.Emulation` + `Terminal.Pty`. Only the first is referenced; the other two come with it. `release.yml` builds again — the absolute-path `ProjectReference` that blocked it is gone.
   - It **is** the terminal: no template, no inner view, no `PART_TerminalView`. Focus it directly.
   - Detaching from the visual tree does **not** end the session (only UI timers pause), so moving tiles between panes needs no bracketing.
   - It never launches on its own, and never twice at once: `RestartAsync(options, startupInput)` is what this app uses — it kills the live session, waits for it to be reported dead, starts the new one and types the startup script into it once *that* session is ready.
   - **A session has an identity.** `SessionId` and `SessionExitedEventArgs.SessionId` are how a relaunch-on-exit tells its own session from the next one. Never infer it from elapsed time.
-  - API used here: `RestartAsync`/`Dispose`/`IsRunning`/`IsDisposed`/`SessionId`, `Exited`, `WhenNotRunningAsync`, `SendText`, `Copy`/`ClearSelection`/`HasSelection`/`SelectionChanged`, `Palette`, `ScrollbackCapacity`, `RedrawShellOnResize`. **`Kill()` is deliberately unused**: it only asks the child to die, and the exit is reported when it actually does, so anything that kills and then starts races that report. `RestartAsync` sequences kill → wait → start and serialises overlapping restarts; `Dispose` ends the tile for good. Note this does *not* avoid the stall — `RestartAsync` calls `Kill()` itself and it blocks the UI thread for as long as the child takes (up to 2s). That is Open risk #3 in the library's ROADMAP, not something the host can fix.
+  - API used here: `RestartAsync`/`Dispose`/`IsRunning`/`IsDisposed`/`SessionId`, `Exited`, `WhenSessionEndedAsync(sessionId)` (the launch chain's one wait: it carries `ExitCode` — `int?`, null when there is none — and `Reason`, so "the command failed" is never confused with "we could not tell"), `WhenNotRunningAsync`, `SendText`, `Copy`/`ClearSelection`/`HasSelection`/`SelectionChanged`, `Palette`, `ScrollbackCapacity`, `RedrawShellOnResize`. **`Kill()` is deliberately unused**: it only asks the child to die, and the exit is reported when it actually does, so anything that kills and then starts races that report. `RestartAsync` sequences kill → wait → start and serialises overlapping restarts; `Dispose` ends the tile for good. Note this does *not* avoid the stall — `RestartAsync` calls `Kill()` itself and it blocks the UI thread for as long as the child takes (up to 2s). That is Open risk #3 in the library's ROADMAP, not something the host can fix.
   - Ctrl+C copies when there is a selection and sends SIGINT otherwise; Ctrl+V / Ctrl+Shift+V / Shift+Insert paste clipboard **text** (filtered). Keys go out as win32 INPUT_RECORDs whenever the child enabled `?9001`.
-  - Ships the open-source console host (`conpty/<arch>/OpenConsole.exe`), which is what fixed opencode taking the shell down with it. The files must stay next to the app — without them it silently falls back to the in-box `conhost.exe`.
+  - Ships the open-source console host (`conpty/<arch>/OpenConsole.exe`), which is what fixed opencode taking the shell down with it. `Terminal.Pty` delivers it through `buildTransitive`, so it copies to the app's output automatically — **verified in `bin/`, not assumed**. The files must stay next to the app: without them the session silently falls back to the in-box `conhost.exe`.
 - **AvaloniaEdit** — text editor. Requires `StyleInclude` in App.axaml. Text sync via `Document.Changed`.
 - **Material.Icons.Avalonia** — Material Design icons. Requires `<MaterialIconStyles />` in `App.axaml` Styles. Usage: `<mi:MaterialIcon Kind="Close" />`.
 
@@ -90,14 +91,33 @@ Users define shell profiles in Settings → Profiles tab. Each `UserShellProfile
 
 Filtering is implemented in `WorkspaceViewModel.GetAvailableProfiles()` with cache (30s TTL) on `AiToolDetector.Detect()` results.
 
-**DirectLaunchSession** (`Services/DirectLaunchSession.cs`): when a profile has `FallbackScript` → `IsDirectLaunch = true`. Commands are run via `shell -c "command"` (not interactively). Chain: startup → fail (<5s) → fallback → fail → normal interactive shell. If the command survives >5s → success → the session is *watched* and relaunched when it exits (unless it lived <10s, which is a crash loop). Without `FallbackScript` → classic mode: shell starts interactively with the startup script as the session's startup input.
+**DirectLaunchSession** (`Services/DirectLaunchSession.cs`): when a profile has `FallbackScript` → `LaunchScripts.RunsCommandChain` is true. Commands are run via `shell -c "command"` (not interactively). Chain: startup → fallback → plain interactive shell. Each command is started and then **awaited to its end** (`TerminalControl.WhenSessionEndedAsync(sessionId)`), so the verdict is the **exit code plus how long it ran** — there is no "it survived N seconds, so it worked" window any more:
 
-The instance **owns** the tile's chain: it relaunches only the session whose `SessionId` it started, and whoever replaces the chain (restart, tile close) disposes it first — `TerminalTileViewModel.ReplaceLaunchSession`, which owns that invariant so no caller can break it. Without both, a restart leaves two chains fighting over one tile and closing a tile resurrects its shell as an orphan process.
+| Outcome | Meaning | What the chain does |
+|---|---|---|
+| spawn throws | tool not installed, bad cwd | next command |
+| non-zero, ran < `Established` (2 min) | the command does not work | **next** command — never the same one |
+| non-zero, ran ≥ `Established` | a working tool crashed | **same** command again |
+| exit 0, ran ≥ `MinLifetimeForRelaunch` (10s) | the user quit the tool | whole chain from the start |
+| exit 0, ran < 10s | it did not stick | **next** command (the fallback is what a profile names for this) |
+| no exit code at all | connection lost | as non-zero |
+
+Every relaunch is rate-limited **for the chain as a whole**, systemd-style: at most **3 in 10 minutes** (`RelaunchBudget`), after which the chain carries on to the next command instead. One relaunch is free: a **clean** exit after at least `Established` is the user closing their tool on purpose, and quitting it four times in a morning must not have the tile refuse to bring it back (`CountsAgainstBudget`). A rate over a window, not a running total — a total would give up on a tool used daily once its fourth crash came round, however many months apart the four were. Chain-wide, not per command, and that part is structural: a per-command budget was renewed every time the chain moved on, so a profile whose fallback exits cleanly looped forever between fallback and top, renewing its budget on each lap. Nothing resets this but time.
+
+The rules live in `ChainPolicy` (thresholds + `Decide` + `CountsAgainstBudget`), separate from the chain that carries them out and pure, so they are readable in a table test without a terminal, a dispatcher or a stopwatch. The lifetime is **not** measured by the host: `SessionExitedEventArgs.Lifetime` comes from the terminal, which stamps the session when it spawns the child — timing it around the host's own `await` measures the wait instead.
+
+One loop is deliberately unbounded: a command that exits **cleanly** after `Established`, for ever, is restarted for ever. Every lap costs at least two minutes of a real session, so it is not a spin, and it is indistinguishable from a user quitting and reopening their tool by hand — bounding it would stop the tile honouring the very gesture it exists to honour.
+
+Off the end of the chain is the interactive shell, which is not watched, so a tile is never left dead. Both thresholds are load-bearing: judging on time alone made `claude -r <unknown-id>` (**21 s** to print "Invalid session ID" and exit 1) look adopted, read its failure as the user quitting, and relaunch it every 21 s for good with the fallback unreachable — while judging on the code alone would demote a tile permanently to a bare shell the first time a long-running tool crashed. Without `FallbackScript` → classic mode: shell starts interactively with the startup script as the session's startup input.
+
+`LaunchScripts` (returned by `TerminalTileViewModel.ResolveCurrentScripts`) decides which of the two paths a tile takes. `RunsCommandChain` is true exactly when `Fallback` is non-blank — a profile that names something to fall back to is one that launches commands. It was a stored third value every caller computed the same way, so the type could hold combinations no profile can produce; deriving it also removed a dead disjunct (`Startup is not null || …`) that made the rule look like it had two halves. Blank is normalised to null in the `init` setters, so `with` cannot slip a script of spaces past it.
+
+The instance **owns** the tile's chain: it relaunches only the session whose `SessionId` it started (taken from `RestartAsync`, which returns it — reading `SessionId` afterwards can describe a session someone else opened), and whoever replaces the chain (restart, tile close) disposes it first — `TerminalTileViewModel.ReplaceLaunchSession`, which owns that invariant so no caller can break it. Without both, a restart leaves two chains fighting over one tile and closing a tile resurrects its shell as an orphan process.
 
 Terminal creation flow with profile:
 1. Empty tile → click Terminal → if profiles exist, ProfileChooser appears (Back / Default / profile buttons)
 2. Profile selection → `TileFactory.CreateContent(..., UserShellProfile)` → `ShellDetector.ResolveFromUserProfile()` → `TerminalTileViewModel` with shell + startup script
-3. `TileLauncher.Launch` → `IsDirectLaunch` → `DirectLaunchSession.Start()`, else → `ShellStarter.StartAsync()` with the startup script
+3. `TileLauncher.Launch` → `LaunchScripts.RunsCommandChain` → `DirectLaunchSession.Start()`, else → `ShellStarter.StartAsync()` with the startup script
 
 Profile persistence in layout: `TileNode.UserProfileId` → during deserialization `TileFactory.CreateTerminalFromDto` looks up the profile by Id in `AppSettings.ShellProfiles`. If the profile was deleted — graceful fallback to `ShellName`.
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
@@ -9,11 +10,22 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
 {
     public string WorkingDirectory { get; }
     public ShellProfile Shell { get; }
-    public string? StartupScript { get; }
-    public string? FallbackScript { get; }
     public string? UserProfileId { get; }
+    /// <summary>
+    /// The tile's persistent identity, which <c>${tileId}</c> in a profile script resolves to.
+    /// <para>A settable property with an empty default, and not a constructor parameter, because the id
+    /// belongs to the <see cref="LeafTileNodeViewModel"/> that owns this content and is stamped on it
+    /// straight after <see cref="TileFactory"/> builds it — and the factory is type-agnostic, so giving
+    /// it the id means giving it to every kind of tile. Worth doing deliberately, not as a side effect
+    /// of something else; until then the hazard the setter leaves — a blank id silently expanding to
+    /// nothing — is closed at the point of use in <see cref="TileScript.Resolve"/>.</para>
+    /// </summary>
     public string TileId { get; set; } = "";
-    public bool IsDirectLaunch { get; }
+
+    /// <summary>What this tile was created to run. Only a fallback for when the profile it came from
+    /// has since been deleted — <see cref="ResolveCurrentScripts"/> prefers the profile's current
+    /// scripts, so editing a profile takes effect without recreating the tile.</summary>
+    private readonly LaunchScripts _ownScripts;
 
     [ObservableProperty]
     private string _fontFamily;
@@ -52,22 +64,33 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
     /// stop without starting anything.</summary>
     internal void ReplaceLaunchSession(IDisposable? launch)
     {
-        _launchSession?.Dispose();
+        // Hand over first, dispose second. The other order leaves the field pointing at the old chain if
+        // stopping it throws — and the tile then holds a chain it has already tried to end while the new
+        // one, already started, is unreachable and can never be stopped at all.
+        var previous = _launchSession;
         _launchSession = launch;
+
+        // And the failure stops here. There is nothing a caller can do about a chain that refuses to
+        // stop, and every caller is in the middle of something that must finish: a relaunch that would
+        // otherwise abandon the tile without starting anything, or a tile being closed. Reported,
+        // because a chain still running with nothing owning it is invisible everywhere else.
+        try { previous?.Dispose(); }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning(
+                "Stopping the previous launch chain failed (tile {0}): {1}", TileId, ex);
+        }
     }
 
     public TerminalTileViewModel(string workingDirectory, ShellProfile? shell, SettingsService settingsService,
-        string? startupScript = null, string? fallbackScript = null, string? userProfileId = null,
-        bool isDirectLaunch = false)
+        LaunchScripts? scripts = null, string? userProfileId = null)
     {
         _settingsService = settingsService;
         var s = _settingsService.Settings;
         WorkingDirectory = workingDirectory;
         Shell = shell ?? ShellDetector.ResolveDefault(s);
-        StartupScript = string.IsNullOrWhiteSpace(startupScript) ? null : startupScript;
-        FallbackScript = string.IsNullOrWhiteSpace(fallbackScript) ? null : fallbackScript;
+        _ownScripts = scripts ?? LaunchScripts.None;
         UserProfileId = userProfileId;
-        IsDirectLaunch = isDirectLaunch;
         _theme = TerminalTheme.GetByName(s.ColorThemeName);
         _fontFamily = s.TerminalFontFamily;
         _fontSize = s.TerminalFontSize;
@@ -87,43 +110,54 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
             FontSize = s.TerminalFontSize;
     }
 
-    public (string? startupScript, string? fallbackScript, bool isDirectLaunch) ResolveCurrentScripts()
+    /// <summary>The scripts as the profile defines them <em>now</em> — edited settings take effect on
+    /// the next launch, without recreating the tile.</summary>
+    public LaunchScripts ResolveCurrentScripts()
     {
         if (UserProfileId == null)
-            return (StartupScript, FallbackScript, IsDirectLaunch);
+            return _ownScripts;
 
         var profile = _settingsService.Settings.ShellProfiles
             .FirstOrDefault(p => p.Id == UserProfileId);
         if (profile == null)
-            return (StartupScript, FallbackScript, IsDirectLaunch);
+            return _ownScripts;
 
-        var startup = string.IsNullOrWhiteSpace(profile.StartupScript) ? null : profile.StartupScript;
-        var fallback = string.IsNullOrWhiteSpace(profile.FallbackScript) ? null : profile.FallbackScript;
-        return (startup, fallback, !string.IsNullOrEmpty(profile.FallbackScript));
+        return LaunchScripts.FromProfile(profile.StartupScript, profile.FallbackScript);
     }
 
     public void Dispose()
     {
         _settingsService.SettingsChanged -= OnSettingsChanged;
         // Before the terminal goes: disposing it kills the child, and a launch chain still watching
-        // would answer that exit by starting a shell nothing can ever show or close again.
-        ReplaceLaunchSession(null);
+        // would answer that exit by starting a shell nothing can ever show or close again. Guarded like
+        // the steps below — a chain that fails to stop must not cost us the terminal's disposal.
+        Attempt(() => ReplaceLaunchSession(null), "Stopping the launch chain failed");
 
         if (CachedControl is Terminal.Avalonia.TerminalControl tc)
         {
-            TerminalClipboardCoordinator.Unregister(tc);
-            // Dispose, not Kill: Kill ends the child but leaves the control's timers and session state
-            // behind. The control is not reusable afterwards, which is right — this tile is gone.
-            try { tc.Dispose(); }
-            catch (Exception ex)
-            {
-                // Swallowed so closing a tile always closes it — but never silently: this is the call
-                // that ends the child, so a failure here means a shell still running with no UI left to
-                // reach it, and the log is the only place that would ever say so.
-                System.Diagnostics.Trace.TraceWarning(
-                    "Terminal dispose failed; the shell for tile {0} may be orphaned: {1}", TileId, ex);
-            }
+            // Ending the child comes first and nothing may get in front of it: this is the call that
+            // stops the shell, so anything that throws earlier leaves it running with no UI left to
+            // reach it. Dispose, not Kill — Kill ends the child but leaves the control's timers and
+            // session state behind, and the control is not reused after this anyway.
+            // Each step swallows its own failure, so no step can cost the ones after it. Silence is
+            // what they must not do: an orphaned shell is invisible everywhere except the log.
+            Attempt(tc.Dispose, "Ending the shell failed; it may be orphaned");
+            Attempt(() => TerminalClipboardCoordinator.Unregister(tc), "Deregistering the terminal failed");
         }
+        // Unconditionally, outside the type test: a tile holding a control it no longer owns would go
+        // on handing it to views.
         CachedControl = null;
+    }
+
+    /// <summary>Runs one teardown step, reporting a failure instead of letting it cost the steps after
+    /// it. <paramref name="whatFailed"/> is plain text, never a format string: a helper whose whole job
+    /// is not to throw must not be able to throw a FormatException over a stray brace.</summary>
+    private void Attempt(Action step, string whatFailed)
+    {
+        try { step(); }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("{0} (tile {1}): {2}", whatFailed, TileId, ex);
+        }
     }
 }

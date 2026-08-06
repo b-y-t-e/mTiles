@@ -16,7 +16,8 @@ internal static class ShellStarter
     /// whatever arrives first, and a restart in the meantime would otherwise type our lines into the
     /// next shell. The control owns both of those — we only fill in <c>${tileId}</c>.</para>
     /// </summary>
-    public static Task StartAsync(TerminalControl terminal, string workingDirectory,
+    /// <returns>The id of the session this started — the only reliable way to recognise it later.</returns>
+    public static Task<int> StartAsync(TerminalControl terminal, string workingDirectory,
         string executable, IReadOnlyList<string> args, string? startupScript = null, string tileId = "",
         CancellationToken cancellationToken = default)
         => terminal.RestartAsync(
@@ -29,14 +30,26 @@ internal static class ShellStarter
             BuildStartupInput(startupScript, tileId),
             cancellationToken);
 
-    /// <summary>Splits a script into the lines to type, each ending in a carriage return.</summary>
+    /// <summary>
+    /// A script, as the lines to type into a live prompt.
+    /// <para>Two steps, deliberately separate: what a placeholder means is <see cref="TileScript"/>'s
+    /// business, and how a script becomes keystrokes is the terminal's. Doing both in one expression
+    /// also resolved the token once per line, so a token spanning nothing in particular still cost a
+    /// validation per line — and it is what stands between <see cref="SplitIntoLines"/> and moving into
+    /// the control, which is where simulating a keyboard belongs.</para>
+    /// </summary>
     internal static IReadOnlyList<string>? BuildStartupInput(string? script, string tileId)
     {
         if (string.IsNullOrWhiteSpace(script))
             return null;
 
-        return [.. script.TrimEnd()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => line.TrimEnd('\r').Replace("${tileId}", tileId) + "\r")];
+        return SplitIntoLines(TileScript.Resolve(script, tileId));
     }
+
+    /// <summary>One line per command, each submitted with a carriage return. A script edited on Windows
+    /// carries CRLF, and a doubled CR would submit an extra empty line.</summary>
+    internal static IReadOnlyList<string> SplitIntoLines(string script) =>
+        [.. script.TrimEnd()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r') + "\r")];
 }

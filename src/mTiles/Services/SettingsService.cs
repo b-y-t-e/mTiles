@@ -12,11 +12,22 @@ public sealed class SettingsService
 
     public event Action? SettingsChanged;
 
-    public SettingsService()
+    public SettingsService() : this(null) { }
+
+    /// <param name="settingsFilePath">Where the settings live. Defaults to the user's own file; a test
+    /// passes a temporary one, because this constructor both reads <em>and writes</em> (seeding the
+    /// default profiles saves) and no test may edit the settings of whoever is running it. Internal for
+    /// that reason: it exists for the test assembly, and the application has no business choosing.</param>
+    internal SettingsService(string? settingsFilePath)
     {
-        var appDir = AppPaths.GetAppDataDirectory();
-        Directory.CreateDirectory(appDir);
-        _filePath = AppPaths.GetSettingsFilePath();
+        _filePath = settingsFilePath ?? AppPaths.GetSettingsFilePath();
+
+        // A bare file name has no directory part, and `GetDirectoryName` answers that with an empty
+        // string rather than null — which `CreateDirectory` rejects. So the check is for empty, and it
+        // is a real case rather than a defensive one: "settings.json" is a legal argument.
+        var directory = Path.GetDirectoryName(_filePath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
         Load();
         SeedDefaultProfiles();
     }
