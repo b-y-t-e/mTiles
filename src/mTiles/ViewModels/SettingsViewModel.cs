@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using Avalonia.Data.Converters;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -106,7 +107,7 @@ public partial class SettingsViewModel : ObservableObject
     private string _customShellType;
 
     [ObservableProperty]
-    private bool _gitHideMTerminalDir;
+    private bool _gitIgnoreMTerminalDir;
 
     [ObservableProperty]
     private string _gitPath;
@@ -199,6 +200,98 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int _dbDiscoveryInterval;
     public string? DbPortError => _dbManager is { IsRunning: false, LastError: not null } ? _dbManager.LastError : null;
 
+    /// <summary>
+    /// Whether the database form holds edits that have not been applied yet — what keeps the Save
+    /// button on screen.
+    /// <para>Saving here is not like the rest of Settings, which persists as you type: it restarts the
+    /// database service, so it has to be deliberate. That makes an unapplied edit something the user
+    /// can walk away from without noticing, which is exactly what the button being pinned prevents.</para>
+    /// </summary>
+    [ObservableProperty] private bool _hasUnsavedDatabaseChanges;
+
+    /// <summary>
+    /// The form's fields, by name — the same eleven <see cref="DatabaseFormDiffersFromSettings"/>
+    /// compares, and deliberately next to it so the two are read and edited as one thing.
+    /// <para>A named set rather than "starts with Db", which was wrong in both directions: it swept in
+    /// <c>DbSubTab</c>, <c>DbFilterText</c> and <c>DbPortError</c> — none of which anyone saves — and
+    /// said nothing about whether a field the comparison reads is actually watched.</para>
+    /// </summary>
+    private static readonly HashSet<string> DatabaseFormFields =
+    [
+        nameof(DbEnabled), nameof(DbHttpPort),
+        nameof(DbSqlServerEnabled), nameof(DbSqlServerIntegrated),
+        nameof(DbSqlServerUsername), nameof(DbSqlServerPassword),
+        nameof(DbPostgreSqlEnabled), nameof(DbPostgreSqlUsername),
+        nameof(DbPostgreSqlPassword), nameof(DbPostgreSqlPorts),
+        nameof(DbDiscoveryInterval),
+    ];
+
+    /// <summary>The same set, for a test that drives every field rather than a hand-written list of
+    /// them — a list which had quietly missed both password fields.</summary>
+    internal static IReadOnlyCollection<string> DatabaseFormFieldNames => DatabaseFormFields;
+
+    /// <summary>Recomputed from one place rather than from a hook on each of the eleven fields.</summary>
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+
+        if (e.PropertyName is not null && DatabaseFormFields.Contains(e.PropertyName))
+            HasUnsavedDatabaseChanges = DatabaseFormDiffersFromSettings();
+    }
+
+    /// <summary>
+    /// Whether the database form has been filled in from the settings yet.
+    /// <para>Until it has, every field holds its type's default — an empty username, an empty password,
+    /// no ports — and those defaults differ from anything stored, which is not "the user changed
+    /// something". Saving in that state is worse than showing the wrong flag: it writes the blanks over
+    /// the real credentials. The form is loaded on first entering the tab, so a view model whose tab
+    /// nobody opened must be able to say "there is nothing here to compare, and nothing to save".</para>
+    /// </summary>
+    private bool _databaseFormLoaded;
+
+    /// <summary>Compares what the form holds against what is stored, through the same normalisation
+    /// that saving applies — otherwise a port list of "5432," would read as changed for ever, because
+    /// saving it produces something the form never spells that way.</summary>
+    private bool DatabaseFormDiffersFromSettings()
+    {
+        if (!_databaseFormLoaded)
+            return false;
+
+        var db = _settingsService.Settings.Database;
+        return DbEnabled != db.Enabled
+            // The raw value, not the clamped one. Comparing after clamping meant a port of 80 against a
+            // stored 1024 read as "saved" — the field showing a number that would never be stored, and
+            // nothing on screen to say so. Saving writes the clamped value back into the field, so the
+            // two agree again afterwards and this settles.
+            || DbHttpPort != db.HttpPort
+            || DbSqlServerEnabled != db.SqlServer.Enabled
+            || DbSqlServerIntegrated != db.SqlServer.UseIntegratedSecurity
+            || DbSqlServerUsername != db.SqlServer.Username
+            || DbSqlServerPassword != db.SqlServer.Password
+            || DbPostgreSqlEnabled != db.PostgreSql.Enabled
+            || DbPostgreSqlUsername != db.PostgreSql.Username
+            || DbPostgreSqlPassword != db.PostgreSql.Password
+            || !ParsePorts(DbPostgreSqlPorts).SequenceEqual(db.PostgreSql.Ports)
+            // A port the parser throws away — "99999", "abc" — leaves the list identical to what is
+            // stored while the field still shows it. Untidy spacing does not count: a token that
+            // survives trimming and then fails to parse is the user having meant something.
+            || HasUnusablePorts(DbPostgreSqlPorts)
+            || DbDiscoveryInterval != db.DiscoveryIntervalMinutes;
+    }
+
+    /// <summary>The port list as the settings hold it. Shared with saving so the two cannot disagree
+    /// about what a given piece of text means.</summary>
+    private static int[] ParsePorts(string text) => [.. PortTokens(text)
+        .Select(s => int.TryParse(s, out var p) ? p : 0)
+        .Where(p => p is > 0 and <= 65535)];
+
+    /// <summary>Whether the text names ports that saving would silently drop.</summary>
+    private static bool HasUnusablePorts(string text) =>
+        PortTokens(text).Any(s => !int.TryParse(s, out var p) || p is <= 0 or > 65535);
+
+    private static string[] PortTokens(string text) =>
+        text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     // Detected databases (all sources)
     public ObservableCollection<DatabaseItemViewModel> DiscoveredDatabases { get; } = [];
     public ObservableCollection<DatabaseItemViewModel> FilteredDiscoveredDatabases { get; } = [];
@@ -239,7 +332,7 @@ public partial class SettingsViewModel : ObservableObject
         _customShellPath = s.CustomShellPath;
         _customShellArgs = s.CustomShellArgs;
         _customShellType = s.CustomShellType.ToString();
-        _gitHideMTerminalDir = s.GitHideMTerminalDir;
+        _gitIgnoreMTerminalDir = s.GitIgnoreMTerminalDir;
         _gitPath = s.GitPath;
 
         _ = DetectGitAsync();
@@ -282,7 +375,7 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnTerminalFontSizeChanged(double value) { _settingsService.Settings.TerminalFontSize = value; _settingsService.NotifyChanged(); }
     partial void OnFontFamilyChanged(string value) { _settingsService.Settings.FontFamily = value; _settingsService.NotifyChanged(); }
     partial void OnFontSizeChanged(double value) { _settingsService.Settings.FontSize = value; _settingsService.NotifyChanged(); }
-    partial void OnGitHideMTerminalDirChanged(bool value) { _settingsService.Settings.GitHideMTerminalDir = value; _settingsService.NotifyChanged(); }
+    partial void OnGitIgnoreMTerminalDirChanged(bool value) { _settingsService.Settings.GitIgnoreMTerminalDir = value; _settingsService.NotifyChanged(); }
     partial void OnGitPathChanged(string value) { _settingsService.Settings.GitPath = value; _settingsService.NotifyChanged(); _ = DetectGitAsync(); }
 
     [RelayCommand]
@@ -552,9 +645,67 @@ public partial class SettingsViewModel : ObservableObject
         await LoadAiToolsAsync();
     }
 
+    /// <summary>
+    /// Called every time the Database tab is opened: refreshes the lists, and reloads the form
+    /// <em>only when there is nothing unsaved in it</em>.
+    /// <para>That condition is the whole point. Reloading unconditionally threw the user's edits away
+    /// the moment they left the tab and came back — so the pinned Save bar stopped working exactly when
+    /// someone reacted to it, which is worse than not having it. The lists are a different matter:
+    /// they are read-only and nobody is mid-thought in them.</para>
+    /// </summary>
     private void RefreshDatabaseSettings()
     {
+        if (!HasUnsavedDatabaseChanges)
+            LoadDatabaseForm();
+
+        LoadManualConnections();
+        RefreshDiscoveredDatabases();
+
+        if (_dbManager != null)
+        {
+            _dbManager.StateChanged -= OnDbManagerStateChanged;
+            _dbManager.StateChanged += OnDbManagerStateChanged;
+        }
+    }
+
+    /// <summary>
+    /// Asks whether the dialog may close, and answers false when the user would rather go back.
+    /// <para>The database form is the only thing in Settings that is not already saved — everything else
+    /// persists as you type. Its edits do survive the window closing, so nothing is lost either way; the
+    /// point is that closing looks like finishing, and a change that restarts a service should not be
+    /// left pending by a gesture that means "I'm done here".</para>
+    /// <para>Answering yes discards, rather than just closing: leaving the edits in place would bring
+    /// the bar back the next time Settings opened, which is not what someone who said "discard" asked
+    /// for. Answering no goes to the tab holding them, because "you have unsaved changes" is not much
+    /// use without showing which.</para>
+    /// </summary>
+    public async Task<bool> TryCloseAsync()
+    {
+        if (!HasUnsavedDatabaseChanges)
+            return true;
+
+        // No way to ask is not a reason to trap the user in a dialog they cannot leave.
+        if (ConfirmAction is not { } confirm)
+            return true;
+
+        if (!await confirm("The database settings have changes that were never applied.\n\n"
+                + "Discard them and close?"))
+        {
+            SelectedTab = DatabaseTabIndex;
+            return false;
+        }
+
+        LoadDatabaseForm();     // discarded, so the bar goes down with the window
+        return true;
+    }
+
+    private const int DatabaseTabIndex = 3;
+
+    /// <summary>Fills the form from the stored settings, discarding whatever is in it.</summary>
+    private void LoadDatabaseForm()
+    {
         var db = _settingsService.Settings.Database;
+        _databaseFormLoaded = true;
         DbEnabled = db.Enabled;
         DbHttpPort = db.HttpPort;
         DbSqlServerEnabled = db.SqlServer.Enabled;
@@ -566,14 +717,6 @@ public partial class SettingsViewModel : ObservableObject
         DbPostgreSqlPassword = db.PostgreSql.Password;
         DbPostgreSqlPorts = string.Join(", ", db.PostgreSql.Ports);
         DbDiscoveryInterval = db.DiscoveryIntervalMinutes;
-        LoadManualConnections();
-        RefreshDiscoveredDatabases();
-
-        if (_dbManager != null)
-        {
-            _dbManager.StateChanged -= OnDbManagerStateChanged;
-            _dbManager.StateChanged += OnDbManagerStateChanged;
-        }
     }
 
     private void OnDbManagerStateChanged()
@@ -630,6 +773,11 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void SaveDatabaseSettings()
     {
+        // Refuses rather than writing blanks over real settings. Nothing in the UI can reach this today,
+        // and that is exactly the kind of guarantee that stops being true one refactor later.
+        if (!_databaseFormLoaded)
+            return;
+
         var db = _settingsService.Settings.Database;
         db.Enabled = DbEnabled;
         db.HttpPort = Math.Clamp(DbHttpPort, 1024, 65535);
@@ -641,14 +789,24 @@ public partial class SettingsViewModel : ObservableObject
         db.PostgreSql.Enabled = DbPostgreSqlEnabled;
         db.PostgreSql.Username = DbPostgreSqlUsername;
         db.PostgreSql.Password = DbPostgreSqlPassword;
-        db.PostgreSql.Ports = DbPostgreSqlPorts
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(s => int.TryParse(s, out var p) ? p : 0)
-            .Where(p => p is > 0 and <= 65535)
-            .ToArray();
+        db.PostgreSql.Ports = ParsePorts(DbPostgreSqlPorts);
+        // Written back like the port and the interval above: the field then shows exactly what was
+        // stored, so a list the parser trimmed down does not sit there looking saved when it is not.
+        DbPostgreSqlPorts = string.Join(", ", db.PostgreSql.Ports);
+        // Written back into the field like the port above, so what is on screen is what was stored.
+        // Without it, an interval of 0 stays 0 in the form while 30 goes to the settings, and the form
+        // reads as unsaved for the rest of the session.
         db.DiscoveryIntervalMinutes = DbDiscoveryInterval > 0 ? DbDiscoveryInterval : 30;
+        DbDiscoveryInterval = db.DiscoveryIntervalMinutes;
         _settingsService.NotifyChanged();
         _dbManager?.Restart();
+
+        // Recomputed rather than forced to false. With every normalised field written back above, the
+        // two are equal by construction and this is the same answer — deliberately so: the guarantee is
+        // that the flag reports the form against the settings, not that saving is entitled to declare
+        // them equal. A field added later that saving normalises without writing back would break the
+        // second claim silently and leave this one correct.
+        HasUnsavedDatabaseChanges = DatabaseFormDiffersFromSettings();
     }
 
     // -- Manual connections --

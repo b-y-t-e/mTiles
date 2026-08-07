@@ -18,905 +18,626 @@
                 <TextBlock Text="{Binding Label}" />
             </StackPanel>
         </DataTemplate>
+        <!-- Shared by the toggle's two states. Says where it applies, because it does not apply
+             everywhere: the entry is written by the Git tile, so a workspace without one is untouched. -->
+        <StackPanel x:Key="MTerminalIgnoreCaption" x:Shared="False">
+            <TextBlock Text="Add .mterminal to .gitignore" Classes="label" />
+            <TextBlock Text="Written to each workspace that has a Git tile open, keeping this app's state out of your repository"
+                       FontSize="{DynamicResource FontXs}"
+                       Foreground="{DynamicResource TextMuted}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
     </UserControl.Resources>
 
-    <Panel>
+    <!--
+        DockPanel, and the ScrollViewer lives here rather than around this whole view: docking to the
+        bottom inside a scroller pins the bar to the bottom of the *content*, which is the same as not
+        pinning it at all. The bar is declared first because DockPanel gives the last child the rest of
+        the space — order is the layout here, not decoration.
+    -->
+    <DockPanel>
 
-        <!-- ═══════════════ TAB: General ═══════════════ -->
-        <StackPanel Spacing="12" Margin="20,16,20,24"
-                    IsVisible="{Binding IsGeneralTab}">
-
-            <!-- Default Shell -->
-            <StackPanel Spacing="6">
-                <TextBlock Text="DEFAULT SHELL" Classes="section" Margin="0" />
-                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
-                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                        <DockPanel>
-                            <Border DockPanel.Dock="Left" Width="3"
-                                    Background="{DynamicResource AccentDefault}" />
-                            <Border Padding="12,10">
-                                <StackPanel Spacing="10">
-                                    <ComboBox Classes="setting"
-                                              SelectedItem="{Binding SelectedShell}"
-                                              ItemsSource="{Binding ShellOptions}" />
-                                    <TextBlock FontSize="{DynamicResource FontSm}"
-                                               Foreground="{DynamicResource TextMuted}"
-                                               Margin="2,-4,0,0"
-                                               IsVisible="{Binding !IsCustomShell}"
-                                               Text="{Binding SelectedShell, Converter={x:Static vm:SettingsViewModel.ShellTypeConverter}}" />
-                                    <StackPanel Spacing="10" IsVisible="{Binding IsCustomShell}">
-                                        <DockPanel>
-                                            <TextBlock Text="Path" Classes="label"
-                                                       VerticalAlignment="Center" Width="90" />
-                                            <TextBox Classes="setting"
-                                                     Text="{Binding CustomShellPath}"
-                                                     PlaceholderText="Path to executable" />
-                                        </DockPanel>
-                                        <DockPanel>
-                                            <TextBlock Text="Arguments" Classes="label"
-                                                       VerticalAlignment="Center" Width="90" />
-                                            <TextBox Classes="setting"
-                                                     Text="{Binding CustomShellArgs}"
-                                                     PlaceholderText="Arguments (optional)" />
-                                        </DockPanel>
-                                        <DockPanel>
-                                            <TextBlock Text="Type" Classes="label"
-                                                       VerticalAlignment="Center" Width="90" />
-                                            <ComboBox Classes="setting"
-                                                      SelectedItem="{Binding CustomShellType}"
-                                                      ItemsSource="{x:Static vm:SettingsViewModel.ShellTypeNames}" />
-                                        </DockPanel>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-                        </DockPanel>
-                    </Border>
-                </Border>
-            </StackPanel>
-
-            <!-- Appearance -->
-            <StackPanel Spacing="6">
-                <TextBlock Text="APPEARANCE" Classes="section" Margin="0" />
-                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
-                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                        <DockPanel>
-                            <Border DockPanel.Dock="Left" Width="3"
-                                    Background="{DynamicResource AccentDefault}" />
-                            <Border Padding="12,10">
-                                <StackPanel Spacing="10">
-                                    <DockPanel>
-                                        <TextBlock Text="Color Theme" Classes="label"
-                                                   VerticalAlignment="Center" Width="90" />
-                                        <ComboBox Classes="setting"
-                                                  SelectedItem="{Binding ColorThemeName}"
-                                                  ItemsSource="{x:Static vm:SettingsViewModel.ColorThemeNames}" />
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="Font Family" Classes="label"
-                                                   VerticalAlignment="Center" Width="90" />
-                                        <TextBox Classes="setting"
-                                                 Text="{Binding FontFamily}"
-                                                 PlaceholderText="Font family" />
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="Font Size" Classes="label"
-                                                   VerticalAlignment="Center" Width="90" />
-                                        <NumericUpDown Classes="setting"
-                                                       Value="{Binding FontSize}" Minimum="8" Maximum="48" Increment="1" />
-                                    </DockPanel>
-                                </StackPanel>
-                            </Border>
-                        </DockPanel>
-                    </Border>
-                </Border>
-            </StackPanel>
-
-            <!-- Terminal -->
-            <StackPanel Spacing="6">
-                <TextBlock Text="TERMINAL" Classes="section" Margin="0" />
-                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
-                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                        <DockPanel>
-                            <Border DockPanel.Dock="Left" Width="3"
-                                    Background="{DynamicResource AccentDefault}" />
-                            <Border Padding="12,10">
-                                <StackPanel Spacing="10">
-                                    <DockPanel>
-                                        <TextBlock Text="Font Family" Classes="label"
-                                                   VerticalAlignment="Center" Width="90" />
-                                        <TextBox Classes="setting"
-                                                 Text="{Binding TerminalFontFamily}"
-                                                 PlaceholderText="Font family" />
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="Font Size" Classes="label"
-                                                   VerticalAlignment="Center" Width="90" />
-                                        <NumericUpDown Classes="setting"
-                                                       Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
-                                    </DockPanel>
-                                </StackPanel>
-                            </Border>
-                        </DockPanel>
-                    </Border>
-                </Border>
-            </StackPanel>
-
-            <!-- Git -->
-            <StackPanel Spacing="6">
-                <DockPanel Margin="0,0,0,2">
-                    <TextBlock Text="GIT" Classes="section" Margin="0"
-                               VerticalAlignment="Center" />
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
-                        <Button Classes="outlined"
-                                Command="{Binding DetectGitCommand}"
-                                Padding="10,5">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
-                                <TextBlock Text="Detect" />
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="outlined"
-                                Command="{Binding OpenGitDownloadCommand}"
-                                ToolTip.Tip="https://git-scm.com"
-                                Padding="10,5"
-                                IsVisible="{Binding !GitFound}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <mi:MaterialIcon Kind="Download" Width="14" Height="14" />
-                                <TextBlock Text="Get Git" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </DockPanel>
-
-                <!-- Git tool card -->
-                <Border CornerRadius="{DynamicResource RadiusLg}"
-                        ClipToBounds="True">
-                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                        <DockPanel>
-                            <Panel DockPanel.Dock="Left" Width="3">
-                                <Border Background="{DynamicResource StatusSuccess}"
-                                        IsVisible="{Binding GitFound}" />
-                                <Border Background="{DynamicResource BorderSubtle}"
-                                        IsVisible="{Binding !GitFound}" />
-                            </Panel>
-                            <Border Padding="12,9,10,9">
-                                <DockPanel>
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                                                Spacing="2" VerticalAlignment="Center">
-                                        <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                Padding="6,2"
-                                                Background="{DynamicResource StatusSuccessSubtle}"
-                                                IsVisible="{Binding GitPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                            <TextBlock Text="CUSTOM" FontSize="9"
-                                                       FontWeight="SemiBold"
-                                                       LetterSpacing="0.8"
-                                                       Foreground="{DynamicResource StatusSuccessText}" />
-                                        </Border>
-                                        <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                Padding="6,2"
-                                                Background="{DynamicResource StatusMutedSubtle}"
-                                                IsVisible="{Binding !GitFound}">
-                                            <TextBlock Text="NOT FOUND" FontSize="9"
-                                                       FontWeight="SemiBold"
-                                                       LetterSpacing="0.8"
-                                                       Foreground="{DynamicResource TextMuted}" />
-                                        </Border>
-                                        <Button Classes="tile-btn"
-                                                Command="{Binding BrowseGitPathCommand}"
-                                                ToolTip.Tip="Set custom path">
-                                            <mi:MaterialIcon Kind="DotsHorizontal" Width="13" Height="13" />
-                                        </Button>
-                                        <Button Classes="tile-btn"
-                                                Command="{Binding ResetGitPathCommand}"
-                                                ToolTip.Tip="Reset to auto-detect"
-                                                IsVisible="{Binding GitPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                            <mi:MaterialIcon Kind="Refresh" Width="13" Height="13" />
-                                        </Button>
-                                    </StackPanel>
-                                    <StackPanel VerticalAlignment="Center" Spacing="1">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <Ellipse Width="8" Height="8"
-                                                     VerticalAlignment="Center"
-                                                     Fill="{DynamicResource StatusSuccess}"
-                                                     IsVisible="{Binding GitFound}" />
-                                            <Ellipse Width="8" Height="8"
-                                                     VerticalAlignment="Center"
-                                                     Fill="{DynamicResource DangerText}"
-                                                     IsVisible="{Binding !GitFound}" />
-                                            <TextBlock Text="Git"
-                                                       FontWeight="Medium"
-                                                       Foreground="{DynamicResource TextPrimary}" />
-                                            <TextBlock Text="{Binding GitVersion}"
-                                                       FontSize="{DynamicResource FontSm}"
-                                                       Foreground="{DynamicResource TextMuted}"
-                                                       Opacity="0.8"
-                                                       VerticalAlignment="Center"
-                                                       IsVisible="{Binding GitFound}" />
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="git"
-                                                       FontSize="{DynamicResource FontXs}"
-                                                       Foreground="{DynamicResource TextMuted}"
-                                                       FontFamily="{DynamicResource UiFontFamily}" />
-                                            <TextBlock Text="·"
-                                                       FontSize="{DynamicResource FontXs}"
-                                                       Foreground="{DynamicResource TextFaint}"
-                                                       VerticalAlignment="Center"
-                                                       IsVisible="{Binding GitDetectedPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                            <TextBlock Text="{Binding GitDetectedPath}"
-                                                       FontSize="{DynamicResource FontXs}"
-                                                       Foreground="{DynamicResource TextMuted}"
-                                                       Opacity="0.6"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       ToolTip.Tip="{Binding GitDetectedPath}"
-                                                       IsVisible="{Binding GitDetectedPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                        </StackPanel>
-                                    </StackPanel>
-                                </DockPanel>
-                            </Border>
-                        </DockPanel>
-                    </Border>
-                </Border>
-
-                <!-- Git settings -->
-                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
-                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                        <DockPanel>
-                            <Border DockPanel.Dock="Left" Width="3"
-                                    Background="{DynamicResource AccentDefault}" />
-                            <Border Padding="12,10">
-                                <DockPanel>
-                                    <TextBlock Text="Hide .mterminal" Classes="label"
-                                               VerticalAlignment="Center" Width="90" />
-                                    <ToggleSwitch IsChecked="{Binding GitHideMTerminalDir}"
-                                                  OnContent="On" OffContent="Off" />
-                                </DockPanel>
-                            </Border>
-                        </DockPanel>
-                    </Border>
-                </Border>
-            </StackPanel>
-
-        </StackPanel>
-
-        <!-- ═══════════════ TAB: Profiles ═══════════════ -->
-        <StackPanel Spacing="12" Margin="20,16,20,24"
-                    IsVisible="{Binding IsProfilesTab}">
-
-            <!-- Header -->
-            <DockPanel Margin="0,0,0,2">
-                <TextBlock Text="SHELL PROFILES" Classes="section" Margin="0"
-                           VerticalAlignment="Center" />
-            </DockPanel>
-
-            <!-- Profile list -->
-            <ItemsControl ItemsSource="{Binding ShellProfiles}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border CornerRadius="{DynamicResource RadiusLg}"
-                                ClipToBounds="True"
-                                Margin="0,0,0,3">
-                            <Border Background="{DynamicResource BgSurface}" Padding="0">
-                                <DockPanel>
-                                    <!-- Left accent strip -->
-                                    <Border DockPanel.Dock="Left" Width="3"
-                                            Background="{DynamicResource AccentDefault}" />
-
-                                    <!-- Content -->
-                                    <Border Padding="12,9,10,9">
-                                        <DockPanel>
-                                            <!-- Right: actions -->
-                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                                                        Spacing="2" VerticalAlignment="Center">
-                                                <Button Classes="tile-btn"
-                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditProfileCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        ToolTip.Tip="Edit">
-                                                    <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
-                                                </Button>
-                                                <Button Classes="tile-btn-close"
-                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteProfileCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        ToolTip.Tip="Delete">
-                                                    <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
-                                                </Button>
-                                            </StackPanel>
-
-                                            <!-- Left: info -->
-                                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                                <TextBlock Text="{Binding Name}"
-                                                           FontWeight="Medium"
-                                                           Foreground="{DynamicResource TextPrimary}" />
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Text="{Binding ShellName}"
-                                                               FontSize="{DynamicResource FontXs}"
-                                                               Foreground="{DynamicResource TextMuted}"
-                                                               FontFamily="{DynamicResource UiFontFamily}" />
-                                                    <TextBlock FontSize="{DynamicResource FontXs}"
-                                                               Foreground="{DynamicResource TextMuted}"
-                                                               Opacity="0.6"
-                                                               Text="{Binding ShellName, Converter={x:Static vm:SettingsViewModel.ShellTypeConverter}}" />
-                                                </StackPanel>
-                                            </StackPanel>
-                                        </DockPanel>
-                                    </Border>
-                                </DockPanel>
-                            </Border>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-
-            <!-- Empty state -->
-            <TextBlock Text="No profiles yet. Add one to quickly launch terminals with a specific shell and startup script."
-                       Foreground="{DynamicResource TextMuted}"
-                       FontSize="{DynamicResource FontSm}"
-                       TextWrapping="Wrap"
-                       Margin="0,4"
-                       IsVisible="{Binding !ShellProfiles.Count}" />
-
-            <!-- Add Profile row -->
-            <Button Classes="add-row"
-                    Command="{Binding AddProfileCommand}"
-                    IsVisible="{Binding !IsEditingProfile}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
-                    <TextBlock Text="Add Profile" />
-                </StackPanel>
-            </Button>
-
-            <!-- Edit / Add panel -->
-            <Border IsVisible="{Binding IsEditingProfile}"
-                    Background="{DynamicResource BgSurface}"
-                    CornerRadius="{DynamicResource RadiusLg}"
-                    BorderBrush="{DynamicResource AccentDefault}"
-                    BorderThickness="{DynamicResource BorderThin}"
-                    Padding="16,14">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="PROFILE" Classes="section" Margin="0,0,0,2" />
-                    <DockPanel>
-                        <TextBlock Text="Name" Classes="label"
-                                   VerticalAlignment="Center" Width="90" />
-                        <TextBox Classes="setting"
-                                 Text="{Binding EditProfileName}"
-                                 PlaceholderText="Profile name" />
-                    </DockPanel>
-                    <DockPanel>
-                        <TextBlock Text="Shell" Classes="label"
-                                   VerticalAlignment="Center" Width="90" />
-                        <ComboBox Classes="setting"
-                                  SelectedItem="{Binding EditProfileShell}"
-                                  ItemsSource="{Binding ProfileShellOptions}"
-                                  ItemTemplate="{StaticResource ComboOptionTemplate}" />
-                    </DockPanel>
-                    <DockPanel>
-                        <TextBlock Text="AI Tool" Classes="label"
-                                   VerticalAlignment="Center" Width="90" />
-                        <ComboBox Classes="setting"
-                                  SelectedItem="{Binding EditProfileAiTool}"
-                                  ItemsSource="{Binding AiToolOptions}"
-                                  ItemTemplate="{StaticResource ComboOptionTemplate}" />
-                    </DockPanel>
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Startup Script" Classes="label" />
-                        <TextBox Classes="setting"
-                                 Text="{Binding EditProfileScript}"
-                                 AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 MinHeight="72"
-                                 MaxHeight="140"
-                                 PlaceholderText="Commands to run after shell starts..." />
-                        <TextBlock FontSize="{DynamicResource FontXs}"
-                                   Foreground="{DynamicResource TextMuted}"
-                                   Opacity="0.7"
-                                   Margin="2,2,0,0"
-                                   Text="Variables: ${tileId} — unique tile identifier" />
-                    </StackPanel>
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Fallback Script" Classes="label" />
-                        <TextBox Classes="setting"
-                                 Text="{Binding EditProfileFallbackScript}"
-                                 AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 MinHeight="48"
-                                 MaxHeight="100"
-                                 PlaceholderText="Runs if startup script fails (process exits quickly)..." />
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-                        <Button Classes="accent"
-                                Command="{Binding SaveProfileCommand}"
-                                Content="Save"
-                                Padding="16,5" />
-                        <Button Classes="toolbar"
-                                Command="{Binding CancelEditProfileCommand}"
-                                Content="Cancel"
-                                Padding="12,5" />
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
-        </StackPanel>
-
-        <!-- ═══════════════ TAB: AI Tools ═══════════════ -->
-        <StackPanel Spacing="12" Margin="20,16,20,24"
-                    IsVisible="{Binding IsAiToolsTab}">
-
-            <!-- Header -->
-            <DockPanel Margin="0,0,0,2">
-                <TextBlock Text="AI CODING TOOLS" Classes="section" Margin="0"
-                           VerticalAlignment="Center" />
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
-                    <Button Classes="outlined"
-                            Command="{Binding RedetectAiToolsCommand}"
-                            Padding="10,5">
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                            <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
-                            <TextBlock Text="Re-detect" />
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="outlined"
-                            Command="{Binding TestAllToolsCommand}"
-                            Padding="10,5">
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                            <mi:MaterialIcon Kind="PlayCircleOutline" Width="14" Height="14" />
-                            <TextBlock Text="Test All" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-            </DockPanel>
-
-            <!-- Loading -->
-            <TextBlock Text="Scanning for AI tools..."
-                       Foreground="{DynamicResource TextMuted}"
-                       FontSize="{DynamicResource FontSm}"
-                       IsVisible="{Binding IsLoadingAiTools}" />
-
-            <!-- Tool list -->
-            <ItemsControl ItemsSource="{Binding AiTools}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border CornerRadius="{DynamicResource RadiusLg}"
-                                ClipToBounds="True"
-                                Margin="0,0,0,3">
-                            <Border Background="{DynamicResource BgSurface}"
-                                    Padding="0">
-                                <DockPanel>
-                                    <!-- Left status strip -->
-                                    <Panel DockPanel.Dock="Left" Width="3">
-                                        <Border Background="{DynamicResource StatusSuccess}"
-                                                IsVisible="{Binding IsInstalled}" />
-                                        <Border Background="{DynamicResource BorderSubtle}"
-                                                IsVisible="{Binding !IsInstalled}" />
-                                    </Panel>
-
-                                    <!-- Content area -->
-                                    <Border Padding="12,9,10,9">
-                                        <DockPanel>
-                                            <!-- Right: actions -->
-                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                                                        Spacing="2" VerticalAlignment="Center">
-                                                <!-- Status badge: Custom path -->
-                                                <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                        Padding="6,2"
-                                                        Background="{DynamicResource StatusSuccessSubtle}"
-                                                        IsVisible="{Binding IsCustomPath}">
-                                                    <TextBlock Text="CUSTOM" FontSize="9"
-                                                               FontWeight="SemiBold"
-                                                               LetterSpacing="0.8"
-                                                               Foreground="{DynamicResource StatusSuccessText}" />
-                                                </Border>
-                                                <!-- Status badge: Not Found -->
-                                                <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                        Padding="6,2"
-                                                        Background="{DynamicResource StatusMutedSubtle}"
-                                                        IsVisible="{Binding !IsInstalled}">
-                                                    <TextBlock Text="NOT FOUND" FontSize="9"
-                                                               FontWeight="SemiBold"
-                                                               LetterSpacing="0.8"
-                                                               Foreground="{DynamicResource TextMuted}" />
-                                                </Border>
-                                                <!-- Delete (user-defined only) -->
-                                                <Button Classes="tile-btn-close"
-                                                        Command="{Binding DeleteCommand}"
-                                                        IsVisible="{Binding IsUserDefined}"
-                                                        ToolTip.Tip="Remove custom tool">
-                                                    <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
-                                                </Button>
-                                                <!-- Browse -->
-                                                <Button Classes="tile-btn"
-                                                        Command="{Binding BrowsePathCommand}"
-                                                        ToolTip.Tip="Set custom path">
-                                                    <mi:MaterialIcon Kind="DotsHorizontal" Width="13" Height="13" />
-                                                </Button>
-                                                <!-- Open folder -->
-                                                <Button Classes="tile-btn"
-                                                        Command="{Binding OpenFolderCommand}"
-                                                        IsVisible="{Binding IsInstalled}"
-                                                        ToolTip.Tip="Open folder">
-                                                    <mi:MaterialIcon Kind="FolderOutline" Width="13" Height="13" />
-                                                </Button>
-                                                <!-- Website -->
-                                                <Button Classes="tile-btn"
-                                                        Command="{Binding OpenUrlCommand}"
-                                                        IsVisible="{Binding HasUrl}"
-                                                        ToolTip.Tip="{Binding Url}">
-                                                    <mi:MaterialIcon Kind="OpenInNew" Width="13" Height="13" />
-                                                </Button>
-                                                <!-- Test -->
-                                                <Button Classes="tile-btn"
-                                                        Command="{Binding TestCommand}"
-                                                        IsEnabled="{Binding IsInstalled}"
-                                                        ToolTip.Tip="Test tool">
-                                                    <mi:MaterialIcon Kind="PlayCircleOutline" Width="13" Height="13" />
-                                                </Button>
-                                            </StackPanel>
-
-                                            <!-- Left: info -->
-                                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <TextBlock Text="{Binding Name}"
-                                                               FontWeight="Medium"
-                                                               Foreground="{DynamicResource TextPrimary}" />
-                                                    <TextBlock Text="{Binding DetectedVersion}"
-                                                               FontSize="{DynamicResource FontSm}"
-                                                               Foreground="{DynamicResource TextMuted}"
-                                                               Opacity="0.8"
-                                                               VerticalAlignment="Center"
-                                                               IsVisible="{Binding DetectedVersion, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                    <TextBlock Text="testing..."
-                                                               FontSize="{DynamicResource FontSm}"
-                                                               Foreground="{DynamicResource AccentDefault}"
-                                                               FontStyle="Italic"
-                                                               VerticalAlignment="Center"
-                                                               IsVisible="{Binding IsTesting}" />
-                                                </StackPanel>
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Text="{Binding BinaryName}"
-                                                               FontSize="{DynamicResource FontXs}"
-                                                               Foreground="{DynamicResource TextMuted}"
-                                                               FontFamily="{DynamicResource UiFontFamily}" />
-                                                    <TextBlock Text="·"
-                                                               FontSize="{DynamicResource FontXs}"
-                                                               Foreground="{DynamicResource TextFaint}"
-                                                               VerticalAlignment="Center"
-                                                               IsVisible="{Binding ExecutablePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                    <TextBlock Text="{Binding ExecutablePath}"
-                                                               FontSize="{DynamicResource FontXs}"
-                                                               Foreground="{DynamicResource TextMuted}"
-                                                               Opacity="0.6"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               ToolTip.Tip="{Binding ExecutablePath}"
-                                                               IsVisible="{Binding ExecutablePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                </StackPanel>
-                                            </StackPanel>
-                                        </DockPanel>
-                                    </Border>
-                                </DockPanel>
-                            </Border>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-
-            <!-- Add Custom Tool row -->
-            <Button Classes="add-row"
-                    Command="{Binding AddAiToolCommand}"
-                    IsVisible="{Binding !IsEditingAiTool}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
-                    <TextBlock Text="Add Custom Tool" />
-                </StackPanel>
-            </Button>
-
-            <!-- Edit custom tool form -->
-            <Border IsVisible="{Binding IsEditingAiTool}"
-                    Background="{DynamicResource BgSurface}"
-                    CornerRadius="{DynamicResource RadiusLg}"
-                    BorderBrush="{DynamicResource AccentDefault}"
-                    BorderThickness="{DynamicResource BorderThin}"
-                    Padding="16,14">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="NEW CUSTOM TOOL" Classes="section" Margin="0,0,0,2" />
-                    <DockPanel>
-                        <TextBlock Text="Name" Classes="label"
-                                   VerticalAlignment="Center" Width="90" />
-                        <TextBox Classes="setting"
-                                 Text="{Binding EditAiToolName}"
-                                 PlaceholderText="Display name" />
-                    </DockPanel>
-                    <DockPanel>
-                        <TextBlock Text="Binary" Classes="label"
-                                   VerticalAlignment="Center" Width="90" />
-                        <TextBox Classes="setting"
-                                 Text="{Binding EditAiToolBinary}"
-                                 PlaceholderText="Command name" />
-                    </DockPanel>
-                    <DockPanel>
-                        <TextBlock Text="Version Args" Classes="label"
-                                   VerticalAlignment="Center" Width="90" />
-                        <TextBox Classes="setting"
-                                 Text="{Binding EditAiToolVersionArgs}"
-                                 PlaceholderText="--version" />
-                    </DockPanel>
-                    <DockPanel>
-                        <TextBlock Text="Path" Classes="label"
-                                   VerticalAlignment="Center" Width="90" />
-                        <TextBox Classes="setting"
-                                 Text="{Binding EditAiToolPath}"
-                                 PlaceholderText="Optional — leave empty for PATH" />
-                    </DockPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-                        <Button Classes="accent"
-                                Command="{Binding SaveAiToolCommand}"
-                                Content="Save"
-                                Padding="16,5" />
-                        <Button Classes="toolbar"
-                                Command="{Binding CancelEditAiToolCommand}"
-                                Content="Cancel"
-                                Padding="12,5" />
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
-        </StackPanel>
-
-        <!-- ═══════════════ TAB: Database ═══════════════ -->
-        <StackPanel Spacing="12" Margin="20,16,20,24"
-                    IsVisible="{Binding IsDatabaseTab}">
-
-            <!-- Sub-tab strip -->
-            <StackPanel Orientation="Horizontal" Spacing="0" Margin="0,0,0,2">
-                <Button Classes="settings-tab"
-                        Classes.settings-tab-active="{Binding IsDbConfigSubTab}"
-                        Command="{Binding SelectDbSubTabCommand}"
-                        CommandParameter="{StaticResource Zero}"
-                        Content="Config" />
-                <Button Classes="settings-tab"
-                        Classes.settings-tab-active="{Binding IsDbDatabasesSubTab}"
-                        Command="{Binding SelectDbSubTabCommand}"
-                        CommandParameter="{StaticResource One}"
-                        Content="Databases" />
-            </StackPanel>
-
-            <!-- ── Sub-tab 0: Config ── -->
-            <StackPanel Spacing="12" IsVisible="{Binding IsDbConfigSubTab}">
-
-            <!-- Enable toggle -->
-            <StackPanel Spacing="6">
-                <TextBlock Text="DATABASE SERVICE" Classes="section" Margin="0" />
-                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
-                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                        <DockPanel>
-                            <Border DockPanel.Dock="Left" Width="3"
-                                    Background="{DynamicResource TileAccentDatabase}" />
-                            <Border Padding="12,10">
-                                <StackPanel Spacing="10">
-                                    <DockPanel>
-                                        <TextBlock Text="Enable" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <ToggleSwitch IsChecked="{Binding DbEnabled}"
-                                                      OnContent="On" OffContent="Off" />
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="HTTP Port" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <StackPanel>
-                                            <NumericUpDown Classes="setting"
-                                                           Value="{Binding DbHttpPort}"
-                                                           Minimum="1024" Maximum="65535" Increment="1" />
-                                            <TextBlock Text="{Binding DbPortError}"
-                                                       IsVisible="{Binding DbPortError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                                       FontFamily="{DynamicResource UiFontFamily}"
-                                                       FontSize="{DynamicResource FontXs}"
-                                                       Foreground="{DynamicResource DangerText}"
-                                                       Margin="0,2,0,0" />
-                                        </StackPanel>
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="Scan Interval" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <NumericUpDown Classes="setting"
-                                                           Value="{Binding DbDiscoveryInterval}"
-                                                           Minimum="1" Maximum="1440" Increment="5" />
-                                            <TextBlock Text="min"
-                                                       FontSize="{DynamicResource FontSm}"
-                                                       Foreground="{DynamicResource TextMuted}"
-                                                       VerticalAlignment="Center" />
-                                        </StackPanel>
-                                    </DockPanel>
-                                </StackPanel>
-                            </Border>
-                        </DockPanel>
-                    </Border>
-                </Border>
-            </StackPanel>
-
-            <!-- SQL Server -->
-            <StackPanel Spacing="6">
-                <TextBlock Text="SQL SERVER" Classes="section" Margin="0" />
-                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
-                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                        <DockPanel>
-                            <Panel DockPanel.Dock="Left" Width="3">
-                                <Border Background="{DynamicResource StatusSuccess}"
-                                        IsVisible="{Binding DbSqlServerEnabled}" />
-                                <Border Background="{DynamicResource BorderSubtle}"
-                                        IsVisible="{Binding !DbSqlServerEnabled}" />
-                            </Panel>
-                            <Border Padding="12,10">
-                                <StackPanel Spacing="10">
-                                    <DockPanel>
-                                        <TextBlock Text="Discovery" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <ToggleSwitch IsChecked="{Binding DbSqlServerEnabled}"
-                                                      OnContent="On" OffContent="Off" />
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="Auth" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <ToggleSwitch IsChecked="{Binding DbSqlServerIntegrated}"
-                                                      OnContent="Windows Auth" OffContent="SQL Auth" />
-                                    </DockPanel>
-                                    <DockPanel IsVisible="{Binding !DbSqlServerIntegrated}">
-                                        <TextBlock Text="Username" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <TextBox Classes="setting"
-                                                 Text="{Binding DbSqlServerUsername}"
-                                                 PlaceholderText="sa" />
-                                    </DockPanel>
-                                    <DockPanel IsVisible="{Binding !DbSqlServerIntegrated}">
-                                        <TextBlock Text="Password" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <TextBox Classes="setting"
-                                                 Text="{Binding DbSqlServerPassword}"
-                                                 PasswordChar="●"
-                                                 PlaceholderText="Password" />
-                                    </DockPanel>
-                                </StackPanel>
-                            </Border>
-                        </DockPanel>
-                    </Border>
-                </Border>
-            </StackPanel>
-
-            <!-- PostgreSQL -->
-            <StackPanel Spacing="6">
-                <TextBlock Text="POSTGRESQL" Classes="section" Margin="0" />
-                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
-                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                        <DockPanel>
-                            <Panel DockPanel.Dock="Left" Width="3">
-                                <Border Background="{DynamicResource StatusSuccess}"
-                                        IsVisible="{Binding DbPostgreSqlEnabled}" />
-                                <Border Background="{DynamicResource BorderSubtle}"
-                                        IsVisible="{Binding !DbPostgreSqlEnabled}" />
-                            </Panel>
-                            <Border Padding="12,10">
-                                <StackPanel Spacing="10">
-                                    <DockPanel>
-                                        <TextBlock Text="Discovery" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <ToggleSwitch IsChecked="{Binding DbPostgreSqlEnabled}"
-                                                      OnContent="On" OffContent="Off" />
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="Username" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <TextBox Classes="setting"
-                                                 Text="{Binding DbPostgreSqlUsername}"
-                                                 PlaceholderText="postgres (empty = no auth)" />
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="Password" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <TextBox Classes="setting"
-                                                 Text="{Binding DbPostgreSqlPassword}"
-                                                 PasswordChar="●"
-                                                 PlaceholderText="Password" />
-                                    </DockPanel>
-                                    <DockPanel>
-                                        <TextBlock Text="Ports" Classes="label"
-                                                   VerticalAlignment="Center" Width="120" />
-                                        <TextBox Classes="setting"
-                                                 Text="{Binding DbPostgreSqlPorts}"
-                                                 PlaceholderText="5432, 5433, 5434" />
-                                    </DockPanel>
-                                </StackPanel>
-                            </Border>
-                        </DockPanel>
-                    </Border>
-                </Border>
-            </StackPanel>
-
-            <!-- Save button -->
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-                <Button Classes="accent"
+        <!--
+            Pinned save bar. Only the database form needs one: everything else in Settings persists as
+            you type, while this restarts the database service and so has to be deliberate — which is
+            what makes an unapplied edit easy to walk away from. Shown on every tab, not just the
+            database one, precisely because leaving the tab is when it would be forgotten.
+        -->
+        <Border DockPanel.Dock="Bottom"
+                IsVisible="{Binding HasUnsavedDatabaseChanges}"
+                Background="{DynamicResource BgElevated}"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="{DynamicResource BorderTop}"
+                Padding="20,10">
+            <DockPanel>
+                <Button DockPanel.Dock="Left" Classes="accent"
                         Command="{Binding SaveDatabaseSettingsCommand}"
                         Content="Save &amp; Apply"
                         Padding="16,5" />
-                <TextBlock Text="Saves and restarts database service"
+                <TextBlock Text="Unsaved database changes — saving restarts the database service"
                            FontSize="{DynamicResource FontXs}"
                            Foreground="{DynamicResource TextMuted}"
-                           VerticalAlignment="Center" />
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           Margin="8,0,0,0" />
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <Panel>
+
+            <!-- ═══════════════ TAB: General ═══════════════ -->
+            <StackPanel Spacing="12" Margin="20,16,20,24"
+                        IsVisible="{Binding IsGeneralTab}">
+
+                <!-- Default Shell -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="DEFAULT SHELL" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource AccentDefault}" />
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <ComboBox Classes="setting"
+                                                  SelectedItem="{Binding SelectedShell}"
+                                                  ItemsSource="{Binding ShellOptions}" />
+                                        <TextBlock FontSize="{DynamicResource FontSm}"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   Margin="2,-4,0,0"
+                                                   IsVisible="{Binding !IsCustomShell}"
+                                                   Text="{Binding SelectedShell, Converter={x:Static vm:SettingsViewModel.ShellTypeConverter}}" />
+                                        <StackPanel Spacing="10" IsVisible="{Binding IsCustomShell}">
+                                            <DockPanel>
+                                                <TextBlock Text="Path" Classes="label"
+                                                           VerticalAlignment="Center" Width="90" />
+                                                <TextBox Classes="setting"
+                                                         Text="{Binding CustomShellPath}"
+                                                         PlaceholderText="Path to executable" />
+                                            </DockPanel>
+                                            <DockPanel>
+                                                <TextBlock Text="Arguments" Classes="label"
+                                                           VerticalAlignment="Center" Width="90" />
+                                                <TextBox Classes="setting"
+                                                         Text="{Binding CustomShellArgs}"
+                                                         PlaceholderText="Arguments (optional)" />
+                                            </DockPanel>
+                                            <DockPanel>
+                                                <TextBlock Text="Type" Classes="label"
+                                                           VerticalAlignment="Center" Width="90" />
+                                                <ComboBox Classes="setting"
+                                                          SelectedItem="{Binding CustomShellType}"
+                                                          ItemsSource="{x:Static vm:SettingsViewModel.ShellTypeNames}" />
+                                            </DockPanel>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                <!-- Appearance -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="APPEARANCE" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource AccentDefault}" />
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <DockPanel>
+                                            <TextBlock Text="Color Theme" Classes="label"
+                                                       VerticalAlignment="Center" Width="90" />
+                                            <ComboBox Classes="setting"
+                                                      SelectedItem="{Binding ColorThemeName}"
+                                                      ItemsSource="{x:Static vm:SettingsViewModel.ColorThemeNames}" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Font Family" Classes="label"
+                                                       VerticalAlignment="Center" Width="90" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding FontFamily}"
+                                                     PlaceholderText="Font family" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Font Size" Classes="label"
+                                                       VerticalAlignment="Center" Width="90" />
+                                            <NumericUpDown Classes="setting"
+                                                           Value="{Binding FontSize}" Minimum="8" Maximum="48" Increment="1" />
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                <!-- Terminal -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="TERMINAL" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource AccentDefault}" />
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <DockPanel>
+                                            <TextBlock Text="Font Family" Classes="label"
+                                                       VerticalAlignment="Center" Width="90" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding TerminalFontFamily}"
+                                                     PlaceholderText="Font family" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Font Size" Classes="label"
+                                                       VerticalAlignment="Center" Width="90" />
+                                            <NumericUpDown Classes="setting"
+                                                           Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                <!-- Git -->
+                <StackPanel Spacing="6">
+                    <DockPanel Margin="0,0,0,2">
+                        <TextBlock Text="GIT" Classes="section" Margin="0"
+                                   VerticalAlignment="Center" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                            <Button Classes="outlined"
+                                    Command="{Binding DetectGitCommand}"
+                                    Padding="10,5">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
+                                    <TextBlock Text="Detect" />
+                                </StackPanel>
+                            </Button>
+                            <Button Classes="outlined"
+                                    Command="{Binding OpenGitDownloadCommand}"
+                                    ToolTip.Tip="https://git-scm.com"
+                                    Padding="10,5"
+                                    IsVisible="{Binding !GitFound}">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <mi:MaterialIcon Kind="Download" Width="14" Height="14" />
+                                    <TextBlock Text="Get Git" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Git tool card -->
+                    <Border CornerRadius="{DynamicResource RadiusLg}"
+                            ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Panel DockPanel.Dock="Left" Width="3">
+                                    <Border Background="{DynamicResource StatusSuccess}"
+                                            IsVisible="{Binding GitFound}" />
+                                    <Border Background="{DynamicResource BorderSubtle}"
+                                            IsVisible="{Binding !GitFound}" />
+                                </Panel>
+                                <Border Padding="12,9,10,9">
+                                    <DockPanel>
+                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                    Spacing="2" VerticalAlignment="Center">
+                                            <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                    Padding="6,2"
+                                                    Background="{DynamicResource StatusSuccessSubtle}"
+                                                    IsVisible="{Binding GitPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                <TextBlock Text="CUSTOM" FontSize="9"
+                                                           FontWeight="SemiBold"
+                                                           LetterSpacing="0.8"
+                                                           Foreground="{DynamicResource StatusSuccessText}" />
+                                            </Border>
+                                            <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                    Padding="6,2"
+                                                    Background="{DynamicResource StatusMutedSubtle}"
+                                                    IsVisible="{Binding !GitFound}">
+                                                <TextBlock Text="NOT FOUND" FontSize="9"
+                                                           FontWeight="SemiBold"
+                                                           LetterSpacing="0.8"
+                                                           Foreground="{DynamicResource TextMuted}" />
+                                            </Border>
+                                            <Button Classes="tile-btn"
+                                                    Command="{Binding BrowseGitPathCommand}"
+                                                    ToolTip.Tip="Set custom path">
+                                                <mi:MaterialIcon Kind="DotsHorizontal" Width="13" Height="13" />
+                                            </Button>
+                                            <Button Classes="tile-btn"
+                                                    Command="{Binding ResetGitPathCommand}"
+                                                    ToolTip.Tip="Reset to auto-detect"
+                                                    IsVisible="{Binding GitPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                <mi:MaterialIcon Kind="Refresh" Width="13" Height="13" />
+                                            </Button>
+                                        </StackPanel>
+                                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Ellipse Width="8" Height="8"
+                                                         VerticalAlignment="Center"
+                                                         Fill="{DynamicResource StatusSuccess}"
+                                                         IsVisible="{Binding GitFound}" />
+                                                <Ellipse Width="8" Height="8"
+                                                         VerticalAlignment="Center"
+                                                         Fill="{DynamicResource DangerText}"
+                                                         IsVisible="{Binding !GitFound}" />
+                                                <TextBlock Text="Git"
+                                                           FontWeight="Medium"
+                                                           Foreground="{DynamicResource TextPrimary}" />
+                                                <TextBlock Text="{Binding GitVersion}"
+                                                           FontSize="{DynamicResource FontSm}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           Opacity="0.8"
+                                                           VerticalAlignment="Center"
+                                                           IsVisible="{Binding GitFound}" />
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <TextBlock Text="git"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           FontFamily="{DynamicResource UiFontFamily}" />
+                                                <TextBlock Text="·"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextFaint}"
+                                                           VerticalAlignment="Center"
+                                                           IsVisible="{Binding GitDetectedPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                <TextBlock Text="{Binding GitDetectedPath}"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           Opacity="0.6"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip.Tip="{Binding GitDetectedPath}"
+                                                           IsVisible="{Binding GitDetectedPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+
+                    <!-- Git settings -->
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource AccentDefault}" />
+                                <Border Padding="12,10">
+                                    <DockPanel>
+                                        <!-- The caption is the switch's own content, so clicking the words
+                                             toggles it: text sitting next to a control is text people try
+                                             to click. One template for both states rather than two copies
+                                             of the same label — the wording is true either way. -->
+                                        <ToggleSwitch IsChecked="{Binding GitIgnoreMTerminalDir}"
+                                                      HorizontalAlignment="Stretch"
+                                                      VerticalAlignment="Center"
+                                                      OnContent="{StaticResource MTerminalIgnoreCaption}"
+                                                      OffContent="{StaticResource MTerminalIgnoreCaption}" />
+                                    </DockPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
             </StackPanel>
 
-            </StackPanel> <!-- /Sub-tab 0: Config -->
+            <!-- ═══════════════ TAB: Profiles ═══════════════ -->
+            <StackPanel Spacing="12" Margin="20,16,20,24"
+                        IsVisible="{Binding IsProfilesTab}">
 
-            <!-- ── Sub-tab 1: Databases ── -->
-            <StackPanel Spacing="12" IsVisible="{Binding IsDbDatabasesSubTab}">
+                <!-- Header -->
+                <DockPanel Margin="0,0,0,2">
+                    <TextBlock Text="SHELL PROFILES" Classes="section" Margin="0"
+                               VerticalAlignment="Center" />
+                </DockPanel>
 
-            <!-- Manual Connections -->
-            <StackPanel Spacing="6">
-                <TextBlock Text="MANUAL CONNECTIONS" Classes="section" Margin="0" />
-
-                <ItemsControl ItemsSource="{Binding ManualConnections}">
+                <!-- Profile list -->
+                <ItemsControl ItemsSource="{Binding ShellProfiles}">
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ManualConnectionViewModel">
-                            <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
+                        <DataTemplate>
+                            <Border CornerRadius="{DynamicResource RadiusLg}"
+                                    ClipToBounds="True"
                                     Margin="0,0,0,3">
                                 <Border Background="{DynamicResource BgSurface}" Padding="0">
                                     <DockPanel>
+                                        <!-- Left accent strip -->
                                         <Border DockPanel.Dock="Left" Width="3"
-                                                Background="{DynamicResource BorderSubtle}" />
-                                        <Border Padding="12,8">
+                                                Background="{DynamicResource AccentDefault}" />
+
+                                        <!-- Content -->
+                                        <Border Padding="12,9,10,9">
                                             <DockPanel>
+                                                <!-- Right: actions -->
                                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                                                             Spacing="2" VerticalAlignment="Center">
                                                     <Button Classes="tile-btn"
-                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).TestManualConnectionCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Test connection">
-                                                        <mi:MaterialIcon Kind="PlayCircleOutline" Width="13" Height="13" />
-                                                    </Button>
-                                                    <Button Classes="tile-btn"
-                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditManualConnectionCommand}"
+                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditProfileCommand}"
                                                             CommandParameter="{Binding}"
                                                             ToolTip.Tip="Edit">
                                                         <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
                                                     </Button>
                                                     <Button Classes="tile-btn-close"
-                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteManualConnectionCommand}"
+                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteProfileCommand}"
                                                             CommandParameter="{Binding}"
                                                             ToolTip.Tip="Delete">
                                                         <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
                                                     </Button>
                                                 </StackPanel>
 
-                                                <StackPanel VerticalAlignment="Center" Spacing="0">
+                                                <!-- Left: info -->
+                                                <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontWeight="Medium"
+                                                               Foreground="{DynamicResource TextPrimary}" />
                                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <TextBlock Text="{Binding Label}"
+                                                        <TextBlock Text="{Binding ShellName}"
+                                                                   FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextMuted}"
+                                                                   FontFamily="{DynamicResource UiFontFamily}" />
+                                                        <TextBlock FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextMuted}"
+                                                                   Opacity="0.6"
+                                                                   Text="{Binding ShellName, Converter={x:Static vm:SettingsViewModel.ShellTypeConverter}}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </Border>
+                                    </DockPanel>
+                                </Border>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Empty state -->
+                <TextBlock Text="No profiles yet. Add one to quickly launch terminals with a specific shell and startup script."
+                           Foreground="{DynamicResource TextMuted}"
+                           FontSize="{DynamicResource FontSm}"
+                           TextWrapping="Wrap"
+                           Margin="0,4"
+                           IsVisible="{Binding !ShellProfiles.Count}" />
+
+                <!-- Add Profile row -->
+                <Button Classes="add-row"
+                        Command="{Binding AddProfileCommand}"
+                        IsVisible="{Binding !IsEditingProfile}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
+                        <TextBlock Text="Add Profile" />
+                    </StackPanel>
+                </Button>
+
+                <!-- Edit / Add panel -->
+                <Border IsVisible="{Binding IsEditingProfile}"
+                        Background="{DynamicResource BgSurface}"
+                        CornerRadius="{DynamicResource RadiusLg}"
+                        BorderBrush="{DynamicResource AccentDefault}"
+                        BorderThickness="{DynamicResource BorderThin}"
+                        Padding="16,14">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="PROFILE" Classes="section" Margin="0,0,0,2" />
+                        <DockPanel>
+                            <TextBlock Text="Name" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditProfileName}"
+                                     PlaceholderText="Profile name" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Shell" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ComboBox Classes="setting"
+                                      SelectedItem="{Binding EditProfileShell}"
+                                      ItemsSource="{Binding ProfileShellOptions}"
+                                      ItemTemplate="{StaticResource ComboOptionTemplate}" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="AI Tool" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ComboBox Classes="setting"
+                                      SelectedItem="{Binding EditProfileAiTool}"
+                                      ItemsSource="{Binding AiToolOptions}"
+                                      ItemTemplate="{StaticResource ComboOptionTemplate}" />
+                        </DockPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Startup Script" Classes="label" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditProfileScript}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="72"
+                                     MaxHeight="140"
+                                     PlaceholderText="Commands to run after shell starts..." />
+                            <TextBlock FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}"
+                                       Opacity="0.7"
+                                       Margin="2,2,0,0"
+                                       Text="Variables: ${tileId} — unique tile identifier" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Fallback Script" Classes="label" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditProfileFallbackScript}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="48"
+                                     MaxHeight="100"
+                                     PlaceholderText="Runs if startup script fails (process exits quickly)..." />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button Classes="accent"
+                                    Command="{Binding SaveProfileCommand}"
+                                    Content="Save"
+                                    Padding="16,5" />
+                            <Button Classes="toolbar"
+                                    Command="{Binding CancelEditProfileCommand}"
+                                    Content="Cancel"
+                                    Padding="12,5" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+
+            <!-- ═══════════════ TAB: AI Tools ═══════════════ -->
+            <StackPanel Spacing="12" Margin="20,16,20,24"
+                        IsVisible="{Binding IsAiToolsTab}">
+
+                <!-- Header -->
+                <DockPanel Margin="0,0,0,2">
+                    <TextBlock Text="AI CODING TOOLS" Classes="section" Margin="0"
+                               VerticalAlignment="Center" />
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                        <Button Classes="outlined"
+                                Command="{Binding RedetectAiToolsCommand}"
+                                Padding="10,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
+                                <TextBlock Text="Re-detect" />
+                            </StackPanel>
+                        </Button>
+                        <Button Classes="outlined"
+                                Command="{Binding TestAllToolsCommand}"
+                                Padding="10,5">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="PlayCircleOutline" Width="14" Height="14" />
+                                <TextBlock Text="Test All" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- Loading -->
+                <TextBlock Text="Scanning for AI tools..."
+                           Foreground="{DynamicResource TextMuted}"
+                           FontSize="{DynamicResource FontSm}"
+                           IsVisible="{Binding IsLoadingAiTools}" />
+
+                <!-- Tool list -->
+                <ItemsControl ItemsSource="{Binding AiTools}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border CornerRadius="{DynamicResource RadiusLg}"
+                                    ClipToBounds="True"
+                                    Margin="0,0,0,3">
+                                <Border Background="{DynamicResource BgSurface}"
+                                        Padding="0">
+                                    <DockPanel>
+                                        <!-- Left status strip -->
+                                        <Panel DockPanel.Dock="Left" Width="3">
+                                            <Border Background="{DynamicResource StatusSuccess}"
+                                                    IsVisible="{Binding IsInstalled}" />
+                                            <Border Background="{DynamicResource BorderSubtle}"
+                                                    IsVisible="{Binding !IsInstalled}" />
+                                        </Panel>
+
+                                        <!-- Content area -->
+                                        <Border Padding="12,9,10,9">
+                                            <DockPanel>
+                                                <!-- Right: actions -->
+                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                            Spacing="2" VerticalAlignment="Center">
+                                                    <!-- Status badge: Custom path -->
+                                                    <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                            Padding="6,2"
+                                                            Background="{DynamicResource StatusSuccessSubtle}"
+                                                            IsVisible="{Binding IsCustomPath}">
+                                                        <TextBlock Text="CUSTOM" FontSize="9"
+                                                                   FontWeight="SemiBold"
+                                                                   LetterSpacing="0.8"
+                                                                   Foreground="{DynamicResource StatusSuccessText}" />
+                                                    </Border>
+                                                    <!-- Status badge: Not Found -->
+                                                    <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                            Padding="6,2"
+                                                            Background="{DynamicResource StatusMutedSubtle}"
+                                                            IsVisible="{Binding !IsInstalled}">
+                                                        <TextBlock Text="NOT FOUND" FontSize="9"
+                                                                   FontWeight="SemiBold"
+                                                                   LetterSpacing="0.8"
+                                                                   Foreground="{DynamicResource TextMuted}" />
+                                                    </Border>
+                                                    <!-- Delete (user-defined only) -->
+                                                    <Button Classes="tile-btn-close"
+                                                            Command="{Binding DeleteCommand}"
+                                                            IsVisible="{Binding IsUserDefined}"
+                                                            ToolTip.Tip="Remove custom tool">
+                                                        <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
+                                                    </Button>
+                                                    <!-- Browse -->
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding BrowsePathCommand}"
+                                                            ToolTip.Tip="Set custom path">
+                                                        <mi:MaterialIcon Kind="DotsHorizontal" Width="13" Height="13" />
+                                                    </Button>
+                                                    <!-- Open folder -->
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding OpenFolderCommand}"
+                                                            IsVisible="{Binding IsInstalled}"
+                                                            ToolTip.Tip="Open folder">
+                                                        <mi:MaterialIcon Kind="FolderOutline" Width="13" Height="13" />
+                                                    </Button>
+                                                    <!-- Website -->
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding OpenUrlCommand}"
+                                                            IsVisible="{Binding HasUrl}"
+                                                            ToolTip.Tip="{Binding Url}">
+                                                        <mi:MaterialIcon Kind="OpenInNew" Width="13" Height="13" />
+                                                    </Button>
+                                                    <!-- Test -->
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding TestCommand}"
+                                                            IsEnabled="{Binding IsInstalled}"
+                                                            ToolTip.Tip="Test tool">
+                                                        <mi:MaterialIcon Kind="PlayCircleOutline" Width="13" Height="13" />
+                                                    </Button>
+                                                </StackPanel>
+
+                                                <!-- Left: info -->
+                                                <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <TextBlock Text="{Binding Name}"
                                                                    FontWeight="Medium"
                                                                    Foreground="{DynamicResource TextPrimary}" />
-                                                        <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                                Padding="4,0"
-                                                                Background="{DynamicResource StatusMutedSubtle}">
-                                                            <TextBlock Text="{Binding ProviderShort}" FontSize="8"
-                                                                       FontWeight="SemiBold"
-                                                                       Foreground="{DynamicResource TextMuted}" />
-                                                        </Border>
+                                                        <TextBlock Text="{Binding DetectedVersion}"
+                                                                   FontSize="{DynamicResource FontSm}"
+                                                                   Foreground="{DynamicResource TextMuted}"
+                                                                   Opacity="0.8"
+                                                                   VerticalAlignment="Center"
+                                                                   IsVisible="{Binding DetectedVersion, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                         <TextBlock Text="testing..."
                                                                    FontSize="{DynamicResource FontSm}"
                                                                    Foreground="{DynamicResource AccentDefault}"
                                                                    FontStyle="Italic"
                                                                    VerticalAlignment="Center"
                                                                    IsVisible="{Binding IsTesting}" />
-                                                        <TextBlock Text="{Binding TestResult}"
-                                                                   FontSize="{DynamicResource FontSm}"
-                                                                   Foreground="{DynamicResource TextMuted}"
-                                                                   VerticalAlignment="Center"
-                                                                   IsVisible="{Binding TestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                     </StackPanel>
-                                                    <TextBlock FontSize="{DynamicResource FontXs}"
-                                                               Foreground="{DynamicResource TextFaint}"
-                                                               TextTrimming="CharacterEllipsis">
-                                                        <TextBlock.Text>
-                                                            <MultiBinding StringFormat="{}{0} · {1}">
-                                                                <Binding Path="DisplayServer" />
-                                                                <Binding Path="Database" />
-                                                            </MultiBinding>
-                                                        </TextBlock.Text>
-                                                    </TextBlock>
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <TextBlock Text="{Binding BinaryName}"
+                                                                   FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextMuted}"
+                                                                   FontFamily="{DynamicResource UiFontFamily}" />
+                                                        <TextBlock Text="·"
+                                                                   FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextFaint}"
+                                                                   VerticalAlignment="Center"
+                                                                   IsVisible="{Binding ExecutablePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                        <TextBlock Text="{Binding ExecutablePath}"
+                                                                   FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextMuted}"
+                                                                   Opacity="0.6"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   ToolTip.Tip="{Binding ExecutablePath}"
+                                                                   IsVisible="{Binding ExecutablePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                    </StackPanel>
                                                 </StackPanel>
                                             </DockPanel>
                                         </Border>
@@ -927,233 +648,553 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <!-- Add button -->
+                <!-- Add Custom Tool row -->
                 <Button Classes="add-row"
-                        Command="{Binding AddManualConnectionCommand}"
-                        IsVisible="{Binding !IsEditingManualConnection}">
+                        Command="{Binding AddAiToolCommand}"
+                        IsVisible="{Binding !IsEditingAiTool}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
-                        <TextBlock Text="Add Connection" />
+                        <TextBlock Text="Add Custom Tool" />
                     </StackPanel>
                 </Button>
 
-                <!-- Edit form -->
-                <Border IsVisible="{Binding IsEditingManualConnection}"
+                <!-- Edit custom tool form -->
+                <Border IsVisible="{Binding IsEditingAiTool}"
                         Background="{DynamicResource BgSurface}"
                         CornerRadius="{DynamicResource RadiusLg}"
                         BorderBrush="{DynamicResource AccentDefault}"
                         BorderThickness="{DynamicResource BorderThin}"
                         Padding="16,14">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="CONNECTION" Classes="section" Margin="0,0,0,2" />
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="NEW CUSTOM TOOL" Classes="section" Margin="0,0,0,2" />
                         <DockPanel>
-                            <TextBlock Text="Provider" Classes="label"
-                                       VerticalAlignment="Center" Width="90" />
-                            <ComboBox ItemsSource="{Binding DbProviders}"
-                                      SelectedItem="{Binding EditConnProvider}"
-                                      MinWidth="160" />
-                        </DockPanel>
-                        <DockPanel>
-                            <TextBlock Text="Alias" Classes="label"
+                            <TextBlock Text="Name" Classes="label"
                                        VerticalAlignment="Center" Width="90" />
                             <TextBox Classes="setting"
-                                     Text="{Binding EditConnAlias}"
-                                     PlaceholderText="short name for URL (optional)" />
+                                     Text="{Binding EditAiToolName}"
+                                     PlaceholderText="Display name" />
                         </DockPanel>
                         <DockPanel>
-                            <TextBlock Text="Server" Classes="label"
+                            <TextBlock Text="Binary" Classes="label"
                                        VerticalAlignment="Center" Width="90" />
                             <TextBox Classes="setting"
-                                     Text="{Binding EditConnServer}"
-                                     PlaceholderText="hostname or IP" />
-                        </DockPanel>
-                        <DockPanel IsVisible="{Binding IsInstanceVisible}">
-                            <TextBlock Text="Instance" Classes="label"
-                                       VerticalAlignment="Center" Width="90" />
-                            <TextBox Classes="setting"
-                                     Text="{Binding EditConnInstance}"
-                                     PlaceholderText="SQL Server instance (optional)" />
+                                     Text="{Binding EditAiToolBinary}"
+                                     PlaceholderText="Command name" />
                         </DockPanel>
                         <DockPanel>
-                            <TextBlock Text="Database" Classes="label"
+                            <TextBlock Text="Version Args" Classes="label"
                                        VerticalAlignment="Center" Width="90" />
                             <TextBox Classes="setting"
-                                     Text="{Binding EditConnDatabase}"
-                                     PlaceholderText="Database name" />
+                                     Text="{Binding EditAiToolVersionArgs}"
+                                     PlaceholderText="--version" />
                         </DockPanel>
                         <DockPanel>
-                            <TextBlock Text="Port" Classes="label"
-                                       VerticalAlignment="Center" Width="90" />
-                            <NumericUpDown Classes="setting"
-                                           Value="{Binding EditConnPort}"
-                                           Minimum="0" Maximum="65535" Increment="1"
-                                           PlaceholderText="0 = default" />
-                        </DockPanel>
-                        <DockPanel>
-                            <TextBlock Text="Auth" Classes="label"
-                                       VerticalAlignment="Center" Width="90" />
-                            <ToggleSwitch IsChecked="{Binding EditConnIntegrated}"
-                                          OnContent="Windows Auth" OffContent="SQL Auth" />
-                        </DockPanel>
-                        <DockPanel IsVisible="{Binding !EditConnIntegrated}">
-                            <TextBlock Text="Username" Classes="label"
+                            <TextBlock Text="Path" Classes="label"
                                        VerticalAlignment="Center" Width="90" />
                             <TextBox Classes="setting"
-                                     Text="{Binding EditConnUsername}"
-                                     PlaceholderText="Username" />
-                        </DockPanel>
-                        <DockPanel IsVisible="{Binding !EditConnIntegrated}">
-                            <TextBlock Text="Password" Classes="label"
-                                       VerticalAlignment="Center" Width="90" />
-                            <TextBox Classes="setting"
-                                     Text="{Binding EditConnPassword}"
-                                     PasswordChar="●"
-                                     PlaceholderText="Password" />
+                                     Text="{Binding EditAiToolPath}"
+                                     PlaceholderText="Optional — leave empty for PATH" />
                         </DockPanel>
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                             <Button Classes="accent"
-                                    Command="{Binding SaveManualConnectionCommand}"
+                                    Command="{Binding SaveAiToolCommand}"
                                     Content="Save"
                                     Padding="16,5" />
-                            <Button Classes="outlined"
-                                    Command="{Binding TestEditConnectionCommand}"
-                                    IsEnabled="{Binding !IsTestingEditConn}"
-                                    Padding="12,5">
-                                <StackPanel Orientation="Horizontal" Spacing="5">
-                                    <mi:MaterialIcon Kind="PlayCircleOutline" Width="14" Height="14" />
-                                    <TextBlock Text="Test" />
-                                </StackPanel>
-                            </Button>
                             <Button Classes="toolbar"
-                                    Command="{Binding CancelEditManualConnectionCommand}"
+                                    Command="{Binding CancelEditAiToolCommand}"
                                     Content="Cancel"
                                     Padding="12,5" />
-                            <TextBlock Text="{Binding EditConnTestResult}"
-                                       FontSize="{DynamicResource FontSm}"
-                                       Foreground="{DynamicResource TextMuted}"
-                                       VerticalAlignment="Center"
-                                       IsVisible="{Binding EditConnTestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                     </StackPanel>
                 </Border>
+
             </StackPanel>
 
-            <!-- Detected Databases -->
-            <StackPanel Spacing="6">
-                <DockPanel Margin="0,0,0,2">
-                    <TextBlock Text="DATABASES" Classes="section" Margin="0"
-                               VerticalAlignment="Center" />
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
-                        <Button Classes="outlined"
-                                Command="{Binding RunDiscoveryNowCommand}"
-                                IsEnabled="{Binding !IsDiscoveryRunning}"
-                                Padding="10,5">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
-                                <TextBlock Text="Rescan" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </DockPanel>
+            <!-- ═══════════════ TAB: Database ═══════════════ -->
+            <StackPanel Spacing="12" Margin="20,16,20,24"
+                        IsVisible="{Binding IsDatabaseTab}">
 
-                <!-- Filter -->
-                <TextBox Text="{Binding DbFilterText, Mode=TwoWay}"
-                         PlaceholderText="Filter databases..."
-                         IsVisible="{Binding !!DiscoveredDatabases.Count}"
-                         Padding="6,3"
-                         FontSize="{DynamicResource FontSm}">
-                    <TextBox.InnerRightContent>
-                        <Button Classes="ghost"
-                                Command="{Binding ClearDbFilterCommand}"
-                                IsVisible="{Binding DbFilterText.Length}"
-                                Padding="2" Margin="0,0,2,0"
-                                MinWidth="16" MinHeight="16">
-                            <mi:MaterialIcon Kind="Close" Width="10" Height="10" />
-                        </Button>
-                    </TextBox.InnerRightContent>
-                </TextBox>
+                <!-- Sub-tab strip -->
+                <StackPanel Orientation="Horizontal" Spacing="0" Margin="0,0,0,2">
+                    <Button Classes="settings-tab"
+                            Classes.settings-tab-active="{Binding IsDbConfigSubTab}"
+                            Command="{Binding SelectDbSubTabCommand}"
+                            CommandParameter="{StaticResource Zero}"
+                            Content="Config" />
+                    <Button Classes="settings-tab"
+                            Classes.settings-tab-active="{Binding IsDbDatabasesSubTab}"
+                            Command="{Binding SelectDbSubTabCommand}"
+                            CommandParameter="{StaticResource One}"
+                            Content="Databases" />
+                </StackPanel>
 
-                <!-- Scanning indicator -->
-                <TextBlock Text="Scanning..."
-                           Foreground="{DynamicResource TextMuted}"
-                           FontSize="{DynamicResource FontSm}"
-                           FontStyle="Italic"
-                           IsVisible="{Binding IsDiscoveryRunning}" />
+                <!-- ── Sub-tab 0: Config ── -->
+                <StackPanel Spacing="12" IsVisible="{Binding IsDbConfigSubTab}">
 
-                <!-- Empty state -->
-                <TextBlock Text="No databases detected. Enable discovery above, or add manual connections."
-                           Foreground="{DynamicResource TextMuted}"
-                           FontSize="{DynamicResource FontSm}"
-                           TextWrapping="Wrap"
-                           Margin="0,2"
-                           IsVisible="{Binding !DiscoveredDatabases.Count}" />
-
-                <ItemsControl ItemsSource="{Binding FilteredDiscoveredDatabases}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:DatabaseItemViewModel">
-                            <Border CornerRadius="{DynamicResource RadiusLg}"
-                                    ClipToBounds="True"
-                                    Margin="0,0,0,3">
-                                <Border Background="{DynamicResource BgSurface}" Padding="0">
-                                    <DockPanel>
-                                        <!-- Left status strip — green for manual, accent for discovered -->
-                                        <Panel DockPanel.Dock="Left" Width="3">
-                                            <Border Background="{DynamicResource TileAccentDatabase}" />
-                                            <Border Background="{DynamicResource StatusSuccess}"
-                                                    IsVisible="{Binding SourceType, Converter={x:Static vm:SettingsViewModel.IsManualSourceConverter}}" />
-                                        </Panel>
-
-                                        <Border Padding="12,9,10,9">
-                                            <DockPanel>
-                                                <!-- Right: badges -->
-                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                                                            Spacing="4" VerticalAlignment="Center">
-                                                    <!-- Provider badge -->
-                                                    <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                            Padding="6,2"
-                                                            Background="{DynamicResource StatusMutedSubtle}">
-                                                        <TextBlock Text="{Binding Provider}" FontSize="9"
-                                                                   FontWeight="SemiBold"
-                                                                   LetterSpacing="0.8"
-                                                                   Foreground="{DynamicResource TextMuted}" />
-                                                    </Border>
-                                                    <!-- Source badge -->
-                                                    <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                            Padding="6,2"
-                                                            Background="{DynamicResource StatusSuccessSubtle}"
-                                                            IsVisible="{Binding SourceType, Converter={x:Static vm:SettingsViewModel.IsManualSourceConverter}}">
-                                                        <TextBlock Text="MANUAL" FontSize="9"
-                                                                   FontWeight="SemiBold"
-                                                                   LetterSpacing="0.8"
-                                                                   Foreground="{DynamicResource StatusSuccessText}" />
-                                                    </Border>
-                                                </StackPanel>
-
-                                                <!-- Left: info -->
-                                                <StackPanel VerticalAlignment="Center" Spacing="1">
-                                                    <TextBlock Text="{Binding Label}"
-                                                               FontWeight="Medium"
-                                                               Foreground="{DynamicResource TextPrimary}" />
-                                                    <TextBlock Text="{Binding Server}"
-                                                               FontSize="{DynamicResource FontXs}"
-                                                               Foreground="{DynamicResource TextMuted}"
-                                                               FontFamily="{DynamicResource UiFontFamily}"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               IsVisible="{Binding HasAlias}" />
-                                                </StackPanel>
-                                            </DockPanel>
-                                        </Border>
-                                    </DockPanel>
+                <!-- Enable toggle -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="DATABASE SERVICE" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource TileAccentDatabase}" />
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <DockPanel>
+                                            <TextBlock Text="Enable" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <ToggleSwitch IsChecked="{Binding DbEnabled}"
+                                                          OnContent="On" OffContent="Off" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="HTTP Port" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <StackPanel>
+                                                <NumericUpDown Classes="setting"
+                                                               Value="{Binding DbHttpPort}"
+                                                               Minimum="1024" Maximum="65535" Increment="1" />
+                                                <TextBlock Text="{Binding DbPortError}"
+                                                           IsVisible="{Binding DbPortError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                           FontFamily="{DynamicResource UiFontFamily}"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource DangerText}"
+                                                           Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Scan Interval" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <NumericUpDown Classes="setting"
+                                                               Value="{Binding DbDiscoveryInterval}"
+                                                               Minimum="1" Maximum="1440" Increment="5" />
+                                                <TextBlock Text="min"
+                                                           FontSize="{DynamicResource FontSm}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </StackPanel>
                                 </Border>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                <!-- SQL Server -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="SQL SERVER" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Panel DockPanel.Dock="Left" Width="3">
+                                    <Border Background="{DynamicResource StatusSuccess}"
+                                            IsVisible="{Binding DbSqlServerEnabled}" />
+                                    <Border Background="{DynamicResource BorderSubtle}"
+                                            IsVisible="{Binding !DbSqlServerEnabled}" />
+                                </Panel>
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <DockPanel>
+                                            <TextBlock Text="Discovery" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <ToggleSwitch IsChecked="{Binding DbSqlServerEnabled}"
+                                                          OnContent="On" OffContent="Off" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Auth" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <ToggleSwitch IsChecked="{Binding DbSqlServerIntegrated}"
+                                                          OnContent="Windows Auth" OffContent="SQL Auth" />
+                                        </DockPanel>
+                                        <DockPanel IsVisible="{Binding !DbSqlServerIntegrated}">
+                                            <TextBlock Text="Username" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding DbSqlServerUsername}"
+                                                     PlaceholderText="sa" />
+                                        </DockPanel>
+                                        <DockPanel IsVisible="{Binding !DbSqlServerIntegrated}">
+                                            <TextBlock Text="Password" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding DbSqlServerPassword}"
+                                                     PasswordChar="●"
+                                                     PlaceholderText="Password" />
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                <!-- PostgreSQL -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="POSTGRESQL" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Panel DockPanel.Dock="Left" Width="3">
+                                    <Border Background="{DynamicResource StatusSuccess}"
+                                            IsVisible="{Binding DbPostgreSqlEnabled}" />
+                                    <Border Background="{DynamicResource BorderSubtle}"
+                                            IsVisible="{Binding !DbPostgreSqlEnabled}" />
+                                </Panel>
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <DockPanel>
+                                            <TextBlock Text="Discovery" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <ToggleSwitch IsChecked="{Binding DbPostgreSqlEnabled}"
+                                                          OnContent="On" OffContent="Off" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Username" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding DbPostgreSqlUsername}"
+                                                     PlaceholderText="postgres (empty = no auth)" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Password" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding DbPostgreSqlPassword}"
+                                                     PasswordChar="●"
+                                                     PlaceholderText="Password" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Ports" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding DbPostgreSqlPorts}"
+                                                     PlaceholderText="5432, 5433, 5434" />
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                </StackPanel> <!-- /Sub-tab 0: Config -->
+
+                <!-- ── Sub-tab 1: Databases ── -->
+                <StackPanel Spacing="12" IsVisible="{Binding IsDbDatabasesSubTab}">
+
+                <!-- Manual Connections -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="MANUAL CONNECTIONS" Classes="section" Margin="0" />
+
+                    <ItemsControl ItemsSource="{Binding ManualConnections}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ManualConnectionViewModel">
+                                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
+                                        Margin="0,0,0,3">
+                                    <Border Background="{DynamicResource BgSurface}" Padding="0">
+                                        <DockPanel>
+                                            <Border DockPanel.Dock="Left" Width="3"
+                                                    Background="{DynamicResource BorderSubtle}" />
+                                            <Border Padding="12,8">
+                                                <DockPanel>
+                                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                                Spacing="2" VerticalAlignment="Center">
+                                                        <Button Classes="tile-btn"
+                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).TestManualConnectionCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Test connection">
+                                                            <mi:MaterialIcon Kind="PlayCircleOutline" Width="13" Height="13" />
+                                                        </Button>
+                                                        <Button Classes="tile-btn"
+                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditManualConnectionCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Edit">
+                                                            <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
+                                                        </Button>
+                                                        <Button Classes="tile-btn-close"
+                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteManualConnectionCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Delete">
+                                                            <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
+                                                        </Button>
+                                                    </StackPanel>
+
+                                                    <StackPanel VerticalAlignment="Center" Spacing="0">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <TextBlock Text="{Binding Label}"
+                                                                       FontWeight="Medium"
+                                                                       Foreground="{DynamicResource TextPrimary}" />
+                                                            <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                                    Padding="4,0"
+                                                                    Background="{DynamicResource StatusMutedSubtle}">
+                                                                <TextBlock Text="{Binding ProviderShort}" FontSize="8"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{DynamicResource TextMuted}" />
+                                                            </Border>
+                                                            <TextBlock Text="testing..."
+                                                                       FontSize="{DynamicResource FontSm}"
+                                                                       Foreground="{DynamicResource AccentDefault}"
+                                                                       FontStyle="Italic"
+                                                                       VerticalAlignment="Center"
+                                                                       IsVisible="{Binding IsTesting}" />
+                                                            <TextBlock Text="{Binding TestResult}"
+                                                                       FontSize="{DynamicResource FontSm}"
+                                                                       Foreground="{DynamicResource TextMuted}"
+                                                                       VerticalAlignment="Center"
+                                                                       IsVisible="{Binding TestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                        </StackPanel>
+                                                        <TextBlock FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextFaint}"
+                                                                   TextTrimming="CharacterEllipsis">
+                                                            <TextBlock.Text>
+                                                                <MultiBinding StringFormat="{}{0} · {1}">
+                                                                    <Binding Path="DisplayServer" />
+                                                                    <Binding Path="Database" />
+                                                                </MultiBinding>
+                                                            </TextBlock.Text>
+                                                        </TextBlock>
+                                                    </StackPanel>
+                                                </DockPanel>
+                                            </Border>
+                                        </DockPanel>
+                                    </Border>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Add button -->
+                    <Button Classes="add-row"
+                            Command="{Binding AddManualConnectionCommand}"
+                            IsVisible="{Binding !IsEditingManualConnection}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
+                            <TextBlock Text="Add Connection" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Edit form -->
+                    <Border IsVisible="{Binding IsEditingManualConnection}"
+                            Background="{DynamicResource BgSurface}"
+                            CornerRadius="{DynamicResource RadiusLg}"
+                            BorderBrush="{DynamicResource AccentDefault}"
+                            BorderThickness="{DynamicResource BorderThin}"
+                            Padding="16,14">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="CONNECTION" Classes="section" Margin="0,0,0,2" />
+                            <DockPanel>
+                                <TextBlock Text="Provider" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <ComboBox ItemsSource="{Binding DbProviders}"
+                                          SelectedItem="{Binding EditConnProvider}"
+                                          MinWidth="160" />
+                            </DockPanel>
+                            <DockPanel>
+                                <TextBlock Text="Alias" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <TextBox Classes="setting"
+                                         Text="{Binding EditConnAlias}"
+                                         PlaceholderText="short name for URL (optional)" />
+                            </DockPanel>
+                            <DockPanel>
+                                <TextBlock Text="Server" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <TextBox Classes="setting"
+                                         Text="{Binding EditConnServer}"
+                                         PlaceholderText="hostname or IP" />
+                            </DockPanel>
+                            <DockPanel IsVisible="{Binding IsInstanceVisible}">
+                                <TextBlock Text="Instance" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <TextBox Classes="setting"
+                                         Text="{Binding EditConnInstance}"
+                                         PlaceholderText="SQL Server instance (optional)" />
+                            </DockPanel>
+                            <DockPanel>
+                                <TextBlock Text="Database" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <TextBox Classes="setting"
+                                         Text="{Binding EditConnDatabase}"
+                                         PlaceholderText="Database name" />
+                            </DockPanel>
+                            <DockPanel>
+                                <TextBlock Text="Port" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <NumericUpDown Classes="setting"
+                                               Value="{Binding EditConnPort}"
+                                               Minimum="0" Maximum="65535" Increment="1"
+                                               PlaceholderText="0 = default" />
+                            </DockPanel>
+                            <DockPanel>
+                                <TextBlock Text="Auth" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <ToggleSwitch IsChecked="{Binding EditConnIntegrated}"
+                                              OnContent="Windows Auth" OffContent="SQL Auth" />
+                            </DockPanel>
+                            <DockPanel IsVisible="{Binding !EditConnIntegrated}">
+                                <TextBlock Text="Username" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <TextBox Classes="setting"
+                                         Text="{Binding EditConnUsername}"
+                                         PlaceholderText="Username" />
+                            </DockPanel>
+                            <DockPanel IsVisible="{Binding !EditConnIntegrated}">
+                                <TextBlock Text="Password" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <TextBox Classes="setting"
+                                         Text="{Binding EditConnPassword}"
+                                         PasswordChar="●"
+                                         PlaceholderText="Password" />
+                            </DockPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                                <Button Classes="accent"
+                                        Command="{Binding SaveManualConnectionCommand}"
+                                        Content="Save"
+                                        Padding="16,5" />
+                                <Button Classes="outlined"
+                                        Command="{Binding TestEditConnectionCommand}"
+                                        IsEnabled="{Binding !IsTestingEditConn}"
+                                        Padding="12,5">
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <mi:MaterialIcon Kind="PlayCircleOutline" Width="14" Height="14" />
+                                        <TextBlock Text="Test" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Classes="toolbar"
+                                        Command="{Binding CancelEditManualConnectionCommand}"
+                                        Content="Cancel"
+                                        Padding="12,5" />
+                                <TextBlock Text="{Binding EditConnTestResult}"
+                                           FontSize="{DynamicResource FontSm}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           VerticalAlignment="Center"
+                                           IsVisible="{Binding EditConnTestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Detected Databases -->
+                <StackPanel Spacing="6">
+                    <DockPanel Margin="0,0,0,2">
+                        <TextBlock Text="DATABASES" Classes="section" Margin="0"
+                                   VerticalAlignment="Center" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                            <Button Classes="outlined"
+                                    Command="{Binding RunDiscoveryNowCommand}"
+                                    IsEnabled="{Binding !IsDiscoveryRunning}"
+                                    Padding="10,5">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
+                                    <TextBlock Text="Rescan" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Filter -->
+                    <TextBox Text="{Binding DbFilterText, Mode=TwoWay}"
+                             PlaceholderText="Filter databases..."
+                             IsVisible="{Binding !!DiscoveredDatabases.Count}"
+                             Padding="6,3"
+                             FontSize="{DynamicResource FontSm}">
+                        <TextBox.InnerRightContent>
+                            <Button Classes="ghost"
+                                    Command="{Binding ClearDbFilterCommand}"
+                                    IsVisible="{Binding DbFilterText.Length}"
+                                    Padding="2" Margin="0,0,2,0"
+                                    MinWidth="16" MinHeight="16">
+                                <mi:MaterialIcon Kind="Close" Width="10" Height="10" />
+                            </Button>
+                        </TextBox.InnerRightContent>
+                    </TextBox>
+
+                    <!-- Scanning indicator -->
+                    <TextBlock Text="Scanning..."
+                               Foreground="{DynamicResource TextMuted}"
+                               FontSize="{DynamicResource FontSm}"
+                               FontStyle="Italic"
+                               IsVisible="{Binding IsDiscoveryRunning}" />
+
+                    <!-- Empty state -->
+                    <TextBlock Text="No databases detected. Enable discovery above, or add manual connections."
+                               Foreground="{DynamicResource TextMuted}"
+                               FontSize="{DynamicResource FontSm}"
+                               TextWrapping="Wrap"
+                               Margin="0,2"
+                               IsVisible="{Binding !DiscoveredDatabases.Count}" />
+
+                    <ItemsControl ItemsSource="{Binding FilteredDiscoveredDatabases}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DatabaseItemViewModel">
+                                <Border CornerRadius="{DynamicResource RadiusLg}"
+                                        ClipToBounds="True"
+                                        Margin="0,0,0,3">
+                                    <Border Background="{DynamicResource BgSurface}" Padding="0">
+                                        <DockPanel>
+                                            <!-- Left status strip — green for manual, accent for discovered -->
+                                            <Panel DockPanel.Dock="Left" Width="3">
+                                                <Border Background="{DynamicResource TileAccentDatabase}" />
+                                                <Border Background="{DynamicResource StatusSuccess}"
+                                                        IsVisible="{Binding SourceType, Converter={x:Static vm:SettingsViewModel.IsManualSourceConverter}}" />
+                                            </Panel>
+
+                                            <Border Padding="12,9,10,9">
+                                                <DockPanel>
+                                                    <!-- Right: badges -->
+                                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                                Spacing="4" VerticalAlignment="Center">
+                                                        <!-- Provider badge -->
+                                                        <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                                Padding="6,2"
+                                                                Background="{DynamicResource StatusMutedSubtle}">
+                                                            <TextBlock Text="{Binding Provider}" FontSize="9"
+                                                                       FontWeight="SemiBold"
+                                                                       LetterSpacing="0.8"
+                                                                       Foreground="{DynamicResource TextMuted}" />
+                                                        </Border>
+                                                        <!-- Source badge -->
+                                                        <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                                Padding="6,2"
+                                                                Background="{DynamicResource StatusSuccessSubtle}"
+                                                                IsVisible="{Binding SourceType, Converter={x:Static vm:SettingsViewModel.IsManualSourceConverter}}">
+                                                            <TextBlock Text="MANUAL" FontSize="9"
+                                                                       FontWeight="SemiBold"
+                                                                       LetterSpacing="0.8"
+                                                                       Foreground="{DynamicResource StatusSuccessText}" />
+                                                        </Border>
+                                                    </StackPanel>
+
+                                                    <!-- Left: info -->
+                                                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                        <TextBlock Text="{Binding Label}"
+                                                                   FontWeight="Medium"
+                                                                   Foreground="{DynamicResource TextPrimary}" />
+                                                        <TextBlock Text="{Binding Server}"
+                                                                   FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextMuted}"
+                                                                   FontFamily="{DynamicResource UiFontFamily}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   IsVisible="{Binding HasAlias}" />
+                                                    </StackPanel>
+                                                </DockPanel>
+                                            </Border>
+                                        </DockPanel>
+                                    </Border>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                </StackPanel> <!-- /Sub-tab 1: Databases -->
+
             </StackPanel>
 
-            </StackPanel> <!-- /Sub-tab 1: Databases -->
+            </Panel>
+        </ScrollViewer>
 
-        </StackPanel>
-
-    </Panel>
+    </DockPanel>
 </UserControl>

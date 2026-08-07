@@ -11,7 +11,36 @@ public sealed class UpdateService : IDisposable
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(10);
 
     private readonly DispatcherTimer _timer;
-    private readonly UpdateManager _mgr = new(new GithubSource(GithubRepo, null, false));
+
+    /// <summary>
+    /// Built on first use rather than in a field initialiser, and never allowed to escape.
+    /// <para><c>UpdateManager</c> throws unless <c>VelopackApp.Build()</c> has run, which is true of the
+    /// application and not of anything else that constructs this — a test, a tool, a designer. Failing
+    /// there took the whole main view model down with it, which is a great deal of collateral for a
+    /// feature whose entire job is optional and best-effort.</para>
+    /// </summary>
+    private UpdateManager? Manager
+    {
+        get
+        {
+            if (_mgr is not null || _managerUnavailable)
+                return _mgr;
+
+            try
+            {
+                _mgr = new UpdateManager(new GithubSource(GithubRepo, null, false));
+            }
+            catch (Exception ex)
+            {
+                _managerUnavailable = true;     // asked once; there is no second answer
+                Debug.WriteLine($"Updates are unavailable in this installation: {ex.Message}");
+            }
+            return _mgr;
+        }
+    }
+
+    private UpdateManager? _mgr;
+    private bool _managerUnavailable;
     private volatile UpdateInfo? _pendingUpdate;
     private int _checking;
 
@@ -37,10 +66,12 @@ public sealed class UpdateService : IDisposable
         if (Interlocked.CompareExchange(ref _checking, 1, 0) != 0) return;
         try
         {
-            var info = _mgr.CheckForUpdates();
+            if (Manager is not { } manager) return;
+
+            var info = manager.CheckForUpdates();
             if (info != null)
             {
-                _mgr.DownloadUpdates(info);
+                manager.DownloadUpdates(info);
                 _pendingUpdate = info;
                 Dispatcher.UIThread.Post(() => UpdateAvailable?.Invoke());
             }
@@ -57,8 +88,8 @@ public sealed class UpdateService : IDisposable
 
     public void ApplyUpdate()
     {
-        if (_pendingUpdate == null) return;
-        _mgr.ApplyUpdatesAndRestart(_pendingUpdate);
+        if (_pendingUpdate == null || Manager is not { } manager) return;
+        manager.ApplyUpdatesAndRestart(_pendingUpdate);
     }
 
     public void Dispose()

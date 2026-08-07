@@ -87,11 +87,9 @@
                             </StackPanel>
                         </DockPanel>
                     </Border>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  Padding="0">
-                        <ContentControl Content="{Binding Settings}" />
-                    </ScrollViewer>
+                    <!-- The scroller moved inside SettingsView: it has a bar to pin below it, and a
+                         DockPanel.Dock="Bottom" inside a scroller pins to the content, not the view. -->
+                    <ContentControl Content="{Binding Settings}" />
                 </DockPanel>
             </Border>
         </Panel>

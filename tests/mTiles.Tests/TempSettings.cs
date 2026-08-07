@@ -13,9 +13,20 @@ internal sealed class TempSettings : IDisposable
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
 
-    public TempSettings() => Service = new SettingsService(Path.Combine(_directory, "settings.json"));
+    public TempSettings()
+    {
+        Service = new SettingsService(Path.Combine(_directory, "settings.json"));
+        Workspaces = new WorkspaceService(Path.Combine(_directory, "workspaces.json"));
+        Layouts = new PersistenceService(Path.Combine(_directory, "workspaces"));
+    }
 
     public SettingsService Service { get; }
+
+    /// <summary>The other two services that write into the same place, for tests that need a whole main
+    /// window rather than only its settings.</summary>
+    public WorkspaceService Workspaces { get; }
+
+    public PersistenceService Layouts { get; }
 
     public void Dispose()
     {

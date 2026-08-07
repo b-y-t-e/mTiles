@@ -61,8 +61,10 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _diffTrimIndent = true;
 
-    [ObservableProperty]
-    private bool _gitHideMTerminalDir = true;
+    /// <summary>Mirrors the application setting so the refresh can read it without reaching into the
+    /// settings service. A plain field: nothing in this tile's view binds to it, and an observable
+    /// property that nobody observes is a notification raised on every change for no reader.</summary>
+    private bool _gitIgnoreMTerminalDir = true;
 
     [ObservableProperty]
     private bool _diffSkipEmptyLines = true;
@@ -132,7 +134,7 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
         _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
         _fontSize = s?.FontSize ?? AppDefaults.FontSize;
         _diffTrimIndent = s?.DiffTrimIndent ?? true;
-        _gitHideMTerminalDir = s?.GitHideMTerminalDir ?? true;
+        _gitIgnoreMTerminalDir = s?.GitIgnoreMTerminalDir ?? true;
         UpdateSizeMetrics();
 
         if (_settingsService != null)
@@ -143,6 +145,50 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
             try { await RefreshAsync(); }
             catch (Exception ex) { Trace.TraceWarning("GitTile init refresh failed: {0}", ex.Message); }
         });
+    }
+
+    /// <summary>The entry this setting is about. A trailing slash because it is a directory, which is
+    /// how a person would write it by hand and what git reads as "directory only".</summary>
+    private const string MTerminalIgnoreEntry = ".mterminal/";
+
+    /// <summary>
+    /// Brings the workspace's <c>.gitignore</c> into line with the setting.
+    /// <para>Done on every refresh rather than once, because the file is the user's: they may edit it,
+    /// revert it, or clone the repository again, and a setting that only took effect the first time
+    /// would be a setting that is quietly wrong most of the time.</para>
+    /// <para>Failure never reaches the tile. Writing to someone's working copy can fail for entirely
+    /// ordinary reasons — a read-only checkout, a file locked by another tool — and none of them are a
+    /// reason to stop showing them their changes. It is caught <em>here</em> and not in
+    /// <see cref="GitIgnoreFile"/>, which must be free to abandon the write: a read that failed there
+    /// looks exactly like an empty file, and appending to that replaces the user's list with ours.</para>
+    /// <para>Asynchronous because this runs inside the refresh, on the UI thread, on every single pass —
+    /// and reading and writing a file in the user's working copy is not something to do there.</para>
+    /// </summary>
+    /// <returns>True when the file was actually written, which is the caller's cue that the status it
+    /// holds is out of date. False on failure as well: nothing changed, so nothing needs re-reading.</returns>
+    private async Task<bool> ApplyMTerminalIgnoreSettingAsync(CancellationToken ct)
+    {
+        try
+        {
+            bool changed = _gitIgnoreMTerminalDir
+                ? await GitIgnoreFile.EnsureAsync(WorktreePath, MTerminalIgnoreEntry, ct)
+                : await GitIgnoreFile.RemoveAsync(WorktreePath, MTerminalIgnoreEntry, ct);
+
+            if (changed)
+                Trace.TraceInformation("{0} {1} in {2}/.gitignore",
+                    _gitIgnoreMTerminalDir ? "Added" : "Removed", MTerminalIgnoreEntry, WorktreePath);
+
+            return changed;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;      // the refresh was abandoned; that is not a .gitignore failure
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("Could not update .gitignore in {0}: {1}", WorktreePath, ex.Message);
+            return false;
+        }
     }
 
     private void OnSettingsChanged()
@@ -156,9 +202,9 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
             UpdateSizeMetrics();
         }
         var needsRefresh = false;
-        if (s.GitHideMTerminalDir != GitHideMTerminalDir)
+        if (s.GitIgnoreMTerminalDir != _gitIgnoreMTerminalDir)
         {
-            GitHideMTerminalDir = s.GitHideMTerminalDir;
+            _gitIgnoreMTerminalDir = s.GitIgnoreMTerminalDir;
             needsRefresh = true;
         }
         var newGitPath = GitService.ResolveGitPath(s.GitPath);
@@ -197,15 +243,29 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
             IsGitRepo = status.IsGitRepo;
             if (!status.IsGitRepo) return;
 
+            // After the repository check, never before it: a workspace that is not a repository has no
+            // business acquiring a .gitignore, and doing this first put one in every plain folder
+            // somebody opened as a workspace.
+            // Re-read the status when the file actually changed — git decides what counts as a change
+            // by looking at .gitignore, so the status in hand predates it and would still list the very
+            // files the setting exists to hide. That is the uncommon path: on every refresh after the
+            // first, the entry is already there and nothing is written or re-read.
+            if (await ApplyMTerminalIgnoreSettingAsync(ct))
+            {
+                status = await _gitService.GetStatusAsync(ct);
+                ct.ThrowIfCancellationRequested();
+            }
+
             BranchName = status.BranchName;
 
             var oldSelected = SelectedChange?.FilePath;
 
-            var changes = GitHideMTerminalDir
-                ? status.Changes.Where(c => !c.FilePath.StartsWith(".mterminal/") && !c.FilePath.StartsWith(".mterminal\\")).ToList()
-                : status.Changes;
-
-            ReconcileChanges(changes);
+            // No filtering here any more. The setting used to hide these files in this list, which left
+            // them untracked *and* unignored — invisible here and waiting in every other git client the
+            // user opens. Now the entry goes in .gitignore and git itself stops reporting them, so what
+            // this tile shows is what `git status` shows. Files already committed under .mterminal/ do
+            // appear now, and correctly: ignoring something git is already tracking changes nothing.
+            ReconcileChanges(status.Changes);
 
             SelectedChange = (oldSelected != null
                 ? Changes.FirstOrDefault(c => c.FilePath == oldSelected)

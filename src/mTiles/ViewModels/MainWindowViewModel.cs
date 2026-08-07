@@ -78,7 +78,57 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void ToggleSettings() => IsSettingsOpen = !IsSettingsOpen;
+    private async Task ToggleSettingsAsync()
+    {
+        if (!IsSettingsOpen)
+        {
+            IsSettingsOpen = true;
+            return;
+        }
+
+        await CloseSettingsAsync();
+    }
+
+    /// <summary>
+    /// Whether the application may shut down, asking about anything left unapplied first.
+    /// <para>Closing the window is the commonest way of saying "I'm done", and without this the
+    /// protection on the settings dialog has a hole exactly there — the changes would survive in a view
+    /// model that is about to be thrown away. It asks whether or not the dialog is open, because an
+    /// unapplied change does not stop being one when its window is out of sight.</para>
+    /// </summary>
+    /// <returns>False when the user chose to go back, in which case the dialog has been put in front
+    /// of them and the close must be called off.</returns>
+    public async Task<bool> ConfirmShutdownAsync()
+    {
+        if (!Settings.HasUnsavedDatabaseChanges)
+            return true;
+
+        if (await Settings.TryCloseAsync())
+            return true;
+
+        // They went back. Put the dialog in front of them, or "go back" leads nowhere visible.
+        IsSettingsOpen = true;
+        return false;
+    }
+
+    /// <summary>
+    /// The one way the settings dialog closes. There are three gestures for it — the close button,
+    /// Escape, and clicking outside — and each used to set <see cref="IsSettingsOpen"/> for itself, so
+    /// anything that has to happen on the way out would have had to be written three times and stay
+    /// written three times.
+    /// </summary>
+    /// <returns>False when the dialog is still open because the user chose to go back to it.</returns>
+    public async Task<bool> CloseSettingsAsync()
+    {
+        if (!IsSettingsOpen)
+            return true;
+
+        if (!await Settings.TryCloseAsync())
+            return false;
+
+        IsSettingsOpen = false;
+        return true;
+    }
 
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
 

@@ -9,9 +9,13 @@ public sealed class PersistenceService
     private readonly string _workspacesDir;
     private Timer? _debounceTimer;
 
-    public PersistenceService()
+    public PersistenceService() : this(null) { }
+
+    /// <param name="workspacesDirectory">Where tile layouts live. Defaults to the user's own directory;
+    /// a test passes a temporary one, for the same reason as the services beside it. Internal.</param>
+    internal PersistenceService(string? workspacesDirectory)
     {
-        _workspacesDir = AppPaths.GetWorkspacesDirectory();
+        _workspacesDir = workspacesDirectory ?? AppPaths.GetWorkspacesDirectory();
         Directory.CreateDirectory(_workspacesDir);
     }
 

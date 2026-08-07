@@ -10,11 +10,17 @@ public sealed class WorkspaceService
 
     public IReadOnlyList<Workspace> Workspaces => _workspaces;
 
-    public WorkspaceService()
+    public WorkspaceService() : this(null) { }
+
+    /// <param name="workspacesFilePath">Where the workspace list lives. Defaults to the user's own
+    /// file; a test passes a temporary one, because this both reads and writes and no test may edit the
+    /// workspaces of whoever is running it. Internal for that reason.</param>
+    internal WorkspaceService(string? workspacesFilePath)
     {
-        var appDir = AppPaths.GetAppDataDirectory();
-        Directory.CreateDirectory(appDir);
-        _filePath = AppPaths.GetWorkspacesFilePath();
+        _filePath = workspacesFilePath ?? AppPaths.GetWorkspacesFilePath();
+        var directory = Path.GetDirectoryName(_filePath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
         Load();
     }
 

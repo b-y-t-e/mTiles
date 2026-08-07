@@ -104,7 +104,9 @@ public partial class MainWindow : Window
     {
         if (e.Key == Key.Escape && DataContext is MainWindowViewModel { IsSettingsOpen: true } vm)
         {
-            vm.IsSettingsOpen = false;
+            // Through the view model, like the close button and the click outside: it may ask about
+            // unapplied database settings first, and it may answer no.
+            _ = vm.CloseSettingsAsync();
             e.Handled = true;
             return;
         }
@@ -114,7 +116,7 @@ public partial class MainWindow : Window
     private void SettingsOverlay_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (DataContext is MainWindowViewModel vm)
-            vm.IsSettingsOpen = false;
+            _ = vm.CloseSettingsAsync();
     }
 
     private void SettingsDialog_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -130,12 +132,34 @@ public partial class MainWindow : Window
         SettingsDialog.Height = Math.Max(400, bounds.Height * 0.8);
     }
 
+    /// <summary>Set once the user has answered the question below, so the second close does not ask
+    /// again — and cannot loop.</summary>
+    private bool _shutdownConfirmed;
+
     protected override void OnClosing(WindowClosingEventArgs e)
     {
+        // Asking is asynchronous and closing is not, so the only way to put a question here is to call
+        // the close off, wait for the answer, and close again.
+        if (!_shutdownConfirmed && DataContext is MainWindowViewModel { Settings.HasUnsavedDatabaseChanges: true } asking)
+        {
+            e.Cancel = true;
+            _ = AskThenCloseAsync(asking);
+            return;
+        }
+
         base.OnClosing(e);
         SaveWindowState();
         if (DataContext is MainWindowViewModel vm)
             vm.DisposeAll();
+    }
+
+    private async Task AskThenCloseAsync(MainWindowViewModel vm)
+    {
+        if (!await vm.ConfirmShutdownAsync())
+            return;
+
+        _shutdownConfirmed = true;
+        Close();
     }
 
     private void SaveWindowState()
