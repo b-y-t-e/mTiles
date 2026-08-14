@@ -10,7 +10,16 @@ public enum SpeechSetupStep
     /// audio rather than an error.</summary>
     Microphone,
 
-    /// <summary>Say something and see it come back. The only step that proves the other two.</summary>
+    /// <summary>
+    /// Hold the shortcut, say something, and see it come back. The only step that proves the others.
+    /// </summary>
+    /// <remarks>
+    /// It teaches the shortcut as well as testing the model and the microphone, which is why there is no
+    /// fourth step for it. A page that asks somebody to type a key combination and click Next tells them
+    /// nothing about whether it works; asking them to <em>hold</em> the one that is already configured
+    /// proves all three at once, and leaves them having done the thing they will actually do every day.
+    /// Changing the shortcut is offered here rather than demanded — most people will never touch it.
+    /// </remarks>
     Test,
 }
 
@@ -62,4 +71,17 @@ public static class SpeechSetupFlow
     /// </remarks>
     public static bool CanLeave(SpeechSetupStep step, bool modelReady) =>
         step != SpeechSetupStep.Model || modelReady;
+
+    /// <summary>
+    /// How long the last step waits before suggesting that the shortcut may not be reaching us.
+    /// </summary>
+    /// <remarks>
+    /// <para>The step's one unanswerable failure is "I held the keys and nothing happened" — there is
+    /// nothing on screen to click and nothing to read. It has a real cause: shortcuts get taken by the
+    /// desktop before any application sees them, and <c>Alt+Space</c> is the window menu on Windows.</para>
+    /// <para>Long enough not to nag somebody who is still reading the sentence, short enough to arrive
+    /// while they are still puzzled rather than after they have given up. It is only ever a hint, and it
+    /// points at the two things that work regardless: another shortcut, or the button.</para>
+    /// </remarks>
+    public static readonly TimeSpan ShortcutHintDelay = TimeSpan.FromSeconds(12);
 }

@@ -24,7 +24,7 @@ dotnet test                     # tests/mTiles.Tests
 - `Services/TileLauncher.cs` — launching a terminal tile: disposes the previous launch, picks the profile's current scripts, then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it
 - `Services/DirectLaunchSession.cs` — one tile's command chain (see Shell Profiles below); disposable, and disposing it is what stops it relaunching
 - `Services/TerminalClipboardCoordinator.cs` — window-level Ctrl+C across tiles (see Terminal key handling)
-- `Services/Speech/` — dictation (see `docs/DICTATION.md`): IAudioCapture/PortAudioCapture, AudioResampler, ISpeechToTextEngine with ParakeetSpeechEngine (+ParakeetVocabulary) and WhisperSpeechEngine, SpeechEngines (the one map from model kind to engine and to what it looks like on disk), SpeechModelCatalog, SpeechModelStore, TarGzExtractor, DictationService, TranscriptPostProcessor, DictationTextSink, HotkeyGesture, DictationHotkeyMachine, DictationHotkeys
+- `Services/Speech/` — dictation (see `docs/DICTATION.md`): IAudioCapture/PortAudioCapture, AudioResampler, ISpeechToTextEngine with ParakeetSpeechEngine (+ParakeetVocabulary) and WhisperSpeechEngine, SpeechEngines (the one map from model kind to engine and to what it looks like on disk), SpeechModelCatalog, SpeechModelStore, TarGzExtractor, DictationService, TranscriptPostProcessor, DictationTextSink, HotkeyGesture, HotkeyCapture (what a keystroke means to something reading a new shortcut — shared by the Speech tab and the setup wizard, and pure, because it lived in view code where the "mark it handled only where it is taken" rule had no test), HotkeyAdvice, DictationHotkeyMachine, DictationHotkeys
 - `Services/ShellCommandLine.cs` — wraps a command for the shell that runs it (`-c` / `/c` / `-Command`). Deliberately without the profile's own args: those are the interactive-startup flags. **`cmd /c` is only approximately supported**: it does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, and it runs only the first line of a multi-line command (measured)
 - `Services/ChainPolicy.cs` + `Services/RelaunchBudget.cs` — the launch chain's rules and its rate limit, pure and separate from the loop that carries them out
 - `Services/TileScript.cs` — the one place that expands `${tileId}`, and the only thing that decides what an acceptable tile id is
@@ -239,7 +239,12 @@ engines behind `ISpeechToTextEngine`, chosen by the model: **Parakeet TDT 0.6B v
 (the default — 25 languages worked out by itself, and faster on a CPU than any whisper of comparable
 accuracy) and **whisper.cpp** through Whisper.net for the ggml models. Nothing ships with the
 application; a three-step wizard (model → microphone → test) sets it up on a first run and from
-Settings → Speech.
+Settings → Speech. The last step is where the **shortcut** is taught, by being used — *Hold `Alt`
+`Space` and say something* — rather than on a page of its own: the transcript that comes back proves the
+model, the microphone and the shortcut at once, and a page that only let somebody type a combination and
+click Next would prove nothing about it. Changing it there is a capture mode lasting exactly one
+keystroke; "no shortcut" is offered out loud; the Record button stays as the fallback for a shortcut the
+desktop has taken.
 
 **Everything else is in [`docs/DICTATION.md`](docs/DICTATION.md)** — the pipeline in detail, the
 threading rules, the download and unpacking, the shortcut's state machine, the model comparison for

@@ -57,7 +57,9 @@ internal readonly record struct HotkeyGesture(KeyModifiers Modifiers, Key Key)
                 || !Enum.TryParse<Key>(token, ignoreCase: true, out var parsed)
                 || !Enum.IsDefined(parsed))
                 return false;
-            if (IsModifierKey(parsed))
+            // Modifiers, and `None` — which is a defined member and so survives every check above, while
+            // naming no key at all. See IsBindable.
+            if (!IsBindable(parsed))
                 return false;
 
             key = parsed;
@@ -97,7 +99,35 @@ internal readonly record struct HotkeyGesture(KeyModifiers Modifiers, Key Key)
         Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or
         Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin;
 
-    public override string ToString()
+    /// <summary>
+    /// Whether <paramref name="key"/> can be half of a shortcut at all.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Key.None"/> is what the toolkit reports for a keystroke it could not map — a dead key,
+    /// some IME output, a keyboard the platform layer has no virtual key for. It is a defined enum member,
+    /// so every check that asks only whether the value is a real <see cref="Key"/> lets it through: bound,
+    /// it shows in the wizard as the keycap <c>None</c> and in settings as <c>Alt+None</c>, and it then
+    /// matches whatever *other* unmappable key the user presses next. The parser already refuses numbers
+    /// for precisely this reason — "a shortcut no keyboard can press" — and this is the same hole one step
+    /// along, reachable through the capture rather than through a hand-edited file.
+    /// </remarks>
+    public static bool IsBindable(Key key) => key != Key.None && !IsModifierKey(key);
+
+    /// <summary>
+    /// The keys to press, in the order they are written — <c>Alt</c>, <c>Space</c>.
+    /// </summary>
+    /// <remarks>
+    /// The setup wizard shows a shortcut as one chip per key, because <c>Alt+Space</c> set in a text box
+    /// reads as a configuration value while two keycaps read as an instruction — and the wizard's job is
+    /// to get somebody to press it, not to describe it. Taken apart here rather than by splitting the
+    /// string this method builds: the modifier names would then be decided in one place and re-derived in
+    /// another, and <see cref="TryParse"/> accepts spellings (<c>Control</c>, <c>Cmd</c>, <c>Super</c>)
+    /// that this list deliberately does not produce.
+    /// <para>A method rather than a property because it builds a fresh list on each call. As a property it
+    /// read as something the gesture <em>has</em>, which invites both indexing it in a loop — reallocating
+    /// every time round — and writing to it, which compiles and silently does nothing.</para>
+    /// </remarks>
+    public IReadOnlyList<string> GetParts()
     {
         var parts = new List<string>(4);
         if (Modifiers.HasFlag(KeyModifiers.Control)) parts.Add("Ctrl");
@@ -105,6 +135,8 @@ internal readonly record struct HotkeyGesture(KeyModifiers Modifiers, Key Key)
         if (Modifiers.HasFlag(KeyModifiers.Shift)) parts.Add("Shift");
         if (Modifiers.HasFlag(KeyModifiers.Meta)) parts.Add("Win");
         parts.Add(Key.ToString());
-        return string.Join('+', parts);
+        return parts;
     }
+
+    public override string ToString() => string.Join('+', GetParts());
 }

@@ -127,35 +127,22 @@ public partial class SettingsView : UserControl
     /// Records the shortcut the user presses in the box, rather than asking them to spell it.
     /// </summary>
     /// <remarks>
-    /// <para>Three keys are let through untouched rather than recorded. A bare modifier is what every
-    /// combination starts with, so acting on it would store "Alt" the moment somebody reached for
-    /// Alt+Space. <b>Tab</b> is how you leave the box — swallowing it traps the keyboard here. And
-    /// <b>Escape</b> is how you leave the dialog; recorded, it would bind the key that cancels dictation
-    /// to starting it, and swallowed, it would strand the user in a settings dialog that will not close.</para>
-    /// <para>Which is why the event is marked handled only where the key is actually taken: doing it
-    /// first, before the early exits, is the whole of that bug.</para>
+    /// Which keystrokes are an answer — and which must be left alone, unhandled — is
+    /// <see cref="Services.Speech.HotkeyCapture"/>, shared with the setup wizard's own shortcut field and
+    /// testable without a window. All that is left here is applying the answer.
     /// </remarks>
     private void SpeechHotkey_KeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
     {
         if (DataContext is not SettingsViewModel vm)
             return;
 
-        if (Services.Speech.HotkeyGesture.IsModifierKey(e.Key)
-            || e.Key is Avalonia.Input.Key.Tab or Avalonia.Input.Key.Escape)
+        var capture = Services.Speech.HotkeyCapture.Interpret(e.Key, e.KeyModifiers);
+        if (!capture.Taken)
             return;
 
-        // Backspace and Delete clear it — the convention every shortcut field follows, and the only way
-        // to say "no shortcut" with the keyboard now that there is no separate switch. Bound as a
-        // gesture they would be useless anyway: a bare Backspace would eat the key everywhere.
-        if (e.Key is Avalonia.Input.Key.Back or Avalonia.Input.Key.Delete
-            && e.KeyModifiers == Avalonia.Input.KeyModifiers.None)
-        {
-            vm.SpeechHotkey = "";
-            e.Handled = true;
-            return;
-        }
-
-        vm.SpeechHotkey = new Services.Speech.HotkeyGesture(e.KeyModifiers, e.Key).ToString();
+        vm.SpeechHotkey = capture.Action == Services.Speech.HotkeyCaptureAction.Clear
+            ? ""
+            : capture.Gesture.ToString();
         e.Handled = true;
     }
 }

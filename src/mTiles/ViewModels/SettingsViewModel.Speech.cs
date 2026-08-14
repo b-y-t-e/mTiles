@@ -83,6 +83,13 @@ public partial class SettingsViewModel
         _speechTranslateToEnglish = speech.TranslateToEnglish;
         _speechCustomWords = string.Join(", ", speech.CustomWords);
         _speechUnloadMinutes = speech.ModelUnloadMinutes;
+
+        // Worked out from the shortcut rather than left alone. This method exists to load values without
+        // saving them back, so it writes fields — and a field that nothing recomputes keeps the warning
+        // that belonged to the previous shortcut. It runs at startup, where the shortcut comes from a
+        // file nobody has validated, and again when the setup wizard closes, where it comes from another
+        // window entirely.
+        _speechHotkeyWarning = HotkeyAdvice.ForSetting(speech.Hotkey);
 #pragma warning restore MVVMTK0034
     }
 
@@ -432,15 +439,14 @@ public partial class SettingsViewModel
 
         if (!HotkeyGesture.TryParse(value, out var gesture))
         {
-            SpeechHotkeyWarning = "Not a shortcut this application can listen for.";
+            SpeechHotkeyWarning = HotkeyAdvice.Unparseable;
             return;
         }
 
         // A shortcut with no modifier takes that key from the terminal — but only while dictation can
-        // actually record, which is what the shortcut now checks before claiming anything.
-        SpeechHotkeyWarning = gesture.Modifiers == Avalonia.Input.KeyModifiers.None
-            ? "Without a modifier, the shell stops seeing this key whenever dictation is ready to record."
-            : null;
+        // actually record, which is what the shortcut now checks before claiming anything. The wording
+        // is shared with the wizard, which offers the same choice and must not describe it differently.
+        SpeechHotkeyWarning = HotkeyAdvice.For(gesture);
 
         SaveSpeech(s => s.Hotkey = gesture.ToString());
     }

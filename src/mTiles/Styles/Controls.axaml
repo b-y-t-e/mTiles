@@ -82,12 +82,46 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
     </Style>
+    <!-- The same button, sitting on BgElevated instead of on the page's usual ground — the setup wizard,
+         whose window background *is* BgElevated, so the plain class leaves the button invisible against
+         it. A modifier class rather than `Background="..."` on each button, because a local value beats a
+         style setter in Avalonia: setting it inline silenced the :pointerover rule below and the buttons
+         lost their hover feedback entirely. Declared before the pseudo-class rules so those still win
+         while the pointer is over it. -->
+    <Style Selector="Button.outlined-sm.on-elevated">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+    </Style>
+
     <Style Selector="Button.outlined-sm:pointerover">
         <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
         <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
     </Style>
     <Style Selector="Button.outlined-sm:pressed">
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+    </Style>
+
+    <!-- ======== KEYCAP (one key of a shortcut) ========
+         A shortcut written as `Alt+Space` in a field reads as a value to edit; the same shortcut drawn
+         as two keys reads as an instruction to press them. The setup wizard needs the second, because
+         its last step is asking somebody to hold the keys rather than describing what they are.
+         What makes a row of them read as keys rather than words is that `Alt` and `W` come out the same
+         width — and that is MinWidth plus the centring, not the font, which is the ordinary UI one the
+         rest of the page uses and is not monospaced. -->
+    <Style Selector="Border.keycap">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
+        <Setter Property="Padding" Value="10,5" />
+        <Setter Property="MinWidth" Value="34" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.keycap > TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
     </Style>
 
     <!-- ======== BUTTON: tile-btn ======== -->

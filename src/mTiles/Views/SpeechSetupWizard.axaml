@@ -45,19 +45,20 @@
                         Command="{Binding CloseCommand}" />
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
-                    <Button Content="Back"
-                            MinWidth="70" Padding="12,5" MinHeight="0"
-                            Background="{DynamicResource BgSurface}"
-                            Foreground="{DynamicResource TextSecondary}"
-                            BorderBrush="{DynamicResource BorderSubtle}"
-                            BorderThickness="1"
-                            CornerRadius="{DynamicResource RadiusMd}"
-                            FontFamily="{DynamicResource UiFontFamily}"
-                            FontSize="{DynamicResource UiFontSizeSm}"
-                            Cursor="Hand"
+                    <!-- The shared style plus `on-elevated`, which is this window's ground: its own
+                         background is BgElevated, so the plain class would leave the button invisible
+                         against it. A class rather than an inline Background, because a local value beats
+                         a style setter and silences the hover rule. -->
+                    <Button Classes="outlined-sm on-elevated"
+                            Content="Back"
+                            MinWidth="70" Padding="12,5"
                             IsVisible="{Binding CanGoBack}"
                             Command="{Binding BackCommand}" />
-                    <Button Content="{Binding NextCaption}"
+                    <!-- Named for the regression test: clicking Next is how anybody reaches the last
+                         step, so this button holds the focus there — and a focused button raises Click
+                         from the key-up of Space, which is half of the default shortcut. -->
+                    <Button x:Name="NextButton"
+                            Content="{Binding NextCaption}"
                             MinWidth="90" Padding="12,5" MinHeight="0"
                             Background="{DynamicResource AccentDefault}"
                             Foreground="{DynamicResource TextPrimary}"
@@ -93,17 +94,11 @@
                                Foreground="{DynamicResource TextSecondary}" />
 
                     <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,10,0,0">
-                        <Button Content="Download"
+                        <Button Classes="outlined-sm on-elevated"
+                                Content="Download"
                                 HorizontalAlignment="Left"
-                                MinWidth="110" Padding="12,6" MinHeight="0"
-                                Background="{DynamicResource BgSurface}"
+                                MinWidth="110" Padding="12,6"
                                 Foreground="{DynamicResource TextPrimary}"
-                                BorderBrush="{DynamicResource BorderSubtle}"
-                                BorderThickness="1"
-                                CornerRadius="{DynamicResource RadiusMd}"
-                                FontFamily="{DynamicResource UiFontFamily}"
-                                FontSize="{DynamicResource UiFontSizeSm}"
-                                Cursor="Hand"
                                 IsVisible="{Binding !IsModelReady}"
                                 Command="{Binding DownloadCommand}" />
 
@@ -165,7 +160,7 @@
                                                    VerticalAlignment="Center"
                                                    FontFamily="{DynamicResource UiFontFamily}"
                                                    FontSize="{DynamicResource FontXs}"
-                                                   Foreground="{DynamicResource SuccessText}" />
+                                                   Foreground="{DynamicResource StatusSuccessText}" />
                                         <TextBlock Text="{Binding Name}"
                                                    FontFamily="{DynamicResource UiFontFamily}"
                                                    FontSize="{DynamicResource UiFontSizeSm}"
@@ -201,46 +196,156 @@
                               SelectedItem="{Binding Device}" />
                 </StackPanel>
 
-                <!-- ═══ Step 3: try it ═══ -->
+                <!-- ═══ Step 3: hold the shortcut and say something ═══
+                     The step teaches the shortcut by having it used, which is why there is no separate
+                     page for configuring one. Everything above the transcript is a single instruction in
+                     one of three states: press these keys, choose different keys, or nothing is getting
+                     through. -->
                 <DockPanel IsVisible="{Binding IsTestStep}">
-                    <TextBlock DockPanel.Dock="Top"
-                               Text="Press Record, say a sentence, then press it again. What comes back is what dictation would type into a tile."
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,10"
-                               FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSizeSm}"
-                               Foreground="{DynamicResource TextSecondary}" />
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12" Spacing="8">
 
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
-                        <Button MinWidth="110" Padding="12,6" MinHeight="0"
-                                Background="{DynamicResource BgSurface}"
-                                Foreground="{DynamicResource TextPrimary}"
-                                BorderBrush="{DynamicResource BorderSubtle}"
-                                BorderThickness="1"
-                                CornerRadius="{DynamicResource RadiusMd}"
-                                FontFamily="{DynamicResource UiFontFamily}"
-                                FontSize="{DynamicResource UiFontSizeSm}"
-                                Cursor="Hand"
-                                Command="{Binding ToggleTestCommand}">
+                        <!-- ── the feature itself is off ──
+                             The step is otherwise an instruction that cannot succeed, and the service's
+                             own refusal points at Settings → Speech, which this modal is covering. The
+                             switch is offered here rather than flipped silently: somebody turned it off,
+                             and opening a wizard is not evidence enough that they changed their mind. -->
+                        <StackPanel Spacing="6" IsVisible="{Binding IsDictationOff}">
+                            <TextBlock Text="Dictation is switched off, so nothing here will record."
+                                       TextWrapping="Wrap"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       Foreground="{DynamicResource DangerText}" />
+                            <Button Classes="outlined-sm on-elevated"
+                                    Content="Turn dictation on"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding TurnDictationOnCommand}" />
+                        </StackPanel>
+
+                        <!-- ── the instruction, when there is a shortcut to give ──
+                             Hidden while dictation is switched off. Otherwise the page says "Hold Alt
+                             Space and say something" directly under a notice explaining that nothing
+                             will record — telling the user to do a thing and that the thing cannot work,
+                             one line apart. The switch above is the only instruction that applies then. -->
+                        <StackPanel Spacing="8"
+                                    IsVisible="{Binding !IsCapturingHotkey}">
+                            <StackPanel Orientation="Horizontal" Spacing="6"
+                                        IsVisible="{Binding ShowsShortcutInstruction}">
+                                <!-- "Hold" or "Press": in toggle mode the release does nothing, so an
+                                     instruction to hold the keys leaves the recording running to its
+                                     five-minute cap with nothing on screen to say so. -->
+                                <TextBlock Text="{Binding HotkeyVerb}"
+                                           VerticalAlignment="Center"
+                                           FontFamily="{DynamicResource UiFontFamily}"
+                                           FontSize="{DynamicResource FontLg}"
+                                           Foreground="{DynamicResource TextPrimary}" />
+                                <ItemsControl ItemsSource="{Binding HotkeyKeys}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" Spacing="4" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="x:String">
+                                            <Border Classes="keycap">
+                                                <TextBlock Text="{Binding}" />
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="and say something."
+                                           VerticalAlignment="Center"
+                                           FontFamily="{DynamicResource UiFontFamily}"
+                                           FontSize="{DynamicResource FontLg}"
+                                           Foreground="{DynamicResource TextPrimary}" />
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding HotkeyFollowUp}"
+                                       IsVisible="{Binding ShowsToggleFollowUp}"
+                                       TextWrapping="Wrap"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       Foreground="{DynamicResource TextSecondary}" />
+
+                            <!-- Only when the setting really is empty. A shortcut that cannot be listened
+                                 for gets the warning below instead, because telling somebody they chose
+                                 "no shortcut" when they did not is the one answer that is simply false. -->
+                            <TextBlock Text="No shortcut — dictation runs from the microphone button in the tile's header."
+                                       IsVisible="{Binding ShowsNoShortcutNote}"
+                                       TextWrapping="Wrap"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       Foreground="{DynamicResource TextSecondary}" />
+
+                            <TextBlock Text="{Binding HotkeyWarning}"
+                                       IsVisible="{Binding HotkeyWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       TextWrapping="Wrap"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}" />
+                        </StackPanel>
+
+                        <!-- ── choosing a different one: one keystroke, then straight back ── -->
+                        <StackPanel Spacing="4" IsVisible="{Binding IsCapturingHotkey}">
+                            <TextBlock Text="Press the keys you want."
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource FontLg}"
+                                       Foreground="{DynamicResource AccentDefault}" />
+                            <TextBlock Text="Backspace for no shortcut at all. Escape to leave it as it was."
+                                       TextWrapping="Wrap"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}" />
+                        </StackPanel>
+
+                        <!-- ── the state of the recording ── -->
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="Listening…"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding IsRecording}"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       Foreground="{DynamicResource DangerText}" />
+                            <TextBlock Text="Working it out…"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding IsTranscribing}"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       Foreground="{DynamicResource TextMuted}" />
+                        </StackPanel>
+
+                        <!-- ── the one failure with nothing on screen to read ── -->
+                        <TextBlock IsVisible="{Binding ShowHotkeyHint}"
+                                   Text="Nothing happening? Some shortcuts are taken by the desktop before any application sees them. Try different keys, or use the button below."
+                                   TextWrapping="Wrap"
+                                   FontFamily="{DynamicResource UiFontFamily}"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+
+                    <!-- ── the ways out: a different shortcut, none at all, or no shortcut needed ──
+                         Hidden entirely while a shortcut is being chosen: that mode lasts one keystroke,
+                         and a Record button showing through it invited starting a recording the page was
+                         not asking for. Escape is the way out and the page says so. -->
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,10,0,0"
+                                IsVisible="{Binding !IsCapturingHotkey}">
+                        <Button Classes="outlined-sm on-elevated"
+                                Content="Use different keys"
+                                Command="{Binding BeginCaptureHotkeyCommand}" />
+                        <!-- Whatever is stored, usable or not — this is the button that removes it. -->
+                        <Button Classes="outlined-sm on-elevated"
+                                Content="No shortcut"
+                                IsVisible="{Binding !IsShortcutBlank}"
+                                Command="{Binding ClearHotkeyCommand}"
+                                ToolTip.Tip="Leave the keys to the shell; the tile's microphone button still works" />
+                        <Button Classes="outlined-sm on-elevated"
+                                Command="{Binding ToggleTestCommand}"
+                                ToolTip.Tip="The same recording, without the shortcut">
                             <Panel>
                                 <TextBlock Text="Record" IsVisible="{Binding !IsRecording}" />
                                 <TextBlock Text="Stop" IsVisible="{Binding IsRecording}"
                                            Foreground="{DynamicResource DangerText}" />
                             </Panel>
                         </Button>
-
-                        <TextBlock Text="Listening…"
-                                   VerticalAlignment="Center"
-                                   IsVisible="{Binding IsRecording}"
-                                   FontFamily="{DynamicResource UiFontFamily}"
-                                   FontSize="{DynamicResource FontXs}"
-                                   Foreground="{DynamicResource DangerText}" />
-                        <TextBlock Text="Working it out…"
-                                   VerticalAlignment="Center"
-                                   IsVisible="{Binding IsTranscribing}"
-                                   FontFamily="{DynamicResource UiFontFamily}"
-                                   FontSize="{DynamicResource FontXs}"
-                                   Foreground="{DynamicResource TextMuted}" />
                     </StackPanel>
 
                     <Border Background="{DynamicResource BgSurface}"

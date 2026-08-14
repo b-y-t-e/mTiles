@@ -185,8 +185,9 @@ is where the pipeline, the thresholds and the model list come from.
 there is exactly one of it: the first run shows it, and Settings → Speech → **Set up dictation…** is how
 somebody starts over. The steps are a dependency chain, not a preference — **model** (nothing can be
 tried without one, and the step will not let you past until it is on disk), **microphone** (the only
-setting whose failure is silent: a wrong device yields no audio rather than an error), **test** (say a
-sentence and see it come back, which is the only step that proves the other two). The rules live in
+setting whose failure is silent: a wrong device yields no audio rather than an error), **test** (hold
+the shortcut, say a sentence and see it come back, which is the only step that proves the others). The
+rules live in
 `SpeechSetupFlow`, pure and away from the window, so "what comes next" and "may they leave this step"
 are a table test rather than a click-through. Closing it mid-sentence cancels the recording — the
 service outlives the window, and an abandoned recording holds the microphone to its five-minute cap.
@@ -196,6 +197,128 @@ the main window opens *behind* a modal and cannot be read or dismissed.
 
 It replaced a single screen that asked which model to download and nothing else; that one could not
 answer the only question that matters, which is whether dictation works on this machine.
+
+**The shortcut is taught on the last step rather than configured on one of its own**, and that is why
+there are still three steps. The page reads *Hold `Alt` `Space` and say something* — the keys drawn as
+keycaps (`Border.keycap`, from `HotkeyGesture.GetParts()`) because a shortcut written into a text box reads
+as a value to edit and two keycaps read as an instruction. The transcript that comes back then proves
+the model, the microphone **and** the shortcut at once, and leaves the user having done the thing they
+will do every day. A page that asked them to type a combination and click Next would prove nothing about
+it, which is the failure the whole wizard exists to avoid.
+
+**The instruction is written from `Speech.Mode`, not assumed.** It said *Hold* to everybody, and in toggle
+mode `DictationHotkeyMachine` ignores the release — so somebody following it held the keys, spoke, let go,
+and the recording ran on to its five-minute cap with *Listening…* on screen and no transcript ever
+arriving. The step that exists to prove dictation works was proving the opposite, in its own words. Toggle
+gets *Press* and a second line saying to press again when finished; the mode itself stays in Settings,
+because offering it here would double the explanation for a preference almost nobody has on a first run,
+while telling the truth about it costs a verb.
+
+Around that instruction are the three answers somebody might actually have. **Use different keys** puts
+the page into a capture mode that lasts *exactly one keystroke* and then returns — an explicit, visible
+mode, unlike the Speech tab's "for as long as this box has focus", because here the same keys mean two
+different things and an invisible mode would start a recording with the key being bound. **No shortcut**
+is offered out loud, because without it the step reads as a demand; the tile's own microphone button
+does not go away. Entering the capture **ends a recording of ours first**, and the button row hides while
+it is on: "Listening…" beside "Press the keys you want" contradicted itself, and every key pressed to end
+that recording was bound as a shortcut instead, leaving it running to its five-minute cap.
+
+**A shortcut that cannot be listened for is not the same as no shortcut**, and the step used to answer both
+with *No shortcut — dictation runs from the microphone button*: a hand-edited settings file therefore told
+the user they had made a choice they had not made, while the Speech tab, looking at the same value, called
+it unusable. `HasHotkey` (there are keys to show) and `IsShortcutBlank` (the setting really is empty)
+differ in exactly that case, and `HotkeyAdvice.ForSetting` supplies the sentence. And **Record** stays as the fallback for a shortcut the desktop has taken — it calls
+the same `StartTest`/`StopTest` the held keys do, so the two cannot drift into two different trials.
+
+What the keystrokes *mean* is `HotkeyCapture.Interpret`, shared with the Speech tab and pure: a bare
+modifier is not an answer (every combination starts with one, so acting on it would store "Alt" the
+instant somebody reached for Alt+Space), Tab and Escape are left alone, Backspace and Delete mean "none"
+— but only unmodified, or `Ctrl+Backspace` would be impossible to bind and would silently switch the
+shortcut off instead. A keystroke is marked handled **only where it is taken**; the reverse was a real
+bug that left the settings dialog unclosable. `HotkeyAdvice` holds the one sentence about a shortcut with
+no modifier, so the tab and the wizard cannot describe the same choice differently.
+
+The wizard runs **its own `DictationHotkeyMachine`** over its own tunnelling handlers, and emphatically
+not `DictationHotkeys`: that is a static bound to one window, so attaching it here would tear the main
+window's shortcut down and detaching on close would leave the application with none until it restarted.
+Being a window of its own also means the main window's handler never sees these keys, which is why the
+tab needs `BeginRebinding` and this does not. Escape is layered rather than overloaded — capturing, it
+abandons that; recording, it throws the recording away, as Escape does during dictation everywhere else;
+otherwise it closes the window as it always did.
+
+**The release of the gesture's main key is swallowed, and it has to be.** A focused `Button` raises its
+Click from the key-**up** of Space and does not care that the key-down was marked handled — measured in a
+headless test, not assumed. Nobody reaches the last step except by clicking **Next**, so that button holds
+the focus, and on the last step it says **Done**: with the default `Alt+Space`, letting go of the shortcut
+shut the whole wizard, on the first attempt anybody ever made to use dictation, at the moment the
+transcript was about to arrive. Binding `Alt+Space` in the capture mode did the same thing. An earlier
+version of the comment there said buttons do not care about a key-up; they do, and it took a user to find
+it, because every rule involved is right on its own and the failure is in how two of them meet in
+Avalonia's routing.
+
+**A release is swallowed only when this handler took the matching press** — which is not the same as every
+release of the gesture's key, and the first version of the fix got that wrong. With `Alt+Space` bound, a
+bare Space is not the shortcut: its press correctly goes through to the focused button, and swallowing its
+release meant the button never fired, so somebody with a Space shortcut could not press **Done**, or
+anything else, from the keyboard. The test beside it was too weak to see it, because it cleared the
+shortcut before pressing Space. The window therefore remembers the one key whose press it claimed, and a
+fresh press of that same key settles the claim again — otherwise a release that never arrived (Alt+Tab away
+mid-hold) would leave Space swallowed for the life of the window. Only that key: resetting on *any* press
+would drop the claim the moment somebody touched another key while holding the shortcut, which is the
+original bug back again. It is a **set**, not one slot: two claimed presses overlap — hold `Alt+Space`,
+then press **Escape** to abandon the recording, which this handler also takes — and a single field let the
+second overwrite the first, so letting go of Space was no longer ours, reached **Done** and shut the
+wizard. The reported bug down a different path. Binding a new shortcut while the old one is held did the
+same.
+
+**Leaving the step abandons the recording**, and the release is not gated on the step either. Holding the
+shortcut and clicking **Back** with the other hand moved the page out from under a live recording:
+*Listening…* belongs to the step that has just gone, so the microphone stayed open with nothing anywhere on
+screen to say so until the five-minute cap closed it — and because the release *was* gated on the step, the
+machine never learnt the key had come up and went on believing a push-to-talk was in progress. Abandoned
+rather than stopped: the transcript would arrive in a box the user has navigated away from, so the only
+thing worth doing is giving the device back. `SpeechSetupWizardKeyTests` pins all seven cases, including
+that a `SettingsChanged` listener throwing while a shortcut is bound does not travel up out of the key
+handler — the same guard `DictationHotkeys` has always had on the identical path. (The application would
+survive it either way: `CrashHandler` marks dispatcher exceptions handled. It is about reporting the fault
+as what it is, and about two copies of one handler shape not disagreeing.)
+
+**Dictation being switched off is answered on the page.** *Set up dictation…* is deliberately not gated on
+the switch — configuring before enabling is a reasonable order to work in — so somebody who has turned
+dictation off used to reach a step reading *Hold `Alt` `Space` and say something*, an instruction that
+cannot succeed, answered by the service's own refusal pointing at Settings → Speech: the window this modal
+is covering. A dead end made of two correct components. The step now says so and offers **Turn dictation
+on** in place, and **hides the instruction while it is off** — *Hold `Alt` `Space` and say something*
+directly beneath *nothing here will record* is an instruction and its own refutation, one line apart. The
+hint stays down too, because blaming the desktop for taking a shortcut when the feature is simply off
+sends the user to fix the wrong thing.
+
+The capture claims key **presses** and never key **releases**, and the asymmetry is deliberate: a press is
+an instruction the capture is waiting for, a release is a fact about the keyboard and belongs to whoever
+was told the key went down. Gating the release too breaks a reachable case — holding the shortcut in
+push-to-talk while speaking, clicking *use different keys* with the other hand, then letting go: the
+machine never hears the release, goes on believing the key is held, and records to its five-minute cap.
+Every case such a gate would supposedly cover ends at `!IsRecording` inside the machine and does nothing.
+
+`HotkeyAdvice.ForSetting` answers the same question about a shortcut **as stored**, which is how one
+arrives from a file or from this wizard. The Speech tab used to work its warning out only in the property
+setter — the path taken when somebody types in the box — while both the settings load and the wizard's
+return write the backing field so as not to save everything back. A bare key chosen in the wizard was
+therefore accepted in silence, a warning from before it stayed up afterwards, and a shortcut the
+application cannot listen for opened the tab with nothing said about why the feature was dead.
+
+**Held the keys and nothing happened** is the one failure here with nothing on screen to read, and it has
+a real cause: shortcuts get taken by the desktop before any application sees them, and `Alt+Space` is the
+window menu on Windows. After `SpeechSetupFlow.ShortcutHintDelay` (12 s) on the step without the gesture
+ever arriving, a hint says so and points at the two things that work regardless. It is armed only when
+there *is* a shortcut, cancelled the moment one arrives — whether or not the recording then starts,
+because the hint is about the keys reaching us and nothing else — and carries a generation counter so one
+scheduled for a visit the user has left cannot fire over a later one.
+
+**The shortcut is not restored when the wizard is closed**, unlike the model. That restore exists because
+choosing a model can be left half-done — picked but not downloaded — and closing on that leaves dictation
+pointing at a file that is not on the machine. A captured gesture has no half-done state: it is usable
+the moment it is pressed. The symmetry is tempting and there is a test pinning it shut.
 
 The first run is gated by `DictationService.ShouldOfferModelDownload`: dictation on, audio backend
 present, nothing downloaded, never asked. `Speech.ModelPromptAnswered` is set **before** the wizard

@@ -23,10 +23,18 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
     private readonly DictationService _dictation;
     private readonly SettingsService _settings;
 
-    internal SpeechSetupViewModel(DictationService dictation, SettingsService settings)
+    /// <summary>Runs an action after a delay — a dispatcher timer, in the application.</summary>
+    /// <remarks>Injected for the same reason <c>DictationHotkeyMachine</c> takes one: the last step's
+    /// hint is a rule about time, and a test of it should not have to wait twelve seconds or start a
+    /// dispatcher.</remarks>
+    private readonly Action<TimeSpan, Action> _schedule;
+
+    internal SpeechSetupViewModel(DictationService dictation, SettingsService settings,
+        Action<TimeSpan, Action>? schedule = null)
     {
         _dictation = dictation;
         _settings = settings;
+        _schedule = schedule ?? ((delay, action) => Avalonia.Threading.DispatcherTimer.RunOnce(action, delay));
 
         var chosen = settings.Settings.Speech.ModelId;
 
@@ -78,6 +86,9 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
         _device = string.IsNullOrEmpty(settings.Settings.Speech.InputDeviceName)
             ? SettingsViewModel.DefaultDeviceOption
             : settings.Settings.Speech.InputDeviceName;
+
+        RefreshHotkey();
+        RefreshAvailability();
 
         _dictation.StateChanged += OnDictationChanged;
 
@@ -136,6 +147,165 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isModelReady;
 
+    // ─── the shortcut, taught on the last step by being used ───
+
+    /// <summary>The configured shortcut, one chip per key: <c>Alt</c> <c>Space</c>. Empty when there is
+    /// none.</summary>
+    /// <remarks>Keys rather than the string <c>Alt+Space</c>, because the step is an instruction to press
+    /// something, and a text box saying <c>Alt+Space</c> reads as a value to edit.</remarks>
+    public ObservableCollection<string> HotkeyKeys { get; } = [];
+
+    /// <summary>True when there is a shortcut that can actually be listened for, so there are keys to
+    /// show and an instruction to give.</summary>
+    [ObservableProperty]
+    private bool _hasHotkey;
+
+    /// <summary>
+    /// True when the setting names nothing at all — which is a real answer, not a missing one.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="HasHotkey"/> because they differ in exactly the case that used to lie: a
+    /// setting naming something unusable has no keys to show <em>and</em> is not the user saying "none".
+    /// It is what makes "No shortcut — the microphone button still works" a statement about their choice
+    /// rather than about our failure to parse it.
+    /// </remarks>
+    [ObservableProperty]
+    private bool _isShortcutBlank;
+
+    /// <summary>The same sentence the Speech tab shows about a shortcut with no modifier — or about one
+    /// this application cannot listen for.</summary>
+    [ObservableProperty]
+    private string? _hotkeyWarning;
+
+    /// <summary>
+    /// Whether the shortcut is held or pressed — which the step has to say correctly, not assume.
+    /// </summary>
+    /// <remarks>
+    /// <para>The mode is chosen in Settings → Speech and this window does not offer it, which is exactly
+    /// how the instruction came to be wrong: it said "Hold" to everybody. In toggle mode
+    /// <c>DictationHotkeyMachine</c> ignores the release, so somebody following that instruction held the
+    /// keys, spoke, let go — and the recording carried on to its five-minute cap with "Listening…" on
+    /// screen and no transcript ever arriving. The step that exists to prove dictation works was proving
+    /// the opposite, and doing it with its own words.</para>
+    /// <para>Read from settings rather than offered here. Adding the switch to this page would double the
+    /// explanation for a preference almost nobody has on a first run; telling the truth about it costs a
+    /// verb.</para>
+    /// </remarks>
+    [ObservableProperty]
+    private bool _isPushToTalk = true;
+
+    /// <summary>"Hold" or "Press", in front of the keys.</summary>
+    public string HotkeyVerb => IsPushToTalk ? "Hold" : "Press";
+
+    /// <summary>The second half of a toggle-mode instruction, which push-to-talk does not need.</summary>
+    public string? HotkeyFollowUp =>
+        IsPushToTalk ? null : "Press it again when you have finished speaking.";
+
+    /// <summary>
+    /// Whether to tell the user to press the keys at all.
+    /// </summary>
+    /// <remarks>
+    /// There has to be a shortcut, and it has to be able to do something. With dictation switched off the
+    /// page showed "Hold Alt Space and say something" directly beneath a notice saying nothing will
+    /// record — an instruction and its own refutation, one line apart. Only the switch applies then.
+    /// <para>Computed here rather than as two bindings in the view, because a binding cannot say "and".
+    /// </para>
+    /// </remarks>
+    public bool ShowsShortcutInstruction => HasHotkey && !IsDictationOff;
+
+    /// <summary>The toggle-mode second line, which is part of the same instruction.</summary>
+    public bool ShowsToggleFollowUp => ShowsShortcutInstruction && !string.IsNullOrEmpty(HotkeyFollowUp);
+
+    /// <summary>"No shortcut — the microphone button still works", which is only true while the feature
+    /// is on.</summary>
+    public bool ShowsNoShortcutNote => IsShortcutBlank && !IsDictationOff;
+
+    partial void OnIsPushToTalkChanged(bool value)
+    {
+        OnPropertyChanged(nameof(HotkeyVerb));
+        OnPropertyChanged(nameof(HotkeyFollowUp));
+        OnPropertyChanged(nameof(ShowsToggleFollowUp));
+    }
+
+    partial void OnHasHotkeyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowsShortcutInstruction));
+        OnPropertyChanged(nameof(ShowsToggleFollowUp));
+    }
+
+    partial void OnIsShortcutBlankChanged(bool value) => OnPropertyChanged(nameof(ShowsNoShortcutNote));
+
+    partial void OnIsDictationOffChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowsShortcutInstruction));
+        OnPropertyChanged(nameof(ShowsToggleFollowUp));
+        OnPropertyChanged(nameof(ShowsNoShortcutNote));
+    }
+
+    /// <summary>
+    /// True while the next keystroke will be bound rather than acted on.
+    /// </summary>
+    /// <remarks>
+    /// <para>An explicit mode that lasts exactly one keystroke, rather than the Speech tab's "for as long
+    /// as this box has focus". On this step the same keys mean two different things — start recording, or
+    /// become the shortcut — so the mode has to be visible and it has to end by itself. Focus is neither:
+    /// it is invisible, and it ends whenever the user happens to click something.</para>
+    /// <para>It is also why the tab needs <c>DictationHotkeys.BeginRebinding</c> and this does not. That
+    /// scope exists because the settings dialog is an overlay inside the main window, which the global
+    /// shortcut handler tunnels through. The wizard is a window of its own, so that handler never sees
+    /// these keys at all — the only listener to stand down for is this one, and this flag is it.</para>
+    /// </remarks>
+    [ObservableProperty]
+    private bool _isCapturingHotkey;
+
+    /// <summary>
+    /// Shown when the user has been on the last step for a while without the shortcut ever arriving.
+    /// </summary>
+    /// <remarks>
+    /// The only failure on this step that produces nothing at all to look at. See
+    /// <see cref="SpeechSetupFlow.ShortcutHintDelay"/> for why it waits rather than warning up front.
+    /// </remarks>
+    [ObservableProperty]
+    private bool _showHotkeyHint;
+
+    /// <summary>Which visit to the last step a pending hint belongs to, so one scheduled for a visit the
+    /// user has left cannot fire over a later one.</summary>
+    private int _hintGeneration;
+
+    /// <summary>
+    /// True when the feature itself is switched off, so nothing on the last step can work.
+    /// </summary>
+    /// <remarks>
+    /// <para>Reachable, and the wizard used to walk straight into it: <b>Set up dictation…</b> is not
+    /// gated on the switch, so anybody who turns dictation off and then opens the wizard reaches a page
+    /// saying "Hold Alt+Space and say something" — an instruction that cannot succeed. What came back was
+    /// the service's own refusal, <i>"Dictation is switched off. Turn it on in Settings → Speech"</i>,
+    /// pointing at the window this modal is covering. A dead end made of two correct components.</para>
+    /// <para>Not fixed by hiding the button that opens the wizard: configuring dictation before switching
+    /// it on is a perfectly reasonable order to do things in. Fixed by saying so on the page and offering
+    /// the switch there, which is what the rest of this window does with every other question.</para>
+    /// </remarks>
+    [ObservableProperty]
+    private bool _isDictationOff;
+
+    /// <summary>Switches the feature on, from the page that needs it.</summary>
+    /// <remarks>
+    /// A button rather than something this window does on its own. Somebody turned it off, and running a
+    /// setup wizard is not clear enough evidence that they changed their mind — but pressing "Turn
+    /// dictation on" is.
+    /// </remarks>
+    [RelayCommand]
+    private void TurnDictationOn()
+    {
+        _settings.Settings.Speech.Enabled = true;
+        _settings.NotifyChanged();
+        RefreshAvailability();
+        Message = null;
+        ArmHotkeyHint(Step == SpeechSetupStep.Test);
+    }
+
+    private void RefreshAvailability() => IsDictationOff = !_settings.Settings.Speech.Enabled;
+
     public bool IsModelStep => Step == SpeechSetupStep.Model;
     public bool IsMicrophoneStep => Step == SpeechSetupStep.Microphone;
     public bool IsTestStep => Step == SpeechSetupStep.Test;
@@ -161,6 +331,54 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
 
         if (value == SpeechSetupStep.Microphone)
             _ = SafeLoadDevicesAsync();
+
+        // Leaving the step takes the capture mode with it. Otherwise somebody who clicks "use a
+        // different shortcut" and then Back arrives on an earlier page where the next key they press is
+        // silently swallowed into a shortcut they were not choosing any more.
+        IsCapturingHotkey = false;
+
+        // And it takes the recording. Holding the shortcut and clicking Back with the other hand left
+        // the microphone open with nothing on screen to say so — "Listening…" belongs to the step that
+        // has just gone — until the service's own five-minute cap closed it. Abandoned rather than
+        // stopped: the transcript would arrive in a box the user has navigated away from, so there is
+        // nothing to deliver and the only thing worth doing is giving the device back.
+        AbandonTest();
+
+        RefreshAvailability();
+        ArmHotkeyHint(value == SpeechSetupStep.Test);
+    }
+
+    /// <summary>Starts — or abandons — the wait before the "nothing happened?" hint.</summary>
+    private void ArmHotkeyHint(bool armed)
+    {
+        var generation = ++_hintGeneration;
+        ShowHotkeyHint = false;
+
+        // Not when the feature is switched off. The hint blames the desktop for taking the shortcut, and
+        // saying that to somebody whose dictation is simply turned off sends them to fix the wrong thing
+        // — the same reason a press that is refused still counts as the keys having arrived.
+        if (!armed || !HasHotkey || IsDictationOff)
+            return;
+
+        _schedule(SpeechSetupFlow.ShortcutHintDelay, () =>
+        {
+            if (generation == _hintGeneration)
+                ShowHotkeyHint = true;
+        });
+    }
+
+    /// <summary>
+    /// The shortcut reached us. Whatever happens next, the hint has been answered.
+    /// </summary>
+    /// <remarks>
+    /// Called when the gesture <em>matches</em>, not when a recording starts: a press that is refused for
+    /// want of a model has still told us the keys are getting through, which is the only thing the hint
+    /// is about. Reporting the wrong problem is worse than reporting none.
+    /// </remarks>
+    internal void NoteHotkeyPressed()
+    {
+        _hintGeneration++;
+        ShowHotkeyHint = false;
     }
 
     partial void OnIsModelReadyChanged(bool value) => OnPropertyChanged(nameof(CanGoNext));
@@ -181,6 +399,116 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
         _settings.Settings.Speech.InputDeviceName =
             value == SettingsViewModel.DefaultDeviceOption ? "" : value;
         _settings.NotifyChanged();
+    }
+
+    /// <summary>Re-reads the shortcut from settings into what the step shows.</summary>
+    /// <remarks>The mode comes along with it, because the instruction is one sentence about both and a
+    /// half-refreshed sentence is how it came to be wrong in the first place.</remarks>
+    private void RefreshHotkey()
+    {
+        IsPushToTalk = _settings.Settings.Speech.Mode == mTiles.Models.DictationMode.PushToTalk;
+
+        var parsed = HotkeyGesture.TryParse(_settings.Settings.Speech.Hotkey, out var gesture)
+            ? gesture
+            : (HotkeyGesture?)null;
+
+        HotkeyKeys.Clear();
+        foreach (var part in parsed?.GetParts() ?? [])
+            HotkeyKeys.Add(part);
+
+        HasHotkey = parsed is not null;
+
+        // Three states, not two. A setting naming something this application cannot listen for is not the
+        // same as naming nothing: the step used to answer both with "No shortcut — use the microphone
+        // button", so a hand-edited or future-version settings file produced a page that told the user
+        // they had made a choice they had not made, and offered no sign that anything was wrong. The
+        // Speech tab reports it; two windows disagreeing about one setting is the failure this whole
+        // feature keeps guarding against.
+        IsShortcutBlank = string.IsNullOrWhiteSpace(_settings.Settings.Speech.Hotkey);
+        HotkeyWarning = HotkeyAdvice.ForSetting(_settings.Settings.Speech.Hotkey);
+    }
+
+    /// <summary>
+    /// The next keystroke becomes the shortcut.
+    /// </summary>
+    /// <remarks>
+    /// A recording of ours is ended first, because the two modes contradict each other on screen and in
+    /// the keyboard. "Listening…" and "Press the keys you want" were shown together — reachable by
+    /// starting a recording with the Record button, or in toggle mode with the shortcut, and then
+    /// clicking through — and every key the user pressed to end the recording was bound as a shortcut
+    /// instead, leaving it running to its five-minute cap. Ended rather than refused: the click says
+    /// plainly enough what they want to do next, and stopping transcribes, so nothing they said is lost.
+    /// </remarks>
+    [RelayCommand]
+    private void BeginCaptureHotkey()
+    {
+        StopTest();
+        Message = null;
+        IsCapturingHotkey = true;
+    }
+
+    [RelayCommand]
+    private void CancelCaptureHotkey() => IsCapturingHotkey = false;
+
+    /// <summary>
+    /// Turns the shortcut off, which is the same thing as having no shortcut.
+    /// </summary>
+    /// <remarks>
+    /// Offered quietly, and offered at all because without it this step reads as a demand. The
+    /// microphone button in the tile's own header does not go away, so "no shortcut" costs the user
+    /// nothing but the keys back — and somebody who feels cornered here clears it afterwards in Settings,
+    /// or more often does not find where.
+    /// </remarks>
+    [RelayCommand]
+    private void ClearHotkey()
+    {
+        IsCapturingHotkey = false;
+        SetHotkey("");
+    }
+
+    /// <summary>
+    /// Binds <paramref name="key"/> if the step is waiting for one.
+    /// </summary>
+    /// <returns>True when the keystroke was taken and must not be acted on further.</returns>
+    /// <remarks>
+    /// Which keystrokes are an answer is <see cref="HotkeyCapture"/>, shared with the Speech tab — down
+    /// to Backspace meaning "none" and Escape being left alone, which is what lets the window keep using
+    /// it to cancel.
+    /// </remarks>
+    internal bool CaptureHotkey(Avalonia.Input.Key key, Avalonia.Input.KeyModifiers modifiers)
+    {
+        if (!IsCapturingHotkey)
+            return false;
+
+        var capture = HotkeyCapture.Interpret(key, modifiers);
+        if (!capture.Taken)
+            return false;
+
+        // Back to the instruction immediately, with the new keys on it. A capture mode that has to be
+        // dismissed is one more thing to explain; one keystroke in, one keystroke out.
+        IsCapturingHotkey = false;
+        SetHotkey(capture.Action == HotkeyCaptureAction.Clear ? "" : capture.Gesture.ToString());
+        return true;
+    }
+
+    /// <summary>
+    /// Writes the shortcut straight to settings, like every other answer in this window.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately <b>not</b> restored on close, unlike the model. That restore exists because choosing
+    /// a model can be left half-done — picked but not downloaded — and closing on that leaves dictation
+    /// pointing at a file that is not there. A captured gesture has no half-done state: it is complete
+    /// and usable the moment it is pressed, so there is nothing to go back from.
+    /// </remarks>
+    private void SetHotkey(string value)
+    {
+        _settings.Settings.Speech.Hotkey = value;
+        _settings.NotifyChanged();
+        RefreshHotkey();
+
+        // A shortcut that has just been cleared has nothing to wait for; one that has just been set is
+        // the user telling us they are about to try it.
+        ArmHotkeyHint(Step == SpeechSetupStep.Test);
     }
 
     private void Choose(SpeechModelViewModel row)
@@ -277,22 +605,62 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
         // was, copied from the tile before that one was fixed — sends a click during transcription into
         // Stop, which returns early when nothing is recording: the button answers with nothing at all.
         // Falling through to Start gets it refused with a reason instead.
-        if (_dictation.State == DictationState.Recording && ReferenceEquals(_dictation.Owner, this))
+        if (IsRecordingHere)
         {
-            _dictation.Stop();
+            StopTest();
             return;
         }
 
+        StartTest();
+    }
+
+    /// <summary>Whether the recording that is running is the one this window started.</summary>
+    internal bool IsRecordingHere =>
+        _dictation.State == DictationState.Recording && ReferenceEquals(_dictation.Owner, this);
+
+    /// <summary>Starts the trial recording.</summary>
+    /// <returns>False when the service refused, having said why.</returns>
+    /// <remarks>
+    /// Split out of the button so the shortcut can reach it too — the whole point of the step is that
+    /// both routes are the same recording, and the button is the fallback for a shortcut the desktop has
+    /// taken. The two must not drift into two slightly different trials.
+    /// </remarks>
+    internal bool StartTest()
+    {
         Message = null;
         Transcript = "";
 
         // Straight into this window rather than through DictationTextSink: the point of the step is to
         // show the words, not to type them somewhere.
-        _dictation.Start(this, text =>
+        return _dictation.Start(this, text =>
         {
             Transcript = text;
             return true;
         });
+    }
+
+    /// <summary>Ends a recording this window started, and only one it started.</summary>
+    internal void StopTest()
+    {
+        if (IsRecordingHere)
+            _dictation.Stop();
+    }
+
+    /// <summary>
+    /// Throws away whatever this window has running, at whatever stage.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart to <see cref="StopTest"/>, and the difference is whether there is anywhere for the
+    /// words to go. Stopping transcribes, which is right when the user is staying to read the result;
+    /// this is for the cases where they have gone — a step change, the window closing — and a transcript
+    /// would be delivered to a box nobody is looking at while the microphone stayed open in the meantime.
+    /// Asked of the owner rather than of <see cref="IsRecordingHere"/> so that a transcription already
+    /// under way is abandoned too.
+    /// </remarks>
+    private void AbandonTest()
+    {
+        if (ReferenceEquals(_dictation.Owner, this))
+            _dictation.Cancel();
     }
 
     private void OnDictationChanged()
@@ -350,6 +718,11 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
 
         _dictation.StateChanged -= OnDictationChanged;
         _dictation.Error -= OnDictationError;
+
+        // A hint scheduled twelve seconds ago outlives this window on a dispatcher timer. Firing it
+        // changes nothing anyone can see, but a timer that reaches into a disposed view model is the
+        // sort of thing that stops being harmless the moment somebody gives the hint something to do.
+        _hintGeneration++;
 
         if (ReferenceEquals(_dictation.Owner, this))
             _dictation.Cancel();
