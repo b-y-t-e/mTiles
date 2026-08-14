@@ -14,14 +14,46 @@ public sealed class AppSettings
     public string CustomShellArgs { get; set; } = "";
     public ShellType CustomShellType { get; set; } = ShellType.Other;
 
-    public List<UserShellProfile> ShellProfiles { get; set; } = [];
+    public List<UserShellProfile> ShellProfiles
+    {
+        get => _shellProfiles;
+        set => _shellProfiles = value ?? [];
+    }
+    private List<UserShellProfile> _shellProfiles = [];
 
-    public Dictionary<string, string> CustomAiToolPaths { get; set; } = [];
-    public List<UserAiTool> CustomAiTools { get; set; } = [];
+    public Dictionary<string, string> CustomAiToolPaths
+    {
+        get => _customAiToolPaths;
+        set => _customAiToolPaths = value ?? [];
+    }
+    private Dictionary<string, string> _customAiToolPaths = [];
+    public List<UserAiTool> CustomAiTools
+    {
+        get => _customAiTools;
+        set => _customAiTools = value ?? [];
+    }
+    private List<UserAiTool> _customAiTools = [];
 
-    public DatabaseSettings Database { get; set; } = new();
+    public DatabaseSettings Database
+    {
+        get => _database;
+        set => _database = value ?? new();
+    }
+    private DatabaseSettings _database = new();
 
-    public Dictionary<string, string> GoalDefaultModels { get; set; } = [];
+    public SpeechSettings Speech
+    {
+        get => _speech;
+        set => _speech = value ?? new();
+    }
+    private SpeechSettings _speech = new();
+
+    public Dictionary<string, string> GoalDefaultModels
+    {
+        get => _goalDefaultModels;
+        set => _goalDefaultModels = value ?? [];
+    }
+    private Dictionary<string, string> _goalDefaultModels = [];
 
     public bool DiffTrimIndent { get; set; } = true;
     /// <summary>

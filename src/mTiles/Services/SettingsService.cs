@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using mTiles.Models;
+using mTiles.Services.Speech;
 
 namespace mTiles.Services;
 
@@ -29,10 +31,55 @@ public sealed class SettingsService
         var directory = Path.GetDirectoryName(_filePath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
-        Load();
+        // What Load actually managed, not what the directory listing suggested. A file that is there but
+        // unreadable — truncated by a full disk, hand-edited into invalid JSON, written by a version that
+        // wrote something else — leaves this object holding defaults, which is a fresh installation in
+        // every respect except that the first-run steps were skipped. The user then starts with the
+        // language set to "auto" and no explanation, because a check on File.Exists said "not new".
+        if (!Load())
+            SeedSpeechLanguage();
+
         MigrateLegacySettings();
         SeedDefaultProfiles();
     }
+
+    /// <summary>
+    /// Starts dictation off in the language this machine is set up in.
+    /// </summary>
+    /// <remarks>
+    /// <para>Only on a genuinely new settings file: it is a first guess, not a preference to keep
+    /// re-applying over somebody who chose <c>auto</c> on purpose.</para>
+    /// <para>It matters for the whisper models, which are told which language to expect and do measurably
+    /// better for it — their automatic detection works on the first seconds of audio, and a dictated
+    /// sentence is often shorter than that. Parakeet ignores the setting entirely (it works the language
+    /// out across all 25 it knows), so for the default model this is inert, which is also why it is safe:
+    /// the wrong guess costs nothing until somebody switches to whisper, and Settings → Speech shows it.
+    /// </para>
+    /// </remarks>
+    private void SeedSpeechLanguage()
+    {
+        var starting = StartingLanguage(CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+        if (starting == Settings.Speech.Language)
+            return;
+
+        Settings.Speech.Language = starting;
+        Save();
+    }
+
+    /// <summary>
+    /// The language a fresh installation starts in, given the one the machine is set up in.
+    /// </summary>
+    /// <remarks>
+    /// A function of its argument rather than of the machine, so the rule can be read in a table test:
+    /// asking <see cref="CultureInfo.CurrentUICulture"/> inside made the only possible test recompute
+    /// the implementation and assert it against itself, on whatever culture the build agent happened to
+    /// have.
+    /// <para>Anything not on the offered list falls back to <c>auto</c>: the list is what Settings shows,
+    /// and seeding a code the user cannot see or change would be a setting they could only undo by
+    /// editing the file.</para>
+    /// </remarks>
+    internal static string StartingLanguage(string systemLanguage) =>
+        SpeechModelCatalog.Languages.Any(l => l.Code == systemLanguage) ? systemLanguage : "auto";
 
     /// <summary>
     /// Carries answers forward from settings written by an older version.
@@ -44,27 +91,117 @@ public sealed class SettingsService
     /// </summary>
     private void MigrateLegacySettings()
     {
+        var changed = false;
+
         if (Settings.LegacyGitHideMTerminalDir is { } wanted)
         {
             Settings.GitIgnoreMTerminalDir = wanted;
             Settings.LegacyGitHideMTerminalDir = null;   // read once; the next save drops it
-            Save();
+            changed = true;
         }
+
+        // The dictation shortcut lost its separate on/off switch — an empty shortcut is what "off" means
+        // now. Somebody who had switched it off would otherwise find Alt+Space swallowed again after an
+        // update, which is the one answer they had already given.
+        if (Settings.Speech.LegacyHotkeyEnabled is false)
+        {
+            Settings.Speech.Hotkey = "";
+            Settings.Speech.LegacyHotkeyEnabled = null;
+            changed = true;
+        }
+        else if (Settings.Speech.LegacyHotkeyEnabled is true)
+        {
+            Settings.Speech.LegacyHotkeyEnabled = null;   // it was on, which is now simply "a shortcut is set"
+            changed = true;
+        }
+
+        if (changed)
+            Save();
     }
 
-    public void Load()
+    /// <returns>
+    /// True when settings were actually read from the file. False means this object holds defaults —
+    /// because there was no file, or because there was one and nothing usable came out of it. The
+    /// difference matters to the caller: a first run seeds things, and "unreadable" is a first run as
+    /// far as the settings in memory are concerned.
+    /// </returns>
+    public bool Load()
     {
-        if (!File.Exists(_filePath)) return;
+        if (!File.Exists(_filePath)) return false;
+
+        var loaded = false;
         try
         {
             var json = File.ReadAllText(_filePath);
-            Settings = JsonSerializer.Deserialize<AppSettings>(json, JsonDefaults.Options) ?? new AppSettings();
+            var parsed = JsonSerializer.Deserialize<AppSettings>(json, JsonDefaults.SettingsOptions);
+            if (parsed is not null)
+            {
+                Settings = parsed;
+                loaded = true;
+            }
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceWarning("The settings file could not be read; starting from defaults: {0}", ex.Message);
             Settings = new AppSettings();
         }
+
+        // Nulls need no normalising here: every section and collection refuses one in its own setter, and
+        // every *string* in the tree is turned into an empty one by the converter in
+        // `JsonDefaults.SettingsOptions`. Patching after loading only ever covered the level somebody
+        // remembered — a null one property deeper, `"Speech": { "CustomWords": null }`, walked straight
+        // past it and stopped the application from starting just the same.
+        if (!loaded)
+            PreserveUnreadable();
+
+        return loaded;
     }
+
+    /// <summary>
+    /// Puts a settings file that could not be read out of the way of what is about to overwrite it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Failing to read is not the end of it: the first-run steps below save, so within milliseconds
+    /// the file is replaced by defaults and whatever was in it is gone. That file holds every profile the
+    /// user wrote, their AI tool paths, their manual database connections and the passwords for them —
+    /// and "could not be read" is very often "could not be read <em>by this version</em>", or a truncation
+    /// with the first ninety per cent of the content still sitting there. Losing that silently, to repair
+    /// a fault the user has not even been told about, is the worst of the available outcomes.</para>
+    /// <para>Best effort by design: a copy that fails must not stop the application starting, which is
+    /// the whole point of treating an unreadable file as a first run. Old copies are pruned because this
+    /// runs on every start until the file is readable again — a disk too full to save is also a disk that
+    /// would otherwise collect one of these a minute.</para>
+    /// </remarks>
+    private void PreserveUnreadable()
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(_filePath);
+            var stem = Path.GetFileNameWithoutExtension(_filePath);
+            var pattern = $"{stem}.bad-*{Path.GetExtension(_filePath)}";
+            var copy = Path.Combine(directory ?? "",
+                $"{stem}.bad-{DateTime.Now:yyyyMMdd-HHmmss}{Path.GetExtension(_filePath)}");
+
+            File.Copy(_filePath, copy, overwrite: true);
+            Trace.TraceWarning("The unreadable settings file was kept as '{0}'.", copy);
+
+            // Newest kept, oldest dropped — the interesting one is the first failure, but a name sorts by
+            // time and the user is far likelier to look at the most recent. Five is enough to cover a
+            // handful of restarts while somebody works out what happened.
+            foreach (var stale in Directory.GetFiles(directory is { Length: > 0 } d ? d : ".", pattern)
+                         .OrderDescending(StringComparer.Ordinal)
+                         .Skip(BadCopiesKept))
+            {
+                try { File.Delete(stale); } catch { /* it will be tried again next time */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("The unreadable settings file could not be kept: {0}", ex.Message);
+        }
+    }
+
+    private const int BadCopiesKept = 5;
 
     private void SeedDefaultProfiles()
     {
@@ -135,7 +272,7 @@ public sealed class SettingsService
     /// </summary>
     public void Save()
     {
-        var json = JsonSerializer.Serialize(Settings, JsonDefaults.Options);
+        var json = JsonSerializer.Serialize(Settings, JsonDefaults.SettingsOptions);
         lock (_writeLock)
             File.WriteAllText(_filePath, json);
     }

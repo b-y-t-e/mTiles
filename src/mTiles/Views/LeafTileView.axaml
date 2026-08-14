@@ -7,15 +7,18 @@
              x:DataType="vm:LeafTileNodeViewModel"
              DragDrop.AllowDrop="True">
 
-    <Grid>
-        <Border ClipToBounds="True" Margin="0,0,0,0">
-            <DockPanel>
-                <!-- Active indicator strip -->
-                <Border x:Name="ActiveStrip"
-                        DockPanel.Dock="Top"
-                        Height="2"
-                        Background="{DynamicResource BgSurface}" />
+    <!-- Two rows: the active strip owns the top two pixels, everything else lives below it. The strip
+         stands down while this tile is being dictated into, so the dictation border spans both rows and
+         closes around the whole tile — one marker at a time, and a complete rectangle rather than a
+         frame with a two-pixel notch out of its top edge. -->
+    <Grid RowDefinitions="2,*">
+        <!-- Active indicator strip -->
+        <Border x:Name="ActiveStrip"
+                Grid.Row="0"
+                Background="{DynamicResource BgSurface}" />
 
+        <Border Grid.Row="1" ClipToBounds="True">
+            <DockPanel>
                 <!-- Tile toolbar -->
                 <Border x:Name="TileToolbar"
                         DockPanel.Dock="Top"
@@ -24,6 +27,13 @@
                         Height="26">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1">
+                            <Button Classes="tile-btn"
+                                    Classes.tile-btn-recording="{Binding IsDictating}"
+                                    Command="{Binding ToggleDictationCommand}"
+                                    ToolTip.Tip="Dictate into this tile"
+                                    IsVisible="{Binding CanDictate}">
+                                <mi:MaterialIcon Kind="Microphone" Width="14" Height="14" />
+                            </Button>
                             <Button Classes="tile-btn"
                                     Command="{Binding RestartTerminalCommand}"
                                     ToolTip.Tip="Restart shell (Ctrl+Shift+R)"
@@ -230,8 +240,22 @@
             </DockPanel>
         </Border>
 
+        <!-- Dictation: a breathing border while the microphone is open, a quicker pulse while the
+             words are being worked out. An overlay rather than a border on the tile itself, so it
+             costs no layout and cannot move the content under the user's cursor; square-cornered,
+             because the tile is a rectangle in a grid of splitters and a rounded frame over square
+             corners leaves a notch at each one. It covers the strip's band deliberately — while this
+             is showing, the strip is dark, and two pixels of surface colour above the frame would read
+             as a gap in it. -->
+        <Border x:Name="DictationBorder"
+                Grid.RowSpan="2"
+                Classes="dictation"
+                IsVisible="False"
+                IsHitTestVisible="False"
+                ZIndex="90" />
+
         <!-- Drop zone overlay -->
-        <Border x:Name="DropOverlay" IsVisible="False" IsHitTestVisible="False"
+        <Border x:Name="DropOverlay" Grid.RowSpan="2" IsVisible="False" IsHitTestVisible="False"
                 CornerRadius="4" ZIndex="100" />
     </Grid>
 </UserControl>

@@ -14,19 +14,23 @@ dotnet test                     # tests/mTiles.Tests
 
 - `src/mTiles/` — the application
 - `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
-- `Models/` — DTOs and data models (Workspace, TileNode, AppSettings, AppDefaults, ShellProfile, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, WorkspaceItemViewModel, DatabaseSettings, DatabaseInstance, WorkspaceDatabaseConfig)
+- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, AppSettings, AppDefaults, ShellProfile, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, GoalTileState, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, SpeechSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`
-- `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), shell detection (ShellDetector), AI tools detection (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, GitService/GitCommandRunner/GitDirectoryWatcher, DiffFormatter, FileHelper, TileFactory, TileTreeSerializer, UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
+- `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), shell detection (ShellDetector), AI tools detection (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/GitIgnoreFile, DiffFormatter, FileHelper, ProtectedStringConverter, TileFactory, TileTreeSerializer, TileNameGenerator, the Goal tile's engine (AiProcessRunner, GoalWorkflowEngine, GoalPromptBuilder, GoalStatePersistence), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
 - `Services/Database/` — DatabaseServiceManager, DbHttpServer, DiscoveryService, DbRegistry, DbLogger, QueryHandler, SqlGuard, SqlGuardProfile, SqlServerProvider, PostgreSqlProvider, SubnetScanner, IDbProvider, ClaudeLocalMdWriter
 - `Services/ShellStarter.cs` — one call that replaces whatever session a `TerminalControl` holds and hands the shell its startup script (`${tileId}` substituted, one line per `\r`). The control owns the rest: killing the old session, waiting for it, and gating the script on `ShellReady` for *that* session
 - `Services/TileLauncher.cs` — launching a terminal tile: disposes the previous launch, picks the profile's current scripts, then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it
 - `Services/DirectLaunchSession.cs` — one tile's command chain (see Shell Profiles below); disposable, and disposing it is what stops it relaunching
 - `Services/TerminalClipboardCoordinator.cs` — window-level Ctrl+C across tiles (see Terminal key handling)
-- `Services/ShellCommandLine.cs` — wraps a command for the shell that runs it (`-c` / `/c` / `-Command`). Deliberately without the profile's own args: those are the interactive-startup flags
+- `Services/Speech/` — dictation (see `docs/DICTATION.md`): IAudioCapture/PortAudioCapture, AudioResampler, ISpeechToTextEngine with ParakeetSpeechEngine (+ParakeetVocabulary) and WhisperSpeechEngine, SpeechEngines (the one map from model kind to engine and to what it looks like on disk), SpeechModelCatalog, SpeechModelStore, TarGzExtractor, DictationService, TranscriptPostProcessor, DictationTextSink, HotkeyGesture, DictationHotkeyMachine, DictationHotkeys
+- `Services/ShellCommandLine.cs` — wraps a command for the shell that runs it (`-c` / `/c` / `-Command`). Deliberately without the profile's own args: those are the interactive-startup flags. **`cmd /c` is only approximately supported**: it does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, and it runs only the first line of a multi-line command (measured)
+- `Services/ChainPolicy.cs` + `Services/RelaunchBudget.cs` — the launch chain's rules and its rate limit, pure and separate from the loop that carries them out
+- `Services/TileScript.cs` — the one place that expands `${tileId}`, and the only thing that decides what an acceptable tile id is
+- `SettingsService` writes on a debounce **and** directly when the window closes, so both the write and the timer swap are locked, and the timer's write is wrapped: an unhandled exception on a thread-pool thread ends the process, and no settings save is worth the application
 
-The first four drive a `TerminalControl` but draw nothing, so they live in `Services/` rather than `Views/` — which also keeps `ViewModels/` from reaching into `Views/`.
+`ShellStarter`, `TileLauncher`, `DirectLaunchSession` and `TerminalClipboardCoordinator` drive a `TerminalControl` but draw nothing, so they live in `Services/` rather than `Views/` — which also keeps `ViewModels/` from reaching into `Views/`.
 
 - `ViewModels/TileActivationScope.cs` — per-workspace tile activation scope with suppression mechanism
 
@@ -38,9 +42,25 @@ The first four drive a `TerminalControl` but draw nothing, so they live in `Serv
   - Detaching from the visual tree does **not** end the session (only UI timers pause), so moving tiles between panes needs no bracketing.
   - It never launches on its own, and never twice at once: `RestartAsync(options, startupInput)` is what this app uses — it kills the live session, waits for it to be reported dead, starts the new one and types the startup script into it once *that* session is ready.
   - **A session has an identity.** `SessionId` and `SessionExitedEventArgs.SessionId` are how a relaunch-on-exit tells its own session from the next one. Never infer it from elapsed time.
-  - API used here: `RestartAsync`/`Dispose`/`IsRunning`/`IsDisposed`/`SessionId`, `Exited`, `WhenSessionEndedAsync(sessionId)` (the launch chain's one wait: it carries `ExitCode` — `int?`, null when there is none — and `Reason`, so "the command failed" is never confused with "we could not tell"), `WhenNotRunningAsync`, `SendText`, `Copy`/`ClearSelection`/`HasSelection`/`SelectionChanged`, `Palette`, `ScrollbackCapacity`, `RedrawShellOnResize`. **`Kill()` is deliberately unused**: it only asks the child to die, and the exit is reported when it actually does, so anything that kills and then starts races that report. `RestartAsync` sequences kill → wait → start and serialises overlapping restarts; `Dispose` ends the tile for good. Note this does *not* avoid the stall — `RestartAsync` calls `Kill()` itself and it blocks the UI thread for as long as the child takes (up to 2s). That is Open risk #3 in the library's ROADMAP, not something the host can fix.
+  - API used here: `RestartAsync`/`Dispose`/`IsRunning`/`IsDisposed`/`SessionId`, `Exited`, `WhenSessionEndedAsync(sessionId)` (the launch chain's one wait: it carries `ExitCode` — `int?`, null when there is none — and `Reason`, so "the command failed" is never confused with "we could not tell"), `Copy`/`ClearSelection`/`HasSelection`/`SelectionChanged`, `Palette`, `ScrollbackCapacity`, `RedrawShellOnResize`, `ForwardCtrlVWhenClipboardHasNoText`. The startup script is handed to `RestartAsync` rather than typed with `SendText`, and the chain waits on `WhenSessionEndedAsync` rather than `WhenNotRunningAsync` — neither is called from here any more. **`Kill()` is deliberately unused**: it only asks the child to die, and the exit is reported when it actually does, so anything that kills and then starts races that report. `RestartAsync` sequences kill → wait → start and serialises overlapping restarts; `Dispose` ends the tile for good. Note this does *not* avoid the stall — `RestartAsync` calls `Kill()` itself and it blocks the UI thread for as long as the child takes (up to 2s). That is Open risk #3 in the library's ROADMAP, not something the host can fix.
   - Ctrl+C copies when there is a selection and sends SIGINT otherwise; Ctrl+V / Ctrl+Shift+V / Shift+Insert paste clipboard **text** (filtered). Keys go out as win32 INPUT_RECORDs whenever the child enabled `?9001`.
   - Ships the open-source console host (`conpty/<arch>/OpenConsole.exe`), which is what fixed opencode taking the shell down with it. `Terminal.Pty` delivers it through `buildTransitive`, so it copies to the app's output automatically — **verified in `bin/`, not assumed**. The files must stay next to the app: without them the session silently falls back to the in-box `conhost.exe`.
+- **The dictation stack** (see Dictation below) — three packages, all of which carry native binaries:
+  **PortAudioSharp2** (microphone; the one wrapper shipping prebuilt portaudio for win-x64 *and*
+  linux-x64), **Whisper.net** + **Whisper.net.Runtime** (whisper.cpp), and **Microsoft.ML.OnnxRuntime**
+  (Parakeet). Their natives land in `runtimes/<rid>/` — whisper's directly under the RID rather than in
+  `native/`, which is its own loader's convention. **Verified in `bin/`, not assumed** — and now on
+  every release by `.github/workflows/verify-natives.ps1`, which fails the build if portaudio, whisper,
+  ggml, onnxruntime, OpenConsole or `THIRD-PARTY-NOTICES.md` is missing from the publish — the notices
+  check moved in there because the workflow was carrying three hand-copied versions of it. It matches by
+  file name anywhere in the tree (a self-contained publish flattens `runtimes/`) but **rejects foreign
+  architectures**: a non-RID build carries every runtime, so name-only matching would pass by showing the
+  arm64 copy — which is the failure it exists to catch, reported as a success. Each entry takes a *list*
+  of acceptable names (the ggml trio's `-whisper` suffix is Whisper.net's own renaming, not a platform
+  convention, and it has changed before). Deliberately **not** a leading wildcard such as `ggml*.dll`:
+  that would let the base library satisfy the entry for the dispatcher, so all three would pass on one
+  file — the trailing wildcards on the Linux names are safe precisely because they come after the part
+  that tells the three apart.
 - **AvaloniaEdit** — text editor. Requires `StyleInclude` in App.axaml. Text sync via `Document.Changed`.
 - **Material.Icons.Avalonia** — Material Design icons. Requires `<MaterialIconStyles />` in `App.axaml` Styles. Usage: `<mi:MaterialIcon Kind="Close" />`.
 
@@ -123,13 +143,19 @@ Profile persistence in layout: `TileNode.UserProfileId` → during deserializati
 
 ## Settings UI
 
-Settings dialog as a modal overlay with responsive sizing (50% window width / 80% window height, min 420×400). Four tabs:
+Settings dialog as a modal overlay with responsive sizing (50% window width / 80% window height, min 420×400). Five tabs:
 - **General** — Default Shell, Appearance (color theme, font), Terminal (font)
 - **Profiles** — Shell profile CRUD (list + inline edit with accent border)
 - **AI Tools** — auto-detection of CLI AI coding tools, version testing, custom tools
 - **Database** — enable service, HTTP port, SQL Server/PostgreSQL credentials, scan interval, manual connections
+- **Speech** — dictation on/off, shortcut (captured by pressing it), push-to-talk vs toggle, microphone,
+  language, auto-Enter, vocabulary, and the model list with download/delete and progress
 
-`SettingsViewModel.SelectedTab` controls tab visibility (0=General, 1=Profiles, 2=AI Tools, 3=Database). Tab button styles: `settings-tab` / `settings-tab-active` in `Controls.axaml`.
+`SettingsViewModel.SelectedTab` controls tab visibility, and the pages are named in `ViewModels/SettingsTabs.cs` (`General`, `Profiles`, `AiTools`, `Database`, `Speech`) — used by the view model, by the database tile's "open my settings" button, and from XAML through `{x:Static vm:SettingsTabs.…}`, which replaced the `Zero`…`Four` boxed-int resources. Constants rather than an enum: the selection is bound as an `int` to command parameters in two AXAML files, and the numbers were the problem, not the type. The Database tab has its own sub-tabs (`DbSubTab`: 0=Config, 1=Databases). Tab button styles: `settings-tab` / `settings-tab-active` in `Controls.axaml`; a bordered button on a settings row is `outlined-sm` there, not ten inline properties.
+
+**The database form is the only one that is not saved as you type**, because applying it restarts the database service. `SettingsView` is therefore a `DockPanel` with a pinned Save & Apply bar at the bottom and the `ScrollViewer` *inside* it — docking to the bottom within a scroller pins to the bottom of the content, which is no pinning at all. The bar shows whenever `HasUnsavedDatabaseChanges`, which compares the form against the stored settings rather than remembering that something was typed, so undoing an edit puts it away.
+
+Leaving the tab does not discard the edits, and closing the dialog (button, Escape, click outside — all through `MainWindowViewModel.CloseSettingsAsync`) or the application (`ConfirmShutdownAsync`) asks first. Answering yes discards; answering no reopens the dialog on the Database tab, because "you have unsaved changes" is no use without showing which.
 
 ## AI Tools
 
@@ -168,7 +194,7 @@ Iterative AI-driven development workflow tile (inspired by Karpathy's autoresear
 
 **UI:** Chat-like scrollable log with message bubbles (user/assistant/system roles, different styles). Header bar with tool/model selectors and phase label. Input bar at bottom with Send and Reset. Stop button visible during AI execution.
 
-**Services:** `AiProcessRunner` (static, `Services/AiProcessRunner.cs`) — process launcher with `ArgumentList`-based arg passing, concurrent stdout/stderr reading (deadlock-safe). `IAiToolRunner` / `ClaudeToolRunner` — per-tool process configuration and output parsing.
+**Services:** `AiProcessRunner` — process launcher with `ArgumentList`-based arg passing and concurrent stdout/stderr reading (deadlock-safe); `IAiToolRunner` / `ClaudeToolRunner` live beside it. `GoalWorkflowEngine` holds the phase machine, `GoalPromptBuilder` the prompts, `GoalStatePersistence` the `.mterminal/goals/*.json` round trip — the view model drives them and owns none of the rules.
 
 ## Database tile
 
@@ -202,9 +228,27 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 
 **Services:** `Services/Database/` — IDbProvider, SqlServerProvider, PostgreSqlProvider, SqlGuard, SqlGuardProfile, QueryHandler, DbRegistry, DiscoveryService, DbHttpServer, DbLogger, SubnetScanner, DatabaseServiceManager, ClaudeLocalMdWriter.
 
+## Dictation
+
+Speak into a tile instead of typing: a microphone button in the terminal tile's header and a
+push-to-talk shortcut (**Alt+Space** by default). Recognition runs **entirely on this machine** — no
+audio and no transcript leaves it. Ported from [cjpais/Handy](https://github.com/cjpais/Handy).
+
+Microphone → 16 kHz mono `float` → speech engine → cleaned text → `TerminalControl.SendText`. Two
+engines behind `ISpeechToTextEngine`, chosen by the model: **Parakeet TDT 0.6B v3** on ONNX Runtime
+(the default — 25 languages worked out by itself, and faster on a CPU than any whisper of comparable
+accuracy) and **whisper.cpp** through Whisper.net for the ggml models. Nothing ships with the
+application; a three-step wizard (model → microphone → test) sets it up on a first run and from
+Settings → Speech.
+
+**Everything else is in [`docs/DICTATION.md`](docs/DICTATION.md)** — the pipeline in detail, the
+threading rules, the download and unpacking, the shortcut's state machine, the model comparison for
+Polish, and the reasoning behind each. Read it before changing anything under `Services/Speech/`: most
+of what is written there is a bug that has already been paid for once.
+
 ## Restart shell
 
-`RestartTerminal` in `LeafTileNodeViewModel` — relaunches the tile through `TileLauncher.Launch` (which replaces the session; nothing kills it first). Available via the Restart icon in the tile header and Ctrl+Shift+R.
+`RestartTerminalAsync` in `LeafTileNodeViewModel` — relaunches the tile through `TileLauncher.Launch` (which replaces the session; nothing kills it first). Available via the Restart icon in the tile header and Ctrl+Shift+R.
 
 It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (an opencode bug on Windows). **That reason is gone** — it was the in-box `conhost.exe` crashing, and the terminal control now ships OpenConsole. The command stays as a feature.
 
@@ -221,10 +265,12 @@ It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (
 ## Persistence
 
 - `%APPDATA%/MTerminal/` (Windows) or `~/.config/MTerminal/` (Linux)
-- `settings.json` — settings (fonts, terminal theme, default shell, shell profiles, custom AI tool paths/tools, window state)
+- `settings.json` — everything in Settings plus window state and the database configuration (passwords DPAPI-encrypted). Renaming a key here is a migration: the old one stops being read and the user silently gets the new default, which is why `GitHideMTerminalDir` and `Speech.HotkeyEnabled` are still parsed once (`SettingsService.MigrateLegacySettings`). Every section and collection **refuses a null in its own setter**: a property initialiser does not survive deserialisation, and `"Speech": null` is not an error the load's own catch would see — it is a `NullReferenceException` while the main window is being built, so the application does not start and says nothing about why. The guard is on the property rather than a normalisation pass after loading, because a pass only ever covers the level somebody remembered: `"Speech": { "CustomWords": null }` walked straight past one and stopped startup just the same. **Strings are covered by type rather than one at a time** — `NullToEmptyStringConverter`, registered on `JsonDefaults.SettingsOptions` (the settings file's own options, not the shared ones, because elsewhere a null string may be meant), with `ProtectedStringConverter.HandleNull` covering the encrypted ones a property-level converter would otherwise hide. Hand-guarding had reached four properties out of dozens. `SettingsNullGuardTests` now *walks* the settings graph from `AppSettings` (through collection element types too) instead of listing three types, which is how `PostgreSqlDiscoverySettings.Ports` — a startup crash one hop below where anyone was looking — stayed unguarded. The converter also **overrules `string?`**, and cannot do otherwise: it is chosen by type and never told which property it fills, so a nullable property still arrives empty from the file. Both such properties (`LastWorkspaceId`, `RequiredAiToolBinaryName`) are read through `IsNullOrEmpty`, so it costs nothing — and the list is pinned by a test, because that is true by inspection rather than by construction.
+  **An unreadable file is copied aside before it is overwritten** (`settings.bad-<timestamp>.json`, newest five kept). "Treat it as a first run" is only half the story: the first-run steps save, so within milliseconds the user's profiles, tool paths and database passwords are replaced by defaults — and "unreadable" is often a truncation with most of the content intact
 - `workspaces.json` — list of workspaces (id, name, path)
 - `workspaces/{id}.json` — tile layout per workspace (shell name, user profile id, tile id, tile name). Backward compat: `RootPane` → `RootTile` migration in `WorkspaceState`
 - `logs/` — application logs (daily files, 7-day retention)
+- `models/` — downloaded speech-to-text models (hundreds of MB each; `.partial` while downloading)
 - Auto-save with debounce
 
 ## Conventions
@@ -237,7 +283,7 @@ It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (
 - **Git** — tile with change viewer (diff, commit, stash, push, fetch, tags, undo, context menu, discard), TileContentType.Git
 - **Database** — tile with database management (SQL Server, PostgreSQL), HTTP bridge, query logs, TileContentType.Database
 - No DI container — manual injection in `App.axaml.cs`, `TileFactory` as the tile content factory
-- **ConfirmAction pattern** — destructive actions (discard, remove workspace, undo commit) use `Func<string, Task<bool>>? ConfirmAction` in ViewModel, wired from View as `MessageBox.Avalonia` dialog (YesNo)
+- **ConfirmAction pattern** — destructive actions (discard, remove workspace, undo commit) use `Func<string, Task<bool>>? ConfirmAction` in ViewModel, wired from View as `MessageBox.Avalonia` dialog (YesNo). **An unwired dialog normally lets the action through** — except in Settings, where it does not. `SettingsView.ConfirmAction` answers **no** when there is no window to ask in, and that covers *every* confirmation on that dialog: deleting a manual database connection, a profile, a custom AI tool, a downloaded speech model. An unanswered question is not a yes, and nothing on that dialog is cheap to undo — a speech model is hundreds of megabytes and, on a slow connection, hours. The speech model's own chain says no at all three links (the row, the tab that wires it, the view), and all three had to change together: a `?? Task.FromResult(true)` in the middle made the row's own refusal unreachable
 - **PromptInput pattern** — `Func<string, string, IEnumerable<string>?, Task<string?>>? PromptInput` in ViewModel, wired from View as `InputDialog` (title + text input + suggestions list). Used e.g. when creating a tag.
 - **ShowError pattern** — `Func<string, string, Task>? ShowError` in ViewModel, wired from View as `MessageBox.Avalonia` (Ok). Used for push/fetch/tag/undo errors.
 
@@ -259,7 +305,7 @@ Context menu (right-click) on commit list: Add tag..., Copy commit hash.
 
 **Commit suggestions:** Popup at the commit message field (clock icon). Top-3 most frequent + 10 most recent unique from `git log --format=%s -50`.
 
-**`.mterminal/` in `.gitignore`:** Setting `GitIgnoreMTerminalDir` (default **on**) keeps `.mterminal/` listed in the workspace's `.gitignore`, applied on every Git tile refresh (`GitIgnoreFile`, `GitTileViewModel.ApplyMTerminalIgnoreSetting`). It replaced `GitHideMTerminalDir`, which only hid those files in this tile's list — leaving them untracked *and* unignored, so they were invisible here and waiting in every other git client.
+**`.mterminal/` in `.gitignore`:** Setting `GitIgnoreMTerminalDir` (default **on**) keeps `.mterminal/` listed in the workspace's `.gitignore`, applied on every Git tile refresh (`GitIgnoreFile`, `GitTileViewModel.ApplyMTerminalIgnoreSettingAsync`). It replaced `GitHideMTerminalDir`, which only hid those files in this tile's list — leaving them untracked *and* unignored, so they were invisible here and waiting in every other git client.
 
 Consequences worth knowing: **the app edits a file in the user's repository, and creates one where there is none** (a blank line, a `# mTiles workspace state` comment and the entry, appended; turning the setting off removes exactly those and nothing else). `GitIgnoreFile` works on raw bytes and only ever appends, so a BOM and any non-UTF-8 content survive; removal rewrites through a temporary file and a move. An emptied `.gitignore` is left in place rather than deleted — this cannot tell one it created from an empty one the user committed. It is written by the **Git tile**, so a workspace without one is untouched. Files already *committed* under `.mterminal/` now appear in the changes list, correctly — ignoring something git already tracks changes nothing. A user who had the old setting off keeps it off: `SettingsService.MigrateLegacySettings` reads the old `GitHideMTerminalDir` once and drops it. That case is the only one in which the app would edit a repository against a decision the user had already made.
 

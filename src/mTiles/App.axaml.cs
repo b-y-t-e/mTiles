@@ -6,6 +6,7 @@ using Avalonia.Styling;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Database;
+using mTiles.Services.Speech;
 using mTiles.ViewModels;
 using mTiles.Views;
 
@@ -15,6 +16,7 @@ public partial class App : Application
 {
     private SettingsService _settingsService = null!;
     private DatabaseServiceManager? _dbManager;
+    private DictationService? _dictation;
 
     public override void Initialize()
     {
@@ -31,7 +33,12 @@ public partial class App : Application
         if (_settingsService.Settings.Database.Enabled)
             _dbManager.Start();
 
-        var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService, _dbManager);
+        // Built unconditionally and cheaply: it opens no microphone and loads no model until somebody
+        // dictates, so the switch in settings only has to gate the UI.
+        _dictation = new DictationService(_settingsService);
+
+        var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
+            _dbManager, _dictation);
 
         _settingsService.SettingsChanged += () =>
         {
@@ -52,7 +59,11 @@ public partial class App : Application
             mainWindow.BindWindowState(_settingsService);
             desktop.MainWindow = mainWindow;
 
-            desktop.ShutdownRequested += (_, _) => _dbManager?.Dispose();
+            desktop.ShutdownRequested += (_, _) =>
+            {
+                _dbManager?.Dispose();
+                _dictation?.Dispose();
+            };
         }
 
         base.OnFrameworkInitializationCompleted();

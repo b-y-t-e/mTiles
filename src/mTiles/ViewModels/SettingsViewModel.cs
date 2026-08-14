@@ -22,10 +22,11 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedTab;
 
-    public bool IsGeneralTab => SelectedTab == 0;
-    public bool IsProfilesTab => SelectedTab == 1;
-    public bool IsAiToolsTab => SelectedTab == 2;
-    public bool IsDatabaseTab => SelectedTab == 3;
+    public bool IsGeneralTab => SelectedTab == SettingsTabs.General;
+    public bool IsProfilesTab => SelectedTab == SettingsTabs.Profiles;
+    public bool IsAiToolsTab => SelectedTab == SettingsTabs.AiTools;
+    public bool IsDatabaseTab => SelectedTab == SettingsTabs.Database;
+    public bool IsSpeechTab => SelectedTab == SettingsTabs.Speech;
 
     partial void OnSelectedTabChanged(int oldValue, int newValue)
     {
@@ -33,13 +34,16 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsProfilesTab));
         OnPropertyChanged(nameof(IsAiToolsTab));
         OnPropertyChanged(nameof(IsDatabaseTab));
-        if (newValue == 1)
+        OnPropertyChanged(nameof(IsSpeechTab));
+        if (newValue == SettingsTabs.Speech)
+            LoadSpeechOptions();
+        if (newValue == SettingsTabs.Profiles)
             LoadAiToolOptions();
-        if (newValue == 2 && !_aiToolsLoaded)
+        if (newValue == SettingsTabs.AiTools && !_aiToolsLoaded)
             _ = LoadAiToolsSafeAsync();
-        if (newValue == 3)
+        if (newValue == SettingsTabs.Database)
             RefreshDatabaseSettings();
-        if (oldValue == 3 && newValue != 3 && _dbManager != null)
+        if (oldValue == SettingsTabs.Database && newValue != SettingsTabs.Database && _dbManager != null)
             _dbManager.StateChanged -= OnDbManagerStateChanged;
     }
 
@@ -59,6 +63,38 @@ public partial class SettingsViewModel : ObservableObject
 
     [RelayCommand]
     private void SelectTab(int tab) => SelectedTab = tab;
+
+    /// <summary>
+    /// Opens the third-party notices that ship beside the executable.
+    /// </summary>
+    /// <remarks>
+    /// This is how the attribution reaches the person running the application, which is what the MIT
+    /// licences of the ported code and the CC-BY-4.0 of the speech model actually require — a file in a
+    /// git repository reaches nobody who installed a build. If it is missing, say so rather than doing
+    /// nothing: a packaging step that dropped it would otherwise be invisible.
+    /// </remarks>
+    [RelayCommand]
+    private async Task OpenThirdPartyNoticesAsync()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "THIRD-PARTY-NOTICES.md");
+        if (FileHelper.OpenFile(path))
+            return;
+
+        if (ShowError is null)
+            return;
+
+        // Two different failures, and only one of them is ours. "Missing from this installation" is
+        // alarming and wrong in the case that is *the Windows default*: a clean machine has nothing
+        // registered for .md, so the shell verb fails and the file is sitting right there. Telling
+        // somebody their build is incomplete because they have no Markdown editor is worse than useless
+        // — it points the investigation at the packaging, which is fine.
+        var message = File.Exists(path)
+            ? "The notices file could not be opened — this machine has nothing registered for .md "
+              + $"files. It is here, and it is plain text:\n\n{path}"
+            : $"The notices file is missing from this installation.\n\n{path}";
+
+        await ShowError("Third-party notices", message);
+    }
 
     public static string[] ShellTypeNames { get; } = Enum.GetNames<ShellType>();
 
@@ -123,6 +159,9 @@ public partial class SettingsViewModel : ObservableObject
 
     public Func<Task<string?>>? BrowseGitFile { get; set; }
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
+
+    /// <summary>Title and message, shown as a dialog. Wired from the view, like everywhere else.</summary>
+    public Func<string, string, Task>? ShowError { get; set; }
 
     private CancellationTokenSource? _gitDetectCts;
 
@@ -319,10 +358,12 @@ public partial class SettingsViewModel : ObservableObject
     public static DbProviderType[] DbProviders { get; } = Enum.GetValues<DbProviderType>();
     private ManualDatabaseConnection? _editingConnection;
 
-    public SettingsViewModel(SettingsService settingsService, DatabaseServiceManager? dbManager = null)
+    public SettingsViewModel(SettingsService settingsService, DatabaseServiceManager? dbManager = null,
+        Services.Speech.DictationService? dictation = null)
     {
         _settingsService = settingsService;
         _dbManager = dbManager;
+        InitializeSpeech(dictation);
         var s = settingsService.Settings;
         _colorThemeName = s.ColorThemeName;
         _terminalFontFamily = s.TerminalFontFamily;
@@ -691,15 +732,13 @@ public partial class SettingsViewModel : ObservableObject
         if (!await confirm("The database settings have changes that were never applied.\n\n"
                 + "Discard them and close?"))
         {
-            SelectedTab = DatabaseTabIndex;
+            SelectedTab = SettingsTabs.Database;
             return false;
         }
 
         LoadDatabaseForm();     // discarded, so the bar goes down with the window
         return true;
     }
-
-    private const int DatabaseTabIndex = 3;
 
     /// <summary>Fills the form from the stored settings, discarding whatever is in it.</summary>
     private void LoadDatabaseForm()

@@ -23,6 +23,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Ships with the application, not only with the repository. Handy and transcribe-rs are MIT and
+         parts of the dictation feature are ports of their code; the Parakeet model is CC-BY-4.0. Both
+         licences require the notice to reach whoever receives the software, which a file sitting in a
+         git repository does not do. Settings → General opens it. -->
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\mterminal-icon.png" />
     <AvaloniaResource Include="Assets\mTerminal-logo.png" />
   </ItemGroup>
@@ -45,6 +51,14 @@
     <PackageReference Include="Material.Icons.Avalonia" Version="3.0.2" />
     <PackageReference Include="MessageBox.Avalonia" Version="12.0.0" />
     <PackageReference Include="Velopack" Version="0.0.*" />
+    <!-- Dictation. PortAudioSharp2 is the wrapper that ships prebuilt portaudio for win-x64 and
+         linux-x64, so recording works on both RIDs without this repository carrying binaries.
+         Whisper.net is whisper.cpp, the engine Handy transcribes with, and takes the same ggml models. -->
+    <PackageReference Include="PortAudioSharp2" Version="1.0.6" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <!-- Parakeet, the model Handy recommends, is three ONNX graphs and a greedy loop over them. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" />
   </ItemGroup>
 
 </Project>

@@ -12,6 +12,17 @@ public sealed class ProtectedStringConverter : JsonConverter<string>
     private static readonly byte[] Entropy = "MTerminal.v1"u8.ToArray();
     private static bool _warnedNonWindows;
 
+    /// <summary>
+    /// So a <c>"Password": null</c> arrives here rather than being short-circuited into a null field.
+    /// </summary>
+    /// <remarks>
+    /// A property's own converter wins over the one on the options, so
+    /// <see cref="NullToEmptyStringConverter"/> — which covers every other string in the settings — never
+    /// sees the encrypted ones. Without this they would be the last strings in the tree that a
+    /// hand-edited file could still turn into a null.
+    /// </remarks>
+    public override bool HandleNull => true;
+
     public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var value = reader.GetString() ?? "";

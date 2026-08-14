@@ -85,7 +85,8 @@ public partial class LeafTileView : UserControl
                 var result = await box.ShowWindowDialogAsync(window);
                 return result == ButtonResult.Yes;
             };
-            UpdateActiveIndicator(leaf.IsActive);
+            UpdateActiveIndicator(leaf);
+            UpdateDictationIndicator(leaf);
             UpdateContentDisplay(leaf);
         }
     }
@@ -96,18 +97,53 @@ public partial class LeafTileView : UserControl
 
         if (e.PropertyName is nameof(LeafTileNodeViewModel.Content) or nameof(LeafTileNodeViewModel.ContentType))
             UpdateContentDisplay(leaf);
-        else if (e.PropertyName == nameof(LeafTileNodeViewModel.IsActive))
-            UpdateActiveIndicator(leaf.IsActive);
+        // The property the strip is drawn from, not the two it is computed from. Listening to the inputs
+        // meant the strip was repainted while one of them had not been updated yet: on the way in the
+        // recording flag arrived before IsDictating, so the strip was still lit and showed through the
+        // half-transparent border; on the way out IsDictating went false *last*, and since nothing was
+        // listening for it the strip never came back at all. Rendering a derived value means subscribing
+        // to the derived value.
+        else if (e.PropertyName is nameof(LeafTileNodeViewModel.ShowsActiveStrip)
+                 or nameof(LeafTileNodeViewModel.IsActive))
+            UpdateActiveIndicator(leaf);
+        else if (e.PropertyName is nameof(LeafTileNodeViewModel.IsRecordingDictation)
+                 or nameof(LeafTileNodeViewModel.IsTranscribingDictation))
+            UpdateDictationIndicator(leaf);
         else if (e.PropertyName == nameof(LeafTileNodeViewModel.IsChoosingProfile))
             UpdateChooserVisibility(leaf);
     }
 
-    private void UpdateActiveIndicator(bool isActive)
+    /// <summary>
+    /// Shows which of the two dictation states this tile is in, or hides the border entirely.
+    /// </summary>
+    /// <remarks>
+    /// The classes are what carry the animation; hiding the border as well is what stops it running at
+    /// all when there is nothing to show. An animation on a hidden element is still an animation.
+    /// </remarks>
+    private void UpdateDictationIndicator(LeafTileNodeViewModel leaf)
+    {
+        DictationBorder.Classes.Set("recording", leaf.IsRecordingDictation);
+        DictationBorder.Classes.Set("processing", leaf.IsTranscribingDictation);
+        DictationBorder.IsVisible = leaf.IsRecordingDictation || leaf.IsTranscribingDictation;
+    }
+
+    /// <summary>
+    /// The active markers: the strip at the top and the toolbar's lift.
+    /// </summary>
+    /// <remarks>
+    /// The strip follows <see cref="LeafTileNodeViewModel.ShowsActiveStrip"/> rather than
+    /// <c>IsActive</c>, so it goes dark while this tile is being dictated into — the dictation border
+    /// frames the same tile and says the same thing more loudly. The toolbar keeps its lift throughout:
+    /// it is the quiet half of the signal, it is not at the tile's edge, and flickering it as the
+    /// microphone opens and closes would be a change of background under the buttons the user is about
+    /// to click.
+    /// </remarks>
+    private void UpdateActiveIndicator(LeafTileNodeViewModel leaf)
     {
         ActiveStrip.Bind(Border.BackgroundProperty,
-            ActiveStrip.GetResourceObservable(isActive ? "AccentHover" : "BgSurface"));
+            ActiveStrip.GetResourceObservable(leaf.ShowsActiveStrip ? "AccentHover" : "BgSurface"));
         TileToolbar.Bind(Border.BackgroundProperty,
-            TileToolbar.GetResourceObservable(isActive ? "BgElevated" : "BgSurface"));
+            TileToolbar.GetResourceObservable(leaf.IsActive ? "BgElevated" : "BgSurface"));
     }
 
     private void UpdateContentDisplay(LeafTileNodeViewModel leaf)

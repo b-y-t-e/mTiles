@@ -1,0 +1,260 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:mTiles.ViewModels"
+        x:Class="mTiles.Views.SpeechSetupWizard"
+        x:DataType="vm:SpeechSetupViewModel"
+        Title="Set up dictation"
+        Width="520"
+        Height="440"
+        MinWidth="420" MinHeight="380"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgElevated}"
+        ExtendClientAreaToDecorationsHint="True"
+        WindowDecorations="BorderOnly">
+
+    <Border Padding="18,16"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="1"
+            CornerRadius="{DynamicResource RadiusLg}">
+        <DockPanel>
+            <!-- Header -->
+            <StackPanel DockPanel.Dock="Top" Spacing="2">
+                <TextBlock Text="{Binding StepCaption}"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           FontSize="{DynamicResource FontXs}"
+                           Foreground="{DynamicResource TextMuted}" />
+                <TextBlock Text="Set up dictation"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           FontSize="{DynamicResource FontLg}"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimary}" />
+            </StackPanel>
+
+            <!-- Footer -->
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
+                <Button Content="Cancel"
+                        MinWidth="70" Padding="12,5" MinHeight="0"
+                        Background="Transparent"
+                        Foreground="{DynamicResource TextMuted}"
+                        BorderThickness="0"
+                        CornerRadius="{DynamicResource RadiusMd}"
+                        FontFamily="{DynamicResource UiFontFamily}"
+                        FontSize="{DynamicResource UiFontSizeSm}"
+                        Cursor="Hand"
+                        Command="{Binding CloseCommand}" />
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                    <Button Content="Back"
+                            MinWidth="70" Padding="12,5" MinHeight="0"
+                            Background="{DynamicResource BgSurface}"
+                            Foreground="{DynamicResource TextSecondary}"
+                            BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="1"
+                            CornerRadius="{DynamicResource RadiusMd}"
+                            FontFamily="{DynamicResource UiFontFamily}"
+                            FontSize="{DynamicResource UiFontSizeSm}"
+                            Cursor="Hand"
+                            IsVisible="{Binding CanGoBack}"
+                            Command="{Binding BackCommand}" />
+                    <Button Content="{Binding NextCaption}"
+                            MinWidth="90" Padding="12,5" MinHeight="0"
+                            Background="{DynamicResource AccentDefault}"
+                            Foreground="{DynamicResource TextPrimary}"
+                            BorderThickness="0"
+                            CornerRadius="{DynamicResource RadiusMd}"
+                            FontFamily="{DynamicResource UiFontFamily}"
+                            FontSize="{DynamicResource UiFontSizeSm}"
+                            Cursor="Hand"
+                            IsEnabled="{Binding CanGoNext}"
+                            Command="{Binding NextCommand}" />
+                </StackPanel>
+            </DockPanel>
+
+            <!-- A message that applies to whichever step is showing -->
+            <TextBlock DockPanel.Dock="Bottom"
+                       Text="{Binding Message}"
+                       IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       TextWrapping="Wrap"
+                       Margin="0,10,0,0"
+                       FontFamily="{DynamicResource UiFontFamily}"
+                       FontSize="{DynamicResource FontXs}"
+                       Foreground="{DynamicResource DangerText}" />
+
+            <Panel Margin="0,14,0,0">
+                <!-- ═══ Step 1: the model ═══ -->
+                <DockPanel IsVisible="{Binding IsModelStep}">
+                    <TextBlock DockPanel.Dock="Top"
+                               Text="Recognition runs on this machine, so it needs a model downloaded once. Nothing else to install."
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,10"
+                               FontFamily="{DynamicResource UiFontFamily}"
+                               FontSize="{DynamicResource UiFontSizeSm}"
+                               Foreground="{DynamicResource TextSecondary}" />
+
+                    <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,10,0,0">
+                        <Button Content="Download"
+                                HorizontalAlignment="Left"
+                                MinWidth="110" Padding="12,6" MinHeight="0"
+                                Background="{DynamicResource BgSurface}"
+                                Foreground="{DynamicResource TextPrimary}"
+                                BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusMd}"
+                                FontFamily="{DynamicResource UiFontFamily}"
+                                FontSize="{DynamicResource UiFontSizeSm}"
+                                Cursor="Hand"
+                                IsVisible="{Binding !IsModelReady}"
+                                Command="{Binding DownloadCommand}" />
+
+                        <StackPanel Spacing="4" IsVisible="{Binding Selected.IsDownloading}">
+                            <ProgressBar Minimum="0" Maximum="1" Height="4"
+                                         Value="{Binding Selected.Progress}" />
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right"
+                                        Content="Cancel download"
+                                        Padding="8,3" MinHeight="0"
+                                        Background="Transparent"
+                                        Foreground="{DynamicResource TextMuted}"
+                                        BorderThickness="0"
+                                        FontFamily="{DynamicResource UiFontFamily}"
+                                        FontSize="{DynamicResource FontXs}"
+                                        Cursor="Hand"
+                                        Command="{Binding Selected.CancelDownloadCommand}" />
+                                <TextBlock Text="{Binding Selected.ProgressText}"
+                                           FontFamily="{DynamicResource UiFontFamily}"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
+                            </DockPanel>
+                        </StackPanel>
+
+                        <TextBlock Text="This model is on your machine."
+                                   IsVisible="{Binding IsModelReady}"
+                                   FontFamily="{DynamicResource UiFontFamily}"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+
+                    <ListBox ItemsSource="{Binding Models}"
+                             SelectedItem="{Binding Selected}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="0">
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem">
+                                <Setter Property="Padding" Value="10,8" />
+                                <Setter Property="Margin" Value="0,0,0,4" />
+                                <Setter Property="MinHeight" Value="0" />
+                                <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
+                                <Setter Property="Cursor" Value="Hand" />
+                            </Style>
+                            <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                                <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+                            </Style>
+                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+                                <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+                            </Style>
+                        </ListBox.Styles>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SpeechModelViewModel">
+                                <StackPanel Spacing="2">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Right"
+                                                   Text="ON DISK"
+                                                   IsVisible="{Binding IsDownloaded}"
+                                                   VerticalAlignment="Center"
+                                                   FontFamily="{DynamicResource UiFontFamily}"
+                                                   FontSize="{DynamicResource FontXs}"
+                                                   Foreground="{DynamicResource SuccessText}" />
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontFamily="{DynamicResource UiFontFamily}"
+                                                   FontSize="{DynamicResource UiFontSizeSm}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextPrimary}" />
+                                    </DockPanel>
+                                    <TextBlock Text="{Binding Note}"
+                                               TextWrapping="Wrap"
+                                               FontFamily="{DynamicResource UiFontFamily}"
+                                               FontSize="{DynamicResource FontXs}"
+                                               Foreground="{DynamicResource TextSecondary}" />
+                                    <TextBlock Text="{Binding SizeText}"
+                                               FontFamily="{DynamicResource UiFontFamily}"
+                                               FontSize="{DynamicResource FontXs}"
+                                               Foreground="{DynamicResource TextMuted}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+
+                <!-- ═══ Step 2: the microphone ═══ -->
+                <StackPanel IsVisible="{Binding IsMicrophoneStep}" Spacing="10">
+                    <TextBlock Text="Which microphone should dictation listen to? The system default follows whatever you switch to — a headset, a webcam — without coming back here."
+                               TextWrapping="Wrap"
+                               FontFamily="{DynamicResource UiFontFamily}"
+                               FontSize="{DynamicResource UiFontSizeSm}"
+                               Foreground="{DynamicResource TextSecondary}" />
+
+                    <ComboBox Classes="setting"
+                              HorizontalAlignment="Stretch"
+                              ItemsSource="{Binding Devices}"
+                              SelectedItem="{Binding Device}" />
+                </StackPanel>
+
+                <!-- ═══ Step 3: try it ═══ -->
+                <DockPanel IsVisible="{Binding IsTestStep}">
+                    <TextBlock DockPanel.Dock="Top"
+                               Text="Press Record, say a sentence, then press it again. What comes back is what dictation would type into a tile."
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,10"
+                               FontFamily="{DynamicResource UiFontFamily}"
+                               FontSize="{DynamicResource UiFontSizeSm}"
+                               Foreground="{DynamicResource TextSecondary}" />
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
+                        <Button MinWidth="110" Padding="12,6" MinHeight="0"
+                                Background="{DynamicResource BgSurface}"
+                                Foreground="{DynamicResource TextPrimary}"
+                                BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusMd}"
+                                FontFamily="{DynamicResource UiFontFamily}"
+                                FontSize="{DynamicResource UiFontSizeSm}"
+                                Cursor="Hand"
+                                Command="{Binding ToggleTestCommand}">
+                            <Panel>
+                                <TextBlock Text="Record" IsVisible="{Binding !IsRecording}" />
+                                <TextBlock Text="Stop" IsVisible="{Binding IsRecording}"
+                                           Foreground="{DynamicResource DangerText}" />
+                            </Panel>
+                        </Button>
+
+                        <TextBlock Text="Listening…"
+                                   VerticalAlignment="Center"
+                                   IsVisible="{Binding IsRecording}"
+                                   FontFamily="{DynamicResource UiFontFamily}"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource DangerText}" />
+                        <TextBlock Text="Working it out…"
+                                   VerticalAlignment="Center"
+                                   IsVisible="{Binding IsTranscribing}"
+                                   FontFamily="{DynamicResource UiFontFamily}"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+
+                    <Border Background="{DynamicResource BgSurface}"
+                            CornerRadius="{DynamicResource RadiusMd}"
+                            Padding="10,8">
+                        <TextBlock Text="{Binding Transcript}"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Top"
+                                   FontFamily="{DynamicResource UiFontFamily}"
+                                   FontSize="{DynamicResource UiFontSizeSm}"
+                                   Foreground="{DynamicResource TextPrimary}" />
+                    </Border>
+                </DockPanel>
+            </Panel>
+        </DockPanel>
+    </Border>
+</Window>

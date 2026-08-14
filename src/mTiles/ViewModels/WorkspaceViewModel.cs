@@ -14,6 +14,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private readonly SettingsService _settingsService;
     private readonly TileFactory _tileFactory;
     private readonly TileTreeSerializer _serializer;
+    private readonly Services.Speech.DictationService? _dictation;
 
     [ObservableProperty]
     private TileNodeViewModel? _rootTile;
@@ -40,12 +41,13 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private static readonly Regex TileNumberRegex = new(@"#(\d+)$", RegexOptions.Compiled);
 
     public WorkspaceViewModel(Workspace workspace, PersistenceService persistenceService, SettingsService settingsService,
-        DatabaseServiceManager? dbManager = null)
+        DatabaseServiceManager? dbManager = null, Services.Speech.DictationService? dictation = null)
     {
         WorkspaceId = workspace.Id;
         WorkingDirectory = workspace.DirectoryPath;
         _persistenceService = persistenceService;
         _settingsService = settingsService;
+        _dictation = dictation;
         _tileFactory = new TileFactory(settingsService, ScheduleSave, dbManager);
 
         foreach (var shell in ShellDetector.Detect())
@@ -84,9 +86,10 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             GetAvailableProfiles,
             (profile, dir) => _tileFactory.CreateContent(TileContentType.Terminal, dir, profile))
         {
-            TileName = tileName,
-            LayoutChanged = ScheduleSave
+            TileName = tileName
         };
+        // Everything else a tile needs is decided in one place, including LayoutChanged. Setting it here
+        // as well is the arrangement the whole fix was about removing: two lists to keep in step.
         ConfigureLeafCallbacks(leaf);
         return leaf;
     }
@@ -123,21 +126,39 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     public TileActivationScope ActivationScope => _activationScope;
 
+    /// <summary>
+    /// The tile a shortcut should act on: the one the user last worked in, and <b>nothing</b> if that
+    /// tile is no longer in the tree.
+    /// </summary>
+    /// <remarks>
+    /// <para>Only if it is still in the tree. After a tile is closed or the layout is rebuilt,
+    /// <c>_lastActiveLeaf</c> can point at a detached leaf whose content has been disposed — dictating
+    /// into that sends the words to a terminal nobody can see.</para>
+    /// <para>And no falling back to "whatever tile is first". That is right for
+    /// <see cref="FocusActiveTile"/>, where focus has to land somewhere, and wrong here: the first leaf
+    /// is an arbitrary tile the user is not looking at, and with <c>AutoSubmitEnter</c> on, delivering
+    /// there does not paste a sentence — it <em>runs a command</em> in a terminal nobody chose. Null
+    /// instead: the sink then tries whatever text control has the keyboard, and failing that the service
+    /// reports the transcript as undeliverable and quotes it back.</para>
+    /// </remarks>
+    public LeafTileNodeViewModel? ActiveTile => ResolveActiveTile(orAnyTile: false);
+
+    private LeafTileNodeViewModel? ResolveActiveTile(bool orAnyTile)
+    {
+        var target = _lastActiveLeaf;
+        if (target != null && EnumerateLeaves(RootTile).Contains(target))
+            return target;
+
+        return orAnyTile ? EnumerateLeaves(RootTile).FirstOrDefault() : null;
+    }
+
     public void ActivateLastTile()
     {
         _lastActiveLeaf?.Activate();
     }
 
-    public void FocusActiveTile()
-    {
-        // Po rebuildzie/restarcie _lastActiveLeaf może wskazywać na zdetachowany
-        // liść (spoza bieżącego drzewa) → fokus nie idzie nigdzie. Fallback: pierwszy
-        // liść w aktualnym drzewie.
-        var target = _lastActiveLeaf;
-        if (target == null || !EnumerateLeaves(RootTile).Contains(target))
-            target = EnumerateLeaves(RootTile).FirstOrDefault();
-        target?.RequestFocus();
-    }
+    /// <summary>Puts the keyboard back in this workspace — any tile will do, and one has to.</summary>
+    public void FocusActiveTile() => ResolveActiveTile(orAnyTile: true)?.RequestFocus();
 
     private static IEnumerable<LeafTileNodeViewModel> EnumerateLeaves(TileNodeViewModel? node)
     {
@@ -155,6 +176,13 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private void ConfigureLeafCallbacks(LeafTileNodeViewModel leaf)
     {
+        // Including this one. It was the single callback Split still copied by hand, which is exactly the
+        // arrangement that let a new callback be added here and forgotten there.
+        leaf.LayoutChanged = ScheduleSave;
+        leaf.Dictation = _dictation;
+        // Passed on to every tile, so a tile created by splitting is configured by this same method
+        // rather than by whatever its parent remembered to copy.
+        leaf.ConfigureNewLeaf = ConfigureLeafCallbacks;
         leaf.RootReplaced = newRoot => RootTile = ConfigureRoot(newRoot);
         leaf.RootCleared = () => { RootTile = CreateLeaf(TileContentType.Empty, null, ""); ScheduleSave(); };
         leaf.PropertyChanged -= OnLeafPropertyChanged;
@@ -254,8 +282,9 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         if (node is LeafTileNodeViewModel leaf)
         {
             leaf.PropertyChanged -= OnLeafPropertyChanged;
-            if (leaf.Content is IDisposable d)
-                d.Dispose();
+            // The tile itself, which takes its content with it: it is subscribed to services that
+            // outlive this workspace, and those subscriptions are what would keep the whole tile alive.
+            leaf.Dispose();
         }
         else if (node is SplitTileNodeViewModel split)
         {

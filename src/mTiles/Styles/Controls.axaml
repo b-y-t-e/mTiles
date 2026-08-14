@@ -58,6 +58,38 @@
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
     </Style>
 
+    <!-- ======== BUTTON: outlined-sm (a bordered button on a settings row) ========
+         The same button as above, sized to sit beside a label rather than under a form: no minimum
+         height, the smaller type, and the UI font stated because these appear on rows whose surrounding
+         text is monospaced. It was written out inline three times in SettingsView — ten properties each —
+         and had already drifted in three of them, which is how a dialog ends up with three buttons that
+         are nearly the same button.
+         The type size settled on `UiFontSizeSm`, which follows the font size the user chose, rather than
+         the fixed `FontXs` one of the three had: a button that stays at ten pixels while everything
+         around it grows is the reason that setting exists. -->
+    <Style Selector="Button.outlined-sm">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="Padding" Value="10,5" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.outlined-sm:pointerover">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+    </Style>
+    <Style Selector="Button.outlined-sm:pressed">
+        <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+    </Style>
+
     <!-- ======== BUTTON: tile-btn ======== -->
     <Style Selector="Button.tile-btn">
         <Setter Property="Background" Value="Transparent" />
@@ -78,6 +110,71 @@
     </Style>
     <Style Selector="Button.tile-btn:pressed">
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+    </Style>
+
+    <!-- The microphone while this tile is the one being dictated into. Colour only: the icon must stay
+         where it was, or the button moves out from under the finger that is about to stop the recording. -->
+    <Style Selector="Button.tile-btn-recording">
+        <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+    </Style>
+    <Style Selector="Button.tile-btn-recording:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+    </Style>
+
+    <!-- ======== DICTATION: the tile border while it is being spoken into ========
+         Two states, told apart by rhythm rather than only by colour: slow while the microphone is
+         open, quick while the transcript is being worked out. Both animate opacity alone — a border
+         whose thickness or colour changed would either move the content or need a brush interpolated
+         out of the theme, and the theme here is derived from the terminal palette at run time.
+         The brushes are DynamicResource for that reason: red for recording follows the same token as
+         every other warning in the application, and the accent follows whatever the user's terminal
+         theme made it. -->
+    <!-- Square, like the tile it outlines. A tile is a rectangle in a grid of splitters with no corner
+         radius of its own, so a rounded frame pulls away from the tile's own corners and leaves a notch
+         at each one - the border stops looking like the tile's edge and starts looking like a sticker
+         on top of it. -->
+    <Style Selector="Border.dictation">
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="CornerRadius" Value="0" />
+    </Style>
+
+    <Style Selector="Border.dictation.recording">
+        <Setter Property="BorderBrush" Value="{DynamicResource DangerText}" />
+        <Style.Animations>
+            <!-- Breathing, roughly at the pace of speech. Never all the way out: the border is what
+                 says the microphone is live, and a frame of it at zero reads as "stopped". -->
+            <Animation Duration="0:0:1.8" IterationCount="INFINITE" Easing="SineEaseInOut">
+                <KeyFrame Cue="0%">
+                    <Setter Property="Opacity" Value="1.0" />
+                </KeyFrame>
+                <KeyFrame Cue="50%">
+                    <Setter Property="Opacity" Value="0.35" />
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="Opacity" Value="1.0" />
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
+    <Style Selector="Border.dictation.processing">
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
+        <Style.Animations>
+            <!-- Three times the pace, and shallower: work in progress rather than a device that is
+                 listening. The user is waiting here, and a slow fade would read as nothing happening. -->
+            <Animation Duration="0:0:0.6" IterationCount="INFINITE" Easing="SineEaseInOut">
+                <KeyFrame Cue="0%">
+                    <Setter Property="Opacity" Value="0.95" />
+                </KeyFrame>
+                <KeyFrame Cue="50%">
+                    <Setter Property="Opacity" Value="0.45" />
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="Opacity" Value="0.95" />
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
     </Style>
 
     <!-- ======== BUTTON: chooser-card (tile type picker) ======== -->

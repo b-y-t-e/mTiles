@@ -14,6 +14,9 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly UpdateService _updateService;
     private readonly Dictionary<string, WorkspaceViewModel> _workspaceCache = new();
 
+    /// <summary>The application's dictation service, null when it was never wired up.</summary>
+    internal Services.Speech.DictationService? Dictation { get; }
+
     [ObservableProperty]
     private WorkspacesPanelViewModel _workspacesPanel;
 
@@ -33,14 +36,16 @@ public partial class MainWindowViewModel : ObservableObject
     private string _updateVersion = "";
 
     public MainWindowViewModel(WorkspaceService workspaceService, PersistenceService persistenceService,
-        SettingsService settingsService, DatabaseServiceManager? dbManager = null)
+        SettingsService settingsService, DatabaseServiceManager? dbManager = null,
+        Services.Speech.DictationService? dictation = null)
     {
         _persistenceService = persistenceService;
         _settingsService = settingsService;
         _dbManager = dbManager;
+        Dictation = dictation;
         _updateService = new UpdateService();
         _workspacesPanel = new WorkspacesPanelViewModel(workspaceService, settingsService);
-        _settings = new SettingsViewModel(settingsService, dbManager);
+        _settings = new SettingsViewModel(settingsService, dbManager, dictation);
 
         _updateService.UpdateAvailable += () =>
         {
@@ -173,7 +178,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         if (!_workspaceCache.TryGetValue(workspace.Id, out var vm))
         {
-            vm = new WorkspaceViewModel(workspace, _persistenceService, _settingsService, _dbManager);
+            vm = new WorkspaceViewModel(workspace, _persistenceService, _settingsService, _dbManager, Dictation);
             _workspaceCache[workspace.Id] = vm;
         }
 

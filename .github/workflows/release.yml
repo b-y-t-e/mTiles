@@ -26,6 +26,12 @@ jobs:
       - name: Publish
         run: dotnet publish src/mTiles/mTiles.csproj -c Release --self-contained -r win-x64 -o ./publish
 
+      # Dictation and the terminal both depend on native binaries that arrive through NuGet's own copy
+      # rules. Losing one leaves a build that starts and then fails under the user's finger.
+      - name: Verify native binaries and notices
+        shell: pwsh
+        run: ./.github/workflows/verify-natives.ps1 -PublishDir ./publish -Rid win-x64
+
       - name: Install Velopack
         run: dotnet tool install -g vpk
 
@@ -62,6 +68,10 @@ jobs:
       - name: Publish
         run: dotnet publish src/mTiles/mTiles.csproj -c Release --self-contained -r linux-x64 -o ./publish
 
+      - name: Verify native binaries and notices
+        shell: pwsh
+        run: ./.github/workflows/verify-natives.ps1 -PublishDir ./publish -Rid linux-x64
+
       - name: Create AppImage structure
         run: |
           mkdir -p AppDir/usr/bin
@@ -79,6 +89,15 @@ jobs:
           # Copy icon for AppImage
           cp src/mTiles/Assets/mterminal-icon.png AppDir/mterminal.png
           cp src/mTiles/Assets/mterminal-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/mterminal.png
+
+      - name: Verify the AppImage tree
+        shell: pwsh
+        run: |
+          # Again, on what is actually packaged. The step above checked ./publish; this checks what came
+          # out of the copy, which is a different question — a cp that drops a runtimes/ subtree, or a
+          # future step that prunes the directory to save space, would otherwise ship an AppImage whose
+          # dictation cannot start and whose terminal falls back to the in-box console host.
+          ./.github/workflows/verify-natives.ps1 -PublishDir ./AppDir/usr/bin -Rid linux-x64
 
       - name: Download appimagetool
         run: |

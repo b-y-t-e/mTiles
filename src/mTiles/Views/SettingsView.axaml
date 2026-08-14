@@ -327,6 +327,41 @@
                     </Border>
                 </StackPanel>
 
+                <!-- About. The notices are not decoration: parts of this application are ports of
+                     MIT-licensed code, and the speech model it downloads is CC-BY-4.0. Both require the
+                     attribution to reach whoever received the software. -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="ABOUT" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource AccentDefault}" />
+                                <Border Padding="12,10">
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right"
+                                                Classes="outlined-sm"
+                                                Content="Open"
+                                                MinWidth="70"
+                                                Command="{Binding OpenThirdPartyNoticesCommand}" />
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="Third-party notices"
+                                                       FontFamily="{DynamicResource UiFontFamily}"
+                                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                                       Foreground="{DynamicResource TextPrimary}" />
+                                            <TextBlock Text="Licences and attribution for the code, libraries and speech models this application uses."
+                                                       TextWrapping="Wrap"
+                                                       FontFamily="{DynamicResource UiFontFamily}"
+                                                       FontSize="{DynamicResource FontXs}"
+                                                       Foreground="{DynamicResource TextMuted}" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
             </StackPanel>
 
             <!-- ═══════════════ TAB: Profiles ═══════════════ -->
@@ -1190,6 +1225,326 @@
                 </StackPanel>
 
                 </StackPanel> <!-- /Sub-tab 1: Databases -->
+
+            </StackPanel>
+
+            <!-- ═══════════════ TAB: Speech ═══════════════ -->
+            <StackPanel Spacing="12" Margin="20,16,20,24"
+                        IsVisible="{Binding IsSpeechTab}">
+
+                <!-- Dictation -->
+                <StackPanel Spacing="6">
+                    <DockPanel>
+                        <!-- The same walk-through the first run offers: a model, a microphone, and a
+                             sentence to prove them. Here it is the way to start over. -->
+                        <Button DockPanel.Dock="Right"
+                                Classes="outlined-sm"
+                                Content="Set up dictation…"
+                                Command="{Binding SetUpSpeechCommand}" />
+                        <TextBlock Text="DICTATION" Classes="section" Margin="0"
+                                   VerticalAlignment="Center" />
+                    </DockPanel>
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource AccentDefault}" />
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="Speech recognition runs on this machine. Nothing is sent anywhere; the model is a file you download once."
+                                                   FontSize="{DynamicResource FontXs}"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="No audio input backend is available on this machine."
+                                                   IsVisible="{Binding !IsSpeechAvailable}"
+                                                   FontSize="{DynamicResource FontXs}"
+                                                   Foreground="{DynamicResource DangerText}"
+                                                   TextWrapping="Wrap" />
+                                        <DockPanel>
+                                            <TextBlock Text="Enable" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <ToggleSwitch IsChecked="{Binding SpeechEnabled}"
+                                                          OnContent="On" OffContent="Off" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Shortcut" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <StackPanel>
+                                                <DockPanel>
+                                                    <Button DockPanel.Dock="Right"
+                                                            Classes="outlined-sm"
+                                                            Content="Clear"
+                                                            MinWidth="60"
+                                                            Margin="6,0,0,0"
+                                                            IsVisible="{Binding SpeechHotkey, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                            Command="{Binding ClearSpeechHotkeyCommand}"
+                                                            ToolTip.Tip="Turn the shortcut off" />
+                                                    <TextBox x:Name="SpeechHotkeyBox"
+                                                             Classes="setting"
+                                                             Text="{Binding SpeechHotkey}"
+                                                             PlaceholderText="No shortcut — click and press a combination"
+                                                             IsReadOnly="True"
+                                                             KeyDown="SpeechHotkey_KeyDown"
+                                                             GotFocus="SpeechHotkey_GotFocus"
+                                                             LostFocus="SpeechHotkey_LostFocus"
+                                                             ToolTip.Tip="Click here and press the key combination" />
+                                                </DockPanel>
+                                                <TextBlock Text="Click the box and press the combination. Hold it to record; release to transcribe. Clear it — or press Backspace here — to leave the key to the shell."
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           TextWrapping="Wrap"
+                                                           Margin="0,2,0,0" />
+                                                <TextBlock Text="{Binding SpeechHotkeyWarning}"
+                                                           IsVisible="{Binding SpeechHotkeyWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource DangerText}"
+                                                           TextWrapping="Wrap"
+                                                           Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Unload model" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <NumericUpDown Classes="setting"
+                                                                   Value="{Binding SpeechUnloadMinutes}"
+                                                                   Minimum="0"
+                                                                   Maximum="{x:Static m:SpeechSettings.MaxUnloadMinutesForUi}"
+                                                                   Increment="1" />
+                                                    <TextBlock Text="min"
+                                                               FontSize="{DynamicResource FontSm}"
+                                                               Foreground="{DynamicResource TextMuted}"
+                                                               VerticalAlignment="Center" />
+                                                </StackPanel>
+                                                <TextBlock Text="Idle time before the model leaves memory — it is hundreds of megabytes. Zero keeps it loaded, which saves a second or two on the next dictation."
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Hold to talk" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <StackPanel>
+                                                <ToggleSwitch IsChecked="{Binding SpeechPushToTalk}"
+                                                              OnContent="Hold" OffContent="Toggle" />
+                                                <TextBlock Text="Hold: record while the keys are down. Toggle: one press starts, the next stops."
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                <!-- Input -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="INPUT" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource AccentDefault}" />
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <DockPanel>
+                                            <TextBlock Text="Microphone" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <Button DockPanel.Dock="Right" Classes="tile-btn"
+                                                    Command="{Binding RefreshSpeechDevicesCommand}"
+                                                    ToolTip.Tip="Rescan devices"
+                                                    Margin="6,0,0,0">
+                                                <mi:MaterialIcon Kind="Refresh" Width="14" Height="14" />
+                                            </Button>
+                                            <ComboBox Classes="setting"
+                                                      SelectedItem="{Binding SpeechDevice}"
+                                                      ItemsSource="{Binding SpeechDevices}" />
+                                        </DockPanel>
+                                        <TextBlock Text="Parakeet works the language out by itself across the 25 it knows, and cannot translate — the settings below apply to Whisper models."
+                                                   IsVisible="{Binding !HasWhisperOnlyOptions}"
+                                                   FontSize="{DynamicResource FontXs}"
+                                                   Foreground="{DynamicResource TextMuted}"
+                                                   TextWrapping="Wrap" />
+                                        <DockPanel IsVisible="{Binding HasWhisperOnlyOptions}">
+                                            <TextBlock Text="Language" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <ComboBox Classes="setting"
+                                                      SelectedItem="{Binding SelectedSpeechLanguage}"
+                                                      ItemsSource="{Binding SpeechLanguages}"
+                                                      ItemTemplate="{StaticResource ComboOptionTemplate}" />
+                                        </DockPanel>
+                                        <DockPanel IsVisible="{Binding HasWhisperOnlyOptions}">
+                                            <TextBlock Text="Translate" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <StackPanel>
+                                                <ToggleSwitch IsChecked="{Binding SpeechTranslateToEnglish}"
+                                                              OnContent="To English" OffContent="Off" />
+                                                <TextBlock Text="Transcribe into English whatever language was spoken."
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                <!-- Text -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="TEXT" Classes="section" Margin="0" />
+                    <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True">
+                        <Border Background="{DynamicResource BgSurface}" Padding="0">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="3"
+                                        Background="{DynamicResource AccentDefault}" />
+                                <Border Padding="12,10">
+                                    <StackPanel Spacing="10">
+                                        <DockPanel>
+                                            <TextBlock Text="Press Enter" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <StackPanel>
+                                                <ToggleSwitch IsChecked="{Binding SpeechAutoSubmit}"
+                                                              OnContent="On" OffContent="Off" />
+                                                <TextBlock Text="Submits the dictated line straight away. A misheard word then runs as a command."
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Trailing space" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <ToggleSwitch IsChecked="{Binding SpeechAppendTrailingSpace}"
+                                                          OnContent="On" OffContent="Off" />
+                                        </DockPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="Remove fillers" Classes="label"
+                                                       VerticalAlignment="Center" Width="120" />
+                                            <ToggleSwitch IsChecked="{Binding SpeechRemoveFillerWords}"
+                                                          OnContent="On" OffContent="Off" />
+                                        </DockPanel>
+                                        <!-- Whisper only: the hint is its initial prompt, and Parakeet
+                                             takes no prompt at all. Hidden rather than ignored. -->
+                                        <StackPanel Spacing="4" IsVisible="{Binding HasWhisperOnlyOptions}">
+                                            <TextBlock Text="Vocabulary" Classes="label" />
+                                            <TextBox Classes="setting"
+                                                     Text="{Binding SpeechCustomWords}"
+                                                     PlaceholderText="Names and jargon, comma separated" />
+                                            <TextBlock Text="Given to the model as a hint before it listens, which biases it towards these words."
+                                                       FontSize="{DynamicResource FontXs}"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                    </Border>
+                </StackPanel>
+
+                <!-- Models -->
+                <StackPanel Spacing="6">
+                    <DockPanel>
+                        <TextBlock Text="MODEL" Classes="section" Margin="0" VerticalAlignment="Center" />
+                        <Button DockPanel.Dock="Right" Classes="tile-btn"
+                                Command="{Binding OpenSpeechModelsFolderCommand}"
+                                ToolTip.Tip="Show the models folder"
+                                HorizontalAlignment="Right">
+                            <mi:MaterialIcon Kind="FolderOpen" Width="14" Height="14" />
+                        </Button>
+                    </DockPanel>
+                    <ItemsControl ItemsSource="{Binding SpeechModels}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:SpeechModelViewModel">
+                                <Border Background="{DynamicResource BgSurface}"
+                                        CornerRadius="{DynamicResource RadiusLg}"
+                                        Margin="0,0,0,6"
+                                        ClipToBounds="True">
+                                    <DockPanel>
+                                        <Border DockPanel.Dock="Left" Width="3"
+                                                Background="{DynamicResource AccentDefault}"
+                                                IsVisible="{Binding IsInUse}" />
+                                        <Border Padding="12,10">
+                                            <DockPanel>
+                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                            Spacing="4" VerticalAlignment="Center">
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding DownloadCommand}"
+                                                            ToolTip.Tip="Download"
+                                                            IsVisible="{Binding !IsDownloaded}"
+                                                            IsEnabled="{Binding !IsDownloading}">
+                                                        <mi:MaterialIcon Kind="Download" Width="14" Height="14" />
+                                                    </Button>
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding CancelDownloadCommand}"
+                                                            ToolTip.Tip="Cancel download"
+                                                            IsVisible="{Binding IsDownloading}">
+                                                        <mi:MaterialIcon Kind="Close" Width="14" Height="14" />
+                                                    </Button>
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding SelectCommand}"
+                                                            ToolTip.Tip="Use this model"
+                                                            IsVisible="{Binding IsDownloaded}">
+                                                        <mi:MaterialIcon Kind="Check" Width="14" Height="14" />
+                                                    </Button>
+                                                    <Button Classes="tile-btn-close"
+                                                            Command="{Binding DeleteCommand}"
+                                                            ToolTip.Tip="Delete the downloaded file"
+                                                            IsVisible="{Binding IsDownloaded}">
+                                                        <mi:MaterialIcon Kind="Delete" Width="14" Height="14" />
+                                                    </Button>
+                                                </StackPanel>
+                                                <StackPanel Spacing="2">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <TextBlock Text="{Binding Name}"
+                                                                   FontWeight="Medium"
+                                                                   Foreground="{DynamicResource TextPrimary}" />
+                                                        <TextBlock Text="{Binding SizeText}"
+                                                                   FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextMuted}"
+                                                                   VerticalAlignment="Center" />
+                                                        <TextBlock Text="IN USE"
+                                                                   IsVisible="{Binding IsInUse}"
+                                                                   FontSize="{DynamicResource FontXs}"
+                                                                   LetterSpacing="0.8"
+                                                                   Foreground="{DynamicResource StatusSuccessText}"
+                                                                   VerticalAlignment="Center" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Note}"
+                                                               FontSize="{DynamicResource FontXs}"
+                                                               Foreground="{DynamicResource TextMuted}"
+                                                               TextWrapping="Wrap" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                                                IsVisible="{Binding IsDownloading}">
+                                                        <ProgressBar Minimum="0" Maximum="1" Width="180"
+                                                                     Value="{Binding Progress}" />
+                                                        <TextBlock Text="{Binding ProgressText}"
+                                                                   FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextMuted}"
+                                                                   VerticalAlignment="Center" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Error}"
+                                                               IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                               FontSize="{DynamicResource FontXs}"
+                                                               Foreground="{DynamicResource DangerText}"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </Border>
+                                    </DockPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
 
             </StackPanel>
 

@@ -117,7 +117,15 @@ internal static class TileDragDrop
 
         first.Parent = split;
         second.Parent = split;
-        source.LayoutChanged = target.LayoutChanged;
+
+        // The dropped tile belongs to the target's tree now, so it is configured by whoever configures
+        // that tree — not by copying the one callback this method happens to know about. Assigning
+        // LayoutChanged alone was enough while that was all a tile needed; it stopped being enough the
+        // moment tiles started subscribing to services.
+        if (target.ConfigureNewLeaf is { } configure)
+            configure(source);
+        else
+            source.LayoutChanged = target.LayoutChanged;
 
         if (targetParent != null)
         {
@@ -134,10 +142,28 @@ internal static class TileDragDrop
         source.LayoutChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Gives a tile the callbacks of the tree it now belongs to.
+    /// </summary>
+    /// <remarks>
+    /// <para>Through <see cref="LeafTileNodeViewModel.ConfigureNewLeaf"/> — the workspace's own "here is
+    /// what a tile needs" — rather than by copying the three that somebody once listed here. That list is
+    /// the same shape as the one <c>Split</c> used to keep, and the same bug waiting: a callback added to
+    /// the workspace and forgotten here leaves a re-parented tile without it, silently. Dictation was
+    /// exactly that, in the other copy.</para>
+    /// <para>Copying is kept as the fallback for a tree nobody configured, which in practice means a
+    /// test — the same arrangement, and the same reason, as in <c>Split</c>.</para>
+    /// </remarks>
     private static void PropagateSiblingCallbacks(TileNodeViewModel node, LeafTileNodeViewModel source)
     {
         if (node is LeafTileNodeViewModel leaf)
         {
+            if (source.ConfigureNewLeaf is { } configure)
+            {
+                configure(leaf);
+                return;
+            }
+
             leaf.RootReplaced = source.RootReplaced;
             leaf.RootCleared = source.RootCleared;
             leaf.LayoutChanged = source.LayoutChanged;

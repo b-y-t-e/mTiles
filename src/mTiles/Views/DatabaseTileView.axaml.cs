@@ -42,7 +42,7 @@ public partial class DatabaseTileView : UserControl
         {
             var mainVm = (TopLevel.GetTopLevel(this) as Window)?.DataContext as MainWindowViewModel;
             if (mainVm == null) return;
-            mainVm.Settings.SelectedTab = 3;
+            mainVm.Settings.SelectedTab = SettingsTabs.Database;
             mainVm.IsSettingsOpen = true;
         };
     }

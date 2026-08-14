@@ -67,23 +67,28 @@
                                 <Button Classes="settings-tab"
                                         Classes.settings-tab-active="{Binding Settings.IsGeneralTab}"
                                         Command="{Binding Settings.SelectTabCommand}"
-                                        CommandParameter="{StaticResource Zero}"
+                                        CommandParameter="{x:Static vm:SettingsTabs.General}"
                                         Content="General" />
                                 <Button Classes="settings-tab"
                                         Classes.settings-tab-active="{Binding Settings.IsProfilesTab}"
                                         Command="{Binding Settings.SelectTabCommand}"
-                                        CommandParameter="{StaticResource One}"
+                                        CommandParameter="{x:Static vm:SettingsTabs.Profiles}"
                                         Content="Profiles" />
                                 <Button Classes="settings-tab"
                                         Classes.settings-tab-active="{Binding Settings.IsAiToolsTab}"
                                         Command="{Binding Settings.SelectTabCommand}"
-                                        CommandParameter="{StaticResource Two}"
+                                        CommandParameter="{x:Static vm:SettingsTabs.AiTools}"
                                         Content="AI Tools" />
                                 <Button Classes="settings-tab"
                                         Classes.settings-tab-active="{Binding Settings.IsDatabaseTab}"
                                         Command="{Binding Settings.SelectTabCommand}"
-                                        CommandParameter="{StaticResource Three}"
+                                        CommandParameter="{x:Static vm:SettingsTabs.Database}"
                                         Content="Database" />
+                                <Button Classes="settings-tab"
+                                        Classes.settings-tab-active="{Binding Settings.IsSpeechTab}"
+                                        Command="{Binding Settings.SelectTabCommand}"
+                                        CommandParameter="{x:Static vm:SettingsTabs.Speech}"
+                                        Content="Speech" />
                             </StackPanel>
                         </DockPanel>
                     </Border>
