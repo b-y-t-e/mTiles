@@ -482,6 +482,12 @@
                                       ItemsSource="{Binding AiToolOptions}"
                                       ItemTemplate="{StaticResource ComboOptionTemplate}" />
                         </DockPanel>
+                        <TextBlock IsVisible="{Binding EditProfileShellIsSubstituted}"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource DangerText}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,-2,0,0"
+                                   Text="This profile runs commands, and cmd cannot run them correctly — they will be run by PowerShell (or Git Bash) instead, so %VAR%, &amp;&amp; and the cmd builtins will not work in them. The tile's interactive shell is unchanged." />
                         <StackPanel Spacing="4">
                             <TextBlock Text="Startup Script" Classes="label" />
                             <TextBox Classes="setting"
@@ -491,11 +497,23 @@
                                      MinHeight="72"
                                      MaxHeight="140"
                                      PlaceholderText="Commands to run after shell starts..." />
-                            <TextBlock FontSize="{DynamicResource FontXs}"
-                                       Foreground="{DynamicResource TextMuted}"
-                                       Opacity="0.7"
-                                       Margin="2,2,0,0"
-                                       Text="Variables: ${tileId} — unique tile identifier" />
+                            <StackPanel Margin="2,2,0,0" Spacing="1">
+                                <TextBlock FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           Opacity="0.7"
+                                           TextWrapping="Wrap"
+                                           Text="Variables, in both scripts:" />
+                                <TextBlock FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           Opacity="0.7"
+                                           TextWrapping="Wrap"
+                                           Text="${tileId} — unique tile identifier" />
+                                <TextBlock FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           Opacity="0.7"
+                                           TextWrapping="Wrap"
+                                           Text="&quot;${opencodeSessionFile}&quot; — session document for `opencode import`; keep the quotes, the path contains spaces" />
+                            </StackPanel>
                         </StackPanel>
                         <StackPanel Spacing="4">
                             <TextBlock Text="Fallback Script" Classes="label" />

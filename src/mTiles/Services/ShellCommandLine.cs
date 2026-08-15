@@ -16,8 +16,11 @@ namespace mTiles.Services;
 /// of those can therefore reach <c>cmd</c> differently from how it was written. A multi-line one is
 /// worse still: <c>cmd /c</c> runs the first line and silently discards the rest (measured).
 /// <para>Not worked around, because the workaround is a second quoting implementation whose only job is
-/// to disagree with the first. Profiles that run command chains want a POSIX shell or PowerShell; the
-/// launcher warns when a <c>cmd</c> profile is about to hit the multi-line half of this.</para></para>
+/// to disagree with the first. It is <em>avoided</em> instead: a profile whose shell is <c>cmd</c> has
+/// its chain commands run by PowerShell or a POSIX shell — see
+/// <see cref="ShellDetector.ResolveForCommands(ShellProfile)"/> — so the mapping below is reached with
+/// <c>/c</c> only when nothing else is installed. The tile's interactive shell is untouched, which is
+/// why <c>/c</c> stays here rather than being deleted.</para></para>
 /// </summary>
 internal static class ShellCommandLine
 {

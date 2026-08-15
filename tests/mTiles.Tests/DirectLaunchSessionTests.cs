@@ -149,6 +149,46 @@ public class DirectLaunchSessionTests
             }
         });
 
+    /// <summary>
+    /// A profile whose shell is <c>cmd</c> has its commands run by something else — and this asserts it
+    /// where it counts, on what was actually spawned. The rule itself is unit-tested in
+    /// <c>ScriptContractTests</c>; what could still be wrong here is the wiring, and it silently was:
+    /// resolving a replacement shell and then handing the old one to <c>ShellCommandLine</c> compiles,
+    /// passes every test of the rule, and leaves the behaviour exactly as broken as before.
+    /// </summary>
+    [Fact]
+    public void A_cmd_profiles_commands_are_not_spawned_through_cmd()
+        => OnUiThread(async () =>
+        {
+            using var settings = new TempSettings();
+            var (control, spawned) = NewTerminal();
+            var cmd = new ShellProfile
+            {
+                Name = "CMD", ExecutablePath = @"C:\Windows\System32\cmd.exe", Type = ShellType.Cmd,
+            };
+            var tile = new TerminalTileViewModel("", cmd, settings.Service,
+                LaunchScripts.FromProfile("opencode import \"x\" ; opencode", "fallback"))
+            { TileId = RealTileId };
+
+            try
+            {
+                TileLauncher.Launch(control, tile);
+
+                await WaitUntil(() => spawned.Count == 1, "the profile's chain starts");
+                var launched = CommandOf(spawned[0]);
+                // Whatever this machine has — PowerShell here, a POSIX shell on a Linux agent — the one
+                // thing it must not be is the shell measured to mishandle every command it is given.
+                Assert.DoesNotContain("cmd.exe", launched, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(" /c ", launched);
+                // And the command itself travelled intact: the `;` that cmd would have swallowed.
+                Assert.Contains("opencode import \"x\" ; opencode", launched);
+            }
+            finally
+            {
+                tile.Dispose();
+            }
+        });
+
     /// <summary>A tile whose profile names no fallback takes the other path entirely: one interactive
     /// shell, with the startup script typed into it, and no chain to relaunch anything.</summary>
     [Fact]

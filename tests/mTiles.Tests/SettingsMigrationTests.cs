@@ -116,6 +116,75 @@ public sealed class SettingsMigrationTests : IDisposable
     }
 
     /// <summary>
+    /// The seeded OpenCode profile learns to resume its session, which seeding alone cannot teach it.
+    /// </summary>
+    /// <remarks>
+    /// Profiles are only ever added and never overwritten, so everybody who has run this app before
+    /// already has an "OpenCode" profile and would never see the new one. The pair being replaced cannot
+    /// work at all: <c>opencode --session ${tileId}</c> hands over an id without opencode's required
+    /// <c>ses</c> prefix, so it was always refused and the tile always fell through to a bare
+    /// <c>opencode</c> with no history.
+    /// </remarks>
+    [Fact]
+    public void The_old_opencode_profile_is_replaced_by_one_that_can_resume()
+    {
+        GivenSettings("""
+            {
+              "ShellProfiles": [
+                { "Name": "OpenCode", "StartupScript": "opencode --session ${tileId}", "FallbackScript": "opencode" }
+              ]
+            }
+            """);
+
+        var profile = Assert.Single(new SettingsService(SettingsPath).Settings.ShellProfiles,
+            p => p.Name == "OpenCode");
+
+        Assert.Equal("opencode --session ses_${tileId}", profile.StartupScript);
+        Assert.Contains("opencode import", profile.FallbackScript);
+        Assert.Contains("${opencodeSessionFile}", profile.FallbackScript);
+    }
+
+    /// <summary>
+    /// A profile the user has touched is left exactly as they wrote it.
+    /// </summary>
+    /// <remarks>
+    /// The migration replaces a command that cannot work, not a decision. Somebody who edited either
+    /// script — even to something that also does not work — has said what they want their tile to run,
+    /// and an update is not the moment to overrule them.
+    /// </remarks>
+    [Theory]
+    [InlineData("opencode --continue", "opencode")]
+    [InlineData("opencode --session ${tileId}", "opencode --print-logs")]
+    public void An_opencode_profile_the_user_edited_is_left_alone(string startup, string fallback)
+    {
+        GivenSettings($$"""
+            {
+              "ShellProfiles": [
+                { "Name": "OpenCode", "StartupScript": "{{startup}}", "FallbackScript": "{{fallback}}" }
+              ]
+            }
+            """);
+
+        var profile = Assert.Single(new SettingsService(SettingsPath).Settings.ShellProfiles,
+            p => p.Name == "OpenCode");
+
+        Assert.Equal(startup, profile.StartupScript);
+        Assert.Equal(fallback, profile.FallbackScript);
+    }
+
+    /// <summary>A fresh installation gets the resuming profile from seeding, so the migration has
+    /// nothing to do and the two cannot both fire.</summary>
+    [Fact]
+    public void A_new_installation_is_seeded_with_the_resuming_opencode_profile()
+    {
+        var profile = Assert.Single(new SettingsService(SettingsPath).Settings.ShellProfiles,
+            p => p.Name == "OpenCode");
+
+        Assert.Equal("opencode --session ses_${tileId}", profile.StartupScript);
+        Assert.Contains("${opencodeSessionFile}", profile.FallbackScript);
+    }
+
+    /// <summary>
     /// A fresh installation starts in the language the machine is set up in — but only a fresh one.
     /// </summary>
     /// <remarks>

@@ -1,5 +1,6 @@
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.ViewModels;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -183,6 +184,95 @@ public class ScriptContractTests
         Assert.Equal("cmd.exe", executable);
         // Verbatim: no quoting is added here, and none can be — cmd would read added quotes literally.
         Assert.Equal(["/c", "claude & echo \"hi\""], args);
+    }
+
+    // ---- which shell a chain's commands are given to ---------------------------
+
+    private static ShellProfile ShellOf(ShellType type, string name) =>
+        new() { Name = name, ExecutablePath = name, Type = type };
+
+    private static readonly ShellProfile GitBash = ShellOf(ShellType.Bash, "Git Bash");
+    private static readonly ShellProfile PowerShell = ShellOf(ShellType.PowerShell, "PowerShell");
+    private static readonly ShellProfile Cmd = ShellOf(ShellType.Cmd, "CMD");
+
+    /// <summary>
+    /// A profile's own shell runs its commands, and this is the ordinary case — nothing is second-guessed
+    /// for the sake of it.
+    /// </summary>
+    [Theory]
+    [InlineData(ShellType.PowerShell)]
+    [InlineData(ShellType.Bash)]
+    [InlineData(ShellType.Zsh)]
+    [InlineData(ShellType.Fish)]
+    [InlineData(ShellType.Other)]
+    public void A_chains_commands_run_in_the_shell_the_profile_names(ShellType type)
+    {
+        var shell = ShellOf(type, "chosen");
+
+        Assert.Same(shell, ShellDetector.ResolveForCommands(shell, [PowerShell, GitBash, Cmd]));
+    }
+
+    /// <summary>
+    /// <c>cmd</c> is the exception, because it cannot run what these profiles are made of: it does not
+    /// treat <c>;</c> as a separator, it runs the first line of a multi-line command only, and it parses
+    /// quotes by rules the PTY backend does not write. All measured — and the first of them is what
+    /// reduced the seeded OpenCode profile to a bare shell, its fallback being two commands in one.
+    /// </summary>
+    [Fact]
+    public void A_cmd_profile_has_its_commands_run_by_powershell_instead()
+        => Assert.Same(PowerShell, ShellDetector.ResolveForCommands(Cmd, [GitBash, PowerShell, Cmd]));
+
+    [Fact]
+    public void Without_powershell_a_posix_shell_takes_the_commands()
+        => Assert.Same(GitBash, ShellDetector.ResolveForCommands(Cmd, [Cmd, GitBash]));
+
+    /// <summary>A shell whose flag mapping is only guessed at (<c>-c</c>) still beats the one measured to
+    /// mishandle every command it is handed.</summary>
+    [Fact]
+    public void Any_other_shell_is_preferred_to_cmd()
+    {
+        var unknown = ShellOf(ShellType.Other, "something");
+
+        Assert.Same(unknown, ShellDetector.ResolveForCommands(Cmd, [Cmd, unknown]));
+    }
+
+    /// <summary>With nothing else installed the chain stays on <c>cmd</c> rather than not running: the
+    /// limits are real but partial, and a tile that launches nothing teaches nobody anything.</summary>
+    [Fact]
+    public void With_nothing_else_installed_the_chain_stays_on_cmd()
+        => Assert.Same(Cmd, ShellDetector.ResolveForCommands(Cmd, [Cmd]));
+
+    /// <summary>
+    /// And the profile editor says so, because the substitution overrules a setting the user made and a
+    /// line in a log file is not where they will find that out. Only for a profile that runs commands:
+    /// without a fallback the tile starts its shell interactively, <c>cmd</c> is left alone, and the
+    /// notice would be untrue.
+    /// </summary>
+    [Theory]
+    [InlineData(ShellType.Cmd, "claude", "claude -r", true)]
+    [InlineData(ShellType.Cmd, "claude", null, false)]        // no chain: an interactive cmd, untouched
+    [InlineData(ShellType.Cmd, "claude", "  ", false)]        // a blank fallback is no fallback
+    [InlineData(ShellType.PowerShell, "claude", "claude -r", false)]
+    [InlineData(ShellType.Bash, "claude", "claude -r", false)]
+    public void The_profile_editor_says_when_a_profiles_commands_will_run_elsewhere(
+        ShellType type, string? startup, string? fallback, bool expected)
+        => Assert.Equal(expected, SettingsViewModel.CommandsRunElsewhere(
+            LaunchScripts.FromProfile(startup, fallback), type));
+
+    /// <summary>The seeded OpenCode fallback is two commands joined by <c>;</c>, which is exactly what
+    /// cmd does not understand — so this is the case the substitution exists for, end to end.</summary>
+    [Fact]
+    public void The_opencode_fallback_reaches_a_shell_that_understands_it()
+    {
+        var command = TileScript.Resolve(
+            "opencode import \"${opencodeSessionFile}\" ; opencode --session ses_${tileId}", TileId);
+
+        var (executable, args) = ShellCommandLine.For(
+            ShellDetector.ResolveForCommands(Cmd, [PowerShell, Cmd]), command);
+
+        Assert.Equal("PowerShell", executable);
+        Assert.Equal("-Command", args[0]);
+        Assert.Contains(" ; opencode --session", args[1]);
     }
 
     /// <summary>The profile's own arguments are the interactive-startup flags (<c>--login -i</c>), and

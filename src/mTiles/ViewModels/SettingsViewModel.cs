@@ -183,6 +183,52 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private ComboOption? _editProfileAiTool;
 
+    /// <summary>
+    /// Shown while editing a profile whose commands will not be run by the shell it names, because that
+    /// shell is <c>cmd</c>.
+    /// </summary>
+    /// <remarks>
+    /// The substitution is silent everywhere else — a line in a log file the user has no reason to open.
+    /// It is also the one place where this application overrules a setting somebody made, and for a
+    /// hand-written <c>cmd</c> profile it is a real regression: <c>%VAR%</c>, <c>&amp;&amp;</c> and the
+    /// builtins stop working. Saying so where the setting is made is the difference between a decision
+    /// and a surprise.
+    /// </remarks>
+    [ObservableProperty]
+    private bool _editProfileShellIsSubstituted;
+
+    partial void OnEditProfileShellChanged(ComboOption? value) => RefreshProfileShellNotice();
+    partial void OnEditProfileFallbackScriptChanged(string value) => RefreshProfileShellNotice();
+
+    /// <summary>
+    /// Works out which shell the profile being edited would actually get. The blank name is the case
+    /// that matters and the easy one to miss — it means "the default shell", which may itself be
+    /// <c>cmd</c>, so picking a shell from the list is not the only way to end up there.
+    /// </summary>
+    private void RefreshProfileShellNotice()
+    {
+        var name = EditProfileShell?.Value ?? "";
+        var type = string.IsNullOrEmpty(name)
+            ? ShellDetector.ResolveDefault(_settingsService.Settings).Type
+            : ShellDetector.GetTypeByName(name);
+
+        EditProfileShellIsSubstituted = CommandsRunElsewhere(
+            LaunchScripts.FromProfile(EditProfileScript, EditProfileFallbackScript), type);
+    }
+
+    /// <summary>
+    /// Whether this profile's commands will be run by something other than the shell it names.
+    /// </summary>
+    /// <remarks>
+    /// A function of its two inputs rather than of the machine, so it can be read in a table test:
+    /// asking <see cref="ShellDetector"/> inside would make the only possible test depend on which
+    /// shells the agent running it happens to have installed — <c>cmd</c> among them.
+    /// <para>Only for a profile that actually runs commands. Without a fallback the tile starts its
+    /// shell interactively, <c>cmd</c> is left alone, and the warning would simply be untrue.</para>
+    /// </remarks>
+    internal static bool CommandsRunElsewhere(LaunchScripts scripts, ShellType shellType) =>
+        scripts.RunsCommandChain && shellType == ShellType.Cmd;
+
     public ObservableCollection<ComboOption> AiToolOptions { get; } = [];
 
     private UserShellProfile? _editingProfile;

@@ -25,6 +25,11 @@ internal static class TileLauncher
 
         var scripts = Runnable(vm);
 
+        // Before anything runs, and in front of both launch paths: a profile may name the import
+        // document in either script, and the command that reads it is the tile's own — by the time it
+        // runs there is nobody left to write the file for it.
+        OpenCodeSession.PrepareIfReferenced(scripts, vm.TileId, vm.WorkingDirectory);
+
         if (scripts.RunsCommandChain)
         {
             try

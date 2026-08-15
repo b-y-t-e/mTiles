@@ -25,9 +25,10 @@ dotnet test                     # tests/mTiles.Tests
 - `Services/DirectLaunchSession.cs` — one tile's command chain (see Shell Profiles below); disposable, and disposing it is what stops it relaunching
 - `Services/TerminalClipboardCoordinator.cs` — window-level Ctrl+C across tiles (see Terminal key handling)
 - `Services/Speech/` — dictation (see `docs/DICTATION.md`): IAudioCapture/PortAudioCapture, AudioResampler, ISpeechToTextEngine with ParakeetSpeechEngine (+ParakeetVocabulary) and WhisperSpeechEngine, SpeechEngines (the one map from model kind to engine and to what it looks like on disk), SpeechModelCatalog, SpeechModelStore, TarGzExtractor, DictationService, TranscriptPostProcessor, DictationTextSink, HotkeyGesture, HotkeyCapture (what a keystroke means to something reading a new shortcut — shared by the Speech tab and the setup wizard, and pure, because it lived in view code where the "mark it handled only where it is taken" rule had no test), HotkeyAdvice, DictationHotkeyMachine, DictationHotkeys
-- `Services/ShellCommandLine.cs` — wraps a command for the shell that runs it (`-c` / `/c` / `-Command`). Deliberately without the profile's own args: those are the interactive-startup flags. **`cmd /c` is only approximately supported**: it does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, and it runs only the first line of a multi-line command (measured)
+- `Services/ShellCommandLine.cs` — wraps a command for the shell that runs it (`-c` / `/c` / `-Command`). Deliberately without the profile's own args: those are the interactive-startup flags. **A command chain never runs in `cmd`**: `ShellDetector.ResolveForCommands` swaps it for PowerShell (or a POSIX shell) and `DirectLaunchSession` traces the swap, because `cmd` does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, runs only the first line of a multi-line command, and does not treat `;` as a separator — all measured, and the last of those silently reduced the seeded OpenCode profile to a bare shell. Only the *commands* move; the tile's interactive shell stays whatever the user chose, so `/c` is still reachable when nothing else is installed
 - `Services/ChainPolicy.cs` + `Services/RelaunchBudget.cs` — the launch chain's rules and its rate limit, pure and separate from the loop that carries them out
-- `Services/TileScript.cs` — the one place that expands `${tileId}`, and the only thing that decides what an acceptable tile id is
+- `Services/TileScript.cs` — the one place that expands a profile script's placeholders (`${tileId}`, `${opencodeSessionFile}`), and the only thing that decides what an acceptable tile id is — a rule `OpenCodeSession` asks for rather than copies, because the same value also becomes a file name
+- `Services/OpenCodeSession.cs` — how an OpenCode tile gets its conversation back (see Session resume below)
 - `SettingsService` writes on a debounce **and** directly when the window closes, so both the write and the timer swap are locked, and the timer's write is wrapped: an unhandled exception on a thread-pool thread ends the process, and no settings save is worth the application
 
 `ShellStarter`, `TileLauncher`, `DirectLaunchSession` and `TerminalClipboardCoordinator` drive a `TerminalControl` but draw nothing, so they live in `Services/` rather than `Views/` — which also keeps `ViewModels/` from reaching into `Views/`.
@@ -138,6 +139,18 @@ Terminal creation flow with profile:
 1. Empty tile → click Terminal → if profiles exist, ProfileChooser appears (Back / Default / profile buttons)
 2. Profile selection → `TileFactory.CreateContent(..., UserShellProfile)` → `ShellDetector.ResolveFromUserProfile()` → `TerminalTileViewModel` with shell + startup script
 3. `TileLauncher.Launch` → `LaunchScripts.RunsCommandChain` → `DirectLaunchSession.Start()`, else → `ShellStarter.StartAsync()` with the startup script
+
+### Session resume
+
+A tile's `TileId` is the agent's session id, so a restart reopens the same conversation. **Claude Code** and **pi** take an id outright (`--session-id`), so their profiles just substitute `${tileId}`.
+
+**OpenCode cannot be told one**: `opencode --session <id>` only ever *continues* a session (unknown id → `Session not found`, exit 1 after ~1.4 s, which the chain reads as "next command"), and the TUI creates no session at all until the first message — so there is nothing to observe at startup and pick up either. The way in is `opencode import`, which takes a JSON document and keeps its `id` verbatim; `ses_${tileId}` is legal, so no tile→session map exists anywhere. `OpenCodeSession` writes that document, `TileScript` expands `${opencodeSessionFile}` to its path (a pure function of the tile id, so the launcher can ask whether a profile resolves without writing anything), `TileLauncher` writes it before either launch path runs, and the seeded profile is `opencode --session ses_${tileId}` falling back to `opencode import "${opencodeSessionFile}" ; opencode --session ses_${tileId}`.
+
+Measured against **opencode 1.18.14**, all load-bearing: the document's `projectID`/`directory` are **ignored** — the session lands in the project of the import's *cwd*, which is why the import runs as one of the tile's own commands; re-importing an existing id is **non-destructive** (title and messages kept), which makes it create-if-missing rather than a way to wipe the conversation being resumed; **every** field is required (`id`+`time` alone is rejected with `Missing key`, which does not say which key); `version` is not validated. It is opencode's *export* format, not an API — when it moves, the import fails, the resume finds nothing, and the chain ends at an interactive shell: a tile without its history rather than no tile. `OpenCodeSessionTests` pins the shape so that surfaces as a failing build.
+
+Seeding never overwrites an existing profile, so the resume reaches existing users through `SettingsService.MigrateOpenCodeProfile` — and only when both scripts are still exactly what an older version seeded (`opencode --session ${tileId}` / `opencode`), a pair that could never work because the id lacked opencode's `ses` prefix. A profile the user has touched is left alone.
+
+**Codex** is the same problem with a different CLI and is still open (README roadmap).
 
 Profile persistence in layout: `TileNode.UserProfileId` → during deserialization `TileFactory.CreateTerminalFromDto` looks up the profile by Id in `AppSettings.ShellProfiles`. If the profile was deleted — graceful fallback to `ShellName`.
 
@@ -275,6 +288,7 @@ It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (
 - `workspaces.json` — list of workspaces (id, name, path)
 - `workspaces/{id}.json` — tile layout per workspace (shell name, user profile id, tile id, tile name). Backward compat: `RootPane` → `RootTile` migration in `WorkspaceState`
 - `logs/` — application logs (daily files, 7-day retention)
+- `sessions/opencode/ses_<tileId>.json` — the import document an OpenCode tile creates its session from (see Session resume). Rewritten on every launch; a few hundred bytes, and deliberately never pruned — while the file exists, a session the user threw away can be recreated on the next launch
 - `models/` — downloaded speech-to-text models (hundreds of MB each; `.partial` while downloading)
 - Auto-save with debounce
 

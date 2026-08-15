@@ -115,6 +115,8 @@ public sealed class SettingsService
             changed = true;
         }
 
+        changed |= MigrateOpenCodeProfile();
+
         if (changed)
             Save();
     }
@@ -203,6 +205,59 @@ public sealed class SettingsService
 
     private const int BadCopiesKept = 5;
 
+    /// <summary>
+    /// The OpenCode profile's two commands: resume the tile's session, and — when there is none yet —
+    /// create it and resume that. See <see cref="OpenCodeSession"/> for why creating one takes a file.
+    /// <para>Named constants because <see cref="MigrateOpenCodeProfile"/> has to recognise its own
+    /// earlier answer, and comparing against a literal it had copied is how a migration comes to
+    /// overwrite something the user wrote.</para>
+    /// </summary>
+    /// <remarks>Composed through <see cref="OpenCodeSession.IdFor"/> rather than written out, so
+    /// opencode's <c>ses</c> prefix lives in exactly one place. Spelling it here as well was a second
+    /// copy hiding behind a comment that claimed there was only one — and the two disagreeing is not a
+    /// build failure, it is a tile that silently starts a fresh conversation.</remarks>
+    private static readonly string OpenCodeResume =
+        $"opencode --session {OpenCodeSession.IdFor(TileScript.TileIdToken)}";
+
+    /// <inheritdoc cref="OpenCodeResume"/>
+    /// <remarks><c>;</c> rather than <c>&amp;&amp;</c>, so a failed import still gives the resume its
+    /// turn: the session may well exist already and the import be the thing that is broken. It is a
+    /// separator in PowerShell and every POSIX shell, and <em>not</em> in <c>cmd</c> — which is the
+    /// documented limit of running chains there, not a new one.</remarks>
+    private static readonly string OpenCodeCreateThenResume =
+        $"opencode import \"{TileScript.OpenCodeSessionFileToken}\" ; {OpenCodeResume}";
+
+    /// <summary>
+    /// Gives the seeded OpenCode profile its session resume, which seeding alone cannot do: profiles are
+    /// only ever added, never overwritten, so everybody who has run this app before already has an
+    /// "OpenCode" profile and would never see the new one.
+    /// <para>Only when both scripts are still <em>exactly</em> what an earlier version seeded — the old
+    /// pair asked <c>opencode --session ${tileId}</c>, which opencode refuses outright because the id
+    /// lacks its <c>ses</c> prefix, and fell back to a bare <c>opencode</c>. A profile the user has
+    /// touched at all is left alone; this replaces a command that cannot work, not a decision.</para>
+    /// </summary>
+    private bool MigrateOpenCodeProfile()
+    {
+        const string oldStartup = "opencode --session ${tileId}";
+        const string oldFallback = "opencode";
+
+        // Every match, not the first. Seeding cannot produce two profiles of one name, but a user
+        // duplicating one can — and migrating one of a pair while leaving its twin on a command that has
+        // never worked is the kind of half-done that gets reported as "resume works sometimes".
+        var stale = Settings.ShellProfiles.Where(p =>
+            p.Name.Equals("OpenCode", StringComparison.OrdinalIgnoreCase)
+            && p.StartupScript == oldStartup
+            && p.FallbackScript == oldFallback).ToList();
+
+        foreach (var profile in stale)
+        {
+            profile.StartupScript = OpenCodeResume;
+            profile.FallbackScript = OpenCodeCreateThenResume;
+        }
+
+        return stale.Count > 0;
+    }
+
     private void SeedDefaultProfiles()
     {
         var defaults = new List<UserShellProfile>
@@ -236,8 +291,8 @@ public sealed class SettingsService
                 Name = "OpenCode",
                 ShellName = "",
                 RequiredAiToolBinaryName = "opencode",
-                StartupScript = "opencode --session ${tileId}",
-                FallbackScript = "opencode"
+                StartupScript = OpenCodeResume,
+                FallbackScript = OpenCodeCreateThenResume
             },
             new()
             {
