@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
 
 namespace mTiles.Services.Speech;
@@ -293,6 +293,20 @@ public sealed class DictationService : IDisposable
             Owner = owner;
             SetState(DictationState.Recording);
             StartRecordingLimit();
+
+            // The model is loaded now, while the user is still talking, rather than at the end of the
+            // recording where it used to be the whole visible delay: a cold Parakeet is ~2 s of ONNX
+            // session building and a large whisper more, and every second of it fell between the user
+            // letting go of the key and their words appearing. Speaking takes at least that long, so on
+            // the common path the load is finished before there is anything to transcribe.
+            //
+            // Fire-and-forget on purpose. It is speculative work: the recording must not wait for it,
+            // must not fail because of it, and a cancelled dictation deliberately leaves the model
+            // resident — the next attempt is the likeliest thing to happen next, and the idle timer
+            // still owns when it goes away. TranscribeAsync loads for itself regardless, so the worst
+            // this can do is nothing.
+            var path = _store.GetPath(model);
+            _ = Task.Run(() => _engines.PreloadAsync(model.Kind, path));
             return true;
         }
     }

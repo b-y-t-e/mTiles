@@ -1,4 +1,4 @@
-using mTiles.Services.Speech;
+﻿using mTiles.Services.Speech;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -74,8 +74,12 @@ public class DictationServiceTests
         public bool BlockUntilReleased { get; set; }
         public int Calls { get; private set; }
 
+        public int Loads { get; private set; }
+
         public Task LoadAsync(string modelPath, CancellationToken cancellationToken = default)
         {
+            if (!IsLoaded)
+                Loads++;
             IsLoaded = true;
             return Task.CompletedTask;
         }
@@ -159,6 +163,51 @@ public class DictationServiceTests
     /// a recording left running grows at 64 KB a second towards a transcription of an hour of audio.
     /// The cap transcribes rather than discards — the words already spoken are still worth having.
     /// </remarks>
+    /// <summary>
+    /// The model is loaded when the recording <em>starts</em>, not when it ends.
+    /// </summary>
+    /// <remarks>
+    /// A cold engine is seconds of work — building ONNX sessions, or reading a whisper file off disk —
+    /// and it used to happen after the user let go of the key, where it was the entire visible delay
+    /// between speaking and the words appearing. Speaking takes longer than loading, so paying for it
+    /// while the microphone is open makes it free on the common path. Pinned because it is invisible
+    /// when it works: nothing in the transcript says which of the two moments paid for the load, and
+    /// the preload is fire-and-forget, so losing it would look exactly like the feature being slow.
+    /// </remarks>
+    [Fact]
+    public async Task Starting_a_recording_loads_the_model_without_waiting_for_the_transcription()
+    {
+        using var settings = new TempSettings();
+        using var models = new FakeModels();
+        var (service, _, engine) = Build(settings, models);
+        using var _guard = service;
+
+        Assert.True(service.Start(new object(), _ => true));
+
+        Assert.True(await WaitUntilAsync(() => engine.IsLoaded));
+        Assert.Equal(DictationState.Recording, service.State);
+        Assert.Equal(0, engine.Calls);
+    }
+
+    /// <summary>The preload does not cost a second load: the transcription finds the model already
+    /// there.</summary>
+    [Fact]
+    public async Task The_transcription_reuses_what_the_preload_loaded()
+    {
+        using var settings = new TempSettings();
+        using var models = new FakeModels();
+        var (service, _, engine) = Build(settings, models);
+        using var _guard = service;
+
+        string? delivered = null;
+        Assert.True(service.Start(new object(), text => { delivered = text; return true; }));
+        Assert.True(await WaitUntilAsync(() => engine.IsLoaded));
+        service.Stop();
+
+        Assert.Equal("hello world", await WaitForDeliveryAsync(() => delivered));
+        Assert.Equal(1, engine.Loads);
+    }
+
     [Fact]
     public async Task A_recording_nobody_stops_is_cut_off_and_still_delivered()
     {

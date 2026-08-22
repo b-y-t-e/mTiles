@@ -153,6 +153,20 @@ is where the pipeline, the thresholds and the model list come from.
   enough on its own: a dictation can start between the check and the call, which is why the check
   happens *under* the semaphore. The timer takes it with a zero timeout and gives up if it is held,
   because a transcription in flight means the model is wanted.
+
+  A cold model is loaded when the recording **starts**, not when it ends (`SpeechEngineHost.PreloadAsync`,
+  fired from `DictationService.Start`). It is the same load either way; the only thing that changes is who
+  waits for it. At the end it was the whole visible delay between letting go of the key and the words
+  appearing — and speaking takes longer than loading, so on the common path it is now finished before
+  there is anything to transcribe. Deliberately fire-and-forget and deliberately silent: it takes the same
+  semaphore as everything else here (so it queues behind a transcription rather than loading into an
+  engine the native code is reading, and `Dispose`'s zero-timeout `Wait` stands down while it holds it),
+  the recording never waits for it, and a failure is traced rather than reported — the user hears about a
+  broken model from the transcription that needs it, not from a speculative load they never asked for.
+  `TranscribeAsync` still loads for itself, and both engines' `LoadAsync` is a no-op when the same path is
+  already resident, so the worst a lost or failed preload can do is nothing. Cancelling a dictation
+  deliberately does **not** cancel it: the next attempt is the likeliest thing to happen next, and the
+  idle timer still owns when the model goes away.
 - **Padding** — a recording shorter than a second is zero-padded to 1.25 s (Handy's numbers): the models
   produce nonsense from a fragment, and a tap on the key is a tap, not an error.
 - **`DictationTextSink`** — the focused `TextBox`/AvaloniaEdit first, **if it is still on screen**: the

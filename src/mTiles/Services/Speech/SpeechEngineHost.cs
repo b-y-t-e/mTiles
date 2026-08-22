@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace mTiles.Services.Speech;
 
@@ -73,6 +73,58 @@ internal sealed class SpeechEngineHost : IDisposable
 
             cancellationToken.ThrowIfCancellationRequested();
             return await engine.TranscribeAsync(samples, options, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _inUse.Release();
+        }
+    }
+
+    /// <summary>
+    /// Loads <paramref name="path"/> into memory if it is not already there, without transcribing.
+    /// </summary>
+    /// <remarks>
+    /// <para>Called when a recording <em>starts</em>, so the first two seconds of a cold model are paid
+    /// for while the user is still speaking instead of after they stop. It is not an optimisation of the
+    /// transcription — <see cref="TranscribeAsync"/> still loads what it needs, and a preload that lost
+    /// its race or failed changes nothing but the wait.</para>
+    /// <para>Takes the same semaphore as everything else here, which is what makes it safe to run beside
+    /// a transcription that is still finishing: it queues rather than loading into an engine the native
+    /// code is reading. Failures are traced and swallowed — the user hears about a broken model from the
+    /// transcription that needs it, not from a speculative load they never asked for.</para>
+    /// </remarks>
+    public async Task PreloadAsync(SpeechModelKind kind, string path,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _inUse.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            lock (_gate)
+            {
+                if (_disposed)
+                    return;
+            }
+
+            var engine = Resolve(kind);
+            await engine.LoadAsync(path, cancellationToken).ConfigureAwait(false);
+
+            lock (_gate)
+                _loadedPath = path;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("Preloading the speech model failed: {0}", ex);
         }
         finally
         {
