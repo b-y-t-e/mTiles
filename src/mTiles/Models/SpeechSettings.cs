@@ -149,9 +149,9 @@ public sealed class SpeechSettings
     /// show and the timer cannot take. <see cref="System.Threading.Timer"/> refuses a due time past
     /// about 49 days, so an unclamped 100000 in a hand-edited file is not a long wait: it is an
     /// <c>ArgumentOutOfRangeException</c> on a thread-pool thread at the end of the first dictation.
-    /// Four hours is already far longer than any working session, and zero still means never.
+    /// Six hours covers a working day with a lunch break in the middle of it, and zero still means never.
     /// </remarks>
-    public const int MaxUnloadMinutes = 240;
+    public const int MaxUnloadMinutes = 360;
 
     /// <summary>The same number, typed for the control that binds to it — <c>NumericUpDown.Maximum</c>
     /// is a <see cref="decimal"/>, and XAML will not convert. Derived rather than written twice, which
