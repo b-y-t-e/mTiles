@@ -832,6 +832,22 @@ photographed code is worthless once the owner has scanned it, and worthless anyw
 Comparisons are constant-time, including the lookup, which is scanned rather than hashed for that
 reason. Closing the panel withdraws every displayed code, which makes closing it a way to revoke.
 
+**The panel replaces its codes every eighty seconds**, well inside the two minutes, and that is not
+housekeeping — it is the difference between the feature working and not. The ordinary way this panel is
+used is: open it, walk off to fetch the phone, come back. Nothing was replacing the codes, so the user
+returned to a code that had quietly stopped working, scanned it, was told the pairing had expired, and
+was then offered the firewall as the likely cause by the panel's own troubleshooting text. Wrong answer,
+confidently given, to the one scenario the panel is mostly opened for. Refreshing stops while a device is
+paired: there is nothing to keep alive then, and swapping a code somebody may be photographing to add a
+second device is its own small betrayal.
+
+**Which codes are still good is the pairing store's to answer, not the panel's.** Only so many tokens may
+be live at once and issuing one past that limit silently invalidates the oldest, so the panel has to drop
+the same code the store dropped. It used to work that out itself, from its own issue counter, and had
+already got it wrong once — it trimmed in display order, which is reversed, so it kept the dead code and
+threw away the live one. It now asks `IsPairingTokenLive`, which also covers the case a private copy of
+the rule could not see at all: a code that simply ran out of time on screen.
+
 **Pairings survive a restart, and what is stored is a digest.** The session file holds SHA-256 of each
 token, never the token — a bearer credential at rest is a standing grant of terminal access to whoever
 reads the file or an old backup of it, and the digest is enough to answer both questions that matter
@@ -1003,8 +1019,20 @@ settings graph is plain `Dictionary`, and the debounced save walks it from elsew
 during that walk throws inside the save, on a thread-pool thread, at a moment nobody would connect to
 somebody having scanned a QR code. Every other writer of that file is already on the UI thread.
 
+**A generated certificate is valid for 397 days**, deliberately under Apple's 398-day ceiling. Safari
+refuses a TLS certificate valid for longer than that outright, rather than offering the "accept the risk"
+route this whole feature depends on, and Chrome follows the same rule; 825 days — the older CA/Browser
+Forum figure, and what this used at first — bought nothing and risked turning a warning the user can click
+through into a wall they cannot. The bridge reissues on a change of address anyway, so the shorter life
+costs nothing real.
+
 Certificates are disposed when the bridge stops. They hold key handles the operating system keeps until
-released, and restarting for a port change is an ordinary act.
+released, and restarting for a port change is an ordinary act. **The disposal is what matters, and it was
+measured rather than assumed**: twenty cycles in the bridge's own shape — load the PKCS#12 with
+`UserKeySet`, re-import through `ForServerUse`, dispose — left the count of files in
+`%APPDATA%\Microsoft\Crypto\Keys` exactly where it started (40 → 40). Twenty more with the handles
+abandoned to the garbage collector took it to 80 and back to 42 once finalizers ran. So there is no
+standing key-file leak to cache around; there is only a rule to keep following.
 
 ### The firewall
 
