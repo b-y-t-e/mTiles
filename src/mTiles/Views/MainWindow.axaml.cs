@@ -67,6 +67,14 @@ public partial class MainWindow : Window
             };
             vm.WorkspacesPanel.FocusWorkspaceRequested += () =>
                 vm.CurrentWorkspace?.FocusActiveTile();
+            if (vm.PhoneBridge is { } phoneBridge)
+            {
+                vm.ShowPhoneBridge = () => PhoneBridgeDialog.ShowAsync(this, phoneBridge);
+
+                // The same thing DictationHotkeys resolves, so a transcript arriving from a phone lands
+                // where one arriving from Alt+Space would: the focused text box first, the tile after.
+                phoneBridge.FocusedElement = () => FocusManager?.GetFocusedElement();
+            }
             if (vm.Dictation is { } dictation)
             {
                 // Window-level and tunnelling, like the clipboard coordinator: terminals consume keys,

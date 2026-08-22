@@ -17,6 +17,39 @@ public partial class MainWindowViewModel : ObservableObject
     /// <summary>The application's dictation service, null when it was never wired up.</summary>
     internal Services.Speech.DictationService? Dictation { get; }
 
+    /// <summary>The phone bridge, null when it was never wired up.</summary>
+    internal Services.Phone.PhoneBridgeManager? PhoneBridge { get; }
+
+    /// <summary>
+    /// Whether to offer the QR button at all.
+    /// </summary>
+    /// <remarks>
+    /// Tied to dictation, because that is what it is a way of doing. The bridge is built unconditionally
+    /// — it opens nothing until somebody asks — so asking only whether it exists meant the button was
+    /// always there, including for somebody who had turned dictation off and would find a panel offering
+    /// to set up a microphone they had just declined.
+    /// <para>Deliberately not conditioned on a model being downloaded: the panel is also where the
+    /// feature is discovered, and hiding the way in until it is fully set up leaves nothing to find.</para>
+    /// </remarks>
+    public bool HasPhoneBridge =>
+        PhoneBridge is not null && _settingsService.Settings.Speech.Enabled;
+
+    /// <summary>
+    /// Opens the QR panel. Wired from the view, which is the only thing holding a window to parent it to.
+    /// </summary>
+    /// <remarks>
+    /// <b>A window-level entry point, not a per-tile one.</b> It began in the tile header beside the
+    /// microphone, which read as "dictate into <em>this</em> tile" — a promise the feature does not make
+    /// and cannot: the phone sends to whichever tile is active when you speak, exactly as the keyboard
+    /// shortcut does. Sitting next to Settings, it says what it is: a way to reach the application, not a
+    /// property of one tile.
+    /// </remarks>
+    public Func<Task>? ShowPhoneBridge { get; set; }
+
+    [RelayCommand]
+    private Task ShowPhoneBridgeAsync() =>
+        PhoneBridge is not null && ShowPhoneBridge is { } show ? show() : Task.CompletedTask;
+
     [ObservableProperty]
     private WorkspacesPanelViewModel _workspacesPanel;
 
@@ -37,12 +70,18 @@ public partial class MainWindowViewModel : ObservableObject
 
     public MainWindowViewModel(WorkspaceService workspaceService, PersistenceService persistenceService,
         SettingsService settingsService, DatabaseServiceManager? dbManager = null,
-        Services.Speech.DictationService? dictation = null)
+        Services.Speech.DictationService? dictation = null,
+        Services.Phone.PhoneBridgeManager? phoneBridge = null)
     {
         _persistenceService = persistenceService;
         _settingsService = settingsService;
+
+        // The switch lives on another dialog, so nothing else would tell this to look again — and a
+        // button that appears only after a restart reads as a broken setting.
+        _settingsService.SettingsChanged += OnSettingsChanged;
         _dbManager = dbManager;
         Dictation = dictation;
+        PhoneBridge = phoneBridge;
         _updateService = new UpdateService();
         _workspacesPanel = new WorkspacesPanelViewModel(workspaceService, settingsService);
         _settings = new SettingsViewModel(settingsService, dbManager, dictation);
@@ -152,8 +191,11 @@ public partial class MainWindowViewModel : ObservableObject
 
     public event Action<string>? WorkspaceRemoved;
 
+    private void OnSettingsChanged() => OnPropertyChanged(nameof(HasPhoneBridge));
+
     public void DisposeAll()
     {
+        _settingsService.SettingsChanged -= OnSettingsChanged;
         _updateService.Dispose();
         foreach (var vm in _workspaceCache.Values)
             vm.Dispose();

@@ -82,6 +82,8 @@ Linked as NuGet packages; none of their source is copied here.
 | Microsoft.Data.SqlClient, System.Security.Cryptography.ProtectedData | MIT |
 | Npgsql | PostgreSQL licence |
 | Velopack | MIT |
+| QRCoder | MIT — Copyright (c) 2013-2018 Raffael Herrmann |
+| Microsoft.AspNetCore.App (framework reference — Kestrel, for the phone bridge) | MIT — Copyright (c) .NET Foundation |
 | Terminal.Avalonia, TodoList.Avalonia, Notepad.Avalonia | ours |
 | **Whisper.net**, **Whisper.net.Runtime** (bundles whisper.cpp) | MIT — Copyright (c) 2024 sandrohanea; whisper.cpp is MIT, Copyright (c) 2023-2024 The ggml authors |
 | **Microsoft.ML.OnnxRuntime** | MIT — Copyright (c) Microsoft Corporation |

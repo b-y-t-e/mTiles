@@ -39,6 +39,12 @@
                     <mi:MaterialIcon Kind="CogOutline" Width="18" Height="18" />
                 </Button>
                 <Button Classes="toolbar"
+                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPhoneBridgeCommand}"
+                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasPhoneBridge}"
+                        ToolTip.Tip="Dictate from a phone">
+                    <mi:MaterialIcon Kind="Qrcode" Width="18" Height="18" />
+                </Button>
+                <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApplyUpdateCommand}"
                         ToolTip.Tip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).UpdateVersion, StringFormat='Update to {0}'}"
                         IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsUpdateAvailable}"
@@ -139,6 +145,13 @@
                         HorizontalAlignment="Center"
                         ToolTip.Tip="Settings">
                     <mi:MaterialIcon Kind="CogOutline" Width="16" Height="16" />
+                </Button>
+                <Button Classes="toolbar"
+                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPhoneBridgeCommand}"
+                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasPhoneBridge}"
+                        HorizontalAlignment="Center"
+                        ToolTip.Tip="Dictate from a phone">
+                    <mi:MaterialIcon Kind="Qrcode" Width="16" Height="16" />
                 </Button>
             </StackPanel>
 

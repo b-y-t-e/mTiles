@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#16162a">
+<title>mTiles dictation</title>
+<style>
+  :root {
+    --bg: #16162a; --surface: #1e1e3a; --border: #2a2a4a;
+    --text: #d6d6e2; --muted: #8a8aa0; --accent: #2d5a8a; --danger: #c06878;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+  header { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  #dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  #dot.on { background: #4a9a6a; }
+  #dot.off { background: var(--danger); }
+  #target { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  main { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 20px; }
+
+  #talk {
+    /* touch-action:none is what stops a press-and-hold turning into a page scroll or a text
+       selection on the way down — without it the gesture is cancelled by the browser mid-word. */
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    width: 100%; aspect-ratio: 1 / 1; max-height: 46vh; margin: 0 auto; max-width: 320px;
+    border-radius: 50%; font-size: 19px; font-weight: 500;
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px;
+    transition: background .12s, transform .12s, border-color .12s;
+  }
+  #talk:disabled { opacity: .45; }
+  #talk.live { background: #3a1d28; border-color: var(--danger); color: #f0c6ce; transform: scale(.97); }
+  #talk.busy { background: #1d2a3a; border-color: var(--accent); }
+  #talk small { font-size: 13px; font-weight: 400; color: var(--muted); }
+
+  #transcript {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; min-height: 76px; font-size: 15px; white-space: pre-wrap; word-break: break-word;
+  }
+  #transcript:empty::before { content: "What you say lands in the tile shown above."; color: var(--muted); }
+
+  footer { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+  label { display: flex; align-items: center; gap: 6px; }
+  #error { color: var(--danger); font-size: 13px; min-height: 1.4em; }
+</style>
+</head>
+<body>
+
+<header>
+  <span id="dot"></span><span id="status">Connecting…</span>
+  <span id="target"></span>
+</header>
+
+<main>
+  <button id="talk" disabled>
+    <span id="label">Hold to talk</span>
+    <small id="hint"></small>
+  </button>
+  <div id="transcript"></div>
+  <div id="error"></div>
+</main>
+
+<footer>
+  <label><input type="checkbox" id="latch"> Tap instead of holding</label>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+
+  const talk = document.getElementById("talk");
+  const label = document.getElementById("label");
+  const hint = document.getElementById("hint");
+  const dot = document.getElementById("dot");
+  const status = document.getElementById("status");
+  const target = document.getElementById("target");
+  const transcript = document.getElementById("transcript");
+  const errorBox = document.getElementById("error");
+  const latch = document.getElementById("latch");
+
+  let socket = null, connected = false, retryIn = 500;
+
+  /* The pending reconnect. Held so it can be cancelled: coming back from the background used to call
+     connect() while a retry was already scheduled, and both ran — two sockets, one of them orphaned,
+     each with its own onclose scheduling the next. */
+  let retryTimer = null;
+
+  /* Set when mTiles has told us this device is no longer paired. Distinct from being offline, and the
+     difference is the whole message: offline resolves itself, unpaired never does. */
+  let unpaired = false;
+  let ctx = null, mic = null, tap = null, stream = null, recording = false, wakeLock = null;
+  let idleTimer = null;
+
+  /* The microphone being opened, while it is being opened.
+     Two quick presses both passed begin()'s guard — `recording` only becomes true once the microphone is
+     open — and both called ensureAudio(). Neither saw `ctx`, because the first had not finished awaiting
+     getUserMedia yet, so both asked for a stream. The second one won the assignment and the first was
+     orphaned: never referenced again, never stopped, and holding the capture open for as long as the page
+     lived. The phone's recording indicator stayed lit with nothing recording, which is the single most
+     alarming thing this feature could do. Sharing the promise means the second caller waits for the same
+     stream instead of asking for another. */
+  let opening = null;
+
+  /* How long the microphone stays open after an utterance.
+     Not closed immediately, and not left open either. Left open, the phone shows its recording indicator
+     for as long as the page is on screen — in a feature whose entire selling point is that nothing is
+     listening to you, that is the single most alarming thing it could do, and it is not even true.
+     Closed immediately, every press pays the 200-300 ms getUserMedia costs again, which in push-to-talk
+     is the first word. Half a minute covers a run of dictations and clears the indicator once you stop. */
+  const IDLE_RELEASE_MS = 30000;
+
+  /* Whether the user still wants to be recording. Distinct from `recording`, which only becomes true
+     once the microphone is actually open — and opening it is where the very first press stalls for
+     seconds behind a permission prompt. Without this, letting go during that stall did nothing (finish()
+     returns early while recording is false) and the recording started *afterwards*, with no gesture left
+     to end it: a live microphone the user could only stop by waiting out the five-minute cap. */
+  let held = false;
+
+  /* The worklet does nothing but hand the samples back on the main thread's message port. Kept this
+     small deliberately: the conversion and the socket write belong where the socket is, and an
+     AudioWorklet that owns a WebSocket cannot be reasoned about when the connection drops. */
+  const WORKLET = `
+    class Tap extends AudioWorkletProcessor {
+      process(inputs) {
+        const channel = inputs[0] && inputs[0][0];
+        if (channel && channel.length) this.port.postMessage(channel.slice(0));
+        return true;
+      }
+    }
+    registerProcessor('tap', Tap);
+  `;
+
+  function setError(message) { errorBox.textContent = message || ""; }
+
+  function paint() {
+    talk.disabled = !connected;
+    talk.classList.toggle("live", recording);
+    label.textContent = recording ? "Listening…" : (latch.checked ? "Tap to talk" : "Hold to talk");
+    hint.textContent = recording ? (latch.checked ? "Tap again to send" : "Let go to send") : "";
+  }
+
+  /* ── connection ─────────────────────────────────────────────────────────────
+     The socket carries the session cookie automatically. The pairing token never becomes this page's
+     address: mTiles redirects to "/" the moment it has exchanged it, so nothing secret is in the
+     address bar, in the history, or in whatever the phone syncs those to. */
+  function connect() {
+    if (unpaired) return;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING))
+      return;
+
+    socket = new WebSocket(`wss://${location.host}/ws`);
+    socket.binaryType = "arraybuffer";
+
+    socket.onopen = () => {
+      connected = true; retryIn = 500;
+      dot.className = "on"; status.textContent = "Connected";
+      paint();
+    };
+
+    socket.onmessage = (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+
+      if (message.type === "state") {
+        target.textContent = message.tile || "";
+        if (message.state === "transcribing") {
+          talk.classList.add("busy"); status.textContent = "Transcribing…";
+        } else {
+          talk.classList.remove("busy");
+          status.textContent = connected ? "Connected" : "Offline";
+        }
+        /* The server ended it, not the button: the five-minute cap, a revoked pairing, or somebody
+           stopping the dictation from the tile on the computer. Every other path out of a recording
+           schedules the microphone's release; this one did not, so the capture stayed open with no timer
+           pending and the phone's recording indicator stayed lit with nothing recording. */
+        if (message.state === "idle" && recording) {
+          recording = false; held = false; release(); scheduleRelease();
+        }
+        paint();
+      } else if (message.type === "text") {
+        transcript.textContent = message.message;
+        setError("");
+      } else if (message.type === "error") {
+        setError(message.message);
+        held = false; recording = false; release(); scheduleRelease(); paint();
+      }
+    };
+
+    socket.onclose = (event) => {
+      connected = false; held = false; recording = false; release(); scheduleRelease();
+      dot.className = "off";
+      paint();
+
+      /* Which kind of "gone" this is. A revoked pairing closes with 1008; a handshake refused for a dead
+         cookie closes with 1006, which is also what a dropped Wi-Fi looks like — so the two are told
+         apart by asking the server directly. It answers 404 to anyone it does not recognise, and that is
+         a question worth asking once rather than reconnecting into silence for the rest of the day. */
+      if (event && event.code === 1008) { becomeUnpaired(); return; }
+      checkStillPaired();
+
+      /* Nobody is looking, so stop: a phone left face-down on a desk with mTiles closed would otherwise
+         wake the radio every eight seconds until the battery went. The visibilitychange handler below
+         reconnects the instant the screen comes back, which is the only moment the answer can differ. */
+      if (document.hidden) {
+        status.textContent = "Paused";
+        return;
+      }
+
+      if (unpaired) return;
+
+      status.textContent = "Reconnecting…";
+      if (retryTimer) clearTimeout(retryTimer);
+      /* Backed off to eight seconds: a phone that has been put down keeps this page alive for hours,
+         and a fixed half-second retry would be a heartbeat on somebody's battery all night. */
+      retryTimer = setTimeout(connect, retryIn);
+      retryIn = Math.min(retryIn * 2, 8000);
+    };
+
+    socket.onerror = () => { /* onclose follows and does the work */ };
+  }
+
+  function becomeUnpaired() {
+    unpaired = true;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    dot.className = "off";
+    status.textContent = "Not paired";
+    setError("This device is no longer paired with mTiles. Open the QR panel on the computer and scan a new code.");
+    releaseAudio();
+    paint();
+  }
+
+  async function checkStillPaired() {
+    try {
+      /* Same origin, no body wanted. 404 is what mTiles serves to a device it does not recognise; 200 is
+         the page, which means the cookie is fine and this was a network problem after all. */
+      const response = await fetch("/", { method: "GET", cache: "no-store", redirect: "manual" });
+      if (response.status === 404) { becomeUnpaired(); return; }
+    } catch {
+      /* Could not even ask — that is offline, which the retry below handles. */
+    }
+  }
+
+  /* ── audio ──────────────────────────────────────────────────────────────── */
+  /* Created synchronously, from inside the pointer handler, before anything is awaited.
+
+     iOS Safari only lets an AudioContext start from a real user gesture, and the gesture is over the
+     moment the first `await` yields — so a context built after `getUserMedia` came back suspended and
+     `resume()` on it was refused, leaving a page that looked connected and produced silence. Building it
+     first costs nothing on the platforms that do not care. */
+  function primeAudio() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  }
+
+  function ensureAudio() {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    if (mic) return ctx.state === "suspended" ? ctx.resume() : Promise.resolve();
+    if (opening) return opening;
+
+    opening = openAudio().finally(() => { opening = null; });
+    return opening;
+  }
+
+  async function openAudio() {
+    primeAudio();   // in case something reached here without a gesture
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+
+    /* No sample rate is requested. iOS ignores the request and runs the hardware's rate anyway, so
+       asking would produce a number the page believes and the samples do not match. The real rate is
+       read back below and sent to mTiles, which resamples with the same code the desktop mic uses. */
+    await ctx.resume();
+    mic = ctx.createMediaStreamSource(stream);
+
+    try {
+      const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
+      await ctx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+      tap = new AudioWorkletNode(ctx, "tap");
+      tap.port.onmessage = (event) => send(event.data);
+    } catch {
+      /* Safari before 14.5 and a few Android browsers. Deprecated, runs on the main thread, and
+         entirely adequate for one mono stream. */
+      tap = ctx.createScriptProcessor(4096, 1, 1);
+      tap.onaudioprocess = (event) => send(event.inputBuffer.getChannelData(0));
+    }
+
+    /* A muted sink, because a ScriptProcessorNode that reaches no destination is never pulled and
+       delivers nothing at all — silently. The gain of zero is what keeps the phone from playing the
+       user back to themselves. */
+    const silent = ctx.createGain();
+    silent.gain.value = 0;
+    mic.connect(tap); tap.connect(silent); silent.connect(ctx.destination);
+    
+
+    /* Let go if nobody wants it any more. releaseAudio() may have run while this was still awaiting
+       getUserMedia — the user pressed, changed their mind, and the page went to the background — and
+       without this the stream it could not see would stay open. */
+    if (!held && !recording) releaseAudio();
+  }
+
+  /* Hands the microphone back. Stopping the tracks is what actually clears the phone's indicator —
+     closing the AudioContext alone does not, because the capture belongs to the MediaStream. */
+  function releaseAudio() {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    if (recording) return;
+
+    /* Stop whatever the in-flight open produced, once it produces it. Cancelling getUserMedia is not
+       possible, so the only way not to leak it is to close it on arrival. */
+    if (opening) { opening.then(releaseAudio).catch(() => {}); return; }
+
+    if (stream) {
+      for (const track of stream.getTracks()) track.stop();
+      stream = null;
+    }
+    if (ctx) {
+      try { ctx.close(); } catch {}
+      ctx = null;
+    }
+    mic = null;
+    tap = null;
+  }
+
+  function scheduleRelease() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(releaseAudio, IDLE_RELEASE_MS);
+  }
+
+  function send(samples) {
+    if (!recording || !socket || socket.readyState !== WebSocket.OPEN) return;
+
+    const pcm = new Int16Array(samples.length);
+    for (let i = 0; i < samples.length; i++) {
+      const clamped = Math.max(-1, Math.min(1, samples[i]));
+      pcm[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+    }
+    socket.send(pcm.buffer);
+  }
+
+  async function begin() {
+    if (recording || !connected) return;
+    setError("");
+
+    try {
+      await ensureAudio();
+    } catch (e) {
+      held = false;
+      setError(e && e.name === "NotAllowedError"
+        ? "Microphone access was refused. Allow it in your browser's site settings."
+        : "This browser would not open the microphone. It must be a secure (https) page.");
+
+      /* openAudio() can fail *after* getUserMedia has handed over a stream — an AudioWorklet that will
+         not load, a ScriptProcessor the browser has removed. The stream is live at that point and nothing
+         else references it, so without this it stays open with the recording indicator lit. */
+      releaseAudio();
+      paint();
+      return;
+    }
+
+    /* Let go while the browser was asking for permission. Nothing was sent, so there is nothing to
+       cancel — just do not start. */
+    if (!held) { paint(); return; }
+
+    /* Announced before a single frame is sent, so mTiles has a buffer open at the right rate by the
+       time audio arrives — otherwise the first syllable is dropped, which in push-to-talk is the
+       first word. */
+    socket.send(JSON.stringify({ type: "begin", sampleRate: ctx.sampleRate }));
+    recording = true;
+    hold();
+    paint();
+  }
+
+  function finish(cancel) {
+    /* Cleared first and unconditionally: begin() may still be awaiting the microphone, and this is the
+       flag it checks when it comes back. */
+    held = false;
+
+    if (!recording) { paint(); return; }
+    recording = false;
+    if (socket && socket.readyState === WebSocket.OPEN)
+      socket.send(JSON.stringify({ type: cancel ? "cancel" : "end" }));
+    release();
+    scheduleRelease();
+    paint();
+  }
+
+  /* The screen wake lock, which had three separate faults in these six lines.
+
+     One: `wakeLock.release()` returns a promise, so the try/catch around it caught nothing and a refusal
+     surfaced as an unhandled rejection.
+
+     Two: `hold()` awaits. A release arriving while it was in flight found `wakeLock` still null, did
+     nothing, and then the request completed and assigned one — orphaning it, so the screen stayed awake
+     for the rest of the session. The same shape as the orphaned microphone stream in the function above,
+     and missed for the same reason.
+
+     Three: a browser releases the lock itself when the page is hidden, and sets `released` on the
+     sentinel it leaves behind. The guard `!wakeLock` then saw a non-null object for ever after, so the
+     lock was never requested again: one trip to the background and the screen slept through every later
+     dictation. */
+  let wakeLockPending = null;
+
+  function hold() {
+    if (!navigator.wakeLock) return Promise.resolve();
+    if (wakeLock && !wakeLock.released) return Promise.resolve();
+    if (wakeLockPending) return wakeLockPending;
+
+    wakeLockPending = navigator.wakeLock.request("screen")
+      .then((lock) => {
+        /* Nobody wants it any more: it was released while it was being asked for. */
+        if (!recording && !held) { lock.release().catch(() => {}); return; }
+        wakeLock = lock;
+      })
+      .catch(() => { /* refused while backgrounded, or unsupported; recording still works */ })
+      .finally(() => { wakeLockPending = null; });
+
+    return wakeLockPending;
+  }
+
+  function release() {
+    if (wakeLockPending) { wakeLockPending.then(release).catch(() => {}); return; }
+
+    const lock = wakeLock;
+    wakeLock = null;
+    if (lock) lock.release().catch(() => {});
+  }
+
+  /* ── gestures ───────────────────────────────────────────────────────────────
+     Pointer events rather than touch or mouse: one set of handlers covers a finger, a stylus and a
+     desktop browser, which matters because the near machine's browser is the answer for anyone using
+     mTiles over remote desktop without a tunnel. */
+  talk.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+
+    // Inside the gesture, before any await. See primeAudio.
+    primeAudio();
+    if (latch.checked) { recording ? finish(false) : (held = true, begin()); return; }
+    talk.setPointerCapture(event.pointerId);
+    held = true;
+    begin();
+  });
+
+  const up = (event) => { if (!latch.checked) { event.preventDefault(); finish(false); } };
+  talk.addEventListener("pointerup", up);
+  talk.addEventListener("pointercancel", (event) => { if (!latch.checked) finish(true); });
+
+  /* A phone that is locked or switched away mid-utterance stops delivering audio without telling the
+     page, so the recording is abandoned rather than sent as a truncated sentence. */
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (recording) finish(true);
+      /* Straight away, not after the idle delay: a phone put in a pocket with the indicator still lit is
+         exactly the impression this must never leave. */
+      releaseAudio();
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      return;
+    }
+
+    /* Back on screen. Retry at once rather than waiting out a backoff that grew while the phone was in
+       a pocket — the user has just picked it up to say something. */
+    if (!connected) {
+      retryIn = 500;
+      connect();   // cancels any pending retry and refuses to open a second socket
+    }
+  });
+
+  latch.addEventListener("change", paint);
+
+  paint();
+  connect();
+})();
+</script>
+</body>
+</html>

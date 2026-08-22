@@ -410,6 +410,7 @@ public partial class SettingsViewModel : ObservableObject
         _settingsService = settingsService;
         _dbManager = dbManager;
         InitializeSpeech(dictation);
+        InitializePhone();
         var s = settingsService.Settings;
         _colorThemeName = s.ColorThemeName;
         _terminalFontFamily = s.TerminalFontFamily;

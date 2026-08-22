@@ -31,6 +31,10 @@
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\mterminal-icon.png" />
     <AvaloniaResource Include="Assets\mTerminal-logo.png" />
+    <!-- The page a phone loads to dictate. Embedded rather than copied next to the executable: the
+         bridge serves it from memory, and a file on disk would be one more thing that can go missing
+         from a publish and turn the feature into a blank screen on somebody's phone. -->
+    <EmbeddedResource Include="Assets\phone.html" />
   </ItemGroup>
 
   <ItemGroup>
@@ -59,6 +63,23 @@
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
     <!-- Parakeet, the model Handy recommends, is three ONNX graphs and a greedy loop over them. -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" />
+    <!-- Dictation from a phone. QRCoder is pure managed and carries no native binaries, so it does not
+         reach verify-natives.ps1; PngByteQRCode is used rather than the System.Drawing renderer. -->
+    <PackageReference Include="QRCoder" Version="1.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Kestrel, for the phone bridge alone. The database bridge is HttpListener and stays that way:
+         it serves loopback over plain HTTP, which HttpListener does without ceremony. The phone bridge
+         cannot. It must serve TLS — a browser hands out no microphone outside a secure context — and
+         HttpListener can only do that against a certificate bound to the port with `netsh http sslcert`,
+         which needs administrator rights. The remaining option was a hand-written HTTP and WebSocket
+         implementation over SslStream on the one socket in this application that faces the network.
+         What it costs, the right way round: on a *framework-dependent* install it is a real requirement,
+         because the machine now needs the ASP.NET Core shared framework and not merely the .NET Desktop
+         Runtime; on a *self-contained* one it is weight in the publish and nothing else. This ships
+         self-contained through Velopack, so the price paid is megabytes rather than a prerequisite. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
 </Project>

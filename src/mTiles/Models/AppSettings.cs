@@ -48,6 +48,13 @@ public sealed class AppSettings
     }
     private SpeechSettings _speech = new();
 
+    public PhoneSettings Phone
+    {
+        get => _phone;
+        set => _phone = value ?? new();
+    }
+    private PhoneSettings _phone = new();
+
     public Dictionary<string, string> GoalDefaultModels
     {
         get => _goalDefaultModels;

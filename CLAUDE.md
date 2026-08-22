@@ -14,7 +14,7 @@ dotnet test                     # tests/mTiles.Tests
 
 - `src/mTiles/` — the application
 - `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
-- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, AppSettings, AppDefaults, ShellProfile, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, GoalTileState, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, SpeechSettings)
+- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, AppSettings, AppDefaults, ShellProfile, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, GoalTileState, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, SpeechSettings, PhoneSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`
@@ -24,6 +24,7 @@ dotnet test                     # tests/mTiles.Tests
 - `Services/TileLauncher.cs` — launching a terminal tile: disposes the previous launch, picks the profile's current scripts, then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it
 - `Services/DirectLaunchSession.cs` — one tile's command chain (see Shell Profiles below); disposable, and disposing it is what stops it relaunching
 - `Services/TerminalClipboardCoordinator.cs` — window-level Ctrl+C across tiles (see Terminal key handling)
+- `Services/Phone/` — dictation from a phone (see `docs/DICTATION.md` → *Dictating from a phone*): PhoneEndpoint/IPhoneEndpointSource with NetworkEndpointSource, TailscaleEndpointSource and MulticastDnsEndpointSource, PhoneEndpointRanker (pure — the one part whose behaviour is an opinion, so it is argued in a table test), PhoneEndpointDirectory, SessionLocationProbe, PhonePairing, PhoneCertificates, PhoneFirewall, PhoneAudioCapture + RoutedAudioCapture, PhoneBridgeServer (Kestrel — the only server here that faces the network), PhoneBridgeManager, QrCodeImage
 - `Services/Speech/` — dictation (see `docs/DICTATION.md`): IAudioCapture/PortAudioCapture, AudioResampler, ISpeechToTextEngine with ParakeetSpeechEngine (+ParakeetVocabulary) and WhisperSpeechEngine, SpeechEngines (the one map from model kind to engine and to what it looks like on disk), SpeechModelCatalog, SpeechModelStore, TarGzExtractor, DictationService, TranscriptPostProcessor, DictationTextSink, HotkeyGesture, HotkeyCapture (what a keystroke means to something reading a new shortcut — shared by the Speech tab and the setup wizard, and pure, because it lived in view code where the "mark it handled only where it is taken" rule had no test), HotkeyAdvice, DictationHotkeyMachine, DictationHotkeys
 - `Services/ShellCommandLine.cs` — wraps a command for the shell that runs it (`-c` / `/c` / `-Command`). Deliberately without the profile's own args: those are the interactive-startup flags. **A command chain never runs in `cmd`**: `ShellDetector.ResolveForCommands` swaps it for PowerShell (or a POSIX shell) and `DirectLaunchSession` traces the swap, because `cmd` does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, runs only the first line of a multi-line command, and does not treat `;` as a separator — all measured, and the last of those silently reduced the seeded OpenCode profile to a bare shell. Only the *commands* move; the tile's interactive shell stays whatever the user chose, so `/c` is still reachable when nothing else is installed
 - `Services/ChainPolicy.cs` + `Services/RelaunchBudget.cs` — the launch chain's rules and its rate limit, pure and separate from the loop that carries them out
@@ -162,7 +163,10 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
 - **AI Tools** — auto-detection of CLI AI coding tools, version testing, custom tools
 - **Database** — enable service, HTTP port, SQL Server/PostgreSQL credentials, scan interval, manual connections
 - **Speech** — dictation on/off, shortcut (captured by pressing it), push-to-talk vs toggle, microphone,
-  language, auto-Enter, vocabulary, and the model list with download/delete and progress
+  language, auto-Enter, vocabulary, and the model list with download/delete and progress; plus a **Phone**
+  section (keep the bridge running, preferred port, and the phone's own auto-Enter). Those last two are
+  the only settings on this tab that restart a running service, which is why the bridge debounces what it
+  hears from here instead of acting on every intermediate value the spinner produces
 
 `SettingsViewModel.SelectedTab` controls tab visibility, and the pages are named in `ViewModels/SettingsTabs.cs` (`General`, `Profiles`, `AiTools`, `Database`, `Speech`) — used by the view model, by the database tile's "open my settings" button, and from XAML through `{x:Static vm:SettingsTabs.…}`, which replaced the `Zero`…`Four` boxed-int resources. Constants rather than an enum: the selection is bound as an `int` to command parameters in two AXAML files, and the numbers were the problem, not the type. The Database tab has its own sub-tabs (`DbSubTab`: 0=Config, 1=Databases). Tab button styles: `settings-tab` / `settings-tab-active` in `Controls.axaml`; a bordered button on a settings row is `outlined-sm` there, not ten inline properties.
 
@@ -264,6 +268,43 @@ threading rules, the download and unpacking, the shortcut's state machine, the m
 Polish, and the reasoning behind each. Read it before changing anything under `Services/Speech/`: most
 of what is written there is a bug that has already been paid for once.
 
+## Dictation from a phone
+
+Speak into a tile from a phone on your network, or from a browser on the machine in front of you — which
+is what makes dictation usable over Remote Desktop, where the microphone is next to *you* and mTiles is
+on the far machine. A QR button beside Settings, in the workspaces panel, opens a panel with the codes.
+
+The entry point is **window-level, not per-tile**, and that is a correction rather than a preference: it
+began in the tile header beside the microphone, where it read as "dictate into *this* tile" — a promise
+the feature does not make and cannot. The phone sends to whichever tile is active when you speak, exactly
+as the keyboard shortcut does.
+
+Three things are worth knowing before touching `Services/Phone/`:
+
+- **`IAudioCapture` is the seam.** `PhoneAudioCapture` implements it and `RoutedAudioCapture` picks
+  between it and the microphone per recording, so `DictationService` gained a second input without
+  gaining a line of code. Handles are tagged with the backend that made them, because `Detach`/`Finish`
+  are split and a new recording can start on the other backend mid-close.
+- **TLS is not optional** — a browser hands out no microphone outside a secure context. That is why this
+  one server is Kestrel rather than `HttpListener` (which needs `netsh http sslcert` and administrator
+  rights for HTTPS), and why Tailscale is the recommended path: its MagicDNS name gets a real
+  certificate, while a LAN address can only ever have a self-signed one and a warning to click through.
+- **The QR code holds one URL and the machine has half a dozen addresses.** `PhoneEndpointRanker` is
+  pure and decides which, from what worked last time (measured, so it outranks everything), whether the
+  session is console or RDP (`SM_REMOTESESSION` — the phone is next to the *user*), and whether the
+  adapter has a default route (which alone sorts real network cards from Hyper-V/WSL/Docker). The pin is
+  **per session location**, because one machine gets used both locally and remotely and a single
+  remembered winner would be wrong every time the user switched. Both audiences are always on screen;
+  the session only decides the order.
+
+What is protected is the **keyboard**, not the audio: whoever reaches the bridge can type into the
+terminal. Hence a short-lived single-use pairing token in the QR code, exchanged for a session token
+that never appears anywhere visible. The bridge is off by default and, unless Settings says otherwise,
+listens only while the panel is open or a phone is paired.
+
+**Everything else is in [`docs/DICTATION.md`](docs/DICTATION.md) → *Dictating from a phone***, including
+the firewall's silent-block trap, the certificate lifecycle and the wire format.
+
 ## Restart shell
 
 `RestartTerminalAsync` in `LeafTileNodeViewModel` — relaunches the tile through `TileLauncher.Launch` (which replaces the session; nothing kills it first). Available via the Restart icon in the tile header and Ctrl+Shift+R.
@@ -290,6 +331,7 @@ It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (
 - `logs/` — application logs (daily files, 7-day retention)
 - `sessions/opencode/ses_<tileId>.json` — the import document an OpenCode tile creates its session from (see Session resume). Rewritten on every launch; a few hundred bytes, and deliberately never pruned — while the file exists, a session the user threw away can be recreated on the next launch
 - `models/` — downloaded speech-to-text models (hundreds of MB each; `.partial` while downloading)
+- `phone/` — the phone bridge's TLS material and its paired devices. `bridge.pfx` **contains a private key**; kept rather than regenerated per launch, because a new certificate every launch means a new browser warning every launch, and reissued when the machine's set of addresses changes (a certificate is only accepted for a host in its SANs). `sessions.json` holds SHA-256 of each paired device's token — never the token, so the file records *who* is paired without being usable to authenticate. Shutting the application down does not clear it; turning the bridge off does
 - Auto-save with debounce
 
 ## Conventions

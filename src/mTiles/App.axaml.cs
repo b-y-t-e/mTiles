@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -6,6 +7,7 @@ using Avalonia.Styling;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Database;
+using mTiles.Services.Phone;
 using mTiles.Services.Speech;
 using mTiles.ViewModels;
 using mTiles.Views;
@@ -17,6 +19,7 @@ public partial class App : Application
     private SettingsService _settingsService = null!;
     private DatabaseServiceManager? _dbManager;
     private DictationService? _dictation;
+    private PhoneBridgeManager? _phoneBridge;
 
     public override void Initialize()
     {
@@ -33,12 +36,31 @@ public partial class App : Application
         if (_settingsService.Settings.Database.Enabled)
             _dbManager.Start();
 
+        // The router is what lets a phone be dictated from without the dictation service knowing there
+        // is a choice: it is an IAudioCapture in front of the local microphone and a phone-fed one, picked
+        // per recording. Neither end opens anything until somebody actually dictates.
+        var router = new RoutedAudioCapture(new PortAudioCapture(), new PhoneAudioCapture());
+
         // Built unconditionally and cheaply: it opens no microphone and loads no model until somebody
         // dictates, so the switch in settings only has to gate the UI.
-        _dictation = new DictationService(_settingsService);
+        _dictation = new DictationService(_settingsService, router);
+
+        // Captured before the view model exists, and read only when a phone actually streams — which
+        // breaks the circle between the two without either of them holding a half-built reference.
+        MainWindowViewModel? mainVmRef = null;
+        _phoneBridge = new PhoneBridgeManager(_settingsService, _dictation, router,
+            () => mainVmRef?.CurrentWorkspace?.ActiveTile);
 
         var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
-            _dbManager, _dictation);
+            _dbManager, _dictation, _phoneBridge);
+        mainVmRef = mainVm;
+
+        // Asked for explicitly, so a phone paired yesterday can reconnect without the panel being opened
+        // first. Off by default: this is the one server here that listens to the network. The condition
+        // lives on the manager so this and "may it stop now" cannot drift apart — it takes dictation into
+        // account too, because a bridge nothing can dictate through is a listening socket and nothing else.
+        if (_phoneBridge.ShouldKeepRunning)
+            _ = _phoneBridge.StartAsync();
 
         _settingsService.SettingsChanged += () =>
         {
@@ -61,18 +83,51 @@ public partial class App : Application
 
             desktop.ShutdownRequested += (_, _) =>
             {
-                _dbManager?.Dispose();
-                _dictation?.Dispose();
+                // The bridge first: it subscribes to the dictation service and drives the shared audio
+                // router, so tearing the service down underneath it left a phone that was mid-utterance
+                // writing samples into a disposed capture. Blocking, and deliberately — a listening socket
+                // that outlives the process holds the port against the next launch.
+                //
+                // Each step wrapped, because Wait() throws an AggregateException on a faulted task and an
+                // escape here skipped the two below it: a bridge that failed to shut down cleanly took the
+                // dictation service and the database bridge with it.
+                //
+                // The three seconds are a bound, not an expectation, and whether they were enough is
+                // worth knowing: a bridge still shutting down when the process leaves is exactly the
+                // thing that holds the port against the next launch, and discarding the answer meant the
+                // one symptom the next run would show had no trace anywhere explaining it.
+                Shutdown("phone bridge", () =>
+                {
+                    if (_phoneBridge is { } bridge && !bridge.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3)))
+                        Trace.TraceWarning(
+                            "The phone bridge did not shut down within 3s; its port may still be held.");
+                });
+                Shutdown("dictation", () => _dictation?.Dispose());
+                Shutdown("database bridge", () => _dbManager?.Dispose());
             };
         }
 
         base.OnFrameworkInitializationCompleted();
     }
 
+    /// <summary>Runs one shutdown step, so a failure in it cannot cost the others.</summary>
+    private static void Shutdown(string what, Action step)
+    {
+        try { step(); }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Closing the {0} failed: {1}", what, ex); }
+    }
+
     private void ApplyFontResources()
     {
         var s = _settingsService.Settings;
         Resources["UiFontFamily"] = new FontFamily(s.FontFamily);
+
+        // Monospace, for the places where character shapes carry meaning: an address, a URL, a command to
+        // copy. Referenced from AXAML as a DynamicResource and, until now, never defined — so every one of
+        // those fell back to the proportional face without a word from the binding system, which is how a
+        // missing resource fails. It follows the terminal font because that is the monospace face the user
+        // has already chosen.
+        Resources["TerminalFontFamily"] = new FontFamily(s.TerminalFontFamily);
         Resources["UiFontSize"] = s.FontSize;
         Resources["LogoFontSize"] = s.FontSize * AppDefaults.LogoFontSizeRatio;
         Resources["UiFontSizeSm"] = s.FontSize * AppDefaults.SmallFontSizeRatio;

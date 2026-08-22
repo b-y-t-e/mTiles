@@ -21,6 +21,10 @@ public static class AppPaths
     public static string GetSpeechModelsDirectory() =>
         Path.Combine(GetAppDataDirectory(), "models");
 
+    /// <summary>Where the phone bridge keeps its TLS material. Contains a private key.</summary>
+    public static string GetPhoneDirectory() =>
+        Path.Combine(GetAppDataDirectory(), "phone");
+
     public static string GetSettingsFilePath() =>
         Path.Combine(GetAppDataDirectory(), "settings.json");
 
