@@ -35,17 +35,20 @@
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="2" Margin="8,4,8,6">
                 <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleSettingsCommand}"
+                        ToolTip.Placement="Right"
                         ToolTip.Tip="Settings">
                     <mi:MaterialIcon Kind="CogOutline" Width="18" Height="18" />
                 </Button>
                 <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPhoneBridgeCommand}"
                         IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasPhoneBridge}"
+                        ToolTip.Placement="Right"
                         ToolTip.Tip="Dictate from a phone">
                     <mi:MaterialIcon Kind="Qrcode" Width="18" Height="18" />
                 </Button>
                 <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApplyUpdateCommand}"
+                        ToolTip.Placement="Right"
                         ToolTip.Tip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).UpdateVersion, StringFormat='Update to {0}'}"
                         IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsUpdateAvailable}"
                         Foreground="{DynamicResource AccentDefault}">
@@ -134,6 +137,7 @@
             <StackPanel DockPanel.Dock="Bottom" Spacing="2" HorizontalAlignment="Center" Margin="0,4,0,6">
                 <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApplyUpdateCommand}"
+                        ToolTip.Placement="Right"
                         ToolTip.Tip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).UpdateVersion, StringFormat='Update to {0}'}"
                         IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsUpdateAvailable}"
                         Foreground="{DynamicResource AccentDefault}"
@@ -143,6 +147,7 @@
                 <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleSettingsCommand}"
                         HorizontalAlignment="Center"
+                        ToolTip.Placement="Right"
                         ToolTip.Tip="Settings">
                     <mi:MaterialIcon Kind="CogOutline" Width="16" Height="16" />
                 </Button>
@@ -150,6 +155,7 @@
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPhoneBridgeCommand}"
                         IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasPhoneBridge}"
                         HorizontalAlignment="Center"
+                        ToolTip.Placement="Right"
                         ToolTip.Tip="Dictate from a phone">
                     <mi:MaterialIcon Kind="Qrcode" Width="16" Height="16" />
                 </Button>
@@ -160,6 +166,7 @@
                     Command="{Binding AddWorkspaceCommand}"
                     HorizontalAlignment="Center"
                     Margin="0,2,0,0"
+                    ToolTip.Placement="Right"
                     ToolTip.Tip="Add Workspace">
                 <mi:MaterialIcon Kind="Plus" Width="16" Height="16" />
             </Button>
