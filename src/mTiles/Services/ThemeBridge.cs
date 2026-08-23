@@ -81,6 +81,28 @@ public static class ThemeBridge
         Set(app, "DangerSubtle", dangerSubtle);
         Set(app, "DangerText", dangerText);
         Set(app, "TagColor", green);
+
+        // The Goal tile's phases read as a terminal transcript, so their markers come from the ANSI
+        // palette rather than a fixed set of hexes: a light theme used to get five dark slate dots that
+        // belonged to the dark default, because nothing here overwrote them.
+        //
+        // A marker is a six-pixel dot, which is the smallest thing in the app carrying colour alone.
+        // ANSI yellow and bright green are chosen to sit on a dark background and all but vanish on a
+        // light one, so on a light theme each is pulled toward the theme's own foreground until it can
+        // hold the contrast. Toward the foreground rather than toward black, so the result stays a
+        // colour from this theme rather than a darker one from nowhere.
+        Set(app, "GoalPhaseClarify", Marker(theme.Cyan, theme.IsDark, fg));
+        Set(app, "GoalPhasePlan", Marker(theme.Yellow, theme.IsDark, fg));
+        Set(app, "GoalPhaseImplement", Marker(theme.Green, theme.IsDark, fg));
+        Set(app, "GoalPhaseReview", Marker(theme.Magenta, theme.IsDark, fg));
+        Set(app, "GoalPhaseSummary", Marker(theme.BrightGreen, theme.IsDark, fg));
+    }
+
+    /// <summary>One phase marker, dark enough to be seen on the background it will sit on.</summary>
+    private static Color Marker(string hex, bool isDark, Color foreground)
+    {
+        var c = Color.Parse(hex);
+        return isDark ? c : Lerp(c, foreground, 0.45);
     }
 
     private static void Set(Application app, string key, Color color)

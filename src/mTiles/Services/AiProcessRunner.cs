@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 namespace mTiles.Services;
@@ -17,15 +16,31 @@ public interface IAiToolRunner
     // Tools support many providers so there's no way to build a universal model list.
     // If tools add a model listing command in the future, we can re-add model selection.
     void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming);
+
+    /// <summary>
+    /// Whether this tool reads its prompt from standard input when the prompt is left off the command
+    /// line.
+    /// <para>Opt-in, and false by default, because it is a claim about somebody else's CLI. Windows
+    /// caps a command line at 32 767 characters — 8 191 through the <c>.cmd</c> shim npm installs — and
+    /// a prompt carrying a diff passes that easily, at which point <c>Process.Start</c> throws and the
+    /// tile can only offer to try again and fail identically. Stdin removes the limit, but a tool that
+    /// does <em>not</em> read stdin would sit waiting for input that never comes, so this is turned on
+    /// per tool, by somebody who has checked, rather than assumed for all four.</para>
+    /// </summary>
+    bool AcceptsPromptOnStdin => false;
     AiOutputChunk? ParseLine(string line);
 }
 
 public sealed class ClaudeToolRunner : IAiToolRunner
 {
+    /// <summary><c>claude -p</c> with no prompt after it reads the prompt from standard input.</summary>
+    public bool AcceptsPromptOnStdin => true;
+
     public void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming)
     {
+        // No prompt argument: `claude -p` with nothing after it reads it from standard input, which
+        // AiProcessRunner writes. `prompt` is unused here for exactly that reason.
         psi.ArgumentList.Add("-p");
-        psi.ArgumentList.Add(prompt);
         psi.ArgumentList.Add("--output-format");
         psi.ArgumentList.Add(streaming ? "stream-json" : "text");
         psi.ArgumentList.Add("--max-turns");
@@ -116,6 +131,22 @@ public sealed class PiToolRunner : IAiToolRunner
         string.IsNullOrWhiteSpace(line) ? null : new AiOutputChunk { Content = line };
 }
 
+/// <summary>
+/// What an unrecognised tool gets: the prompt as a plain first argument, and no claim about stdin.
+/// <para>The fallback used to be <see cref="ClaudeToolRunner"/>, which was survivable while that ran
+/// everything on the command line and became a hang when it moved to standard input — a custom tool
+/// was launched with Claude's flags, no prompt anywhere on its command line, and a pipe it had never
+/// agreed to read. Passing the prompt as an argument is the one thing every CLI here does.</para>
+/// </summary>
+public sealed class GenericToolRunner : IAiToolRunner
+{
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming) =>
+        psi.ArgumentList.Add(prompt);
+
+    public AiOutputChunk? ParseLine(string line) =>
+        string.IsNullOrWhiteSpace(line) ? null : new AiOutputChunk { Content = line };
+}
+
 public static class AiProcessRunner
 {
     private static readonly ConcurrentDictionary<string, IAiToolRunner> Runners = new(StringComparer.OrdinalIgnoreCase)
@@ -131,43 +162,49 @@ public static class AiProcessRunner
         Runners[toolBinary] = runner;
 
     public static IAiToolRunner GetRunner(string toolBinary) =>
-        Runners.GetValueOrDefault(toolBinary) ?? new ClaudeToolRunner();
+        Runners.GetValueOrDefault(toolBinary) ?? new GenericToolRunner();
 
     private static readonly TimeSpan ProcessExitTimeout = TimeSpan.FromSeconds(10);
 
-    public static async IAsyncEnumerable<AiOutputChunk> RunStreamingAsync(
-        string executablePath,
-        string prompt,
-        string workingDirectory,
-        IAiToolRunner runner,
-        int maxTurns = 20,
-        [EnumeratorCancellation] CancellationToken ct = default)
+    /// <summary>
+    /// Refuses a prompt the operating system could not carry, with a message saying so.
+    /// <para>The prompt is passed as a command-line argument by every runner here, and Windows caps a
+    /// command line at 32 767 characters — 8 191 through a <c>.cmd</c> shim, which is what npm installs.
+    /// Over the limit <c>Process.Start</c> throws a <see cref="System.ComponentModel.Win32Exception"/>
+    /// whose text says nothing about length, so the tile reported that the tool had failed and offered
+    /// to try again, which could only fail identically. This says what actually happened.</para>
+    /// </summary>
+    private static void GuardPromptLength(string executablePath, string prompt)
     {
-        var psi = CreateProcessStartInfo(executablePath, workingDirectory);
-        runner.ConfigureProcess(psi, prompt, maxTurns, streaming: true);
+        // Windows only. The limits below are `CreateProcess`'s and `cmd.exe`'s; a POSIX system allows
+        // something closer to two megabytes, and applying 32 767 there would refuse prompts that would
+        // have gone through perfectly well.
+        if (!OperatingSystem.IsWindows()) return;
 
-        using var process = new Process { StartInfo = psi };
-        process.Start();
+        var throughShell = executablePath.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
+                           || executablePath.EndsWith(".bat", StringComparison.OrdinalIgnoreCase);
+        var limit = throughShell ? 8_191 : 32_767;
 
-        var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
+        // Room for the executable path and the flags around the prompt. A path long enough to leave
+        // nothing over is its own problem, and saying "at most -40 characters" would not name it.
+        var budget = limit - executablePath.Length - 256;
+        if (budget <= 0)
+            throw new InvalidOperationException(
+                $"The path to this tool is {executablePath.Length} characters, which leaves no room on " +
+                "a command line for a prompt. Move the tool somewhere shorter.");
 
-        var reader = process.StandardOutput;
-        while (!ct.IsCancellationRequested)
-        {
-            var line = await reader.ReadLineAsync(ct);
-            if (line == null) break;
-            if (string.IsNullOrWhiteSpace(line)) continue;
+        // Measured as it will be *quoted*, not as it is: the argument is wrapped and every quote and
+        // backslash inside it is escaped, so a prompt of code — which is what this carries — grows on
+        // the way onto the command line. Measuring the raw string let one through that then threw.
+        var quoted = prompt.Length + prompt.Count(c => c is '"' or '\\') + 2;
+        if (quoted <= budget) return;
 
-            var chunk = runner.ParseLine(line);
-            if (chunk != null)
-                yield return chunk;
-        }
-
-        await KillAndWaitAsync(process);
-
-        var stderrOutput = await stderrTask;
-        if (process.ExitCode != 0 && !ct.IsCancellationRequested && !string.IsNullOrWhiteSpace(stderrOutput))
-            yield return new AiOutputChunk { Type = "error", Content = stderrOutput.Trim() };
+        throw new InvalidOperationException(
+            $"The prompt is {quoted} characters once quoted and {Path.GetFileName(executablePath)} can be " +
+            $"given at most {budget} on a command line" +
+            (throughShell ? " (it is a .cmd shim, which is the tighter of the two Windows limits)" : "") +
+            ". The working tree and the plan are already capped, so this is a goal or a set of answers " +
+            "that will not fit — shorten them, or use a tool that accepts its prompt on standard input.");
     }
 
     public static async Task<string> RunPlainAsync(
@@ -178,19 +215,32 @@ public static class AiProcessRunner
         int maxTurns = 20,
         CancellationToken ct = default)
     {
+        if (!runner.AcceptsPromptOnStdin)
+            GuardPromptLength(executablePath, prompt);
+
         var psi = CreateProcessStartInfo(executablePath, workingDirectory);
+        psi.RedirectStandardInput = runner.AcceptsPromptOnStdin;
         runner.ConfigureProcess(psi, prompt, maxTurns, streaming: false);
 
         using var process = new Process { StartInfo = psi };
         process.Start();
 
+        // The readers start first, then the prompt goes down stdin. The other order deadlocks on a
+        // prompt large enough to fill the pipe: this side blocks writing the rest of it while the child
+        // blocks writing output nobody is draining, which is the size of prompt stdin exists for.
         var stdoutTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
         var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
 
+        // Registered before the write, not after. A prompt big enough to block — the child not draining
+        // it — would otherwise sit here with nothing left to interrupt it, so pausing during the write
+        // hung the tile until the tool gave up on its own.
         using var reg = ct.Register(() =>
         {
             try { process.Kill(entireProcessTree: true); } catch { }
         });
+
+        if (runner.AcceptsPromptOnStdin)
+            await WritePromptAsync(process, prompt);
 
         var output = await stdoutTask;
         var stderr = await stderrTask;
@@ -199,10 +249,34 @@ public static class AiProcessRunner
 
         ct.ThrowIfCancellationRequested();
 
-        if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
+        if (process.HasExited && process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
             return $"{output.Trim()}\n\n[stderr] {stderr.Trim()}".Trim();
 
         return output.Trim();
+    }
+
+    /// <summary>
+    /// Writes the prompt to the child's standard input and closes the pipe.
+    /// <para>Closing is the part that matters: a tool reading its prompt from standard input waits for
+    /// end-of-input before it starts, so a handle left open hangs the run until the timeout.</para>
+    /// </summary>
+    private static async Task WritePromptAsync(Process process, string prompt)
+    {
+        try
+        {
+            await process.StandardInput.WriteAsync(prompt);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
+        {
+            // The child stopped reading — it exited early, or it was killed. Not worth throwing over:
+            // letting this out skipped the awaits on stdout and stderr, so the tool's own account of
+            // what went wrong was thrown away in favour of "the pipe is broken".
+            Trace.TraceWarning($"Writing the prompt to standard input ended early: {ex.Message}");
+        }
+        finally
+        {
+            try { process.StandardInput.Close(); } catch { /* already gone */ }
+        }
     }
 
     private static async Task KillAndWaitAsync(Process process)

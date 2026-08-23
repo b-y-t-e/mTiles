@@ -85,8 +85,9 @@ public static class TerminalClipboardCoordinator
 
             var focused = (sender as Window)?.FocusManager?.GetFocusedElement() as Visual;
 
-            // Don't hijack copy from text-editing controls (Note editor, commit message, dialogs).
-            if (IsTextEditor(focused)) return;
+            // Don't hijack copy from a control that has a selection of its own (Note editor, commit
+            // message, dialogs, the Goal tile's transcript).
+            if (HandlesItsOwnCopy(focused)) return;
 
             var target = FindSelectionOwner(focused);
             if (target == null) return; // no selection anywhere → Ctrl+C keeps SIGINT semantics
@@ -123,11 +124,18 @@ public static class TerminalClipboardCoordinator
         return null;
     }
 
-    private static bool IsTextEditor(Visual? element)
+    /// <summary>
+    /// Whether the focused element handles Ctrl+C itself. Named for that rather than for text editing:
+    /// a SelectableTextBlock edits nothing, and the old name argued against including it. <see cref="SelectableTextBlock"/> counts:
+    /// it holds its own selection, is focusable, and copies on Ctrl+C — but this tunnel handler runs
+    /// first, so without it a selection made in the Goal tile's transcript was answered with text from
+    /// whichever terminal still had one, in a tile the user was not even looking at.
+    /// </summary>
+    private static bool HandlesItsOwnCopy(Visual? element)
     {
         for (var v = element; v != null; v = v.GetVisualParent())
         {
-            if (v is TextBox) return true;
+            if (v is TextBox or SelectableTextBlock) return true;
             if ((v.GetType().FullName ?? "").StartsWith("AvaloniaEdit.")) return true;
         }
         return false;

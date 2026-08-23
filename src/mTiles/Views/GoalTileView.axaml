@@ -6,147 +6,239 @@
              x:Class="mTiles.Views.GoalTileView"
              x:DataType="vm:GoalTileViewModel">
 
+    <!--
+        The Goal tile is a transcript, not a chat app, so it is drawn as one: the terminal's own
+        monospace face at the terminal's own size, the app's colour tokens (which ThemeBridge derives
+        from the active terminal theme), and a fixed gutter column whose glyph says who spoke — an
+        angle bracket you, a dot the tool, a corner a note from the tile itself. No bubbles: they
+        aligned every message differently and made a two-line answer look like a different kind of
+        thing from a twenty-line one.
+
+        The one saturated colour in here is the phase dot in the status strip. Everything else is
+        text, muted chrome and one hairline per edge.
+    -->
     <UserControl.Styles>
-        <Style Selector="Button.goal-btn">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="Padding" Value="6,2" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="MinWidth" Value="0" />
-            <Setter Property="FontSize" Value="{DynamicResource FontXs}" />
-            <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <!-- ======== Transcript rows ======== -->
+        <Style Selector="Border.row">
+            <Setter Property="Padding" Value="8,3" />
         </Style>
-        <Style Selector="Button.goal-btn:pointerover">
-            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
-        </Style>
-        <Style Selector="Button.goal-btn:pressed">
-            <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+        <!-- What you typed keeps the raised band it has in a terminal: it is the thing you scroll back
+             to look for, and it is the only row that gets a background. -->
+        <Style Selector="Border.row-user">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
         </Style>
 
-        <!-- Message bubbles -->
-        <Style Selector="Border.msg-user">
-            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="Padding" Value="8,4" />
-            <Setter Property="Margin" Value="40,2,4,2" />
+        <Style Selector="TextBlock.gutter">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
-        <Style Selector="Border.msg-assistant">
-            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="Padding" Value="8,4" />
-            <Setter Property="Margin" Value="4,2,40,2" />
+        <Style Selector="TextBlock.gutter.gutter-user">
+            <Setter Property="Text" Value="&#x276F;" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
         </Style>
-        <Style Selector="Border.msg-system">
+        <Style Selector="TextBlock.gutter.gutter-assistant">
+            <Setter Property="Text" Value="&#x25CF;" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
+        </Style>
+        <Style Selector="TextBlock.gutter.gutter-system">
+            <Setter Property="Text" Value="&#x2514;" />
+        </Style>
+
+        <Style Selector="SelectableTextBlock.msg">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
+        </Style>
+        <Style Selector="SelectableTextBlock.msg.msg-system">
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+        </Style>
+
+        <!-- ======== Status strip ======== -->
+        <Style Selector="TextBlock.strip">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- The phase's colour comes from the ANSI palette (ThemeBridge), so it stays legible on
+             whatever background the terminal theme paints. Set as a class rather than as a brush
+             resolved in code-behind, so changing theme repaints it without rebuilding the view. -->
+        <Style Selector="Ellipse.phase-goal">
+            <Setter Property="Fill" Value="{DynamicResource TextMuted}" />
+        </Style>
+        <Style Selector="Ellipse.phase-clarify">
+            <Setter Property="Fill" Value="{DynamicResource GoalPhaseClarify}" />
+        </Style>
+        <Style Selector="Ellipse.phase-plan">
+            <Setter Property="Fill" Value="{DynamicResource GoalPhasePlan}" />
+        </Style>
+        <Style Selector="Ellipse.phase-implement">
+            <Setter Property="Fill" Value="{DynamicResource GoalPhaseImplement}" />
+        </Style>
+        <Style Selector="Ellipse.phase-review">
+            <Setter Property="Fill" Value="{DynamicResource GoalPhaseReview}" />
+        </Style>
+        <Style Selector="Ellipse.phase-summary">
+            <Setter Property="Fill" Value="{DynamicResource GoalPhaseSummary}" />
+        </Style>
+
+        <!-- ======== Composer ======== -->
+        <!-- The prompt glyph belongs inside the field, as it does in a shell, so the border is drawn
+             by the surrounding Border and the TextBox gives up its own. -->
+        <Style Selector="TextBox.goal-input /template/ Border#PART_BorderElement">
             <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="TextBox.goal-input">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Padding" Value="0,2" />
+            <Setter Property="MaxHeight" Value="140" />
+        </Style>
+        <Style Selector="Border.composer">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
             <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
             <Setter Property="Padding" Value="8,4" />
-            <Setter Property="Margin" Value="20,2" />
+        </Style>
+        <Style Selector="Border.composer:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        </Style>
+        <Style Selector="Border.composer.focused">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
+        </Style>
+
+        <Style Selector="ComboBox.goal-tool">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="MinHeight" Value="0" />
         </Style>
     </UserControl.Styles>
 
-    <DockPanel>
-        <!-- Header bar -->
-        <Border DockPanel.Dock="Top" Padding="6,3"
-                Background="{DynamicResource BgSurface}">
+    <DockPanel Background="{DynamicResource BgBase}">
+
+        <!-- ======== Status strip: which tool, which phase, and the three things you can do ======== -->
+        <Border DockPanel.Dock="Top"
+                Padding="6,3"
+                Background="{DynamicResource BgSurface}"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="{DynamicResource BorderBottom}">
             <DockPanel>
-                <!-- Right side buttons -->
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
-                    <Button Classes="goal-btn"
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1">
+                    <Button Classes="tile-btn"
                             Command="{Binding PauseCommand}"
                             IsVisible="{Binding IsRunning}"
                             ToolTip.Tip="Pause">
-                        <mi:MaterialIcon Kind="Pause" Width="14" Height="14" />
+                        <mi:MaterialIcon Kind="Pause" Width="13" Height="13" />
                     </Button>
-                    <Button Classes="goal-btn"
+                    <!-- Visible as soon as the run is paused, but not usable until it has actually
+                         stopped: cancelling takes as long as the tool takes to die, and a click in
+                         that window used to start a second loop alongside the one still unwinding. -->
+                    <Button Classes="tile-btn"
                             Command="{Binding ResumeCommand}"
                             IsVisible="{Binding IsPaused}"
+                            IsEnabled="{Binding !IsRunning}"
                             ToolTip.Tip="Resume">
-                        <mi:MaterialIcon Kind="Play" Width="14" Height="14"
-                                         Foreground="{DynamicResource AccentDefault}" />
+                        <mi:MaterialIcon Kind="Play" Width="13" Height="13"
+                                         Foreground="{DynamicResource AccentHover}" />
                     </Button>
-                    <Button Classes="goal-btn"
+                    <Button Classes="tile-btn"
                             Command="{Binding NewGoalCommand}"
                             IsEnabled="{Binding !IsRunning}"
-                            ToolTip.Tip="New Goal">
-                        <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
+                            ToolTip.Tip="New goal">
+                        <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
                     </Button>
                 </StackPanel>
 
-                <!-- Tool and model selectors -->
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <ComboBox ItemsSource="{Binding AvailableTools}"
+                <!-- A DockPanel rather than a horizontal StackPanel: the label is the one part that
+                     has to give way, and a StackPanel measures its children with infinite width, so
+                     TextTrimming there is inert and a long phase is cut off mid-letter instead. -->
+                <DockPanel>
+                    <ComboBox DockPanel.Dock="Left"
+                              Classes="goal-tool"
+                              ItemsSource="{Binding AvailableTools}"
                               SelectedItem="{Binding SelectedToolName}"
-                              FontSize="{DynamicResource FontXs}"
-                              FontFamily="{DynamicResource UiFontFamily}"
-                              MinHeight="0" Padding="4,1"
-                              BorderThickness="0"
-                              Background="Transparent" />
-                    <Ellipse x:Name="PhaseDot" Width="6" Height="6"
-                             VerticalAlignment="Center"
-                             Margin="8,0,0,0" />
-                    <TextBlock Text="{Binding PhaseLabel}"
-                               FontSize="{DynamicResource FontXs}"
-                               FontFamily="{DynamicResource UiFontFamily}"
-                               Foreground="{DynamicResource TextMuted}"
-                               VerticalAlignment="Center"
-                               Margin="4,0,0,0" />
-                </StackPanel>
+                              ToolTip.Tip="AI tool" />
+                    <TextBlock DockPanel.Dock="Left" Classes="strip" Text="&#xB7;" Margin="6,0" />
+                    <Ellipse DockPanel.Dock="Left"
+                             x:Name="PhaseDot" Width="6" Height="6"
+                             VerticalAlignment="Center" />
+                    <TextBlock Classes="strip"
+                               Text="{Binding PhaseLabel}"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding PhaseLabel}"
+                               Margin="6,0,8,0" />
+                </DockPanel>
             </DockPanel>
         </Border>
 
-        <!-- Input bar at bottom -->
-        <Border DockPanel.Dock="Bottom" Padding="6,4"
-                Background="{DynamicResource BgSurface}">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2"
-                            Margin="4,0,0,0">
-                    <Button Classes="goal-btn"
+        <!-- ======== Composer ======== -->
+        <Border DockPanel.Dock="Bottom"
+                Padding="6,5"
+                Background="{DynamicResource BgSurface}"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="{DynamicResource BorderTop}">
+            <!-- No second "the tool is busy" line here. The status strip already carries it, with the
+                 phase and the iteration number in it, so a line saying only that something is happening
+                 was the same news told worse. -->
+            <Border x:Name="Composer" Classes="composer"
+                    PointerPressed="Composer_PointerPressed">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left"
+                               Classes="gutter gutter-user"
+                               Margin="0,2,0,0" />
+                    <Button DockPanel.Dock="Right"
+                            Classes="tile-btn"
+                            VerticalAlignment="Bottom"
                             Command="{Binding SubmitCommand}"
                             IsEnabled="{Binding !IsRunning}"
                             ToolTip.Tip="Send (Enter)">
-                        <mi:MaterialIcon Kind="Send" Width="14" Height="14" />
+                        <mi:MaterialIcon Kind="Send" Width="13" Height="13" />
                     </Button>
-                </StackPanel>
-                <TextBox x:Name="InputBox"
-                         Text="{Binding InputText}"
-                         PlaceholderText="Type a goal or answer..."
-                         FontSize="{DynamicResource FontSm}"
-                         FontFamily="{DynamicResource UiFontFamily}"
-                         Padding="6,3"
-                         KeyDown="InputBox_KeyDown" />
-            </DockPanel>
+                    <TextBox x:Name="InputBox"
+                             Classes="goal-input"
+                             Text="{Binding InputText}"
+                             PlaceholderText="Describe the goal, or answer&#x2026;"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             GotFocus="InputBox_FocusChanged"
+                             LostFocus="InputBox_FocusChanged"
+                             KeyDown="InputBox_KeyDown" />
+                </DockPanel>
+            </Border>
         </Border>
 
-        <!-- Chat log -->
+        <!-- ======== Transcript ======== -->
         <ScrollViewer x:Name="ChatScroll"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding Messages}"
-                          Margin="0,4">
+            <ItemsControl ItemsSource="{Binding Messages}" Margin="0,4">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="m:GoalMessage">
-                        <Border Classes.msg-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
-                                Classes.msg-assistant="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.Assistant}}"
-                                Classes.msg-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}">
+                        <Border Classes="row"
+                                Classes.row-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}">
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Left"
-                                           VerticalAlignment="Top"
-                                           Margin="0,0,6,0"
-                                           FontSize="{DynamicResource FontXs}"
-                                           Foreground="{DynamicResource TextMuted}">
-                                    <TextBlock.Text>
-                                        <Binding Path="Role" />
-                                    </TextBlock.Text>
-                                </TextBlock>
-                                <TextBlock Text="{Binding Text}"
-                                           TextWrapping="Wrap"
-                                           FontSize="{DynamicResource FontSm}"
-                                           FontFamily="{DynamicResource UiFontFamily}"
-                                           Foreground="{DynamicResource TextPrimary}" />
+                                           Classes="gutter"
+                                           Classes.gutter-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
+                                           Classes.gutter-assistant="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.Assistant}}"
+                                           Classes.gutter-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}" />
+                                <SelectableTextBlock Classes="msg"
+                                                     Classes.msg-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}"
+                                                     Text="{Binding Text}" />
                             </DockPanel>
                         </Border>
                     </DataTemplate>

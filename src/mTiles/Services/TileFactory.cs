@@ -31,7 +31,7 @@ public sealed class TileFactory
             TileContentType.Database when _dbManager != null =>
                 new DatabaseTileViewModel(workingDir, _settingsService, _dbManager) { TileSettingsChanged = _onTileSettingsChanged },
             TileContentType.Database => throw new InvalidOperationException("DatabaseServiceManager is not initialized."),
-            TileContentType.Goal => new GoalTileViewModel(workingDir, _settingsService) { TileSettingsChanged = _onTileSettingsChanged },
+            TileContentType.Goal => new GoalTileViewModel(workingDir, _settingsService),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
     }
@@ -64,7 +64,7 @@ public sealed class TileFactory
                 new DatabaseTileViewModel(workingDir, _settingsService, _dbManager) { TileSettingsChanged = scheduleSave },
             TileContentType.Database => null,
             TileContentType.Goal when dto.GoalFilePath != null =>
-                new GoalTileViewModel(dto.GoalFilePath, workingDir, _settingsService) { TileSettingsChanged = scheduleSave },
+                new GoalTileViewModel(dto.GoalFilePath, workingDir, _settingsService),
             TileContentType.Terminal =>
                 CreateTerminalFromDto(workingDir, dto.ShellName, dto.UserProfileId, availableShells),
             _ => CreateContent(dto.ContentType, workingDir)
