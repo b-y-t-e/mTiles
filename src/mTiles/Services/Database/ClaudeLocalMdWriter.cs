@@ -5,7 +5,7 @@ namespace mTiles.Services.Database;
 
 public static class ClaudeLocalMdWriter
 {
-    private static readonly string[] TargetFiles = ["claude.local.md", "AGENTS.md", "GEMINI.md"];
+    private static readonly string[] TargetFiles = ["claude.local.md", "AGENTS.md"];
 
     public static void Update(string workspaceDir, IReadOnlyList<WorkspaceDatabaseConfig> databases,
         DbRegistry registry, int httpPort)

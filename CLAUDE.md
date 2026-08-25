@@ -216,7 +216,7 @@ not part of the tile's.
 
 ## Database tile
 
-Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query local databases directly via HTTP — without manual connection setup. The tile auto-generates context files (`claude.local.md`, `AGENTS.md`, `GEMINI.md`) so agents discover available databases and how to call them.
+Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query local databases directly via HTTP — without manual connection setup. The tile auto-generates context files (`claude.local.md`, `AGENTS.md`) so agents discover available databases and how to call them.
 
 **Purpose:** LLM agent running in a terminal tile sends `GET /query/{server}/{database}?sql=SELECT ...` to the local HTTP server → gets JSON results back. No credentials exposed to the agent; access is controlled by the user in the tile UI.
 
@@ -236,7 +236,7 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 - `GET/POST /query/{server}/{instance}/{database}` — with instance
 - POST body limit: 512KB. Result limit: 50k rows / 16MB.
 
-**Context file generation:** `ClaudeLocalMdWriter` writes the `# Database access` section to `claude.local.md` (Claude Code), `AGENTS.md` (OpenCode, Codex), and `GEMINI.md` (Gemini CLI). Existing content in these files is preserved — only the database section is replaced.
+**Context file generation:** `ClaudeLocalMdWriter` writes the `# Database access` section to `claude.local.md` (Claude Code) and `AGENTS.md` (OpenCode, Codex). Existing content in these files is preserved — only the database section is replaced.
 
 **Workspace config:** `.mterminal/databases.json` — `WorkspaceDatabaseTileConfig` with `Databases` (list). Context files are generated when database service is running and the list is non-empty.
 
