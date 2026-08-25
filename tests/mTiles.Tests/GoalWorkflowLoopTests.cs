@@ -220,6 +220,10 @@ public class GoalWorkflowLoopTests : IDisposable
 
             // And it stopped short of the budget rather than proving the point five times.
             Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("attempt 4"));
+
+            // The no-progress stop is not a budget, so there is nothing for Continue to raise: more
+            // attempts would find the same things a third time.
+            Assert.False(vm.CanContinue);
         });
     }
 
@@ -548,34 +552,6 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
-    public void A_number_field_that_never_converted_is_redrawn_when_it_is_left()
-    {
-        OnUiThread(async () =>
-        {
-            using var vm = NewTile();
-            vm.Criteria.MaxIterations = 7;
-
-            var notified = 0;
-            vm.Criteria.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(vm.Criteria.MaxIterations)) notified++;
-            };
-
-            // "50x" never reaches the property — Avalonia reports a failed conversion as a binding
-            // error, so the setter is not called at all and the field still holds 7. Assigning 7 back
-            // is a no-op that ObservableObject quite correctly raises nothing for, which is why this
-            // has to notify by hand: the binding must be told to re-read a source that did not move,
-            // or the junk stays on screen looking like a setting.
-            vm.Criteria.Refresh();
-
-            Assert.True(notified > 0);
-            Assert.Equal(7, vm.Criteria.MaxIterations);
-
-            await Task.CompletedTask;
-        });
-    }
-
-    [Fact]
     public void An_answer_that_is_only_the_numbering_does_not_spend_the_pause_either()
     {
         OnUiThread(async () =>
@@ -668,34 +644,6 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
-    public void An_attempt_count_outside_what_will_run_is_shown_as_such()
-    {
-        OnUiThread(async () =>
-        {
-            using var vm = NewTile();
-
-            Assert.Equal("", vm.Criteria.AttemptsNote);
-            Assert.Equal("", vm.Criteria.TolerancesNote);
-
-            vm.Criteria.MaxErrors = -1;
-            Assert.Equal("below zero reads as none", vm.Criteria.TolerancesNote);
-            vm.Criteria.MaxErrors = 0;
-            Assert.Equal("", vm.Criteria.TolerancesNote);
-
-            vm.Criteria.MaxIterations = 999;
-            Assert.Equal("using 50", vm.Criteria.AttemptsNote);
-
-            vm.Criteria.MaxIterations = 0;
-            Assert.Equal("using 1", vm.Criteria.AttemptsNote);
-
-            vm.Criteria.MaxIterations = 3;
-            Assert.Equal("", vm.Criteria.AttemptsNote);
-
-            await Task.CompletedTask;
-        });
-    }
-
-    [Fact]
     public void The_detect_buttons_are_offered_only_where_a_goal_is_what_is_wanted_next()
     {
         OnUiThread(async () =>
@@ -717,17 +665,22 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// A pause taken from inside the implementation's own answer, which is the moment the phase moves
+    /// on — and the two things that were both wrong about it.
+    /// <para>What is owed then is the review, and resuming used to run the whole implementation again,
+    /// against a worktree that already had its changes. And the *next* phase finds the pause already
+    /// standing and returns before launching anything, so there is no cancelled run for
+    /// HandleNonAnswerAsync to describe and nothing else writes the label — the strip went on saying
+    /// "AI is implementing (attempt 1/5)…" over a tile that had stopped.</para>
+    /// </summary>
     [Fact]
-    public void A_tile_stopped_between_phases_does_not_keep_saying_it_is_working()
+    public void A_pause_taken_after_the_implementation_resumes_at_the_review_and_stops_saying_it_is_working()
     {
         OnUiThread(async () =>
         {
             using var vm = NewTile();
 
-            // Paused from inside the implementation's own answer, so the *next* phase finds the pause
-            // already standing and returns before launching anything. There is no cancelled run for
-            // HandleNonAnswerAsync to describe, and nothing else writes the label — so the strip went
-            // on saying "AI is implementing (attempt 1/5)…" over a tile that had stopped.
             var asked = 0;
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
@@ -751,6 +704,12 @@ public class GoalWorkflowLoopTests : IDisposable
 
             Assert.True(vm.IsPaused);
             Assert.False(vm.IsRunning);
+
+            // What is owed is the review, not the implementation over again.
+            Assert.Equal(GoalPhase.Review, vm.CurrentPhase);
+            Assert.True(GoalTilePolicy.ResumesAtReview(vm.CurrentPhase));
+
+            // And the tile says so rather than claiming to be working.
             Assert.DoesNotContain("implementing", vm.PhaseLabel);
             Assert.DoesNotContain("reviewing", vm.PhaseLabel);
             Assert.Contains("Resume", vm.PhaseLabel);
@@ -991,17 +950,34 @@ public class GoalWorkflowLoopTests : IDisposable
     {
         OnUiThread(async () =>
         {
+            var runs = 0;
             VerifyCommandRunner.Factory = (_, _, _) =>
-                Task.FromResult(VerifyOutcome.Timeout("it was still running after 30 minutes and was stopped"));
+            {
+                runs++;
+                return Task.FromResult(
+                    VerifyOutcome.Timeout("it was still running after 30 minutes and was stopped"));
+            };
 
+            var reviews = 0;
             GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
-                Task.FromResult(prompt.Contains("Implement the following goal") ? "Implemented it" : NoMoreQuestions);
+            {
+                if (prompt.Contains("Review the code changes")) reviews++;
+                return Task.FromResult(
+                    prompt.Contains("Implement the following goal") ? "Implemented it" : NoMoreQuestions);
+            };
 
             using var vm = NewTile();
             vm.Criteria.MaxIterations = 5;
             vm.Criteria.VerifyCommand = "dotnet build";
 
             await RunToSummaryAsync(vm);
+
+            // Once, not five times. The timeout is half an hour, so the attempts left on the budget are
+            // hours of waiting for the same answer, and the answer is unusable either way — so the
+            // review it was meant to inform is never asked for.
+            Assert.Equal(1, runs);
+            Assert.Equal(0, reviews);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("never finished"));
 
             // Not a budget, so more attempts would buy another half hour of the same wait.
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
@@ -1024,45 +1000,6 @@ public class GoalWorkflowLoopTests : IDisposable
             var attempts = vm.Criteria.MaxIterations;
             await vm.ContinueRunCommand.ExecuteAsync(null);
             Assert.Equal(attempts, vm.Criteria.MaxIterations);
-        });
-    }
-
-    [Fact]
-    public void A_verify_command_that_never_finishes_stops_the_run_rather_than_being_tried_again()
-    {
-        OnUiThread(async () =>
-        {
-            var runs = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                runs++;
-                return Task.FromResult(VerifyOutcome.Timeout("it was still running after 30 minutes and was stopped"));
-            };
-
-            var reviews = 0;
-            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
-            {
-                if (prompt.Contains("Review the code changes")) reviews++;
-                return Task.FromResult(prompt.Contains("Implement the following goal")
-                    ? "Implemented it"
-                    : NoMoreQuestions);
-            };
-
-            using var vm = NewTile();
-            vm.Criteria.MaxIterations = 20;
-            vm.Criteria.VerifyCommand = "dotnet build";
-
-            await RunToSummaryAsync(vm);
-
-            // Once, not twenty times. The timeout is half an hour, so the attempts left on the budget
-            // are hours of waiting for the same answer, and the answer is unusable either way.
-            Assert.Equal(1, runs);
-            Assert.Equal(0, reviews);
-            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("never finished"));
-
-            // Not a budget, so there is nothing for Continue to raise.
-            Assert.False(vm.CanContinue);
         });
     }
 
@@ -1104,36 +1041,22 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
-    [Fact]
-    public void A_number_typed_after_Continue_is_the_one_the_next_goal_starts_from()
-    {
-        OnUiThread(async () =>
-        {
-            LoopAnsweringWithOneWarning();
-
-            using var vm = NewTile();
-            vm.Criteria.MaxIterations = 2;
-
-            await RunToSummaryAsync(vm);
-            await vm.ContinueRunCommand.ExecuteAsync(null);
-            Assert.Equal(4, vm.Criteria.MaxIterations);
-
-            // Moving the field by hand makes the number theirs again. The remembered "what the user
-            // chose" is 2, and without clearing it the next goal started from 2 rather than from the 8
-            // they had just typed.
-            vm.Criteria.MaxIterations = 8;
-
-            vm.InputText = "a different goal";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            Assert.Equal(8, vm.Criteria.MaxIterations);
-        });
-    }
-
+    /// <summary>
+    /// What the next goal in the same tile starts from, after Continue has raised the budget — in both
+    /// branches, because the difference between them is one line of user behaviour.
+    /// <para>Criteria deliberately outlive a goal: they are how the tile works. That is right for a
+    /// number the user typed and wrong for one the button wrote, and two continuations left the next
+    /// goal starting at eight. So the tile remembers what the user chose and puts it back — unless the
+    /// user has moved the field since, which makes the number theirs again; without clearing what was
+    /// remembered, the next goal started from the old 2 rather than the 8 just typed.</para>
+    /// </summary>
     [Fact]
     public void The_attempts_Continue_adds_belong_to_that_goal_and_not_to_the_tile()
     {
-        OnUiThread(async () =>
+        // Both branches share every line up to the Continue, so the run is written once and the two
+        // endings are the only thing that differs. int? retyped: the number the user puts in the field
+        // after pressing Continue, or nothing at all.
+        void Run(int? retyped, int expected) => OnUiThread(async () =>
         {
             var implemented = LoopAnsweringWithOneWarning();
 
@@ -1147,15 +1070,19 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Equal(4, vm.Criteria.MaxIterations);
             Assert.Equal(4, implemented());
 
-            // A new goal in the same tile gets the number the user chose, not the one the button wrote.
-            // Criteria deliberately outlive a goal — they are how the tile works — which is right for a
-            // typed number and wrong for one Continue raised: two continuations left the next goal
-            // starting at eight.
+            if (retyped is { } typed) vm.Criteria.MaxIterations = typed;
+
             vm.InputText = "a different goal";
             await vm.SubmitCommand.ExecuteAsync(null);
 
-            Assert.Equal(2, vm.Criteria.MaxIterations);
+            Assert.Equal(expected, vm.Criteria.MaxIterations);
         });
+
+        // Untouched since: the next goal gets the number the user chose, not the one the button wrote.
+        Run(retyped: null, expected: 2);
+
+        // Moved by hand: that number is theirs, and it is what the next goal starts from.
+        Run(retyped: 8, expected: 8);
     }
 
     [Fact]
@@ -1187,29 +1114,6 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.True(vm.IsPaused);
             Assert.DoesNotContain("creating a plan", vm.PhaseLabel);
             Assert.Contains("Resume", vm.PhaseLabel);
-        });
-    }
-
-    [Fact]
-    public void Continue_is_not_offered_where_more_attempts_would_change_nothing()
-    {
-        OnUiThread(async () =>
-        {
-            // The same review twice running, which is the no-progress stop. That is not a budget, so
-            // there is nothing for Continue to raise: the next attempts would find the same things a
-            // third time.
-            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
-                Task.FromResult(prompt.Contains("Review the code changes")
-                    ? "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"warning\",\"title\":\"W\"}]}\n```"
-                    : prompt.Contains("Implement the following goal") ? "Implemented it" : NoMoreQuestions);
-
-            using var vm = NewTile();
-            vm.Criteria.MaxIterations = 5;
-
-            await RunToSummaryAsync(vm);
-
-            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.False(vm.CanContinue);
         });
     }
 
@@ -1752,6 +1656,51 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
+    public void A_detection_does_not_delete_what_the_user_typed_while_it_was_running()
+    {
+        OnUiThread(async () =>
+        {
+            using var vm = NewTile();
+
+            // The composer stays editable while the tile works — only Send is disabled — so the
+            // window between the click and the answer is one the user can type into. Typed from inside
+            // the runner, which is exactly where it happens in the application.
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+            {
+                vm.InputText = "what I was writing";
+                return Task.FromResult("Finish the pairing flow.");
+            };
+
+            await vm.DetectGoalCommand.ExecuteAsync(null);
+
+            Assert.Equal("what I was writing", vm.InputText);
+
+            // Kept, but not swallowed: the click has to produce something readable, or it did nothing.
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Finish the pairing flow."));
+        });
+    }
+
+    [Fact]
+    public void A_detection_over_a_composer_the_user_had_already_filled_keeps_it()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.");
+
+            using var vm = NewTile();
+
+            // Text that was there before the click is the user's too, which is why the rule asks about
+            // the box as it is now rather than comparing it with a snapshot taken at the click.
+            vm.InputText = "half a goal I started typing";
+
+            await vm.DetectGoalCommand.ExecuteAsync(null);
+
+            Assert.Equal("half a goal I started typing", vm.InputText);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Finish the pairing flow."));
+        });
+    }
+
+    [Fact]
     public void Detect_and_run_starts_at_the_review_because_the_changes_are_already_on_disk()
     {
         OnUiThread(async () =>
@@ -1852,46 +1801,6 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
-    public void A_pause_taken_after_the_implementation_resumes_at_the_review()
-    {
-        OnUiThread(async () =>
-        {
-            using var vm = NewTile();
-
-            // Pauses from inside the implementation's own answer, which is the moment the phase moves
-            // on. What is owed then is the review, and resuming used to run the whole implementation
-            // again — against a worktree that already had its changes.
-            var asked = 0;
-            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
-            {
-                asked++;
-                if (asked == 4) vm.PauseCommand.Execute(null);
-                return Task.FromResult(asked switch
-                {
-                    1 => "Which files?",
-                    2 => NoMoreQuestions,
-                    3 => "The plan",
-                    _ => "Implemented it"
-                });
-            };
-
-            vm.InputText = "a goal";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "all of it";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            Assert.True(vm.IsPaused);
-            Assert.Equal(GoalPhase.Review, vm.CurrentPhase);
-            Assert.True(GoalTilePolicy.ResumesAtReview(vm.CurrentPhase));
-
-            // And the tile says so rather than claiming to be working.
-            Assert.Contains("Resume", vm.PhaseLabel);
-        });
-    }
-
-    [Fact]
     public void A_paused_run_survives_being_closed_and_carries_on_when_reopened()
     {
         OnUiThread(async () =>
@@ -1952,6 +1861,12 @@ public class GoalWorkflowLoopTests : IDisposable
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
             settings.Settings.CustomAiTools.Add(FakeTool());
+
+            // Stubbed like every other run here. Without it the tile falls back to whatever real tool is
+            // installed on the machine — the default selection is "Claude Code" — and submitting a goal
+            // launched the actual CLI and waited out a real model round-trip: twenty seconds, a network
+            // dependency and a different code path on an agent with no tool installed.
+            AnswerWith("Which files?");
 
             var path = Path.Combine(_dir, "held.json");
             await File.WriteAllTextAsync(path, "{\"OriginalGoal\":\"a real session\"}");

@@ -602,10 +602,32 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             // Into the composer, not into the transcript. A detected goal is a draft — it is the tool's
             // reading of half-finished work, and the user is the only one who knows what the other half
             // was meant to be. Putting it in the transcript would make it a decision already taken.
-            InputText = goal;
-            await AddMessageAsync(GoalMessageRole.System,
-                "Detected this goal from your uncommitted changes. Edit it if you like, then press " +
-                "Send.", GoalPhase.Goal);
+            //
+            // Never over something already in the box, which is the same rule the clarification skeleton
+            // follows in RunClarifyAsync and it is owed here for the same reason: the composer stays
+            // editable throughout — only the Send button is disabled while the tile works — so a
+            // detection that takes as long as the tool takes is a window in which the user can type, and
+            // the answer arriving must not delete what they wrote. Asked of the box as it is *now*
+            // rather than against a snapshot taken at the click: text that was already there when they
+            // clicked is theirs too, and the two cases deserve the same answer.
+            if (string.IsNullOrWhiteSpace(InputText))
+            {
+                InputText = goal;
+                await AddMessageAsync(GoalMessageRole.System,
+                    "Detected this goal from your uncommitted changes. Edit it if you like, then press " +
+                    "Send.", GoalPhase.Goal);
+            }
+            else
+            {
+                // It still has to land somewhere it can be read and copied from. Keeping the user's text
+                // must not turn the click into nothing at all — that is the outcome a button must
+                // never have, and the reason DetectAsync has a catch of last resort in the first place.
+                await AddMessageAsync(GoalMessageRole.System,
+                    $"Detected this goal from your uncommitted changes:\n\n{goal}\n\n" +
+                    "Your own text is still in the composer. Send it, or clear the box and detect again " +
+                    "to have this put there.", GoalPhase.Goal);
+            }
+
             PhaseLabel = _engine.GetPhaseLabel();
             return;
         }
