@@ -8,6 +8,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 
+# A Windows console defaults to the legacy ANSI codepage (cp1250 here), which cannot encode the arrow
+# below — and printing it is the first thing this script does, so it died before bumping anything.
+# errors="replace" as well, because a mangled character must never be what stops a release either.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # redirected to something that cannot be reconfigured
+        pass
+
 
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
     print(f"$ {' '.join(cmd)}")
