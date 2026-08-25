@@ -22,6 +22,7 @@ Unlike Warp, Wave, or WezTerm — mTiles doesn't try to be an AI itself. It mana
 **Dictation, including from your phone** — speak into a tile instead of typing; recognition runs entirely on this machine, with no account and nothing sent anywhere. A QR button beside Settings opens a panel: scan the code and your phone becomes the microphone —
 hold a button on it and speak, and the text lands in the active tile just as the keyboard shortcut would.
 This is what makes dictation usable over Remote Desktop, where the microphone is next to *you* and mTiles is on the far machine. mTiles works out which of its own addresses your phone can actually reach — it has several — and remembers which one worked, separately for local and remote sessions.
+The panel also reads the firewall rather than guessing at it: on Windows it says which of the four things is in the way — no rule, a block rule Windows wrote when its own prompt was dismissed, a network it treats as Public, or a policy that ignores local rules — and offers to fix the ones that can be fixed; on Linux it names the firewall that is actually running and gives the one command for it.
 
 **ThemeBridge** — terminal ANSI palette drives the entire UI. Change the color theme and every surface updates — not just the terminal background. 17 themes (Catppuccin, Tokyo Night, Gruvbox, Rosé Pine, One Dark, Solarized, and more), dark and light.
 
@@ -40,6 +41,30 @@ dotnet run --project src/mTiles
 ```
 
 Requires [.NET 10 SDK](https://dotnet.microsoft.com/download).
+
+### Linux (AppImage)
+
+Releases ship a self-contained `mTiles-linux-x86_64.AppImage`. Two things it cannot bring with it:
+
+**FUSE 2.** AppImages mount themselves through `libfuse.so.2`, and Arch-based systems — CachyOS, Omarchy
+— ship only FUSE 3 by default. Without it the application does not start at all, and the error mentions
+`libfuse.so.2` rather than mTiles. Either install it (`sudo pacman -S fuse2`) or skip the mount
+entirely:
+
+```
+./mTiles-linux-x86_64.AppImage --appimage-extract-and-run
+```
+
+**A hole in the firewall, if you dictate from a phone.** mTiles opens one on Windows, with your consent;
+on Linux it only tells you which command to run, because there is no desktop-wide elevation prompt worth
+invoking and a GUI that shells out to `sudo` teaches the wrong habit. The phone panel names the firewall
+it finds running (`ufw` or `firewalld`) and the command for that one. Distributions differ: Ubuntu leaves
+`ufw` inactive, Fedora and CachyOS enable `firewalld`, Omarchy configures `ufw` to deny inbound, and
+SteamOS runs neither.
+
+Also worth knowing: Avalonia is an X11 application, so on Wayland desktops (Hyprland, KDE) it runs
+through **XWayland**; and dictation needs ALSA (`libasound.so.2`, provided by `alsa-lib`/`pipewire-alsa`)
+for the microphone — the phone bridge does not, since that audio arrives over the network.
 
 ## Tech
 
@@ -66,7 +91,7 @@ Not promises with dates — the things known to be missing or wrong, roughly in 
 
 - **Collapsible workspace panel** — collapse to a narrow icon strip with workspace initials rather than hiding outright: click to switch, drag the splitter past its minimum to collapse. Reclaims the panel's width without losing quick switching.
 - **Activity in the workspace panel** — the list on the left says nothing about what is happening inside a workspace you are not looking at, so a build finishing or an agent waiting for an answer goes unnoticed until you switch to it. The panel should show, per workspace, that its terminals are working: which ones are running something and which are sitting at an idle prompt. Open questions: what counts as "working" when the signal available is a live PTY rather than a process tree, and how it is shown — a dot, a count of busy tiles, or something that also distinguishes "needs you" from "busy".
-- **Goal tile — refactor and rework.** The feature works but has not been revisited since it was built, and three things are outstanding. **Attachments:** a goal can only be described in words today, so a screenshot of the bug or the mockup being aimed at cannot be handed to the tool. **A pass over what it actually does:** the phase machine, the prompts and the five-iteration implement/review loop deserve a review against how the tile is really used, rather than more features bolted on. **Its UI** is done: the tile is now drawn as a terminal transcript — the terminal's own monospace face at the terminal's own size, a gutter glyph per role instead of chat bubbles, and phase colours taken from the ANSI palette, so it follows the colour theme like everything else.
+- **Goal tile — attachments.** A goal can only be described in words today, so a screenshot of the bug, or the mockup being aimed at, cannot be handed to the tool. Everything else on this line is now done: the tile is drawn as a terminal transcript with phase colours from the ANSI palette; the review returns structured findings at four severities — blocker, error, warning, suggestion — rather than the substring `VERDICT: PASS`; when a goal is finished is set on the tile itself — tolerated errors and warnings (blockers never are), attempts, and a verify command whose exit code is the one criterion that is not the tool's opinion of its own work; the clarification round can be skipped when the goal is already clear and repeated while it is not; a goal can be worked out from the uncommitted changes instead of typed; a run that used up its attempts can be given more without losing the conversation; and each attempt starts a fresh tool process but is handed what the earlier ones changed and decided against, plus the verify command's own output rather than the reviewer's account of it.
 - **Session resume for Codex.** OpenCode now resumes (see *AI tool profiles* above); Codex is the same problem with a different CLI (`codex resume <id>`) and no known way to name a session up front. Whatever comes out of it should generalise: a small per-tool description of how to create a session, how to resume one, and how the id is chosen or learned — not one branch per tool spread through the launch code. `OpenCodeSession` is deliberately the shape of one such description rather than a framework for three; the second tool is what should turn it into an abstraction, not the first.
 - **Favourite tiles.** Nothing marks the two or three tiles you actually live in, so finding them in a workspace that has grown means reading every header. Tiles should be markable as favourites and reachable directly — a short list, keyboard-first, ordered by the user rather than by the tree. Open questions: whether a favourite is scoped to its workspace or global, and what happens to one whose tile is closed — dropped silently, or kept as a way to reopen it.
 - **Review tile.** Code review belongs beside the code, not in a browser: a tile that shows a diff — the working tree, a branch against another, or a pull request — and lets comments be written against lines and handed to an AI tool or pushed back to the forge. The Git tile already renders diffs and knows the repository, so the question is whether this is a second tile or a mode of that one, and how much of a pull request it can honestly show without becoming a GitHub client.
