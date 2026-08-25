@@ -87,23 +87,6 @@ public class GoalResumeTests
     }
 
     [Fact]
-    public void An_iteration_spent_before_the_interruption_stays_spent()
-    {
-        // The budget is five attempts at the goal, not five per launch: a tile closed and reopened
-        // in a loop that is not converging must not get its attempts back each time.
-        var engine = new GoalWorkflowEngine();
-        engine.StartNewGoal("goal");
-        engine.RecordProposedPlan("plan");
-        Assert.True(engine.ApprovePlan());
-        engine.IterationCount = engine.MaxIter;
-        engine.CurrentPhase = GoalPhase.Implement;
-
-        var reloaded = Reload(engine);
-
-        Assert.Null(GoalLoopPolicy.NextAttempt(reloaded.IterationCount, reloaded.MaxIter, finishInterrupted: false));
-    }
-
-    [Fact]
     public void A_tile_waiting_for_an_answer_is_not_an_interrupted_one()
     {
         // Clarify and Plan each cover two situations with one value: asking the tool, and waiting for

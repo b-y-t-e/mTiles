@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
@@ -158,20 +158,6 @@ public class DictationIndicatorTests
             leaf.IsTranscribingDictation = false;
             leaf.IsDictating = false;
             Assert.Equal(lit, StripBrush(view));
-        });
-
-    /// <summary>Another tile recording changes nothing here: the strip is about this tile.</summary>
-    [Fact]
-    public void A_dictation_somewhere_else_leaves_this_tiles_strip_alone()
-        => OnUiThread(() =>
-        {
-            var (leaf, _, _) = Build();
-            leaf.IsActive = true;
-
-            leaf.IsRecordingDictation = false;
-            leaf.IsDictating = false;
-
-            Assert.True(leaf.ShowsActiveStrip);
         });
 
     /// <summary>

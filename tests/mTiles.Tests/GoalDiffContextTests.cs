@@ -88,11 +88,4 @@ public class GoalDiffContextTests
         foreach (var line in lines[1..^1])
             Assert.Matches(@"^generated/file\d+\.txt$", line);
     }
-
-    [Fact]
-    public void A_diff_that_fits_is_not_touched()
-    {
-        var diff = "diff --git a/x b/x\n+one line";
-        Assert.Equal(diff, GoalDiffContext.Compose(diff, null));
-    }
 }

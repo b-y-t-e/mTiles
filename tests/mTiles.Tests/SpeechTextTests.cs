@@ -1,4 +1,4 @@
-using mTiles.Services.Speech;
+﻿using mTiles.Services.Speech;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -38,6 +38,7 @@ public class SpeechTextTests
     [InlineData("yyy no to zaczynamy", "yyy no to zaczynamy")] // gated: Polish, and nobody said Polish
     [InlineData("um so we need this", "um so we need this")]   // "um" is Portuguese for "a"
     [InlineData("dodaj obsługę AAA", "dodaj obsługę AAA")]     // the one that made this a bug
+    [InlineData("   ", "")]                                    // and nothing in is nothing out
     public void With_an_unknown_language_only_the_universal_fillers_go(string input, string expected)
         => Assert.Equal(expected, TranscriptPostProcessor.Clean(input, "auto", removeFillerWords: true));
 
@@ -51,12 +52,10 @@ public class SpeechTextTests
     [InlineData("the the the file", "the file")]
     // Two in a row is ordinary speech ("that that clause"), and stays.
     [InlineData("that that clause", "that that clause")]
+    // Whatever else it does, the result comes back squeezed and trimmed.
+    [InlineData("  one   two  ", "one two")]
     public void A_run_of_three_or_more_identical_words_collapses(string input, string expected)
         => Assert.Equal(expected, TranscriptPostProcessor.Clean(input, "en", removeFillerWords: false));
-
-    [Fact]
-    public void Whitespace_is_squeezed_and_trimmed()
-        => Assert.Equal("one two", TranscriptPostProcessor.Clean("  one   two  ", "en", false));
 
     /// <summary>
     /// Measured on this machine: two seconds of silence through <c>ggml-base</c> comes back as
@@ -93,15 +92,13 @@ public class SpeechTextTests
         => Assert.Equal("run the tests (the slow ones)",
             TranscriptPostProcessor.Clean("run the tests (the slow ones)", "en", false));
 
-    [Fact]
-    public void An_empty_transcript_stays_empty()
-        => Assert.Equal("", TranscriptPostProcessor.Clean("   ", "auto", true));
-
     [Theory]
     [InlineData("run the tests\r", "run the tests")]
     [InlineData("first\nsecond", "first second")]
     [InlineData("stop\u0003that", "stop that")]   // 0x03 interrupts the whole pseudo-console
     [InlineData("tab\there", "tab here")]
+    // And ordinary text comes back exactly as it was said.
+    [InlineData("napisz test dla ChainPolicy", "napisz test dla ChainPolicy")]
     public void Nothing_a_console_would_act_on_survives_sanitising(string input, string expected)
         => Assert.Equal(expected, DictationTextSink.Sanitize(input));
 
@@ -130,9 +127,4 @@ public class SpeechTextTests
     public void A_transcript_of_nothing_composes_to_nothing(string text)
         => Assert.Equal("", DictationTextSink.Compose(text,
             new mTiles.Models.SpeechSettings { AppendTrailingSpace = true }));
-
-    [Fact]
-    public void Sanitising_leaves_ordinary_text_alone()
-        => Assert.Equal("napisz test dla ChainPolicy",
-            DictationTextSink.Sanitize("napisz test dla ChainPolicy"));
 }

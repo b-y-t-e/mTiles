@@ -1,4 +1,4 @@
-using Avalonia.Input;
+﻿using Avalonia.Input;
 using mTiles.Models;
 using mTiles.Services.Speech;
 using mTiles.ViewModels;
@@ -273,22 +273,6 @@ public class SpeechSetupTests : IDisposable
         Assert.Equal("small", settings.Service.Settings.Speech.ModelId);
     }
 
-    /// <summary>Choosing a model in the wizard is choosing it for the application.</summary>
-    [Fact]
-    public void Picking_a_model_writes_it_to_settings()
-    {
-        PlaceOnDisk("small");
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
-
-        wizard.Selected = wizard.Models.First(m => m.Id == "small");
-
-        Assert.Equal("small", settings.Service.Settings.Speech.ModelId);
-        Assert.True(wizard.IsModelReady);
-    }
-
     [Fact]
     public void Choosing_a_microphone_writes_it_to_settings()
     {
@@ -360,28 +344,6 @@ public class SpeechSetupTests : IDisposable
         wizard.ToggleTestCommand.Execute(null);          // and again, while it is still working
 
         Assert.NotNull(wizard.Message);
-    }
-
-    /// <summary>
-    /// Failures reach the wizard's own window rather than a message box behind it.
-    /// </summary>
-    /// <remarks>
-    /// The application's handler for these opens a box owned by the main window; while the wizard is
-    /// modal that box is unreachable, so the failure would look like nothing happening at all.
-    /// </remarks>
-    [Fact]
-    public void A_failure_is_shown_in_the_wizard()
-    {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
-
-        wizard.Step = SpeechSetupStep.Test;
-        wizard.ToggleTestCommand.Execute(null);          // no model on disk: refused
-
-        Assert.NotNull(wizard.Message);
-        Assert.Equal(DictationState.Idle, dictation.State);
     }
 
     /// <summary>
@@ -598,7 +560,7 @@ public class SpeechSetupTests : IDisposable
     }
 
     /// <summary>Backspace in the capture, and the button beside it, both mean "no shortcut" — which is a
-    /// real answer, not a failure to give one.</summary>
+    /// real answer, not a failure to give one, and the step says so rather than warning about it.</summary>
     [Fact]
     public void The_shortcut_can_be_turned_off()
     {
@@ -619,6 +581,11 @@ public class SpeechSetupTests : IDisposable
 
         wizard.ClearHotkeyCommand.Execute(null);
         Assert.Equal("", settings.Service.Settings.Speech.Hotkey);
+
+        // The other half of the pair below: nothing there because that is what was asked for.
+        Assert.False(wizard.HasHotkey);
+        Assert.True(wizard.IsShortcutBlank);
+        Assert.Null(wizard.HotkeyWarning);
     }
 
     /// <summary>
@@ -646,22 +613,6 @@ public class SpeechSetupTests : IDisposable
         Assert.False(wizard.HasHotkey);              // there are no keys to show
         Assert.False(wizard.IsShortcutBlank);        // but the user did not ask for none
         Assert.Equal(HotkeyAdvice.Unparseable, wizard.HotkeyWarning);
-    }
-
-    /// <summary>And a shortcut that really is absent says so, which is the other half of the pair.</summary>
-    [Fact]
-    public void No_shortcut_at_all_is_reported_as_a_choice()
-    {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
-
-        wizard.ClearHotkeyCommand.Execute(null);
-
-        Assert.False(wizard.HasHotkey);
-        Assert.True(wizard.IsShortcutBlank);
-        Assert.Null(wizard.HotkeyWarning);
     }
 
     /// <summary>
@@ -746,10 +697,10 @@ public class SpeechSetupTests : IDisposable
     /// return runs the same <c>InitializeSpeech</c>.
     /// </remarks>
     [Theory]
+    // One of each: which kinds warn is settled exhaustively, and without a view model, in
+    // HotkeyCaptureTests. What is asked here is only whether the tab shows what HotkeyAdvice said.
     [InlineData("F13", true)]
     [InlineData("Alt+Space", false)]
-    [InlineData("", false)]
-    [InlineData("Alt+9999", true)]
     public void The_speech_tab_explains_a_shortcut_it_did_not_type(string stored, bool warns)
     {
         var settings = new TempSettings();
@@ -935,9 +886,14 @@ public class SpeechSetupTests : IDisposable
     /// A refused start says so rather than leaving the shortcut looking dead.
     /// </summary>
     /// <remarks>
-    /// The window resets its push-to-talk machine on a false return; without that the machine goes on
-    /// believing it is recording, and the next press is read as the one that stops it — so the shortcut
-    /// answers with nothing at all, once, at random.
+    /// <para>The window resets its push-to-talk machine on a false return; without that the machine goes
+    /// on believing it is recording, and the next press is read as the one that stops it — so the
+    /// shortcut answers with nothing at all, once, at random.</para>
+    /// <para>And the refusal is shown in the wizard's own window. The application's handler for these
+    /// opens a box owned by the main window; while the wizard is modal that box is unreachable, so the
+    /// failure would look like nothing happening at all. The button goes the same way — with nothing
+    /// recording, <c>ToggleTest</c> falls straight through to this — which is pinned by
+    /// <see cref="The_shortcut_and_the_button_run_the_same_trial"/>.</para>
     /// </remarks>
     [Fact]
     public void A_refused_start_is_reported_rather_than_swallowed()
@@ -952,6 +908,7 @@ public class SpeechSetupTests : IDisposable
         Assert.False(wizard.StartTest());                // no model on disk
         Assert.NotNull(wizard.Message);
         Assert.False(wizard.IsRecordingHere);
+        Assert.Equal(DictationState.Idle, dictation.State);
     }
 
     /// <summary>

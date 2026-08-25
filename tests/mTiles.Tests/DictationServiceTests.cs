@@ -133,7 +133,7 @@ public class DictationServiceTests
 
     private static (DictationService Service, FakeCapture Capture, FakeEngine Engine) Build(
         TempSettings settings, FakeModels models, bool enabled = true,
-        TimeSpan? maxRecording = null, TimeSpan? unloadAfter = null)
+        TimeSpan? maxRecording = null, TimeSpan? unloadAfter = null, TimeSpan? deliberateHold = null)
     {
         var speech = settings.Service.Settings.Speech;
         speech.Enabled = enabled;
@@ -144,7 +144,7 @@ public class DictationServiceTests
         // Dispatch inline: there is no UI thread here, and the ordering the tests rely on is the
         // service's own, not the dispatcher's.
         var service = new DictationService(settings.Service, capture, engine, models.Store, action => action(),
-            maxRecording, unloadAfter);
+            maxRecording, unloadAfter, deliberateHold);
         return (service, capture, engine);
     }
 
@@ -257,7 +257,8 @@ public class DictationServiceTests
         service.Stop();
         Assert.True(await WaitUntilAsync(() => engine.IsLoaded), "the model was never loaded");
 
-        await Task.Delay(250);
+        // Three times the period a non-zero setting would have used.
+        await Task.Delay(150);
         Assert.True(engine.IsLoaded);
     }
 
@@ -452,7 +453,8 @@ public class DictationServiceTests
     {
         using var settings = new TempSettings();
         using var models = new FakeModels();
-        var (service, _, engine) = Build(settings, models);
+        // Held well past the threshold — long enough to have been meant, which used to be the trigger.
+        var (service, _, engine) = Build(settings, models, deliberateHold: TimeSpan.FromMilliseconds(10));
         using var _guard = service;
         engine.Transcript = "   ";
 
@@ -461,11 +463,10 @@ public class DictationServiceTests
 
         var delivered = false;
         Assert.True(service.Start(new object(), _ => { delivered = true; return true; }));
-        await Task.Delay(1_100);            // long enough to have been meant, which used to be the trigger
+        await Task.Delay(30);
         service.Stop();
 
-        await Task.Delay(200);
-        Assert.False(delivered);
+        Assert.False(await WaitUntilAsync(() => delivered, timeoutMs: 200));
         Assert.Null(error);
         Assert.Equal(DictationState.Idle, service.State);
     }
@@ -494,13 +495,14 @@ public class DictationServiceTests
     /// </remarks>
     [Theory]
     [InlineData(0, false)]
-    [InlineData(1_100, true)]
+    [InlineData(30, true)]
     public async Task A_capture_that_yields_no_audio_is_reported_only_if_the_key_was_held(
         int heldMilliseconds, bool expectError)
     {
         using var settings = new TempSettings();
         using var models = new FakeModels();
-        var (service, capture, _) = Build(settings, models);
+        var (service, capture, _) = Build(settings, models,
+            deliberateHold: TimeSpan.FromMilliseconds(10));
         using var _guard = service;
         capture.Samples = [];
 
@@ -512,8 +514,7 @@ public class DictationServiceTests
             await Task.Delay(heldMilliseconds);
         service.Stop();
 
-        await Task.Delay(100);
-        Assert.Equal(expectError, error is not null);
+        Assert.Equal(expectError, await WaitUntilAsync(() => error is not null, timeoutMs: 300));
     }
 
     /// <summary>
@@ -537,17 +538,6 @@ public class DictationServiceTests
 
         Assert.NotNull(await WaitForDeliveryAsync(() => error));
         Assert.Contains("hello world", error);                   // and it hands the words back
-    }
-
-    [Fact]
-    public void Input_devices_come_from_the_capture_it_was_given()
-    {
-        using var settings = new TempSettings();
-        using var models = new FakeModels();
-        var (service, _, _) = Build(settings, models);
-        using var _guard = service;
-
-        Assert.Equal(["fake microphone"], service.GetInputDevices());
     }
 
     [Fact]

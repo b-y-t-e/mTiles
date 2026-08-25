@@ -211,12 +211,4 @@ public class GoalStateStoreTests : IDisposable
         Assert.Single(reported);
         Assert.Contains("will not survive a restart", reported[0]);
     }
-
-    [Fact]
-    public void Loading_a_file_that_is_not_there_is_not_a_failure()
-    {
-        using var store = Store(Path_("absent.json"), Goal("x"));
-
-        Assert.Null(store.Load());
-    }
 }

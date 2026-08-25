@@ -36,6 +36,14 @@ public class AiProcessRunnerTests
 
         Assert.DoesNotContain("the prompt", psi.ArgumentList);
         Assert.Contains("-p", psi.ArgumentList);
+
+        // And it is the only one that opted in. Opting in is a claim about somebody else's CLI, and a
+        // tool that does not read stdin sits waiting for input that never arrives.
+        // Through the interface: the default lives there, so asking the concrete type would not see it.
+        Assert.True(((IAiToolRunner)new ClaudeToolRunner()).AcceptsPromptOnStdin);
+        Assert.False(((IAiToolRunner)new CodexToolRunner()).AcceptsPromptOnStdin);
+        Assert.False(((IAiToolRunner)new OpenCodeToolRunner()).AcceptsPromptOnStdin);
+        Assert.False(((IAiToolRunner)new PiToolRunner()).AcceptsPromptOnStdin);
     }
 
     [Fact]
@@ -92,36 +100,6 @@ public class AiProcessRunnerTests
                 .GetAwaiter().GetResult());
 
         Assert.IsNotType<InvalidOperationException>(ex);
-    }
-
-    [Fact]
-    public void A_review_prompt_of_the_size_this_tile_really_builds_fits_a_cmd_shim()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-
-        // The arithmetic that made this necessary: the goal, the quality rules, a verify command's
-        // output, seven thousand characters of working tree, the severity rules and an example come to
-        // around twelve thousand characters — against the 8 191 a .cmd shim allows, which is what npm
-        // installs and what AiToolDetector looks for first. Three of the four supported tools go that
-        // way, and the case that overflows is the one the feature exists for: a resume after a large
-        // implementation in a workspace with a verify command.
-        var budget = AiProcessRunner.PromptBudget("tool.cmd");
-        Assert.NotNull(budget);
-
-        var unfitted = new GoalPromptBuilder().BuildReview(
-            new string('g', 5_000), new string('d', 20_000), new string('v', 5_000));
-        Assert.True(CommandLineLength.Quoted(unfitted) > budget,
-            "this test proves nothing unless the unfitted prompt really is too long");
-
-        var fitted = new GoalPromptBuilder().BuildReview(
-            new string('g', 5_000), new string('d', 20_000), new string('v', 5_000), budget);
-
-        Assert.True(CommandLineLength.Quoted(fitted) <= budget);
-
-        // Trimmed, not gutted: it still says what it is asking for and still carries the goal.
-        Assert.Contains("goalMet", fitted);
-        Assert.Contains("blocker", fitted);
-        Assert.Contains("gggg", fitted);
     }
 
     [Fact]

@@ -346,6 +346,10 @@ public class DirectLaunchSessionTests
             }
         });
 
+    /// <summary>The one wiring proof that <see cref="ChainStep.NextCommand"/> spawns the profile's
+    /// fallback rather than a bare shell — the regression that quietly walked a tile past the very
+    /// command its author wrote for the case. Which exit codes and lifetimes arrive at that step is a
+    /// separate question, and <c>ChainDecisionTests</c> answers it row by row without a terminal.</summary>
     [Fact]
     public void A_command_that_dies_at_once_gives_way_to_the_fallback()
         => OnUiThread(async () =>
@@ -360,26 +364,6 @@ public class DirectLaunchSessionTests
 
             await WaitUntil(() => spawned.Count == 2, "the fallback takes over");
             Assert.Equal("fake-shell -c claude", CommandOf(spawned[1]));
-        });
-
-    /// <summary>
-    /// A command that exits <em>cleanly</em> and at once has still not stuck, and the fallback is
-    /// exactly what the profile named for that. The chain briefly treated this as "give up, start a
-    /// shell", which walked the tile past the command its author wrote for the case — a bare shell
-    /// instead of the fallback, with nothing anywhere to say why.
-    /// </summary>
-    [Fact]
-    public void A_command_that_exits_cleanly_and_at_once_also_gives_way_to_the_fallback()
-        => OnUiThread(async () =>
-        {
-            var (control, spawned) = NewTerminal();
-            using var launch = DirectLaunchSession.Start(control, "", Shell, LaunchScripts.FromProfile("claude --continue", "claude"), "tile-1", policy: Fast);
-
-            await WaitUntil(() => spawned.Count == 1, "the startup command is spawned");
-            spawned[0].EndProcess(0);   // nothing to continue, and it says so politely
-
-            await WaitUntil(() => spawned.Count == 2, "the fallback takes over");
-            Assert.Equal("fake-shell -c claude", CommandOf(spawned[1]));   // not "fake-shell -l"
         });
 
     [Fact]
@@ -471,7 +455,11 @@ public class DirectLaunchSessionTests
 
     /// <summary>A tool the user quits again right away is one that will not stay up; bringing it back
     /// would spin forever. The chain stops trying — but leaves a shell behind, because a tile the user
-    /// is left staring at, dead, is worse than one holding a shell they did not ask for.</summary>
+    /// is left staring at, dead, is worse than one holding a shell they did not ask for.
+    /// <para>The failing variant of this — the last command exiting <em>non-zero</em> just as quickly —
+    /// is not a second test here. Both codes reach the same <see cref="ChainStep.NextCommand"/> in
+    /// <c>ChainPolicy.Decide</c>, and the chain dispatches on the step alone, so what the exit code
+    /// means is <c>ChainDecisionTests</c>' table to state and this file's job only to wire.</para></summary>
     [Fact]
     public void A_command_the_user_quits_straight_away_is_not_relaunched_but_leaves_a_shell()
         => OnUiThread(async () =>
@@ -490,60 +478,6 @@ public class DirectLaunchSessionTests
             await Task.Delay(Fast.Relaunch + 100);
             await Drain();
             Assert.Equal(2, spawned.Count);                         // and that is the end of it
-        });
-
-    /// <summary>
-    /// Bringing a tool back when the user quits it is the point of the feature — but a tool that exits
-    /// cleanly a moment after it qualifies, for ever, is a spawn loop just the same, and nothing else
-    /// bounded that path. The rate limit covers it as well as the crashes.
-    /// </summary>
-    [Fact]
-    public void A_command_that_keeps_exiting_cleanly_is_also_given_up_on()
-        => OnUiThread(async () =>
-        {
-            var (control, spawned) = NewTerminal();
-            using var launch = DirectLaunchSession.Start(control, "", Shell, LaunchScripts.FromProfile("claude", null), "tile-1", policy: Budgeted);
-
-            for (int attempt = 1; attempt <= 5; attempt++)
-            {
-                await WaitUntil(() => spawned.Count >= attempt, $"attempt {attempt} is spawned");
-                if (CommandOf(spawned[attempt - 1]) != "fake-shell -c claude")
-                    break;
-                await Task.Delay(Budgeted.MinLifetimeForRelaunch + ClockSlack);   // over the bar, under Established
-                spawned[attempt - 1].EndProcess(0);
-            }
-
-            await WaitUntil(() => spawned.Exists(p => CommandOf(p) == "fake-shell -l"),
-                "the chain gives up and leaves a shell");
-            Assert.Equal(4, spawned.FindAll(p => CommandOf(p) == "fake-shell -c claude").Count);
-        });
-
-    /// <summary>
-    /// The bug that made this rule about exit codes rather than survival. <c>claude -r &lt;unknown-id&gt;</c>
-    /// takes 21 seconds to report "Invalid session ID" and exit 1 — long past the window in which the
-    /// chain decides a command has taken. Judging on survival alone, the chain adopted it, read its
-    /// failure as the user quitting a working tool, and started it again; the fallback the profile
-    /// exists for was unreachable and the tile looped on a blank screen for good.
-    /// </summary>
-    [Fact]
-    public void A_command_that_fails_only_after_it_was_adopted_still_gives_way_to_the_fallback()
-        => OnUiThread(async () =>
-        {
-            var (control, spawned) = NewTerminal();
-            using var launch = DirectLaunchSession.Start(control, "", Shell, LaunchScripts.FromProfile("claude -r bad-id", "claude"), "tile-1", policy: Fast);
-
-            await WaitUntil(() => spawned.Count == 1, "the startup command is spawned");
-            // Outlives every threshold, exactly as the real 21-second failure does, and then fails.
-            await Task.Delay(Fast.MinLifetimeForRelaunch + 100);
-            spawned[0].EndProcess(1);
-
-            await WaitUntil(() => spawned.Count == 2, "the fallback takes over");
-            Assert.Equal("fake-shell -c claude", CommandOf(spawned[1]));
-
-            // And stays there: the command that failed is behind the chain now, not ahead of it.
-            await Task.Delay(Fast.Relaunch + 150);
-            await Drain();
-            Assert.Equal(2, spawned.Count);
         });
 
     /// <summary>
@@ -633,25 +567,6 @@ public class DirectLaunchSessionTests
             // is refused, then the shell. An upper bound would pass just as happily if the chain
             // stopped early for some entirely different reason.
             Assert.Equal(9, spawned.Count);
-        });
-
-    /// <summary>With nothing left in the chain, a command that fails after adoption leaves the tile a
-    /// shell to work in rather than a corpse — and an interactive shell is not watched, so this is the
-    /// end of the line and not another turn of the loop.</summary>
-    [Fact]
-    public void A_last_command_that_fails_after_adoption_falls_through_to_a_shell()
-        => OnUiThread(async () =>
-        {
-            var (control, spawned) = NewTerminal();
-            using var launch = DirectLaunchSession.Start(control, "", Shell, LaunchScripts.FromProfile("claude -r bad-id", null), "tile-1", policy: Fast);
-
-            await WaitUntil(() => spawned.Count == 1, "the command is spawned");
-            await Task.Delay(50);
-            spawned[0].EndProcess(1);
-
-            await WaitUntil(() => spawned.Count == 2, "the interactive shell takes over");
-            Assert.Equal("fake-shell -l", CommandOf(spawned[1]));
-            Assert.True(control.IsRunning);
         });
 
     /// <summary>Every command in the profile pointing at something that is not installed — the state a

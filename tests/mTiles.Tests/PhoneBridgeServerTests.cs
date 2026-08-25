@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -18,17 +17,14 @@ namespace mTiles.Tests;
 /// whether one phone's disconnection cancels another's recording. <see cref="IPhoneAudioSink"/> is the
 /// seam that lets all of that run with no dictation service, no tile and no UI thread.
 /// </remarks>
-public sealed class PhoneBridgeServerTests : IAsyncLifetime
+public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
+    : IAsyncLifetime, IClassFixture<PhoneCertificateFixture>
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
-
-    private readonly string _certificateDirectory =
-        Path.Combine(Path.GetTempPath(), "mtiles-phone-tests-" + Guid.NewGuid().ToString("N"));
 
     private PhonePairing _pairing = null!;
     private FakeSink _sink = null!;
     private PhoneBridgeServer _server = null!;
-    private PhoneTlsMaterial _tls = null!;
     private int _port;
     private readonly List<string> _reachedVia = [];
 
@@ -36,38 +32,31 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
     {
         _pairing = new PhonePairing();
         _sink = new FakeSink();
-        _port = FreePort();
-
-        var certificate = new SelfSignedCertificateSource(_certificateDirectory)
-            .TryGet(["localhost", "127.0.0.1"]);
-        Assert.NotNull(certificate);
-        _tls = new PhoneTlsMaterial([certificate]);
 
         _server = new PhoneBridgeServer(_pairing, _sink, host =>
         {
             lock (_reachedVia) _reachedVia.Add(host);
         });
 
-        await _server.StartAsync(_port, _tls, ["localhost", "127.0.0.1"], IPAddress.Loopback);
+        // Port 0, and the answer read back from the socket that exists. Asking the operating system for
+        // a free port and then binding it a moment later is a race the suite lost: something else took
+        // it in between, and a run failed here and passed on the next.
+        await _server.StartAsync(0, certificate.Tls, ["localhost", "127.0.0.1"], IPAddress.Loopback);
+        _port = _server.BoundPort;
     }
 
-    public async Task DisposeAsync()
-    {
-        await _server.DisposeAsync();
-        _tls.Dispose();
-        try { Directory.Delete(_certificateDirectory, true); } catch { }
-    }
+    public async Task DisposeAsync() => await _server.DisposeAsync();
 
-    private static int FreePort()
-    {
-        var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
-    }
-
-    private string Root => $"https://localhost:{_port}";
+    /// <summary>
+    /// The address every test but one reaches this server at.
+    /// </summary>
+    /// <remarks>
+    /// The literal, not <c>localhost</c>, and it is worth two seconds a connection: the name resolves to
+    /// <c>::1</c> first, this server listens on IPv4 loopback only, and the client spends about two
+    /// seconds on the address that will never answer before trying the one that will. Thirty tests, some
+    /// of them opening nine sockets, made that the single largest cost in the suite.
+    /// </remarks>
+    private string Root => $"https://127.0.0.1:{_port}";
 
     /// <summary>A client that accepts the self-signed certificate, exactly as a phone does once asked.</summary>
     private static HttpClient Client(CookieContainer cookies) =>
@@ -93,12 +82,20 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
     }
 
     /// <summary>The pin is only as good as this: it is the one address we know actually worked.</summary>
+    /// <remarks>
+    /// The one test that arrives under a <em>name</em>, because that is the case a phone pairs on when
+    /// Tailscale is in play and the case that could be quietly replaced by the address it resolved to
+    /// without anything else here noticing. Claimed in the Host header rather than dialled, which is both
+    /// exact — what is reported is read from that header, not from the socket — and two seconds cheaper.
+    /// </remarks>
     [Fact]
     public async Task Pairing_reports_the_address_the_device_arrived_on()
     {
         using var client = Client(new CookieContainer());
+        var request = new HttpRequestMessage(HttpMethod.Get, $"{Root}/p/{_pairing.IssuePairingToken()}");
+        request.Headers.Host = "localhost";
 
-        await client.GetAsync($"{Root}/p/{_pairing.IssuePairingToken()}");
+        await client.SendAsync(request);
 
         lock (_reachedVia)
             Assert.Equal("localhost", Assert.Single(_reachedVia));
@@ -170,7 +167,7 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
         socket.Options.Cookies.Add(new Uri(Root), new Cookie("mtiles_phone", session) { Path = "/" });
 
         using var timeout = new CancellationTokenSource(Patience);
-        await socket.ConnectAsync(new Uri($"wss://localhost:{_port}/ws"), timeout.Token);
+        await socket.ConnectAsync(new Uri($"wss://127.0.0.1:{_port}/ws"), timeout.Token);
         return socket;
     }
 
@@ -182,7 +179,7 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
 
         using var timeout = new CancellationTokenSource(Patience);
         var failure = await Assert.ThrowsAsync<WebSocketException>(
-            () => socket.ConnectAsync(new Uri($"wss://localhost:{_port}/ws"), timeout.Token));
+            () => socket.ConnectAsync(new Uri($"wss://127.0.0.1:{_port}/ws"), timeout.Token));
 
         Assert.Contains("401", failure.Message);
     }
@@ -269,12 +266,21 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
         var bystander = await ConnectAsync();
 
         await SendTextAsync(recorder, """{"type":"begin","sampleRate":16000}""");
-        await _sink.Began.Task.WaitAsync(Patience);
+        await OwnsTheStreamAsync(recorder);
 
         bystander.Dispose();                       // an abrupt drop, not a polite close
-        await Task.Delay(300);
+
+        // Waited for rather than slept through: removing the connection from the list is the first thing
+        // its receive loop does on the way out, so one socket left is the drop having been processed.
+        // Then the recorder finishes its sentence — which it cannot do if the other phone's departure
+        // took the recording with it.
+        await WaitUntilAsync(() => _server.ConnectedCount == 1);
+
+        await SendTextAsync(recorder, """{"type":"end"}""");
+        await _sink.Ended.Task.WaitAsync(Patience);
 
         Assert.Equal(0, _sink.Cancellations);
+        Assert.Equal(Marker, _sink.Audio);
     }
 
     [Fact]
@@ -287,10 +293,7 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
 
         recorder.Dispose();
 
-        var deadline = DateTime.UtcNow + Patience;
-        while (_sink.Cancellations == 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(25);
-
+        await WaitUntilAsync(() => _sink.Cancellations == 1);
         Assert.Equal(1, _sink.Cancellations);
     }
 
@@ -405,7 +408,7 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
 
         using var timeout = new CancellationTokenSource(Patience);
         var failure = await Assert.ThrowsAsync<WebSocketException>(
-            () => socket.ConnectAsync(new Uri($"wss://localhost:{_port}/ws"), timeout.Token));
+            () => socket.ConnectAsync(new Uri($"wss://127.0.0.1:{_port}/ws"), timeout.Token));
 
         Assert.Contains("403", failure.Message);
     }
@@ -424,7 +427,7 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
         socket.Options.SetRequestHeader("Origin", Root);
 
         using var timeout = new CancellationTokenSource(Patience);
-        await socket.ConnectAsync(new Uri($"wss://localhost:{_port}/ws"), timeout.Token);
+        await socket.ConnectAsync(new Uri($"wss://127.0.0.1:{_port}/ws"), timeout.Token);
 
         Assert.Equal(WebSocketState.Open, socket.State);
     }
@@ -534,44 +537,22 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
         using var socket = await ConnectAsync();
 
         await SendTextAsync(socket, """{"type":"begin","sampleRate":16000}""");
-        await _sink.Began.Task.WaitAsync(Patience);
+        await OwnsTheStreamAsync(socket);
 
         // The client never answers the close frame — it simply stops reading, as a wedged page would.
         _pairing.Revoke(_pairing.Sessions.Single().Id);
 
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (_sink.Cancellations == 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(25);
-
+        await WaitUntilAsync(() => _sink.Cancellations == 1);
         Assert.Equal(1, _sink.Cancellations);
-    }
 
-    /// <summary>And nothing it sends afterwards is acted on.</summary>
-    [Fact]
-    public async Task A_revoked_device_cannot_go_on_sending_audio()
-    {
-        using var socket = await ConnectAsync();
+        // And nothing it sends afterwards is acted on. A revoked connection is dropped the moment its
+        // next message arrives, so the socket count falling to zero is that message having been read and
+        // thrown away — the audio below was seen and refused, not merely still in flight.
+        try { await SendBinaryAsync(socket, [5, 5, 5, 5]); }
+        catch (WebSocketException) { /* already gone; either way nothing reached the sink */ }
 
-        await SendTextAsync(socket, """{"type":"begin","sampleRate":16000}""");
-        await _sink.Began.Task.WaitAsync(Patience);
-
-        _pairing.Revoke(_pairing.Sessions.Single().Id);
-
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (_sink.Cancellations == 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(25);
-
-        try
-        {
-            await SendBinaryAsync(socket, [5, 5, 5, 5]);
-            await Task.Delay(300);
-        }
-        catch (WebSocketException)
-        {
-            // The socket may already be gone; either way nothing reached the sink.
-        }
-
-        Assert.Empty(_sink.Audio);
+        await WaitUntilAsync(() => _server.ConnectedCount == 0);
+        Assert.Equal(Marker, _sink.Audio);
     }
 
     /// <summary>
@@ -594,9 +575,7 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
         await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
         socket.Dispose();
 
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (Volatile.Read(ref changes) < 2 && DateTime.UtcNow < deadline)
-            await Task.Delay(25);
+        await WaitUntilAsync(() => Volatile.Read(ref changes) >= 2);
 
         Assert.Equal(2, Volatile.Read(ref changes));
         Assert.Equal(0, _server.ConnectedCount);
@@ -676,6 +655,43 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
 
     // ── plumbing ────────────────────────────────────────────────────────────────────────────────────
 
+    /// <summary>The bytes a connection sends to prove it owns the recording, and later that it does not.</summary>
+    private static byte[] Marker => [4, 2];
+
+    /// <summary>
+    /// Waits until <paramref name="socket"/> demonstrably owns the recording it has just asked to begin.
+    /// </summary>
+    /// <remarks>
+    /// Awaiting the sink's <c>Began</c> is not enough, and that is the race behind a run that failed here
+    /// and passed on the next: the server records ownership <em>after</em> <c>BeginAsync</c> returns, so a
+    /// revocation arriving in that window found no owner, cancelled nothing, and left the test polling for
+    /// a cancellation that was never coming — the receive loop could not notice the close either, because
+    /// the client in these tests deliberately never answers it. Audio is written only for the connection
+    /// that owns the stream, so the marker coming back is that flag observed rather than assumed.
+    /// </remarks>
+    private async Task OwnsTheStreamAsync(ClientWebSocket socket)
+    {
+        await _sink.Began.Task.WaitAsync(Patience);
+        await SendBinaryAsync(socket, Marker);
+        await WaitUntilAsync(() => _sink.Audio.Length == Marker.Length);
+        Assert.Equal(Marker, _sink.Audio);
+    }
+
+    /// <summary>
+    /// Polls until <paramref name="condition"/> holds, leaving the assertion after it to say so if it never does.
+    /// </summary>
+    /// <remarks>
+    /// Every wait in here is for something the server does; none is a fixed pause hoping it has happened.
+    /// A test that sleeps for its answer is both slower than it needs to be and quietly wrong on a busy
+    /// machine, which is where the flakes come from.
+    /// </remarks>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + Patience;
+        while (!condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(15);
+    }
+
     private static async Task SendTextAsync(ClientWebSocket socket, string json)
     {
         using var timeout = new CancellationTokenSource(Patience);
@@ -741,5 +757,36 @@ public sealed class PhoneBridgeServerTests : IAsyncLifetime
 
         public string DescribeState() =>
             JsonSerializer.Serialize(new { type = "state", state = "idle", tile = "Terminal #1" });
+    }
+}
+
+/// <summary>
+/// One certificate, generated once and shared by every test in the class.
+/// </summary>
+/// <remarks>
+/// Minting an RSA key takes the better part of a second, the names asked for are always the same two, and
+/// there were thirty tests each asking for its own — twenty seconds of the suite spent generating copies
+/// of one certificate. Nothing mutates it and the server only ever reads it, so one will do. What is
+/// deliberately <em>not</em> shared is the server, the pairing and the sink: a test in here revokes
+/// pairings, fills the connection table and counts cancellations, so isolation there is load-bearing.
+/// </remarks>
+public sealed class PhoneCertificateFixture : IDisposable
+{
+    private readonly string _directory =
+        Path.Combine(Path.GetTempPath(), "mtiles-phone-tests-" + Guid.NewGuid().ToString("N"));
+
+    internal PhoneTlsMaterial Tls { get; }
+
+    public PhoneCertificateFixture()
+    {
+        var certificate = new SelfSignedCertificateSource(_directory).TryGet(["localhost", "127.0.0.1"]);
+        Assert.NotNull(certificate);
+        Tls = new PhoneTlsMaterial([certificate]);
+    }
+
+    public void Dispose()
+    {
+        Tls.Dispose();                                       // and with it the certificate's key handle
+        try { Directory.Delete(_directory, true); } catch { }
     }
 }

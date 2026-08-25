@@ -84,21 +84,25 @@ public sealed class PhoneBridgeManagerTests : IDisposable
 
     private void UsePort(int port) => _settings.Service.Settings.Phone.Port = port;
 
-    private static int FreePort()
-    {
-        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
-    }
+    /// <summary>
+    /// "Choose one for me" — what every test here that does not care which port it gets asks for.
+    /// </summary>
+    /// <remarks>
+    /// These used to open a listener, read the port it was given, close it, and configure that — which is
+    /// a race with every other process on the machine, and one this suite lost: a run failed on a port
+    /// something else had taken in between and passed on the next. Port zero has no window to lose,
+    /// because the bind and the choice are the same act. A test that genuinely needs a port to be taken
+    /// holds the listener open for as long as it needs the port to stay taken, which is the only way to
+    /// mean it.
+    /// </remarks>
+    private void UseAnyPort() => UsePort(0);
 
     // ── starting ────────────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     public async Task It_starts_and_stops()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var bridge = Build(new StubEndpoints());
 
         Assert.True(await bridge.StartAsync());
@@ -117,7 +121,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task Concurrent_starts_do_not_dismantle_each_other()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var bridge = Build(new StubEndpoints());
 
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => bridge.StartAsync()));
@@ -130,7 +134,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task Starting_an_already_running_bridge_changes_nothing()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var bridge = Build(new StubEndpoints());
         await bridge.StartAsync();
 
@@ -228,7 +232,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     public async Task A_failed_start_keeps_the_paired_devices()
     {
         var store = new RememberingStore();
-        UsePort(FreePort());
+        UseAnyPort();
 
         // An address this machine does not have, so binding fails however the port is chosen.
         var bridge = Build(new StubEndpoints(), IPAddress.Parse("203.0.113.1"), store);
@@ -267,7 +271,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task A_failed_start_leaves_nothing_subscribed()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var bridge = Build(new StubEndpoints(), IPAddress.Parse("203.0.113.1"), null);
 
         for (var attempt = 0; attempt < 5; attempt++)
@@ -288,7 +292,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     /// </remarks>
     private static int SessionEndedSubscribers(PhonePairing pairing)
     {
-        var field = typeof(PhonePairing).GetField("SessionEnded",
+        var field = typeof(PhonePairing).GetField(nameof(PhonePairing.SessionEnded),
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         Assert.NotNull(field);
@@ -299,7 +303,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task The_subscription_counter_sees_a_running_server()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var bridge = Build(new StubEndpoints());
 
         Assert.True(await bridge.StartAsync());
@@ -315,12 +319,15 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     /// an <see cref="ArgumentOutOfRangeException"/>, which is not a bind failure — so it never took the
     /// fallback, and the feature was simply dead with an obscure message.
     /// </remarks>
-    [Theory]
-    [InlineData(999999)]
-    [InlineData(-1)]
-    public async Task A_nonsensical_port_still_starts(int port)
+    /// <remarks>
+    /// One number, not a table of them: what a nonsensical port is <em>clamped to</em> is pinned purely by
+    /// the test below, which costs nothing, and this one exists only to prove the clamp is reached from a
+    /// real start — a second case of it spins up another Kestrel to learn the same thing.
+    /// </remarks>
+    [Fact]
+    public async Task A_nonsensical_port_still_starts()
     {
-        UsePort(port);
+        UsePort(999999);
         var bridge = Build(new StubEndpoints());
 
         Assert.True(await bridge.StartAsync());
@@ -347,8 +354,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task A_changed_address_set_restarts_the_bridge()
     {
-        var port = FreePort();
-        UsePort(port);
+        UseAnyPort();
         var endpoints = new StubEndpoints();
         var bridge = Build(endpoints);
         await bridge.StartAsync();
@@ -356,13 +362,15 @@ public sealed class PhoneBridgeManagerTests : IDisposable
         // Asserted through what the server answers, not through what the manager believes. Checking
         // Board or IsRunning would have passed against the broken version too: it kept a perfectly
         // healthy server running, just one configured for yesterday's network.
-        Assert.Equal(HttpStatusCode.BadRequest, await ReachAsync(port, "10.1.2.3"));
+        Assert.Equal(HttpStatusCode.BadRequest, await ReachAsync(bridge.ActivePort, "10.1.2.3"));
 
         endpoints.Hosts.Add("10.1.2.3");          // a VPN came up, or the laptop joined another network
         await bridge.RefreshAsync();
         Assert.True(await bridge.StartAsync());
 
-        Assert.NotEqual(HttpStatusCode.BadRequest, await ReachAsync(port, "10.1.2.3"));
+        // The port is read again rather than remembered: the restart binds a new socket, and with the
+        // operating system choosing, that is a new number.
+        Assert.NotEqual(HttpStatusCode.BadRequest, await ReachAsync(bridge.ActivePort, "10.1.2.3"));
         Assert.Null(bridge.LastError);
     }
 
@@ -386,7 +394,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task Reconfiguring_keeps_paired_devices()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var endpoints = new StubEndpoints();
         var bridge = Build(endpoints);
         await bridge.StartAsync();
@@ -406,7 +414,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task Stopping_for_real_drops_paired_devices()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var bridge = Build(new StubEndpoints());
         await bridge.StartAsync();
         bridge.Pairing.TryRedeem(bridge.Pairing.IssuePairingToken(), "iPhone", out _);
@@ -421,7 +429,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task An_open_panel_keeps_the_bridge_up()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var bridge = Build(new StubEndpoints());
         var hold = bridge.HoldOpen();
         await bridge.StartAsync();
@@ -437,7 +445,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task A_paired_device_keeps_the_bridge_up()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         var bridge = Build(new StubEndpoints());
         await bridge.StartAsync();
         bridge.Pairing.TryRedeem(bridge.Pairing.IssuePairingToken(), "iPhone", out _);
@@ -454,7 +462,7 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     [Fact]
     public async Task The_keep_running_setting_outranks_everything()
     {
-        UsePort(FreePort());
+        UseAnyPort();
         _settings.Service.Settings.Phone.Enabled = true;
         var bridge = Build(new StubEndpoints());
         await bridge.StartAsync();

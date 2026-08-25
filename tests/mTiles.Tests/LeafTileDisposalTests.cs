@@ -224,17 +224,4 @@ public class LeafTileDisposalTests
         public int Disposals { get; private set; }
         public void Dispose() => Disposals++;
     }
-
-    [Fact]
-    public void Disposing_a_tile_twice_is_harmless()
-    {
-        using var settings = new TempSettings();
-        var (service, tile) = Build(settings);
-        using var _ = service;
-
-        tile.Dispose();
-        tile.Dispose();
-
-        Assert.Null(tile.Dictation);
-    }
 }

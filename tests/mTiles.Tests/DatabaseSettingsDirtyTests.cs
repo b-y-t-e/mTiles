@@ -26,7 +26,10 @@ public sealed class DatabaseSettingsDirtyTests : IDisposable
         return vm;
     }
 
-    private const int DatabaseTab = 3;
+    // The view model's own constant, not a copy of its value: the numbers are what SettingsTabs
+    // exists to stop anybody writing out, and a test that hardcodes 3 goes on passing after the
+    // tabs are reordered while every assertion in it has quietly moved to the wrong page.
+    private const int DatabaseTab = SettingsTabs.Database;
 
     [Fact]
     public void A_form_that_matches_the_stored_settings_has_nothing_to_save()

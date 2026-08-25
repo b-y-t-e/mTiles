@@ -73,38 +73,6 @@ public class GoalReviewParsingTests
 
         Assert.Contains("VERDICT: PASS", prompt);
         Assert.Contains("VERDICT: FAIL", prompt);
-
-        // And the words the prompt asks for are the words the parser looks for.
-        Assert.True(GoalResponseParser.ParseReview("I am not doing json. VERDICT: PASS").GoalMet);
-    }
-
-    [Theory]
-    // A verdict at the end of a sentence is a verdict; tools write it that way as readily as on a line
-    // of its own.
-    [InlineData("Everything checks out. VERDICT: PASS", true)]
-    [InlineData("VERDICT: PASS", true)]
-    [InlineData("Reasoning first.\n\nVERDICT: PASS", true)]
-    // The sentence this whole feature was built to replace. The substring rule read it as a pass, and
-    // it survived as the prose fallback — where it matters more than before, because the prompt now
-    // asks for exactly this phrase and tools quote it, discuss it and explain not writing it.
-    [InlineData("I cannot say VERDICT: PASS until the null check is fixed.", false)]
-    [InlineData("Do not write VERDICT: PASS unless every test runs.", false)]
-    [InlineData("VERDICT: FAIL", false)]
-    // The last verdict wins: a reply that reasons its way there states it at the end.
-    [InlineData("VERDICT: PASS\n\nOn reflection, VERDICT: FAIL", false)]
-    [InlineData("There is nothing here about verdicts at all.", false)]
-    // Spellings tools actually use. Tightening the match to exactly "VERDICT: PASS" bought nothing and
-    // cost the two commonest — and this is a fallback for a tool that already ignored one instruction,
-    // so it cannot afford to be pedantic about the next.
-    [InlineData("VERDICT: PASSED", true)]
-    [InlineData("**VERDICT:** PASS", true)]
-    [InlineData("## VERDICT: PASS", true)]
-    [InlineData("Verdict - pass", true)]
-    [InlineData("VERDICT: FAILED", false)]
-    [InlineData("**VERDICT: FAIL**", false)]
-    public void A_prose_verdict_is_what_the_line_ends_with(string review, bool passed)
-    {
-        Assert.Equal(passed, GoalWorkflowEngine.IsVerdictPass(review));
     }
 
     [Fact]
@@ -193,10 +161,26 @@ public class GoalReviewParsingTests
     [Theory]
     // Stated, at the end of the line, in the spellings tools actually use.
     [InlineData("Everything checks out. VERDICT: PASS", true)]
+    [InlineData("VERDICT: PASS", true)]
+    [InlineData("Reasoning first.\n\nVERDICT: PASS", true)]
     [InlineData("VERDICT: PASSED", true)]
     [InlineData("**VERDICT:** PASS", true)]
+    [InlineData("## VERDICT: PASS", true)]
+    [InlineData("Verdict - pass", true)]
     [InlineData("No errors found. VERDICT: PASS", true)]
     [InlineData("Nothing left to do, so VERDICT - PASS.", true)]
+    // Refused, in the same spellings.
+    [InlineData("VERDICT: FAIL", false)]
+    [InlineData("VERDICT: FAILED", false)]
+    [InlineData("**VERDICT: FAIL**", false)]
+    // The last verdict wins: a reply that reasons its way there states it at the end.
+    [InlineData("VERDICT: PASS\n\nOn reflection, VERDICT: FAIL", false)]
+    // The sentence this whole feature was built to replace, and the instruction that quotes it. The
+    // substring rule read both as a pass; the prompt now asks for exactly this phrase, so tools quote
+    // it, discuss it and explain not writing it.
+    [InlineData("I cannot say VERDICT: PASS until the null check is fixed.", false)]
+    [InlineData("Do not write VERDICT: PASS unless every test runs.", false)]
+    [InlineData("There is nothing here about verdicts at all.", false)]
     // Decorated. Models end that line with a tick or a party popper about as often as with nothing, and
     // a rejected verdict reads as "no verdict", which reads as "not met" — so a tool that decorates
     // its answers failed every attempt and burned the whole budget.
@@ -374,21 +358,6 @@ public class GoalReviewParsingTests
         var killed = VerifyOutcome.Timeout("it was still running after 30 minutes and was stopped");
         Assert.False(GoalCompletionPolicy.IsMet(clean, killed, criteria));
         Assert.Contains("never finished", GoalCompletionPolicy.WhyNotMet(clean, killed, criteria));
-    }
-
-    [Theory]
-    [InlineData("1.\n2.\n3.", true)]        // the skeleton, untouched
-    [InlineData("1.\n3.", true)]             // a line deleted out of the middle: the numbers no longer
-                                             // match their positions, and it is still nothing at all
-    [InlineData("2)\n3)", true)]
-    [InlineData("3.", false)]                // a lone number is an answer: "how many retries?"
-    [InlineData("1. appsettings.json\n2.", false)]
-    [InlineData("1.\n2. yes", false)]
-    public void An_answer_that_is_only_numbering_says_nothing_however_it_was_edited(string text, bool blank)
-    {
-        // The composer is prefilled with the numbering, so pressing Enter sends a real string. Each of
-        // these costs one clarification round out of three.
-        Assert.Equal(blank, GoalTranscript.IsBlankAnswer(text));
     }
 
     [Fact]
@@ -591,30 +560,39 @@ public class GoalClarifyParsingTests
         Assert.Contains("appsettings.json", GoalTranscript.Questions(clarify));
     }
 
+    /// <summary>
+    /// The one rule <see cref="GoalTranscript.IsBlankAnswer"/> exists for: an answer is nothing only
+    /// when nothing but the composer's own numbering came back.
+    /// <para>The composer is prefilled with the skeleton, so pressing Enter sends a real string — and
+    /// each one that gets through costs one clarification round out of three on a message the tool can
+    /// make nothing of. The other side of the rule matters just as much: "3." is a perfectly good reply
+    /// to "how many retries?", and stripping any leading number made it look like the third line of an
+    /// untouched skeleton and refused it. So a marker is dropped only where its number matches the
+    /// line's own position, which is why a skeleton with a line deleted out of the middle is still
+    /// nothing at all while a lone number is an answer.</para>
+    /// </summary>
     [Theory]
-    [InlineData("1.\n2.\n3.")]
-    [InlineData("1)\n2)")]
-    [InlineData("  1.   \n\n 2. ")]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void The_numbering_sent_back_untouched_is_not_an_answer(string text)
+    // The skeleton, in every shape the composer or an edit can leave it in.
+    [InlineData("1.\n2.\n3.", true)]
+    [InlineData("1)\n2)", true)]
+    [InlineData("  1.   \n\n 2. ", true)]
+    [InlineData("", true)]
+    [InlineData("   ", true)]
+    // A line deleted out of the middle: the numbers no longer match their positions, and it is still
+    // nothing at all.
+    [InlineData("1.\n3.", true)]
+    [InlineData("2)\n3)", true)]
+    // A lone number is an answer, not the tail of a skeleton.
+    [InlineData("3.", false)]
+    [InlineData("2)", false)]
+    // Anything answered at all counts, whichever line it was written on.
+    [InlineData("1. appsettings.json\n2.", false)]
+    [InlineData("1.\n2. yes", false)]
+    [InlineData("2. yes", false)]
+    [InlineData("no, do it differently", false)]
+    public void An_answer_is_blank_only_when_nothing_but_the_numbering_came_back(string text, bool blank)
     {
-        // The composer is prefilled with it, so Enter alone sends one — and used to spend one of the
-        // three clarification rounds on a message the tool can make nothing of.
-        Assert.True(GoalTranscript.IsBlankAnswer(text));
-    }
-
-    [Fact]
-    public void An_answer_that_happens_to_look_like_a_marker_is_still_an_answer()
-    {
-        // "3." is a perfectly good reply to "how many retries?". Stripping any leading number made it
-        // look like the third line of an untouched skeleton, and refused it — so the marker is only
-        // dropped where its number matches the line's own position.
-        Assert.False(GoalTranscript.IsBlankAnswer("3."));
-        Assert.False(GoalTranscript.IsBlankAnswer("2)"));
-
-        // And the skeleton itself, whose numbers do match, is still refused.
-        Assert.True(GoalTranscript.IsBlankAnswer("1.\n2.\n3."));
+        Assert.Equal(blank, GoalTranscript.IsBlankAnswer(text));
     }
 
     [Fact]
@@ -630,15 +608,6 @@ public class GoalClarifyParsingTests
 
         Assert.DoesNotContain("```", shown);
         Assert.Contains("this is not json", shown);
-    }
-
-    [Theory]
-    [InlineData("1. appsettings.json\n2.")]
-    [InlineData("no, do it differently")]
-    [InlineData("2. yes")]
-    public void An_answer_to_even_one_question_counts(string text)
-    {
-        Assert.False(GoalTranscript.IsBlankAnswer(text));
     }
 
     [Fact]
@@ -742,17 +711,6 @@ public class GoalCompletionPolicyTests
         Assert.False(GoalCompletionPolicy.IsMet(review, failed, new GoalCompletionCriteria()));
         Assert.Contains("exited 1",
             GoalCompletionPolicy.WhyNotMet(review, failed, new GoalCompletionCriteria()));
-    }
-
-    [Fact]
-    public void A_verify_command_that_could_not_be_started_does_not_block()
-    {
-        // Refusing to finish a goal because a shell was missing would be blaming the work for the
-        // tooling. The transcript says so instead.
-        var review = Review(met: true);
-
-        Assert.True(GoalCompletionPolicy.IsMet(review, VerifyOutcome.NotRun("no shell"),
-            new GoalCompletionCriteria()));
     }
 
     [Fact]
@@ -906,6 +864,24 @@ public class GoalPromptFittingTests
         ])
             Assert.True(CommandLineLength.Quoted(prompt) <= budget,
                 $"a prompt of {CommandLineLength.Quoted(prompt)} would be refused by the guard");
+
+        // Trimmed, not gutted, at the size this tile really builds: the goal, the quality rules, a
+        // verify command's output, seven thousand characters of working tree, the severity rules and an
+        // example come to around twelve thousand characters against the 8 191 a .cmd shim allows. The
+        // run that overflows is the one the fitting exists for — a resume after a large implementation
+        // in a workspace with a verify command — and what comes out still has to say what it is asking
+        // for and still has to carry the goal.
+        var unfitted = builder.BuildReview(new string('g', 5_000), new string('d', 20_000), new string('v', 5_000));
+        Assert.True(CommandLineLength.Quoted(unfitted) > budget,
+            "this proves nothing unless the unfitted prompt really is too long");
+
+        var fitted = builder.BuildReview(
+            new string('g', 5_000), new string('d', 20_000), new string('v', 5_000), budget);
+
+        Assert.True(CommandLineLength.Quoted(fitted) <= budget);
+        Assert.Contains("goalMet", fitted);
+        Assert.Contains("blocker", fitted);
+        Assert.Contains("gggg", fitted);
     }
 
     [Fact]

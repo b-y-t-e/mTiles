@@ -1,4 +1,4 @@
-using mTiles.Services.Speech;
+﻿using mTiles.Services.Speech;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -50,10 +50,11 @@ public class SpeechModelStoreTests : IDisposable
     /// can be loaded — an extraction stopped halfway leaves exactly that.
     /// </summary>
     /// <remarks>
-    /// Every file the engine opens has to be there, one at a time here because a half-extracted model
-    /// is precisely a subset of them. "A vocabulary and any <c>.onnx</c>" used to pass, which meant the
-    /// three-graph model counted as downloaded with one graph on disk: the shortcut armed, no warning
-    /// anywhere, and the failure arriving after the user had spoken.
+    /// The directory existing is not the answer, and never was: an extraction stopped after its first
+    /// entry leaves one. Which files those are, and that every one of them counts on its own, is the
+    /// theory below — "a vocabulary and any <c>.onnx</c>" used to pass, so the three-graph model counted
+    /// as downloaded with one graph on disk: the shortcut armed, no warning anywhere, and the failure
+    /// arriving after the user had spoken.
     /// </remarks>
     [Fact]
     public void An_archive_model_counts_only_once_all_its_parts_are_there()
@@ -64,13 +65,7 @@ public class SpeechModelStoreTests : IDisposable
         Directory.CreateDirectory(directory);
         Assert.False(_store.IsDownloaded(Parakeet));
 
-        foreach (var missing in ParakeetFiles[..^1])
-        {
-            File.WriteAllText(Path.Combine(directory, missing), "");
-            Assert.False(_store.IsDownloaded(Parakeet));
-        }
-
-        File.WriteAllText(Path.Combine(directory, ParakeetFiles[^1]), "");
+        PlaceParakeetFiles(directory);
         Assert.True(_store.IsDownloaded(Parakeet));
     }
 
@@ -134,7 +129,6 @@ public class SpeechModelStoreTests : IDisposable
         _store.Delete(Parakeet);
 
         Assert.False(Directory.Exists(directory));
-        Assert.False(_store.IsDownloaded(Parakeet));
     }
 
     /// <summary>

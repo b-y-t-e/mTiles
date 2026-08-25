@@ -1,4 +1,4 @@
-using mTiles.Services.Speech;
+﻿using mTiles.Services.Speech;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -106,30 +106,22 @@ public class AudioResamplerTests
     }
 
     /// <summary>
-    /// Stereo to mono, by averaging — what every microphone that reports two channels goes through
-    /// before anything else touches it. Getting it wrong halves the level or drops a channel, and the
-    /// only symptom downstream is that recognition is quietly worse.
+    /// Down to mono, by averaging — what every microphone that reports more than one channel goes
+    /// through before anything else touches it. Getting it wrong halves the level or drops a channel,
+    /// and the only symptom downstream is that recognition is quietly worse.
     /// </summary>
-    [Fact]
-    public void Two_channels_are_averaged_into_one()
-    {
-        // Interleaved: L R L R L R
-        float[] interleaved = [1.0f, 0.0f, 0.5f, 0.5f, -1.0f, 1.0f];
-
-        Assert.Equal([0.5f, 0.5f, 0.0f], PortAudioCapture.Downmix(interleaved, 2));
-    }
-
-    [Fact]
-    public void A_single_channel_passes_through_unchanged()
-    {
-        float[] mono = [0.1f, -0.2f, 0.3f];
-
-        Assert.Equal(mono, PortAudioCapture.Downmix(mono, 1));
-    }
-
-    [Fact]
-    public void More_than_two_channels_are_averaged_as_well()
-        => Assert.Equal([0.5f], PortAudioCapture.Downmix([1.0f, 0.0f, 1.0f, 0.0f], 4));
+    /// <remarks>
+    /// <c>PortAudioCapture</c> rather than the resampler, and it lives here because the two are one step
+    /// of the same conversion: whatever the device hands over becomes 16 kHz mono or the model sees
+    /// nothing it can use.
+    /// </remarks>
+    [Theory]
+    // Interleaved: L R L R L R
+    [InlineData(2, new[] { 1.0f, 0.0f, 0.5f, 0.5f, -1.0f, 1.0f }, new[] { 0.5f, 0.5f, 0.0f })]
+    [InlineData(1, new[] { 0.1f, -0.2f, 0.3f }, new[] { 0.1f, -0.2f, 0.3f })]   // passed through untouched
+    [InlineData(4, new[] { 1.0f, 0.0f, 1.0f, 0.0f }, new[] { 0.5f })]           // and more than two, as well
+    public void Channels_are_averaged_down_to_one(int channels, float[] interleaved, float[] expected)
+        => Assert.Equal(expected, PortAudioCapture.Downmix(interleaved, channels));
 
     /// <summary>
     /// A fresh instance starts from silence. There is no reset, on purpose: one resampler belongs to one

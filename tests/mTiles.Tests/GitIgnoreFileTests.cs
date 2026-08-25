@@ -152,14 +152,35 @@ public sealed class GitIgnoreFileTests : IDisposable
 
     // ---- removing --------------------------------------------------------------
 
-    [Fact]
-    public async Task Turning_the_setting_off_takes_our_block_back_out()
+    /// <summary>
+    /// Turning the setting off puts the file back exactly as it was — byte for byte, whatever was in it
+    /// and however many times the user changes their mind. Our block goes and nothing else does: not the
+    /// lines around it, not blank lines that were already there, and no residue accumulating per flip.
+    /// </summary>
+    /// <remarks>
+    /// One theory rather than a test per starting file, because it is one claim — <c>Ensure</c> followed
+    /// by <c>Remove</c> is the identity — and the starting content is the only thing that varied. The
+    /// blank-line case is the one that has actually failed: this class puts a blank line in front of its
+    /// own marker, and taking one blank line too many out is invisible until a user's own spacing is
+    /// gone. Toggling repeatedly is the same claim iterated, which is how a per-flip residue shows up.
+    /// </remarks>
+    [Theory]
+    [InlineData("bin/\n", 1)]
+    [InlineData("bin/\nobj/\n*.user\n", 1)]     // the lines around our block are the user's
+    [InlineData("bin/\n\n\nobj/\n", 1)]          // including their own blank lines
+    [InlineData("bin/\nobj/\n", 3)]              // making up their mind, three times over
+    public async Task Adding_our_block_and_taking_it_back_out_leaves_the_file_as_it_was(
+        string original, int rounds)
     {
-        Given("bin/\n");
-        await GitIgnoreFile.EnsureAsync(_repo, Entry);
+        Given(original);
 
-        Assert.True(await GitIgnoreFile.RemoveAsync(_repo, Entry));
-        Assert.Equal("bin/\n", Content);        // exactly as it started
+        for (int i = 0; i < rounds; i++)
+        {
+            await GitIgnoreFile.EnsureAsync(_repo, Entry);
+            Assert.True(await GitIgnoreFile.RemoveAsync(_repo, Entry));
+        }
+
+        Assert.Equal(original, Content);
     }
 
     /// <summary>
@@ -174,29 +195,6 @@ public sealed class GitIgnoreFileTests : IDisposable
 
         Assert.False(await GitIgnoreFile.RemoveAsync(_repo, Entry));
         Assert.Equal("bin/\n.mterminal/\nobj/\n", Content);
-    }
-
-    /// <summary>Our block goes; the lines around it are the user's and stay exactly where they were.</summary>
-    [Fact]
-    public async Task Removing_our_block_leaves_every_other_line_untouched()
-    {
-        Given("bin/\nobj/\n*.user\n");
-        await GitIgnoreFile.EnsureAsync(_repo, Entry);
-
-        Assert.True(await GitIgnoreFile.RemoveAsync(_repo, Entry));
-        Assert.Equal("bin/\nobj/\n*.user\n", Content);
-    }
-
-    /// <summary>Including blank lines that were already there. Only the one blank line this class put in
-    /// front of its own marker comes out with it.</summary>
-    [Fact]
-    public async Task Removing_our_block_does_not_take_the_users_blank_lines_with_it()
-    {
-        Given("bin/\n\n\nobj/\n");
-        await GitIgnoreFile.EnsureAsync(_repo, Entry);
-
-        Assert.True(await GitIgnoreFile.RemoveAsync(_repo, Entry));
-        Assert.Equal("bin/\n\n\nobj/\n", Content);
     }
 
     /// <summary>
@@ -258,22 +256,6 @@ public sealed class GitIgnoreFileTests : IDisposable
     [Fact]
     public async Task Removing_from_a_repository_with_no_gitignore_is_not_an_error()
         => Assert.False(await GitIgnoreFile.RemoveAsync(_repo, Entry));
-
-    /// <summary>Toggling is what a user does while making up their mind, and the file has to survive it
-    /// unchanged — otherwise every flip leaves another blank line behind in their repository.</summary>
-    [Fact]
-    public async Task Toggling_the_setting_repeatedly_leaves_the_file_as_it_was()
-    {
-        Given("bin/\nobj/\n");
-
-        for (int i = 0; i < 3; i++)
-        {
-            await GitIgnoreFile.EnsureAsync(_repo, Entry);
-            await GitIgnoreFile.RemoveAsync(_repo, Entry);
-        }
-
-        Assert.Equal("bin/\nobj/\n", Content);
-    }
 
     // ---- concurrency and failure -----------------------------------------------
 

@@ -32,27 +32,31 @@ public sealed class OpenCodeSessionTests
     public void The_session_id_is_the_tile_id_under_opencodes_required_prefix()
         => Assert.Equal("ses_" + TileId, OpenCodeSession.IdFor(TileId));
 
-    [Fact]
-    public void The_document_declares_the_id_the_tile_will_resume()
-        => Assert.Equal(OpenCodeSession.IdFor(TileId), Info().GetProperty("id").GetString());
-
     // ---- the document ----------------------------------------------------------
 
     /// <summary>
     /// Every field, because opencode wants every field. A document carrying only <c>id</c> and
     /// <c>time</c> is rejected with <c>Missing key</c> — which does not say <em>which</em> key, so
     /// trimming this to what looks meaningful is a change nobody can debug from the error.
+    /// <para>The whole set at once rather than a case per name: an equality on the set also fails when
+    /// a field is <em>renamed</em>, which a per-name presence check cannot see — it would report the
+    /// old name missing and say nothing about the new one that opencode will reject.</para>
     /// </summary>
-    [Theory]
-    [InlineData("id")]
-    [InlineData("slug")]
-    [InlineData("projectID")]      // opencode's spelling, not a slip
-    [InlineData("directory")]
-    [InlineData("title")]
-    [InlineData("version")]
-    [InlineData("time")]
-    public void The_document_carries_every_field_the_import_insists_on(string field)
-        => Assert.True(Info().TryGetProperty(field, out _), $"the import needs '{field}'");
+    [Fact]
+    public void The_document_carries_every_field_the_import_insists_on()
+    {
+        // `projectID` is opencode's spelling, not a slip here.
+        string[] required = ["id", "slug", "projectID", "directory", "title", "version", "time"];
+
+        Assert.Equal(required.Order(), Info().EnumerateObject().Select(p => p.Name).Order());
+    }
+
+    /// <summary>The id the tile will resume is the one it asked for. Pinned on the composed document
+    /// here; <see cref="A_profile_that_asks_for_a_document_gets_one_written"/> pins it again on the
+    /// file opencode is actually handed.</summary>
+    [Fact]
+    public void The_document_declares_the_id_the_tile_will_resume()
+        => Assert.Equal(OpenCodeSession.IdFor(TileId), Info().GetProperty("id").GetString());
 
     [Fact]
     public void A_new_session_starts_with_no_messages()

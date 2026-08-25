@@ -315,17 +315,15 @@ public sealed class SettingsMigrationTests : IDisposable
     /// object with nothing and is not an error, so the load's own catch never sees it. The first service
     /// to read it then throws during construction of the main window — the application does not start,
     /// and says nothing about why. Settings are never worth refusing to launch over.
+    /// <para>Two cases, not one per property: which properties refuse a null is <c>SettingsNullGuardTests</c>'
+    /// business, and it walks the whole graph by reflection rather than listing them. What is left for
+    /// this file is that the guards are reached through a real file on disk — once at the top level, and
+    /// once <em>one level deeper</em>, which is where patching the sections after loading stopped
+    /// working and where a null is a window that never appears.</para>
     /// </remarks>
     [Theory]
-    [InlineData("""{ "Speech": null }""")]
-    [InlineData("""{ "Database": null }""")]
-    [InlineData("""{ "ShellProfiles": null, "CustomAiTools": null, "CustomAiToolPaths": null }""")]
-    [InlineData("""{ "GoalDefaultModels": null }""")]
-    // One level deeper, which is where patching the sections after loading stopped working: each of
-    // these is dereferenced during startup, so a null is a window that never appears.
-    [InlineData("""{ "Speech": { "CustomWords": null } }""")]
-    [InlineData("""{ "Database": { "ManualConnections": null } }""")]
-    [InlineData("""{ "Database": { "SqlServer": null, "PostgreSql": null } }""")]
+    [InlineData("""{ "Speech": null, "Database": null, "ShellProfiles": null, "CustomAiTools": null, "CustomAiToolPaths": null, "GoalDefaultModels": null }""")]
+    [InlineData("""{ "Speech": { "CustomWords": null }, "Database": { "ManualConnections": null, "SqlServer": null, "PostgreSql": null } }""")]
     public void A_null_section_takes_its_defaults_rather_than_breaking_startup(string json)
     {
         GivenSettings(json);

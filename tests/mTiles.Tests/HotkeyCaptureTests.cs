@@ -1,4 +1,4 @@
-using Avalonia.Input;
+﻿using Avalonia.Input;
 using mTiles.Services.Speech;
 using Xunit;
 
@@ -24,10 +24,7 @@ public class HotkeyCaptureTests
     /// it would give the key that cancels dictation the job of starting it.
     /// </remarks>
     [Theory]
-    [InlineData(Key.LeftAlt)]
-    [InlineData(Key.RightAlt)]
-    [InlineData(Key.LeftCtrl)]
-    [InlineData(Key.LeftShift)]
+    [InlineData(Key.LeftAlt)]      // a bare modifier, whichever one
     [InlineData(Key.LWin)]
     [InlineData(Key.Tab)]
     [InlineData(Key.Escape)]

@@ -14,6 +14,9 @@ public class ChainDecisionTests
     private static readonly ChainPolicy T =
         new(MinLifetimeForRelaunch: 10_000, Established: 120_000, Retry: 200, Relaunch: 500);
 
+    // The table is deliberately arranged so that neither input ever decides alone: the same exit code
+    // means opposite things at different lifetimes, and the same lifetime means opposite things for
+    // different codes. Every bug this chain has had was an attempt to read one of the two on its own.
     // A table in a local, not `[InlineData]`, because `ChainStep` is internal: a public theory method
     // cannot take a parameter less accessible than itself, and the enum being internal is worth more
     // than one test being a Theory. Each case carries its own message so a failure still names itself.
@@ -47,16 +50,6 @@ public class ChainDecisionTests
             Assert.True(T.Decide(code, lived) == expected,
                 $"{why} (exit {code?.ToString() ?? "none"} after {lived} ms): "
                 + $"expected {expected}, got {T.Decide(code, lived)}");
-    }
-
-    /// <summary>Neither input decides alone, and this is the shape of that: the same code means opposite
-    /// things at different lifetimes, and the same lifetime means opposite things for different codes.
-    /// Every bug this chain has had was an attempt to read one of the two on its own.</summary>
-    [Fact]
-    public void Neither_the_code_nor_the_lifetime_decides_on_its_own()
-    {
-        Assert.NotEqual(T.Decide(1, 1_000), T.Decide(1, 600_000));
-        Assert.NotEqual(T.Decide(0, 600_000), T.Decide(1, 600_000));
     }
 
     /// <summary>

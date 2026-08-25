@@ -1,4 +1,4 @@
-using mTiles.Models;
+﻿using mTiles.Models;
 using mTiles.Services.Speech;
 using Xunit;
 
@@ -83,59 +83,32 @@ public class DictationHotkeyMachineTests
     [Fact]
     public void In_toggle_mode_a_held_key_does_not_stop_its_own_recording()
     {
-        var clock = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var starts = 0;
-        var stops = 0;
-        var machine = new DictationHotkeyMachine(() => DictationMode.Toggle,
-            () => starts++, () => stops++, () => clock, (_, _) => { });
+        var h = new Harness { Mode = DictationMode.Toggle };
 
-        machine.KeyDown();                      // the press
-        Assert.Equal(1, starts);
+        h.Machine.KeyDown();                    // the press
+        Assert.Equal(1, h.Starts);
 
         // Held: repeats at roughly thirty a second, for two seconds.
         for (var i = 0; i < 60; i++)
         {
-            clock = clock.AddMilliseconds(33);
-            machine.KeyDown();
+            h.Advance(33);
+            h.Machine.KeyDown();
         }
 
-        Assert.Equal(0, stops);
-        Assert.True(machine.IsRecording);
+        Assert.Equal(0, h.Stops);
+        Assert.True(h.Machine.IsRecording);
 
-        // Letting go changes nothing in toggle mode; the next press is what stops it.
-        clock = clock.AddMilliseconds(33);
-        machine.KeyUp();
-        Assert.Equal(0, stops);
+        // Letting go changes nothing in toggle mode; the next press is what stops it, and it is not
+        // swallowed as the tail of the hold however long ago the last repeat was.
+        h.Advance(33);
+        h.Machine.KeyUp();
+        h.RunTimers();
+        Assert.Equal(0, h.Stops);
 
-        clock = clock.AddSeconds(3);
-        machine.KeyDown();
-        Assert.Equal(1, stops);
-        Assert.False(machine.IsRecording);
-    }
-
-    /// <summary>
-    /// A release that never arrives must not leave the shortcut dead.
-    /// </summary>
-    /// <remarks>
-    /// The window can lose focus mid-hold, and then there is no key-up to clear the held flag. Repeats
-    /// come tens of times a second, so a long gap since the last one means the hold is over, whatever
-    /// the machine was told.
-    /// </remarks>
-    [Fact]
-    public void A_press_long_after_the_last_repeat_counts_even_if_no_release_was_seen()
-    {
-        var clock = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var starts = 0;
-        var machine = new DictationHotkeyMachine(() => DictationMode.Toggle,
-            () => starts++, () => { }, () => clock, (_, _) => { });
-
-        machine.KeyDown();
-        machine.Reset();                        // the recording ended some other way
-
-        clock = clock.AddSeconds(5);            // and the release was never delivered
-        machine.KeyDown();
-
-        Assert.Equal(2, starts);
+        h.Advance(3_000);
+        h.Machine.KeyDown();
+        Assert.Equal(1, h.Stops);
+        Assert.False(h.Machine.IsRecording);
     }
 
     /// <summary>
@@ -272,25 +245,6 @@ public class DictationHotkeyMachineTests
     }
 
     [Fact]
-    public void In_toggle_mode_the_second_press_stops_and_releases_do_nothing()
-    {
-        var h = new Harness { Mode = DictationMode.Toggle };
-
-        h.Machine.KeyDown();
-        Assert.Equal(1, h.Starts);
-
-        h.Machine.KeyUp();
-        h.RunTimers();
-        Assert.Equal(0, h.Stops);
-        Assert.True(h.Machine.IsRecording);
-
-        h.Advance(1000);
-        h.Machine.KeyDown();
-        Assert.Equal(1, h.Stops);
-        Assert.False(h.Machine.IsRecording);
-    }
-
-    [Fact]
     public void A_reset_stops_a_pending_release_from_firing()
     {
         var h = new Harness();
@@ -306,11 +260,23 @@ public class DictationHotkeyMachineTests
 
     /// <summary>
     /// Something other than the shortcut can end a recording — the tile's microphone button, a failure,
-    /// a tile closing. In toggle mode a machine that had not heard about it would spend the user's next
-    /// press switching off something already stopped, and only the press after that would record.
-    /// <see cref="DictationHotkeyMachine.Reset"/> is how the coordinator tells it, from the service's
-    /// own state change.
+    /// a tile closing — and the next press then records rather than being swallowed as the tail of a
+    /// hold that nobody ever saw end.
     /// </summary>
+    /// <remarks>
+    /// <para>Two rules meeting, and both are needed. In toggle mode a machine that had not heard the
+    /// recording end elsewhere would spend the user's next press switching off something already
+    /// stopped, and only the press after that would record;
+    /// <see cref="DictationHotkeyMachine.Reset"/> is how the coordinator tells it, from the service's
+    /// own state change. But the release still never arrived — the window can lose focus mid-hold — so
+    /// the held flag is left set, and it is <see cref="DictationHotkeyMachine.HeldWithoutRepeatMs"/>
+    /// expiring that lets the press through at all: repeats come tens of times a second, so a long gap
+    /// since the last one means the hold is over, whatever the machine was told.</para>
+    /// <para>The two are together in one test because that is the only way this state is reachable.
+    /// Measured: a held flag left set on its own changes nothing, since the machine still believes it
+    /// is recording and toggle simply stops it. It is the reset — the recording ending somewhere the
+    /// keyboard cannot see — that turns a stale hold into a shortcut that would otherwise be dead.</para>
+    /// </remarks>
     [Fact]
     public void In_toggle_mode_a_recording_stopped_elsewhere_frees_the_next_press_to_start()
     {
@@ -321,7 +287,7 @@ public class DictationHotkeyMachineTests
 
         h.Machine.Reset();                 // the microphone button stopped it
 
-        h.Advance(1000);
+        h.Advance(DictationHotkeyMachine.HeldWithoutRepeatMs);   // and no release was ever delivered
         h.Machine.KeyDown();
         Assert.Equal(2, h.Starts);
         Assert.Equal(0, h.Stops);

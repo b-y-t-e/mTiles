@@ -60,16 +60,20 @@ public sealed class DictationService : IDisposable
     /// <param name="unloadAfter">Likewise for the idle model unload, whose setting is in whole minutes.
     /// Both are timers guarding something expensive — an hour of accidental audio, half a gigabyte of
     /// resident memory — and neither was testable at its real scale.</param>
+    /// <param name="deliberateHold">And likewise for the second that separates a tap from a sentence,
+    /// which a test would otherwise have to spend in real time on the thread pool.</param>
     internal DictationService(SettingsService settings,
         IAudioCapture? capture = null,
         ISpeechToTextEngine? engine = null,
         SpeechModelStore? store = null,
         Action<Action>? dispatch = null,
         TimeSpan? maxRecording = null,
-        TimeSpan? unloadAfter = null)
+        TimeSpan? unloadAfter = null,
+        TimeSpan? deliberateHold = null)
     {
         _maxRecording = maxRecording ?? DefaultMaxRecording;
         _unloadAfter = unloadAfter;
+        _deliberateHold = deliberateHold ?? DefaultDeliberateHold;
         _settings = settings;
         _capture = capture ?? new PortAudioCapture();
         _engines = new SpeechEngineHost(
@@ -432,7 +436,7 @@ public sealed class DictationService : IDisposable
         CancellationToken token)
     {
         var speech = _settings.Settings.Speech;
-        var deliberate = recorded >= TimeSpan.FromSeconds(1);
+        var deliberate = recorded >= _deliberateHold;
         try
         {
             if (samples.Length == 0)
@@ -599,6 +603,13 @@ public sealed class DictationService : IDisposable
     private static readonly TimeSpan DefaultMaxRecording = TimeSpan.FromMinutes(5);
 
     private readonly TimeSpan _maxRecording;
+
+    /// <summary>How long the shortcut has to be held for the recording to count as meant. Below it a
+    /// capture that produced nothing at all is a stray brush against the keys and is passed over in
+    /// silence; above it, a microphone that is not working.</summary>
+    private static readonly TimeSpan DefaultDeliberateHold = TimeSpan.FromSeconds(1);
+
+    private readonly TimeSpan _deliberateHold;
 
     /// <summary>When set, replaces the settings-derived idle period. Tests only — the setting is in
     /// whole minutes, and a minute is not a unit a test suite can spend.</summary>

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using mTiles.Services.Speech;
@@ -511,37 +511,29 @@ public class SpeechModelDownloadTests : IDisposable
     }
 
     /// <summary>
-    /// A connection that ends early keeps what arrived, so the next attempt resumes rather than starts.
+    /// A connection that ends early keeps what arrived, and the attempt after it picks up from there.
     /// </summary>
     /// <remarks>
     /// A dropped route reaches the read loop as a clean end of stream — there is nothing to tell it from
     /// success except the byte count. Without that check the short file went to the digest, failed it,
     /// and was <em>deleted</em>: an interruption at 90% threw away 90% of a download, which is exactly
-    /// what resuming exists to prevent.
+    /// what resuming exists to prevent. One test, because keeping the bytes is only worth anything if
+    /// the next attempt then asks for the rest of them.
     /// </remarks>
     [Fact]
-    public async Task A_download_that_ends_early_keeps_what_arrived()
+    public async Task A_download_that_ends_early_keeps_what_arrived_and_the_next_attempt_finishes_it()
     {
         var content = Encoding.UTF8.GetBytes(new string('e', 5_000));
         var model = ModelFor(content);
-        var store = new SpeechModelStore(_directory, () => new HttpClient(new TruncatingServer(content, 3_000)));
+        var truncating = new SpeechModelStore(_directory,
+            () => new HttpClient(new TruncatingServer(content, 3_000)));
 
-        await Assert.ThrowsAsync<IOException>(() => store.DownloadAsync(model));
+        await Assert.ThrowsAsync<IOException>(() => truncating.DownloadAsync(model));
 
-        var partial = new FileInfo(store.GetPath(model) + ".partial");
+        var partial = new FileInfo(truncating.GetPath(model) + ".partial");
         Assert.True(partial.Exists, "the partial file was deleted");
         Assert.Equal(3_000, partial.Length);
-        Assert.False(store.IsDownloaded(model));
-    }
-
-    /// <summary>And the attempt after it picks up from there and finishes.</summary>
-    [Fact]
-    public async Task The_attempt_after_a_short_download_resumes_and_completes()
-    {
-        var content = Encoding.UTF8.GetBytes(new string('r', 5_000));
-        var model = ModelFor(content);
-        var truncating = new SpeechModelStore(_directory, () => new HttpClient(new TruncatingServer(content, 3_000)));
-        await Assert.ThrowsAsync<IOException>(() => truncating.DownloadAsync(model));
+        Assert.False(truncating.IsDownloaded(model));
 
         var server = new FakeServer(content);
         var store = StoreFor(server);
