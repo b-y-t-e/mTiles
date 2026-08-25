@@ -244,6 +244,37 @@
                                Classes="note"
                                Text="{Binding PortNotice}" />
 
+                    <!-- Read from the machine, not guessed, so it is shown straight away rather than
+                         waiting with the "nothing has connected yet" box below: the twenty seconds that
+                         box waits are twenty seconds of somebody holding a phone at a code that cannot
+                         possibly work. -->
+                    <Border IsVisible="{Binding HasFirewallDiagnosis}"
+                            Background="{DynamicResource BgElevated}"
+                            BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="1"
+                            CornerRadius="{DynamicResource RadiusLg}"
+                            Padding="12,10">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{Binding FirewallDiagnosis}" Classes="note" />
+                            <Button Classes="outlined-sm on-elevated"
+                                    HorizontalAlignment="Left"
+                                    Content="Allow through the firewall…"
+                                    IsVisible="{Binding CanRepairFirewall}"
+                                    Command="{Binding RepairFirewallCommand}"
+                                    ToolTip.Tip="Asks for administrator rights, removes every existing inbound rule for mTiles, and adds one allowing it on private and domain networks" />
+                            <!-- Beside the button that produced it. It used to live only in the box
+                                 below, which appears twenty seconds in: clicking here, answering a UAC
+                                 prompt and being told nothing at all is the silent failure this whole
+                                 panel is written against — and worst for the one answer that does not
+                                 change the diagnosis above, where policy is ignoring local rules. -->
+                            <TextBlock Text="{Binding FirewallResult}"
+                                       IsVisible="{Binding HasFirewallResult}"
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
                     <!-- Other addresses -->
                     <ItemsControl ItemsSource="{Binding Alternatives}"
                                   IsVisible="{Binding ShowAlternatives}">
@@ -278,21 +309,31 @@
                                        FontSize="{DynamicResource FontSm}"
                                        FontWeight="SemiBold"
                                        Foreground="{DynamicResource TextPrimary}" />
-                            <TextBlock Text="{Binding FirewallExplanation}" Classes="note" />
-                            <Button Classes="outlined-sm on-elevated"
-                                    HorizontalAlignment="Left"
-                                    Content="Allow through the firewall…"
-                                    IsVisible="{Binding CanRepairFirewall}"
-                                    Command="{Binding RepairFirewallCommand}"
-                                    ToolTip.Tip="Asks for administrator rights, removes every existing inbound rule for mTiles, and adds one allowing it on private networks" />
+                            <!-- The guess, and the button that goes with it, only while nothing has
+                                 been read from the machine. Where there is a diagnosis it is directly
+                                 above this box with its own button: two accounts of the same firewall,
+                                 one measured and one imagined, is exactly what the check was added to
+                                 stop. -->
+                            <StackPanel Spacing="8" IsVisible="{Binding ShowFirewallGuess}">
+                                <TextBlock Text="{Binding FirewallExplanation}" Classes="note" />
+                                <Button Classes="outlined-sm on-elevated"
+                                        HorizontalAlignment="Left"
+                                        Content="Allow through the firewall…"
+                                        IsVisible="{Binding CanRepairFirewall}"
+                                        Command="{Binding RepairFirewallCommand}"
+                                        ToolTip.Tip="Asks for administrator rights, removes every existing inbound rule for mTiles, and adds one allowing it on private and domain networks" />
+                                <TextBlock Text="{Binding FirewallResult}"
+                                           IsVisible="{Binding HasFirewallResult}"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <!-- Not inside the block above: on Linux this is the whole of the help, and
+                                 there is a diagnosis naming the firewall right alongside it. -->
                             <SelectableTextBlock Text="{Binding ManualFirewallCommand}"
                                        IsVisible="{Binding ManualFirewallCommand, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                        FontFamily="{DynamicResource TerminalFontFamily}"
-                                       FontSize="{DynamicResource FontXs}"
-                                       Foreground="{DynamicResource TextSecondary}"
-                                       TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding FirewallResult}"
-                                       IsVisible="{Binding FirewallResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                        FontSize="{DynamicResource FontXs}"
                                        Foreground="{DynamicResource TextSecondary}"
                                        TextWrapping="Wrap" />

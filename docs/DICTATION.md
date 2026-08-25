@@ -1058,17 +1058,73 @@ executable before adding one, because an existing block would win over anything 
 
 The shell is launched by absolute path (`%SystemRoot%\System32\WindowsPowerShell1.0\powershell.exe`).
 This runs with `runas`, so resolving the name through `PATH` would be a way to get somebody else's binary
-elevated by a user who thought they were fixing a firewall rule. The script also checks afterwards that
-the rule exists and that at least one network is classified **Private**: a Private-profile rule on a
-machine Windows considers Public is inert, and reporting success there would send the user hunting for a
-different fault entirely.
+elevated by a user who thought they were fixing a firewall rule.
 
-Offered, never silent — the UAC prompt is the consent — and only after twenty seconds with nothing
-connected, so somebody scanning at a normal pace never sees it. **Private profile only**: a bridge meant
-for the user's own Wi-Fi has no business listening on café networks. Cancelling the UAC prompt is
-reported as a decision rather than a failure. On Linux the guide hands over a command instead of running
+**Private and Domain, never Public.** A bridge is meant to be reachable from a phone on a network the
+user is actually on: their own Wi-Fi, or the office network of a domain-joined machine. Café and airport
+networks are exactly where a paired-device bridge should not be listening, and the pairing token is the
+second line of defence rather than a reason to skip the first. Domain was missing at first, and the
+consequence was worse than the rule not applying: the check at the end of the script asked only whether a
+*Private* network was active, so a domain-joined machine was told "Windows treats this network as Public"
+and sent to change a network category that a domain controller sets and the user cannot touch. **A
+diagnosis that is wrong costs more than none** — it sends somebody looking for a different fault
+entirely.
+
+**The verification is one string, used twice** (`WindowsFirewallGuide.Verification`). It ends the repair
+script and it *is* the read-only check the panel runs when it opens, because the repair's verdict and the
+panel's hint are read minutes apart by the same person looking at the same panel, and written twice they
+would disagree the first time either was edited. It asks, most decisive first: is there an enabled inbound
+**block** rule for this executable; is there an enabled inbound **allow** rule for it; does that rule's
+own profile set cover the network a phone would be on; and does group policy have
+`AllowLocalFirewallRules` set to False — which means a rule can be created, reported as created, and
+ignored, so it is named separately rather than reported as success. A failure to ask any of that is its
+own exit code: without one, a machine whose NetSecurity cmdlets do not work reported "no rule", and the
+repair it offered could not have worked either.
+
+Two of those questions were wrong at first, and both were found on a real machine rather than by reading.
+**Rules are looked up by program, never by name.** Asking for `DisplayName = 'mTiles phone bridge'` asks
+whether *this application* created a rule, when the question is whether anything lets mTiles in — and
+Windows' own "Allow access" prompt writes rules named after the program. A machine where the user had
+answered that prompt correctly was told "no rule allowing mTiles in" and offered a repair that deletes
+every inbound rule for the executable: destructive advice about a configuration that already worked.
+**And only networks that could carry a phone are asked about.** "Is any active profile Private?" is
+answered yes by a Tailscale adapter, a VPN or a Hyper-V switch, so a machine whose real Wi-Fi is Public
+was reported as fine — silence in exactly the case the check exists for. The filter is the default
+route, the same test `NetworkEndpointSource` uses to decide which addresses belong in a QR code: an
+adapter nothing routes through cannot carry a phone. It is a filter and not a requirement, so a machine
+with no default route at all still gets every profile considered rather than no answer. (`Get-NetConnectionProfile` calls a domain network `DomainAuthenticated` while
+`Get-NetFirewallProfile` calls it `Domain`, which is why the names are translated rather than passed
+through.)
+
+The check needs no elevation, so it runs when the panel opens rather than only after somebody has been
+through a UAC prompt — and **that is the point**: a missing rule, a block rule, a Public network and a
+policy that ignores local rules all look identical from the phone, as a page that will not load. The
+panel says which it is straight away, above the "nothing has connected yet" box rather than inside it,
+because those twenty seconds are twenty seconds of somebody holding a phone at a code that cannot work.
+A check that fails to run says nothing at all: it is a hint beside a working panel, and an error message
+about a hint is worse than a missing hint.
+
+The repair itself is offered, never silent — the UAC prompt is the consent — and cancelling it is
+reported as a decision rather than a failure.
+
+**Still scoped to the executable rather than to a port**, and the reasoning is unchanged (see above): the
+bridge does not always get the port it asked for, so a rule naming one would silently stop matching, and
+re-creating it costs a UAC prompt. The trade holds only while this executable has exactly one inbound
+listener — verified, not assumed: `DbHttpServer` binds `http://localhost:{port}/`, which is loopback and
+does not pass through the firewall at all. On Linux the guide hands over a command instead of running
 it: there is no desktop-wide consented-elevation prompt to invoke, and a GUI that shells out to `sudo`
 either finds no terminal to prompt in or teaches the user to grant root to whatever asked politely.
+
+It does, however, stop guessing *which* command. `systemctl is-active` needs no privileges, changes
+nothing and answers in milliseconds, so the panel names the firewall that is actually running — `ufw`
+or `firewalld` — and gives the command for that one. Offering both side by side asked the user to work
+out which firewall their own machine runs, and on the distributions where this bites they differ: Ubuntu
+leaves `ufw` inactive, Fedora and CachyOS enable `firewalld`, Omarchy configures `ufw` to deny inbound,
+SteamOS runs neither. The `firewalld` form is `--permanent` and reloaded, because `--add-port` alone
+lasts until the next reload — a phone that works today and not on Monday is the worst kind of
+instruction to have followed. When neither service is running the panel says **nothing**, rather than
+"no firewall is blocking this": that would be a claim about nftables rules nobody has looked at, in a
+panel whose other sentences are all things that were actually read.
 
 ### What this does to the privacy promise
 

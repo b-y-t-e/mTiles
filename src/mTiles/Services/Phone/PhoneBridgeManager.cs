@@ -746,7 +746,12 @@ public sealed class PhoneBridgeManager : IPhoneAudioSink, IAsyncDisposable
     internal void StopShowingCodes() => Pairing.ClearPairingTokens();
 
     /// <summary>Opens the firewall for the bridge's port, prompting for the rights to do it.</summary>
-    internal Task<FirewallResult> RepairFirewallAsync() => Firewall.TryAllowAsync(ActivePort);
+    /// <param name="port">Passed in rather than read from <see cref="ActivePort"/>, which is zero when
+    /// there is no server — the case the firewall help exists for. The panel knows the honest answer
+    /// (the configured port, which the next attempt to start will ask for) and already hands it to
+    /// <c>GetAdvice</c> and <c>DiagnoseAsync</c>. Both implementations of <c>TryAllowAsync</c> happen to
+    /// ignore it today, and the interface promises nothing of the kind.</param>
+    internal Task<FirewallResult> RepairFirewallAsync(int port) => Firewall.TryAllowAsync(port);
 
     // ── IPhoneAudioSink ─────────────────────────────────────────────────────────────────────────────
 

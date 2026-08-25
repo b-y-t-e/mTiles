@@ -243,9 +243,59 @@ internal sealed partial class PhoneBridgeViewModel : ObservableObject, IDisposab
     [ObservableProperty] private string _manualFirewallCommand = "";
     [ObservableProperty] private bool _canRepairFirewall;
 
+    /// <summary>
+    /// What the firewall is actually doing, as opposed to what it might be doing.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="FirewallExplanation"/> is a guess offered when nothing connects, and it has to be
+    /// written in "may be" because it is produced without looking. This is read from the machine: no
+    /// rule, a block rule, a network Windows calls Public, a policy that ignores local rules. All four
+    /// look the same from the phone — a page that will not load — and that silence is what sends people
+    /// looking for a fault in their Wi-Fi.
+    /// </remarks>
+    [ObservableProperty] private string _firewallDiagnosis = "";
+
+    public bool HasFirewallDiagnosis => FirewallDiagnosis.Length > 0;
+
+    /// <summary>
+    /// Whether the guessed explanation is still worth showing.
+    /// </summary>
+    /// <remarks>
+    /// It is not, once the machine has been read. <see cref="FirewallExplanation"/> is written in
+    /// "may be" because it is produced without looking, and the whole point of the check is to stop
+    /// guessing — so with both on screen the panel offered two accounts of the same firewall, one
+    /// measured and one imagined, plus two identical buttons with identical tooltips.
+    /// </remarks>
+    public bool ShowFirewallGuess => !HasFirewallDiagnosis;
+
+    /// <summary>Whether the repair has said anything yet. It is the only feedback a UAC prompt
+    /// produces, so it must have somewhere to appear beside the button that asked for it.</summary>
+    public bool HasFirewallResult => FirewallResult.Length > 0;
+
+    partial void OnFirewallDiagnosisChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasFirewallDiagnosis));
+        OnPropertyChanged(nameof(ShowFirewallGuess));
+    }
+
+    partial void OnFirewallResultChanged(string value) =>
+        OnPropertyChanged(nameof(HasFirewallResult));
+
     public bool HasError => Error.Length > 0;
 
     partial void OnErrorChanged(string value) => OnPropertyChanged(nameof(HasError));
+
+    /// <summary>
+    /// The port the firewall advice should name.
+    /// </summary>
+    /// <remarks>
+    /// <c>ActivePort</c> is the port the server actually bound, and it is <b>zero when there is no
+    /// server</b> — which is precisely the case the firewall advice exists for. The Linux guide builds
+    /// a command out of this number, so a bridge that failed to start was telling the user to run
+    /// <c>sudo ufw allow 0/tcp</c>. The configured port is the honest answer there: it is the one the
+    /// next attempt to start will ask for.
+    /// </remarks>
+    private int PortToOpen => _manager.ActivePort != 0 ? _manager.ActivePort : _manager.Port;
 
     /// <summary>Starts the bridge and draws the codes. Called when the panel opens.</summary>
     public Task InitializeAsync() => _starting = StartUpAsync();
@@ -273,6 +323,7 @@ internal sealed partial class PhoneBridgeViewModel : ObservableObject, IDisposab
             // no advice was the one case with nothing at all to act on.
             DescribeBridge();
             ShowTrouble = true;
+            StartFirewallCheck();
             return;
         }
 
@@ -282,6 +333,47 @@ internal sealed partial class PhoneBridgeViewModel : ObservableObject, IDisposab
 
         _troubleTimer.Start();
         _codeTimer.Start();
+
+        // Started, not awaited. It costs a process, and it must not become part of what "the panel is
+        // starting" means: CloseAsync waits StartupPatience for that task, so awaiting the check here
+        // made closing the panel hold the bridge open for as long as the firewall took to answer, and
+        // log "still starting" about a bridge that had started long before. It is a hint beside a
+        // working panel; nothing waits for a hint.
+        StartFirewallCheck();
+    }
+
+    /// <summary>Runs the firewall check alongside the panel rather than as part of starting it.</summary>
+    private void StartFirewallCheck() => _ = CheckFirewallAsync();
+
+    /// <summary>
+    /// Asks the machine what its firewall is doing, and says so if there is anything to say.
+    /// </summary>
+    /// <remarks>
+    /// Never an error. A check that cannot run leaves the panel exactly as it was — this is a hint
+    /// beside a working panel, and a failure message about a hint is worse than a missing hint.
+    /// </remarks>
+    private async Task CheckFirewallAsync()
+    {
+        try
+        {
+            var said = await _manager.Firewall.DiagnoseAsync(PortToOpen);
+
+            // The panel can be closed while a process is being asked about the firewall, and this is
+            // started rather than awaited, so nothing else is holding the answer back.
+            if (_disposed) return;
+
+            FirewallDiagnosis = said;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning("Firewall diagnosis failed: {0}", ex);
+
+            // The same guard as the path above: the panel can be closed while this is running, and
+            // writing to it afterwards is writing to something nobody is looking at.
+            if (_disposed) return;
+
+            FirewallDiagnosis = "";
+        }
     }
 
     /// <summary>Shows a failure that got past <see cref="InitializeAsync"/>'s own handling.</summary>
@@ -344,7 +436,7 @@ internal sealed partial class PhoneBridgeViewModel : ObservableObject, IDisposab
         // since stopped went on describing itself as ready.
         _ready = _manager.IsRunning;
 
-        var advice = _manager.Firewall.GetAdvice(_manager.ActivePort);
+        var advice = _manager.Firewall.GetAdvice(PortToOpen);
         FirewallExplanation = advice.Explanation;
         ManualFirewallCommand = advice.ManualCommand;
         CanRepairFirewall = advice.CanRepair;
@@ -373,8 +465,14 @@ internal sealed partial class PhoneBridgeViewModel : ObservableObject, IDisposab
     private async Task RepairFirewallAsync()
     {
         FirewallResult = "";
-        var result = await _manager.RepairFirewallAsync();
+        var result = await _manager.RepairFirewallAsync(PortToOpen);
         FirewallResult = result.Message;
+
+        // Re-read afterwards, so the hint above the button stops describing the state the button has
+        // just changed. It is the same verification the repair itself ends with, so the two agree.
+        // Awaited here, unlike at start-up: this one is the answer to something the user just clicked,
+        // and it is not inside the task closing waits for.
+        await CheckFirewallAsync();
     }
 
     [RelayCommand]

@@ -198,15 +198,127 @@ public class PhoneFirewallScriptTests
         Assert.DoesNotContain("-LocalPort", Script());
     }
 
-    /// <summary>A bridge for the user's own Wi-Fi has no business listening on café networks.</summary>
+    /// <summary>
+    /// Private and domain networks, never public: a bridge for a network the user is actually on has no
+    /// business listening on café networks.
+    /// </summary>
     [Fact]
-    public void It_opens_private_networks_only()
+    public void It_opens_the_networks_a_phone_is_really_on_and_no_others()
     {
         var script = Script();
 
-        Assert.Contains("-Profile Private", script);
-        Assert.DoesNotContain("Public", script);
+        Assert.Contains("-Profile Domain,Private", script);
         Assert.DoesNotContain("-Profile Any", script);
+
+        // The whole word, not just the -Profile spelling: this is the assertion that fails if anybody
+        // ever widens the rule, whichever parameter they widen it through.
+        Assert.DoesNotContain("Public", script);
+
+        // Domain was missing, and the consequence was worse than the rule not applying: the check at
+        // the end asked only about Private, so a domain-joined machine was told its network was Public
+        // and sent to change a category a domain controller sets and the user cannot touch.
+        Assert.Contains("DomainAuthenticated", script);
+    }
+
+    /// <summary>
+    /// The panel's hint and the repair's verdict are the same verification, so they cannot disagree
+    /// about whether this machine is reachable.
+    /// </summary>
+    [Fact]
+    public void The_check_is_the_same_verification_the_repair_ends_with()
+    {
+        var check = WindowsFirewallGuide.BuildCheckScript(@"C:\Program Files\mTiles\mTiles.exe");
+
+        foreach (var claim in (string[])[
+            "DomainAuthenticated", "AllowLocalFirewallRules", "'Block'", "Get-NetConnectionProfile",
+        ])
+            Assert.Contains(claim, check);
+
+        // Reading only. It runs unelevated when the panel opens, so it must not be able to change
+        // anything even if it wanted to.
+        Assert.DoesNotContain("New-NetFirewallRule", check);
+        Assert.DoesNotContain("Remove-NetFirewallRule", check);
+    }
+
+    /// <summary>
+    /// The question is whether <em>anything</em> lets mTiles in, not whether this application created
+    /// the rule.
+    /// </summary>
+    [Fact]
+    public void The_check_looks_for_rules_by_program_rather_than_by_the_name_we_would_have_given_them()
+    {
+        var check = WindowsFirewallGuide.BuildCheckScript(@"C:\Program Files\mTiles\mTiles.exe");
+
+        // Windows' own "Allow access" prompt writes rules named after the program. Looking ours up by
+        // DisplayName reported "no rule allowing mTiles in" on a machine where the user had answered
+        // that prompt correctly, and offered a repair that deletes every inbound rule for the
+        // executable — destructive advice about a configuration that already worked.
+        Assert.DoesNotContain("DisplayName", check);
+        Assert.Contains("Get-NetFirewallApplicationFilter -Program $program", check);
+    }
+
+    /// <summary>
+    /// Only networks that could carry a phone are asked about, and the rule's own profiles are what
+    /// they are compared against.
+    /// </summary>
+    [Fact]
+    public void The_check_asks_about_the_network_a_phone_would_be_on()
+    {
+        var check = WindowsFirewallGuide.BuildCheckScript(@"C:\Program Files\mTiles\mTiles.exe");
+
+        // "Is any active profile Private?" is answered yes by a Tailscale adapter, a VPN or a Hyper-V
+        // switch, so a machine whose real Wi-Fi is Public was reported as fine — silence in exactly the
+        // case this exists for. The filter is the default route, the same test NetworkEndpointSource
+        // uses to decide which addresses are worth putting in a QR code.
+        Assert.Contains("0.0.0.0/0", check);
+
+        // And a rule that exists is not a rule that applies: Domain,Private does nothing on a Public
+        // network, so the rule's own Profile is compared against the network's category.
+        Assert.Contains("$granted", check);
+        Assert.Contains("'Any'", check);
+
+        // A check that could not run says so rather than reporting "no rule".
+        Assert.Contains($"exit {WindowsFirewallGuide.CheckFailed}", check);
+
+        // And a machine that is on no network at all is neither: reported as NotCovered it sent the
+        // user to change a network category on a machine with no network to change it on.
+        Assert.Contains($"exit {WindowsFirewallGuide.NoNetwork}", check);
+    }
+
+    [Theory]
+    [InlineData("firewalld", "firewall-cmd")]
+    [InlineData("ufw", "ufw allow")]
+    public void The_linux_guide_names_the_firewall_that_is_actually_running(string service, string command)
+    {
+        var said = ManualFirewallGuide.Sentence(service, 18091);
+
+        Assert.Contains(service, said);
+        Assert.Contains(command, said);
+        Assert.Contains("18091", said);
+
+        // Offering both commands side by side asks the user to work out which firewall their own
+        // machine runs — and on the distributions where this bites, they differ.
+        Assert.DoesNotContain(service == "ufw" ? "firewall-cmd" : "ufw allow", said);
+    }
+
+    [Fact]
+    public void The_linux_firewalld_command_survives_a_reload()
+    {
+        // --add-port alone lasts until the next reload or reboot: a phone that works today and not on
+        // Monday, which is the worst kind of instruction to have followed.
+        var said = ManualFirewallGuide.Sentence("firewalld", 18091);
+
+        Assert.Contains("--permanent", said);
+        Assert.Contains("--reload", said);
+    }
+
+    [Fact]
+    public void The_linux_guide_says_nothing_when_no_firewall_is_running()
+    {
+        // Not "no firewall is blocking this": that would be a claim about nftables rules nobody has
+        // looked at, in a panel whose other sentences are all things that were actually read.
+        Assert.Equal("", ManualFirewallGuide.Sentence(null, 18091));
+        Assert.Equal("", ManualFirewallGuide.Sentence("something-else", 18091));
     }
 
     /// <summary>
