@@ -75,6 +75,55 @@ internal static class GoalTranscript
         return sb.ToString();
     }
 
+
+    /// <summary>How wide a set of options may be before it stops being one line.</summary>
+    /// <remarks>
+    /// Not a terminal width — the transcript wraps and nobody here knows how wide it is. It is the
+    /// width at which " / " stops reading as a separator: short answers scan across a line, and the
+    /// moment the options are clauses the slashes disappear into the prose and the reader has to
+    /// reconstruct where each one began.
+    /// </remarks>
+    private const int InlineOptionsWidth = 60;
+
+    /// <summary>
+    /// The answers a question offers, under it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Two shapes, because one does not fit both cases. <c>appsettings.json / launchSettings.json</c>
+    /// is a line worth keeping as a line. Three clause-long options joined the same way is a paragraph
+    /// with slashes in it, which is what the tool actually produces whenever the decision is about
+    /// behaviour rather than a name.</para>
+    /// <para>Lettered rather than bulleted, so an answer can name one: "1a" is a reply, "the first one"
+    /// is a guess about what the first one was. The letters are not parsed anywhere — they go back to
+    /// the tool as part of the conversation, which reads them perfectly well.</para>
+    /// <para><c>e.g.</c> survives both shapes and is load-bearing: these are suggestions, not a closed
+    /// list, and a lettered list with no label reads as a form to be filled in.</para>
+    /// </remarks>
+    private static void AppendOptions(StringBuilder sb, IReadOnlyList<string> options)
+    {
+        if (options.Count == 0) return;
+
+        // A newline inside an option would break either shape — it is a json string, so nothing stops
+        // one being there.
+        var flat = options.Select(o => o.ReplaceLineEndings(" ").Trim()).ToList();
+        var inline = string.Join(" / ", flat);
+
+        if (inline.Length <= InlineOptionsWidth)
+        {
+            sb.Append('\n').Append("   e.g. ").Append(inline);
+            return;
+        }
+
+        sb.Append('\n').Append("   e.g.");
+        for (var i = 0; i < flat.Count; i++)
+            sb.Append('\n').Append("   ").Append(Marker(i)).Append(flat[i]);
+    }
+
+    /// <summary>Beyond the alphabet a dash, which is not a case any tool asked to offer "few and
+    /// knowable" answers will reach — and is still better than the punctuation past 'z'.</summary>
+    private static string Marker(int index) =>
+        index < 26 ? $"{(char)('a' + index)}) " : "- ";
+
     /// <summary>
     /// What goes back to the tool on the next attempt: the defects, without the nits and without the
     /// prose around them.
@@ -135,7 +184,7 @@ internal static class GoalTranscript
             // thing for the reader to reconcile.
             sb.Append(i + 1).Append(". ").Append(q.Question);
             if (q.Why.Length > 0) sb.Append('\n').Append("   ").Append(q.Why);
-            if (q.Options.Count > 0) sb.Append('\n').Append("   e.g. ").Append(string.Join(" / ", q.Options));
+            AppendOptions(sb, q.Options);
         }
 
         return sb.ToString();

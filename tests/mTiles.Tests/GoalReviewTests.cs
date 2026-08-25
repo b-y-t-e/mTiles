@@ -543,6 +543,63 @@ public class GoalClarifyParsingTests
     }
 
     [Fact]
+    public void Short_answers_stay_on_one_line_because_that_is_where_they_read_best()
+    {
+        const string json = """
+            ```json
+            {"questions":[{"question":"Which file?",
+              "options":["appsettings.json","launchSettings.json"]}]}
+            ```
+            """;
+
+        // Two file names are a line worth keeping as a line. The lettered form is for the case that was
+        // actually breaking, not for every case.
+        Assert.Contains("   e.g. appsettings.json / launchSettings.json",
+            GoalTranscript.Questions(GoalResponseParser.ParseClarify(json)));
+    }
+
+    [Fact]
+    public void Answers_too_long_to_scan_across_a_line_are_lettered_down_one()
+    {
+        // The shape a real run produces whenever the decision is about behaviour rather than a name:
+        // three clause-long options joined by " / " is a paragraph with slashes in it, and the reader
+        // has to work out where each one began. Lettering them also gives the answer a handle —
+        // "1a" is a reply, "the first one" is a guess about what the first one was.
+        const string json = """
+            ```json
+            {"questions":[{"question":"What happens to ticked warnings?","options":[
+              "Rejected for the rest of the run, so later reviews do not count them",
+              "Rejected for this iteration only, and they come back if found again",
+              "Ticking everything ends the run and moves to the summary"]}]}
+            ```
+            """;
+
+        var shown = GoalTranscript.Questions(GoalResponseParser.ParseClarify(json));
+
+        Assert.Contains("\n   e.g.\n", shown);
+        Assert.Contains("   a) Rejected for the rest of the run", shown);
+        Assert.Contains("   b) Rejected for this iteration only", shown);
+        Assert.Contains("   c) Ticking everything ends the run", shown);
+
+        // Never the run-on line this replaced.
+        Assert.DoesNotContain("them / Rejected", shown);
+    }
+
+    [Fact]
+    public void An_option_with_a_line_break_in_it_cannot_break_the_layout()
+    {
+        // It is a json string; nothing stops one being there, and either shape falls apart when it is.
+        const string json = """
+            ```json
+            {"questions":[{"question":"Which?","options":["one\ntwo","three"]}]}
+            ```
+            """;
+
+        Assert.Contains("   e.g. one two / three",
+            GoalTranscript.Questions(GoalResponseParser.ParseClarify(json)));
+    }
+
+    [Fact]
     public void The_composer_is_filled_with_the_numbering_and_nothing_else()
     {
         var clarify = GoalResponseParser.ParseClarify(
