@@ -36,6 +36,37 @@ public sealed class GoalPromptBuilder
         "\"title\":\"Total ignores discounts\",\"detail\":\"Sum() runs before ApplyDiscount().\"}]}\n" +
         "```";
 
+    /// <summary>
+    /// Answer in the language the user is writing in.
+    /// </summary>
+    /// <remarks>
+    /// <para>The tool decides this for itself otherwise, and it decides inconsistently: the same run
+    /// would ask its questions in the user's language and then hand back a plan in English, because
+    /// every instruction around it — the worked examples especially — is written in English.
+    /// A user reading their own goal answered in a language they did not choose is being asked to do
+    /// the translating.</para>
+    /// <para>Anchored on the goal rather than on a setting or a detector. The goal is in every one of
+    /// these prompts already, it is the user's own words, and it costs nothing to point at — while
+    /// guessing a language in C# is a thing to get wrong on short text, and a setting is a question
+    /// nobody should have to answer about their own writing.</para>
+    /// <para>The carve-out is the load-bearing half, and it is wider than the json. These prompts ask
+    /// for English keys and a fixed set of severity values that <see cref="GoalResponseParser"/> matches
+    /// on; they also ask for two literal markers that are parsed rather than read — the
+    /// <c>Rejected:</c> line <c>GoalWorkflowEngine.Note</c> keeps for the next attempt, and the
+    /// <c>VERDICT: PASS</c> line that is the review's fallback when no json arrives. Translate either
+    /// and the machinery quietly stops seeing it: the note falls back to the last two lines, and a
+    /// review whose verdict cannot be read counts as not met, for the whole budget. And what these
+    /// prompts act on is code in a project with its own conventions. A model told simply to answer in
+    /// the user's language translates exactly the things nothing can read afterwards.</para>
+    /// <para>One line, because it is fixed overhead in every prompt — the same argument that keeps
+    /// the examples to one each. Fixed rather than borrowed, so <see cref="Fit"/> never trims it away:
+    /// the prompts that survive to the last rung are the large ones, and a large one is exactly where
+    /// the user least wants an answer they have to translate.</para>
+    /// </remarks>
+    private const string AnswerLanguage =
+        "Answer in the same language as the goal above. Keep json keys, severity values, marker " +
+        "words, code and identifiers in English.\n\n";
+
     public string BuildClarify(string goal, IReadOnlyList<string> clarificationHistory, int? budget = null) =>
         Fit(cap => ComposeClarify(goal, clarificationHistory, cap), budget);
 
@@ -56,6 +87,7 @@ public sealed class GoalPromptBuilder
                   "the user a reply.\n" +
                   "- Offer options when the sensible answers are few and knowable.\n" +
                   "Do not implement anything yet.\n\n" +
+                  AnswerLanguage +
                   ClarifyExample;
         return prompt;
     }
@@ -70,6 +102,7 @@ public sealed class GoalPromptBuilder
         if (clarificationHistory.Count > 0 && cap > 0)
             prompt += Block("User clarifications", Recent(clarificationHistory, Cap(cap)), int.MaxValue);
         prompt += QualityRules;
+        prompt += AnswerLanguage;
         prompt += "Create a concise implementation plan. Do not implement anything yet.\n\n" +
                   "Example shape:\n" +
                   "Goal: one sentence restating what will be true when this is done.\n" +
@@ -106,6 +139,11 @@ public sealed class GoalPromptBuilder
     /// last step drops every borrowed block, which is a poor prompt and still an enormously better one
     /// than an exception.
     /// </remarks>
+    /// <summary>The least working tree a review is sent, however tight the prompt. Enough for the
+    /// line saying git could not be read, which is the one part of the tree that cannot be looked up by
+    /// the tool itself — see <c>ComposeReview</c>.</summary>
+    private const int TreeFloor = 200;
+
     private const int Roomy = 3_000;
     private const int Tight = 1_500;
     private const int Cramped = 750;
@@ -288,6 +326,7 @@ public sealed class GoalPromptBuilder
         prompt += "Follow the approved plan. Make the necessary code changes. Be precise and minimal.\n" +
                   "Finish with one line saying what you changed, then one line starting \"Rejected:\" " +
                   "naming anything you tried or considered and did not do, and why.\n\n" +
+                  AnswerLanguage +
                   "Example: Changed src/Cart.cs and added tests/CartTests.cs; discounts now apply before totalling.\n" +
                   "Rejected: caching the totals — the basket is rebuilt per request, so it would never hit.";
         return prompt;
@@ -306,9 +345,22 @@ public sealed class GoalPromptBuilder
         prompt += QualityRules;
         if (verifyOutput is { Length: > 0 } && cap > 0)
             prompt += Block("Output of the project's verify command", verifyOutput, Cap(cap));
-        // The fitting step itself, with no ceiling over it — see the note in ComposeImplement.
-        if (gitDiff != null && cap > 0)
-            prompt += Block("Current state of the working tree", gitDiff, cap);
+        // The fitting step itself, with no ceiling over it — see the note in ComposeImplement —
+        // and with a floor under it, for the same reason the goal has one.
+        //
+        // The floor is what makes "the note that git could not be read is never cut" true by
+        // construction. It was true by arithmetic: the last rung dropped this block outright, and the
+        // rung above it happened to fit with about a hundred characters to spare, so the guarantee held
+        // only while nothing else in the prompt grew. Adding one fixed sentence took it away, silently,
+        // and the failing case is the one the note exists for — a tool told nothing has changed writes
+        // over work it cannot see.
+        //
+        // It costs little where it bites: GoalDiffContext puts the note first and Block cuts on line
+        // boundaries, so at this size a diff of one enormous line contributes nothing at all and only
+        // the note survives. It is charged only at the last rung, which is reached only by a prompt
+        // that fits nowhere else.
+        if (gitDiff != null)
+            prompt += Block("Current state of the working tree", gitDiff, Math.Max(TreeFloor, cap));
 
         // The user's thresholds are deliberately not in here. A reviewer told that one warning is
         // allowed has been told how to pass, and the severities are the one thing in its answer nothing
@@ -328,6 +380,7 @@ public sealed class GoalPromptBuilder
                   "wrong. Do not reach for blocker to add weight to an error.\n" +
                   "Report every issue you find at its honest severity. Send an empty findings list when " +
                   "there is nothing to report.\n\n" +
+                  AnswerLanguage +
                   ReviewExample +
                   // Asked for as well as the block, and not as a belt-and-braces flourish: it is the
                   // fallback's trigger. GoalResponseParser reads an answer with no JSON in it by

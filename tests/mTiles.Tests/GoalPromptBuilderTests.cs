@@ -99,4 +99,71 @@ public class GoalPromptBuilderTests
         Assert.True(fence.Length > 3, $"fence was {fence.Length} backticks, content holds a run of 3");
         Assert.EndsWith($"{fence}\n\n", block);
     }
+
+    /// <summary>
+    /// Every prompt whose answer the user reads is told to answer in the user's own language.
+    /// </summary>
+    /// <remarks>
+    /// The tool decides this for itself otherwise, and inconsistently: the same run asked its questions
+    /// in Polish and handed back an English plan, because every instruction around it — the worked
+    /// examples especially — is written in English.
+    /// </remarks>
+    [Theory]
+    [InlineData("clarify")]
+    [InlineData("plan")]
+    [InlineData("implement")]
+    [InlineData("review")]
+    public void Every_prompt_the_user_reads_asks_for_the_users_own_language(string which)
+    {
+        var builder = new GoalPromptBuilder();
+        var prompt = which switch
+        {
+            "clarify" => builder.BuildClarify("a goal", []),
+            "plan" => builder.BuildPlan("a goal", []),
+            "implement" => builder.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal")),
+            _ => builder.BuildReview("a goal", "a diff"),
+        };
+
+        Assert.Contains("same language as the goal", prompt);
+
+        // The carve-out travels with it, always. Without it a model answering in Polish translates the
+        // severity words, the json keys and the two markers that are parsed rather than read — and
+        // the machinery stops seeing them without saying anything.
+        Assert.Contains("marker words", prompt);
+        Assert.Contains("in English", prompt);
+    }
+
+    /// <summary>
+    /// The instruction survives every fitting step, because it is fixed text rather than borrowed.
+    /// </summary>
+    /// <remarks>
+    /// The prompts that reach the last rung are the large ones, and a large one is exactly where the
+    /// user least wants an answer they have to translate.
+    /// </remarks>
+    [Fact]
+    public void The_language_instruction_is_not_what_gives_way_when_the_prompt_will_not_fit()
+    {
+        var fitted = new GoalPromptBuilder().BuildReview(
+            new string('g', 5_000), string.Join("\n", Enumerable.Repeat("+ a line of diff", 4_000)),
+            budget: 4_000);
+
+        Assert.True(CommandLineLength.Quoted(fitted) <= 4_000);
+        Assert.Contains("same language as the goal", fitted);
+    }
+
+    /// <summary>
+    /// Detection is the one prompt without it, and that is not an oversight.
+    /// </summary>
+    /// <remarks>
+    /// It runs on an empty tile: there is no goal yet, so there is nothing of the user's writing to
+    /// point at. Naming a language it cannot know would be guessing, and the sentence it produces goes
+    /// into the composer for the user to edit anyway.
+    /// </remarks>
+    [Fact]
+    public void Detection_has_no_language_to_match_and_does_not_pretend_otherwise()
+    {
+        var prompt = new GoalPromptBuilder().BuildDetectGoal("a diff");
+
+        Assert.DoesNotContain("same language as the goal", prompt);
+    }
 }

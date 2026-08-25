@@ -885,6 +885,19 @@ public class GoalPromptFittingTests
     }
 
     [Fact]
+    public void The_note_survives_a_budget_no_amount_of_trimming_could_have_met()
+    {
+        // The same guarantee as above, asked where arithmetic cannot supply it: a budget below what the
+        // prompt's own fixed text costs, so every rung of the ladder is refused and the last one is
+        // returned regardless. It used to hold with about a hundred characters to spare, which meant
+        // one added sentence anywhere in this prompt took it away in silence — and took it away in
+        // exactly the case it exists for.
+        var tree = GoalDiffContext.Compose(new string('d', 20_000), null, "git exploded");
+
+        Assert.Contains("git exploded", Fitted(tree!, 500));
+    }
+
+    [Fact]
     public void A_note_that_the_tree_could_not_be_read_is_never_the_part_that_gets_cut()
     {
         // Silence here is indistinguishable from a clean tree, and a tool told nothing has changed
