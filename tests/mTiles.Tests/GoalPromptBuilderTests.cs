@@ -16,11 +16,73 @@ public class GoalPromptBuilderTests
         var hugePlan = new string('p', GoalPromptBuilder.MaxBorrowedChars * 4);
         var hugeReview = new string('r', GoalPromptBuilder.MaxBorrowedChars * 4);
 
-        var prompt = builder.BuildImplement("a goal", hugePlan, hugeReview, gitDiff: null);
+        var prompt = builder.BuildImplement(
+            new GoalPromptBuilder.ImplementContext("a goal", hugePlan, hugeReview));
 
         Assert.Contains("truncated at", prompt);
         Assert.True(prompt.Length < GoalPromptBuilder.MaxBorrowedChars * 4,
             $"prompt was {prompt.Length} characters, which is not a budget");
+    }
+
+    [Fact]
+    public void The_implementer_is_shown_the_build_error_rather_than_a_review_of_it()
+    {
+        // The verify output used to go to the review alone, so what reached whoever had to fix a broken
+        // build was the reviewer's account of the compiler — a line and column turned into "there is a
+        // type mismatch somewhere in the cart code".
+        var prompt = new GoalPromptBuilder().BuildImplement(
+            new GoalPromptBuilder.ImplementContext(
+                "a goal",
+                VerifyOutput: "src/Cart.cs(42,17): error CS1503: cannot convert int to string",
+                ReviewFeedback: "error: the cart does not build"));
+
+        Assert.Contains("CS1503", prompt);
+        Assert.Contains("src/Cart.cs(42,17)", prompt);
+    }
+
+    [Fact]
+    public void An_attempt_is_told_which_attempt_it_is_and_what_the_earlier_ones_decided()
+    {
+        var prompt = new GoalPromptBuilder().BuildImplement(
+            new GoalPromptBuilder.ImplementContext(
+                "a goal",
+                AttemptLog: ["Attempt 1: added a cache. Rejected: rewriting the parser — too broad."],
+                Attempt: 4,
+                Attempts: 5));
+
+        // A model that does not know it is nearly out of attempts keeps experimenting; the last one
+        // should be the safe version rather than a fresh idea.
+        Assert.Contains("attempt 4 of 5", prompt);
+        Assert.Contains("Rejected: rewriting the parser", prompt);
+
+        // And it is asked to leave the same note behind for the attempt after it.
+        Assert.Contains("\"Rejected:\"", prompt);
+    }
+
+    [Fact]
+    public void The_working_tree_gives_way_before_the_note_about_earlier_attempts()
+    {
+        // A reversal of what this test used to assert, and the argument is that one of the two is
+        // recoverable. These tools run in the workspace with their own tools: a dropped diff is one
+        // `git diff HEAD` away. A note about the path an earlier attempt tried and backed out of is
+        // recoverable by nothing at all — and Fit only descends this ladder on a large working tree
+        // after several attempts, which is the exact run where that note is worth most.
+        //
+        // With line breaks: a single 40 000-character line is not a large diff to anything downstream,
+        // and a fixture that only looks big is how a fitting test passes for the wrong reason.
+        var tree = GoalDiffContext.Compose(
+            string.Join("\n", Enumerable.Range(0, 4_000).Select(i => $"+ line {i}")), "src/New.cs")!;
+        var log = new[] { "Attempt 1: tried the cache. Rejected: the parser rewrite, too broad." };
+
+        var squeezed = new GoalPromptBuilder().BuildImplement(
+            new GoalPromptBuilder.ImplementContext("a goal", GitDiff: tree, AttemptLog: log),
+            // Tight enough to force the rung where the tree gives way. The two survive together above
+            // it, which is the point: this is about the order they are given up in, not about making
+            // the note fragile.
+            budget: 2_000);
+
+        Assert.Contains("Rejected: the parser rewrite", squeezed);
+        Assert.DoesNotContain("Current state of the working tree", squeezed);
     }
 
     [Fact]

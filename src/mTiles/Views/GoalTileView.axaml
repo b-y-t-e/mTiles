@@ -89,6 +89,113 @@
             <Setter Property="Fill" Value="{DynamicResource GoalPhaseSummary}" />
         </Style>
 
+
+        <!-- ======== Finding badges ========
+             What the last review counted, in the one place in this tile that already carries colour.
+             Three glyphs wide and no wider: the numbers belong beside the phase, and the findings
+             themselves are in the transcript, where they can be read. -->
+        <Style Selector="TextBlock.badge">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+        </Style>
+        <!-- Blockers and errors share the red: both mean "must fix", and the letter is what tells them
+             apart. There is one danger token, and inventing a second red for a six-pixel label would
+             leave two shades nobody could rank at a glance. The blocker is bold instead. -->
+        <Style Selector="TextBlock.badge.badge-blocker">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="TextBlock.badge.badge-error">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="TextBlock.badge.badge-warning">
+            <Setter Property="Foreground" Value="{DynamicResource GoalPhasePlan}" />
+        </Style>
+        <Style Selector="TextBlock.badge.badge-suggestion">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+
+        <!-- ======== Completion criteria ========
+             Drawn as a config file rather than as a settings form, because that is what it is and
+             because this tile is a terminal: a key on the left, a value on the right, one per line, in
+             the terminal face at the terminal size. A grid of paired labels and spinners would be the
+             only part of this tile that looked like a dialog. -->
+        <Style Selector="Border.criteria">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderBottom}" />
+            <Setter Property="Padding" Value="12,8" />
+        </Style>
+        <Style Selector="TextBlock.crit-label">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,10,0" />
+        </Style>
+        <Style Selector="TextBlock.crit-title">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style Selector="TextBox.crit-field">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Background" Value="{DynamicResource BgBase}" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <!-- What a field is really holding, when that differs from what it shows: a clamped number, or
+             a command carrying characters that do not display as themselves. Faint, because it is only
+             there when something needs saying. -->
+        <Style Selector="TextBlock.crit-note">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style Selector="CheckBox.crit-check">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="6,0,0,0" />
+            <Setter Property="Margin" Value="0,2,0,0" />
+        </Style>
+
+        <!-- ======== A button with a word on it ========
+             The app-wide `outlined-sm`, restated here in the terminal face. Everything with text in
+             this tile is monospaced, and a UI-font button in the middle of it is the one element that
+             announces it came from somewhere else. -->
+        <Style Selector="Button.goal-action">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.goal-action:pointerover">
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+        <Style Selector="Button.goal-action:pressed">
+            <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+        </Style>
+        <Style Selector="Button.goal-action.primary">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+
         <!-- ======== Composer ======== -->
         <!-- The prompt glyph belongs inside the field, as it does in a shell, so the border is drawn
              by the surrounding Border and the TextBox gives up its own. -->
@@ -139,6 +246,11 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1">
                     <Button Classes="tile-btn"
+                            Command="{Binding ToggleCriteriaCommand}"
+                            ToolTip.Tip="When is this goal done?">
+                        <mi:MaterialIcon Kind="Tune" Width="13" Height="13" />
+                    </Button>
+                    <Button Classes="tile-btn"
                             Command="{Binding PauseCommand}"
                             IsVisible="{Binding IsRunning}"
                             ToolTip.Tip="Pause">
@@ -176,6 +288,27 @@
                     <Ellipse DockPanel.Dock="Left"
                              x:Name="PhaseDot" Width="6" Height="6"
                              VerticalAlignment="Center" />
+                    <!-- One template, four styles. Every severity used to need a view-model
+                         property, a TextBlock, a visibility converter and a style, and each of the four
+                         could be forgotten on its own. -->
+                    <ItemsControl DockPanel.Dock="Right" ItemsSource="{Binding Badges}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:GoalBadge">
+                                <TextBlock Classes="badge"
+                                           Classes.badge-blocker="{Binding IsBlocker}"
+                                           Classes.badge-error="{Binding IsError}"
+                                           Classes.badge-warning="{Binding IsWarning}"
+                                           Classes.badge-suggestion="{Binding IsSuggestion}"
+                                           Text="{Binding Text}"
+                                           ToolTip.Tip="{Binding Tooltip}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <TextBlock Classes="strip"
                                Text="{Binding PhaseLabel}"
                                TextTrimming="CharacterEllipsis"
@@ -183,6 +316,80 @@
                                Margin="6,0,8,0" />
                 </DockPanel>
             </DockPanel>
+        </Border>
+
+
+        <!-- ======== When is this goal done? ========
+             Everything here used to be a constant: five attempts, and the presence of the characters
+             "VERDICT: PASS" anywhere in the review. The verify command is the one row that is not an
+             opinion — an exit code decides it — which is why it sits at the top. -->
+        <Border DockPanel.Dock="Top" Classes="criteria" IsVisible="{Binding ShowCriteria}">
+            <StackPanel>
+                <TextBlock Classes="crit-title" Text="done when" />
+
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0,0,0,4">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="crit-label" Text="verify command" />
+                    <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2">
+                        <TextBox Classes="crit-field"
+                                 Text="{Binding Criteria.VerifyCommand}"
+                                 PlaceholderText="dotnet build"
+                                 ToolTip.Tip="Run after every attempt. A non-zero exit blocks completion and its output goes to the review.&#x0a;Read by the shell mTiles resolves for commands, which is not always the one you would guess." />
+                        <!-- Only when the box is not showing the truth. A text box cannot sanitise what
+                             it is editing, and editing this field is what makes a command "chosen" — so
+                             a user deciding by reading it would be deciding on the version the approval
+                             dialog exists to refuse. -->
+                        <TextBlock Classes="crit-note"
+                                   IsVisible="{Binding Criteria.HasVerifyCommandNote}"
+                                   Text="{Binding Criteria.VerifyCommandAsShown}" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="crit-label" Text="attempts" Margin="0,6,10,0" />
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
+                        <!-- LostFocus puts the fields back to what the tile actually holds. Avalonia
+                             reports a failed string-to-int conversion as a binding error, not as data
+                             validation, so the :error pseudo-class never fires and a style built on it
+                             would be decoration that cannot light up. What can be done is make the junk
+                             disappear when the field does, which is the behaviour anyone expects. -->
+                        <TextBox Classes="crit-field"
+                                 Text="{Binding Criteria.MaxIterations}"
+                                 MinWidth="56"
+                                 LostFocus="NumberBox_LostFocus"
+                                 ToolTip.Tip="Implement/review laps before the run gives up (1-50)" />
+                        <!-- Shown only when the run will not use what is in the box; see ShowClampNotes. -->
+                        <TextBlock Classes="crit-label"
+                                   Text="{Binding Criteria.AttemptsNote}"
+                                   Foreground="{DynamicResource DangerText}"
+                                   IsVisible="{Binding Criteria.AttemptsNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="crit-label" Text="tolerated" Margin="0,6,10,0" />
+                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
+                        <TextBox Classes="crit-field" Text="{Binding Criteria.MaxErrors}" MinWidth="42"
+                                 LostFocus="NumberBox_LostFocus"
+                                 ToolTip.Tip="Errors allowed to remain. Blockers never are." />
+                        <TextBlock Classes="crit-label" Text="errors" />
+                        <TextBox Classes="crit-field" Text="{Binding Criteria.MaxWarnings}" MinWidth="42"
+                                 LostFocus="NumberBox_LostFocus"
+                                 ToolTip.Tip="Warnings allowed to remain" />
+                        <TextBlock Classes="crit-label" Text="warnings" Margin="0" />
+                        <TextBlock Classes="crit-label"
+                                   Text="{Binding Criteria.TolerancesNote}"
+                                   Foreground="{DynamicResource DangerText}"
+                                   Margin="0"
+                                   IsVisible="{Binding Criteria.TolerancesNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                </Grid>
+
+                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireGoalMet}"
+                          Content="the review says the goal is met"
+                          ToolTip.Tip="Separate from the counts: clean code that does the wrong thing has no findings" />
+                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.StopOnNoProgress}"
+                          Content="stop early when two reviews find the same things"
+                          ToolTip.Tip="The implementation is circling, and the attempts left would prove it" />
+                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.StopOnNoChange}"
+                          Content="stop early when an attempt changes nothing"
+                          ToolTip.Tip="The tool did nothing, and the same prompt gets the same nothing" />
+            </StackPanel>
         </Border>
 
         <!-- ======== Composer ======== -->
@@ -219,6 +426,53 @@
                              KeyDown="InputBox_KeyDown" />
                 </DockPanel>
             </Border>
+        </Border>
+
+
+        <!-- ======== The other way in ========
+             Docked after the composer so it sits directly above it, where the composer's own placeholder
+             is the alternative being offered: type a goal, or have one read out of what you have already
+             changed. Only shown where a goal is what is wanted next and only when git says there is
+             something uncommitted to read — see CanDetectGoal. -->
+        <Border DockPanel.Dock="Bottom"
+                Padding="6,4,6,0"
+                Background="{DynamicResource BgSurface}"
+                IsVisible="{Binding CanDetectGoal}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-system" Margin="0,3,0,0" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                    <Button Classes="goal-action"
+                            Command="{Binding DetectGoalCommand}"
+                            Content="Detect goal"
+                            ToolTip.Tip="Read the uncommitted changes and put the goal in the box to edit" />
+                    <Button Classes="goal-action primary"
+                            Command="{Binding DetectGoalAndRunCommand}"
+                            Content="Detect &amp; run"
+                            ToolTip.Tip="Read the goal and start reviewing and fixing straight away" />
+                </StackPanel>
+                <TextBlock Classes="strip" Text="You have uncommitted changes." VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+
+        <!-- ======== More attempts for a run that ran out ========
+             Above the detect bar, and only after the attempts ran out — see CanContinue. It is the one
+             stop a button can do anything about; the other three have already established that another
+             attempt would change nothing. The label carries the number so the button says what it does. -->
+        <Border DockPanel.Dock="Bottom"
+                Padding="6,4,6,0"
+                Background="{DynamicResource BgSurface}"
+                IsVisible="{Binding CanContinue}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-system" Margin="0,3,0,0" />
+                <Button DockPanel.Dock="Right"
+                        Classes="goal-action primary"
+                        Command="{Binding ContinueRunCommand}"
+                        Content="{Binding ContinueLabel}"
+                        ToolTip.Tip="Give this goal that many more attempts and carry on, keeping the conversation" />
+                <TextBlock Classes="strip"
+                           Text="{Binding ContinueReason}"
+                           VerticalAlignment="Center" />
+            </DockPanel>
         </Border>
 
         <!-- ======== Transcript ======== -->

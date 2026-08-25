@@ -50,6 +50,65 @@ public class GoalStateNullGuardTests
     }
 
     [Fact]
+    public void A_null_inside_a_list_is_refused_as_well_as_a_null_list()
+    {
+        // The level the guards did not cover. "Messages": null was handled; ["a", null] was not, and it
+        // reached GoalWorkflowEngine.LoadFrom — where every clarification turn is labelled with
+        // StartsWith — and threw inside the view model's catch of last resort, which stops the tile
+        // saving for the rest of its life.
+        const string hostile = """
+            {
+              "OriginalGoal": "a goal",
+              "ClarificationHistory": ["User: appsettings.json", null],
+              "AttemptLog": [null, "Attempt 1: did a thing"],
+              "Messages": [null, { "Role": "User", "Text": "hello" }],
+              "CurrentPhase": "Clarify"
+            }
+            """;
+
+        var state = JsonSerializer.Deserialize<GoalTileState>(hostile, JsonDefaults.Options)!;
+
+        Assert.Single(state.ClarificationHistory);
+        Assert.Single(state.AttemptLog);
+        Assert.Single(state.Messages);
+        Assert.All(state.Messages, m => Assert.NotNull(m));
+
+        var engine = new GoalWorkflowEngine();
+        engine.LoadFrom(state);
+
+        Assert.Single(engine.ClarificationHistory);
+        Assert.Single(engine.AttemptLog);
+    }
+
+    [Fact]
+    public void A_phase_or_role_from_a_newer_build_costs_one_field_and_not_the_session()
+    {
+        // Enums are written as names, so a name this build has never heard of is a JsonException — read
+        // by the persistence layer as a damaged file and set aside. The ordinary way one gets in is a
+        // downgrade, and the message's own Phase is the likeliest carrier of the three, because there
+        // is one per line of transcript rather than one per file.
+        const string fromTheFuture = """
+            {
+              "OriginalGoal": "a goal",
+              "CurrentPhase": "Rehearsing",
+              "LastStopReason": "SomethingInventedLater",
+              "Messages": [{ "Role": "Narrator", "Text": "hello", "Phase": "Rehearsing" }]
+            }
+            """;
+
+        var state = JsonSerializer.Deserialize<GoalTileState>(fromTheFuture, JsonDefaults.Options)!;
+
+        Assert.Equal("a goal", state.OriginalGoal);
+        Assert.Equal(GoalPhase.Goal, state.CurrentPhase);
+        Assert.Null(state.LastStopReason);
+
+        var message = Assert.Single(state.Messages);
+        Assert.Equal("hello", message.Text);
+        Assert.Equal(GoalMessageRole.System, message.Role);
+        Assert.Equal(GoalPhase.Goal, message.Phase);
+    }
+
+    [Fact]
     public void A_file_full_of_nulls_loads_into_something_usable()
     {
         // The end the guards exist for, stated as the thing a user would notice: a hand-edited or

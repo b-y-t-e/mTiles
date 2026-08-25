@@ -77,7 +77,9 @@ public class GoalResumeTests
         var reloaded = Reload(engine);
 
         Assert.Equal("the goal", reloaded.OriginalGoal);
-        Assert.Equal(["an answer"], reloaded.ClarificationHistory);
+        // Labelled with who said it: the list is joined into the next Clarify prompt and into the
+        // Plan prompt, and answers alone left a numbered reply with no question above it.
+        Assert.Equal(["User: an answer"], reloaded.ClarificationHistory);
         Assert.Equal("step one, step two", reloaded.ApprovedPlan);
         Assert.Equal(2, reloaded.IterationCount);
         Assert.Equal("VERDICT: FAIL — the second step is missing", reloaded.LastReviewFeedback);

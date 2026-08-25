@@ -94,6 +94,45 @@ public class AiProcessRunnerTests
         Assert.IsNotType<InvalidOperationException>(ex);
     }
 
+    [Fact]
+    public void A_review_prompt_of_the_size_this_tile_really_builds_fits_a_cmd_shim()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        // The arithmetic that made this necessary: the goal, the quality rules, a verify command's
+        // output, seven thousand characters of working tree, the severity rules and an example come to
+        // around twelve thousand characters — against the 8 191 a .cmd shim allows, which is what npm
+        // installs and what AiToolDetector looks for first. Three of the four supported tools go that
+        // way, and the case that overflows is the one the feature exists for: a resume after a large
+        // implementation in a workspace with a verify command.
+        var budget = AiProcessRunner.PromptBudget("tool.cmd");
+        Assert.NotNull(budget);
+
+        var unfitted = new GoalPromptBuilder().BuildReview(
+            new string('g', 5_000), new string('d', 20_000), new string('v', 5_000));
+        Assert.True(CommandLineLength.Quoted(unfitted) > budget,
+            "this test proves nothing unless the unfitted prompt really is too long");
+
+        var fitted = new GoalPromptBuilder().BuildReview(
+            new string('g', 5_000), new string('d', 20_000), new string('v', 5_000), budget);
+
+        Assert.True(CommandLineLength.Quoted(fitted) <= budget);
+
+        // Trimmed, not gutted: it still says what it is asking for and still carries the goal.
+        Assert.Contains("goalMet", fitted);
+        Assert.Contains("blocker", fitted);
+        Assert.Contains("gggg", fitted);
+    }
+
+    [Fact]
+    public void A_tool_that_reads_stdin_has_no_budget_to_fit_and_the_prompt_is_left_whole()
+    {
+        Assert.Null(AiProcessRunner.PromptBudget("claude.cmd", new ClaudeToolRunner()));
+
+        var whole = new GoalPromptBuilder().BuildReview("the goal", new string('d', 20_000), null, budget: null);
+        Assert.Contains("dddd", whole);
+    }
+
     /// <summary>Starts a run and lets the guard throw before anything is launched. Whatever happens
     /// after that — no such executable — is not what these are asking about.</summary>
     private static void Run(string executable, string prompt) =>

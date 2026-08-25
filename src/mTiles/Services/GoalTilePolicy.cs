@@ -42,6 +42,17 @@ internal static class GoalTilePolicy
     public static bool ResumesAtReview(GoalPhase phase) => phase == GoalPhase.Review;
 
     /// <summary>
+    /// Whether Resume can actually pick this phase up.
+    /// <para>The working phases and the two the user answers. <b>Not Goal or Summary</b> — there is no
+    /// run to continue there, and <c>ResumeAsync</c>'s own <c>default:</c> case does nothing but write
+    /// the cleared pause. Every "click Resume to try again" the tile prints has to ask this first: on
+    /// the detection path, which runs from Goal, the advice pointed at a button that either was not
+    /// there or did nothing when pressed.</para>
+    /// </summary>
+    public static bool CanResume(GoalPhase phase) =>
+        phase is GoalPhase.Implement or GoalPhase.Review or GoalPhase.Clarify or GoalPhase.Plan;
+
+    /// <summary>
     /// Whether starting a fresh goal over the top of this transcript is worth a confirmation.
     /// <para>Decided by what would be lost, not by which phase the tile is in: a Clarify that failed
     /// puts the engine back to Goal while the goal, the answers and the tool's replies are all still on

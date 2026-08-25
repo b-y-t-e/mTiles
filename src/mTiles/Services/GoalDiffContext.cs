@@ -5,7 +5,8 @@ namespace mTiles.Services;
 /// <para>Pure, and separate from the git calls that gather it, because the assembly is where the bug
 /// was: the untracked list was appended and then the whole thing truncated, so the moment the diff grew
 /// past the cap the list vanished — and a large diff is exactly the resumed run the list exists for.
-/// Each part is now bounded on its own, and the order says which one gives way first.</para>
+/// Each part is now bounded on its own, and the order they are joined in decides which one
+/// survives when something cuts the assembled block again — least replaceable first, diff last.</para>
 /// </summary>
 internal static class GoalDiffContext
 {
@@ -52,10 +53,19 @@ internal static class GoalDiffContext
         var body = Clip(diff, MaxDiffChars, "diff");
         var names = Clip(untracked, MaxUntrackedChars, "file list");
 
+        // Smallest and least replaceable first, the diff last, because whatever cuts this block again
+        // will cut it from the end. Something does: GoalPromptBuilder.Fit shrinks the borrowed blocks
+        // to fit a command line, and it sees one assembled string rather than these parts — so with the
+        // diff on top, the very first re-cut threw away the file list. That is the same loss this class
+        // was written to prevent, arriving one layer up.
+        //
+        // The order is also the order of value under pressure: the note is one line and says nobody
+        // could look, a new file's name is a line and no form of diff will ever show it, and the diff
+        // is bulk that degrades gracefully.
         var parts = new List<string>(3);
-        if (body.Length > 0) parts.Add(body);
-        if (names.Length > 0) parts.Add($"Untracked files (contents not shown):\n{names}");
         if (problem is { Length: > 0 }) parts.Add($"Note: the working tree could not be read in full — {problem}");
+        if (names.Length > 0) parts.Add($"Untracked files (contents not shown):\n{names}");
+        if (body.Length > 0) parts.Add(body);
 
         return parts.Count == 0 ? null : string.Join("\n\n", parts);
     }

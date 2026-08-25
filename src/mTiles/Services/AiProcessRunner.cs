@@ -158,9 +158,6 @@ public static class AiProcessRunner
         ["pi"] = new PiToolRunner()
     };
 
-    public static void RegisterRunner(string toolBinary, IAiToolRunner runner) =>
-        Runners[toolBinary] = runner;
-
     public static IAiToolRunner GetRunner(string toolBinary) =>
         Runners.GetValueOrDefault(toolBinary) ?? new GenericToolRunner();
 
@@ -176,29 +173,17 @@ public static class AiProcessRunner
     /// </summary>
     private static void GuardPromptLength(string executablePath, string prompt)
     {
-        // Windows only. The limits below are `CreateProcess`'s and `cmd.exe`'s; a POSIX system allows
-        // something closer to two megabytes, and applying 32 767 there would refuse prompts that would
-        // have gone through perfectly well.
-        if (!OperatingSystem.IsWindows()) return;
+        if (PromptBudget(executablePath) is not { } budget) return;
 
-        var throughShell = executablePath.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
-                           || executablePath.EndsWith(".bat", StringComparison.OrdinalIgnoreCase);
-        var limit = throughShell ? 8_191 : 32_767;
-
-        // Room for the executable path and the flags around the prompt. A path long enough to leave
-        // nothing over is its own problem, and saying "at most -40 characters" would not name it.
-        var budget = limit - executablePath.Length - 256;
         if (budget <= 0)
             throw new InvalidOperationException(
                 $"The path to this tool is {executablePath.Length} characters, which leaves no room on " +
                 "a command line for a prompt. Move the tool somewhere shorter.");
 
-        // Measured as it will be *quoted*, not as it is: the argument is wrapped and every quote and
-        // backslash inside it is escaped, so a prompt of code — which is what this carries — grows on
-        // the way onto the command line. Measuring the raw string let one through that then threw.
-        var quoted = prompt.Length + prompt.Count(c => c is '"' or '\\') + 2;
+        var quoted = CommandLineLength.Quoted(prompt);
         if (quoted <= budget) return;
 
+        var throughShell = CommandLineLength.ThroughShell(executablePath);
         throw new InvalidOperationException(
             $"The prompt is {quoted} characters once quoted and {Path.GetFileName(executablePath)} can be " +
             $"given at most {budget} on a command line" +
@@ -207,6 +192,36 @@ public static class AiProcessRunner
             "that will not fit — shorten them, or use a tool that accepts its prompt on standard input.");
     }
 
+    /// <summary>
+    /// How many characters of prompt this tool can be handed on a command line, or <c>null</c> when the
+    /// question does not arise — a tool that reads standard input has no command line to overflow, and
+    /// off Windows the limit is something closer to two megabytes.
+    /// <para>Public because the prompt builder needs it <em>before</em> it builds. Refusing an oversized
+    /// prompt is the last line of defence and a poor one: the run is judged failed, the tile pauses, and
+    /// Resume reproduces the same failure for ever. Knowing the budget in advance lets the borrowed
+    /// blocks be trimmed to fit instead, which costs the tool some context and costs the user nothing.
+    /// </para>
+    /// <para>The arithmetic itself is <see cref="CommandLineLength"/>'s; what this adds is the one thing
+    /// only a runner knows — whether the prompt is going on a command line at all.</para>
+    /// </summary>
+    public static int? PromptBudget(string executablePath, IAiToolRunner? runner = null) =>
+        runner?.AcceptsPromptOnStdin == true ? null : CommandLineLength.Budget(executablePath);
+
+    /// <summary>
+    /// Runs the tool once and returns everything it printed.
+    /// </summary>
+    /// <remarks>
+    /// <b>Deliberately without an overall timeout</b>, unlike <see cref="VerifyCommandRunner"/>, and the
+    /// asymmetry is the decision rather than an oversight. A verify command that never ends has produced
+    /// nothing anybody wants and killing it costs nothing; an agent that has been running for forty
+    /// minutes is doing the thing it was asked to do, and it writes as it goes — so a timeout would
+    /// kill it mid-edit and leave the worktree half-changed, which is worse than waiting. Any number
+    /// picked here would be a guess about how long somebody's task takes, applied to work that is
+    /// already in the user's files.
+    /// <para>What ends a run instead is <paramref name="ct"/>: Pause cancels it and the process tree is
+    /// killed. That is a decision made by somebody who can see the tile, which is the right kind of
+    /// decision for this.</para>
+    /// </remarks>
     public static async Task<string> RunPlainAsync(
         string executablePath,
         string prompt,
@@ -277,15 +292,6 @@ public static class AiProcessRunner
         {
             try { process.StandardInput.Close(); } catch { /* already gone */ }
         }
-    }
-
-    private static async Task KillAndWaitAsync(Process process)
-    {
-        if (!process.HasExited)
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
-        }
-        await WaitForExitWithTimeoutAsync(process);
     }
 
     private static async Task WaitForExitWithTimeoutAsync(Process process)

@@ -8,43 +8,53 @@ using mTiles.Services;
 
 namespace mTiles.ViewModels;
 
+/// <summary>
+/// The Goal tile.
+/// </summary>
+/// <remarks>
+/// <para><b>Threading, resolved in one direction: this class runs on the UI thread.</b> Every workflow
+/// path starts in a command, and the awaits inside it resume on Avalonia's synchronisation context, so
+/// <see cref="Messages"/>, <see cref="Badges"/>, <c>InputText</c> and the rest are touched from one
+/// thread and need no guard. The guards that do exist are not hedging — they mark the <em>three</em>
+/// places something arrives from elsewhere, and there are only three:</para>
+/// <list type="bullet">
+/// <item>the debounce timer, which fires <c>SaveState</c> on a pool thread;</item>
+/// <item><c>RediscoverSelectedToolAsync</c>, which walks PATH on a pool thread and marshals back before
+/// touching <c>AvailableTools</c>;</item>
+/// <item><c>RefreshDetectAvailability</c>, which asks git in the background and marshals back before
+/// setting <c>HasUncommittedChanges</c>.</item>
+/// </list>
+/// <para>Anything reachable from those three checks the dispatcher; nothing else does, and nothing else
+/// should start. Sprinkling the check more widely would be worse than useless — it would suggest the
+/// workflow can be driven from anywhere, which is exactly the belief that makes a race look acceptable.
+/// </para>
+/// </remarks>
 public partial class GoalTileViewModel : ObservableObject, IDisposable
 {
     private readonly string _workingDirectory;
     private readonly SettingsService _settingsService;
     private readonly GoalWorkflowEngine _engine = new();
-    private readonly GoalStatePersistence _persistence = new();
+    private readonly GoalStateStore _store;
     private readonly string _filePath;
 
     private CancellationTokenSource? _cts;
 
-    /// <summary>Said once. A tile that cannot save says so, but a tile that cannot save is also likely
-    /// to fail on every message after that, and a transcript is not a log.
-    /// <para>Read and written from the debounce timer's thread as well as the UI one, deliberately
-    /// without a lock: the worst a lost race costs is the same sentence twice, and <c>_disposed</c> is
-    /// locked because losing <em>that</em> race leaks a timer and writes after the tile is gone.</para>
+    /// <summary>
+    /// Cancelled when the tile closes. The run's own token belongs to the run and is null between runs,
+    /// so the background checks that outlive neither — the detect-availability probe — have nothing
+    /// else to hang off, and a closed tile was still starting git processes.
+    /// <para>Cancelled and <b>not disposed</b>, exactly as <c>_cts</c> is: the workflow keeps unwinding
+    /// after the tile closes and its <c>finally</c> asks for another availability check, so the token
+    /// is still being read afterwards — and reading <c>Token</c> on a disposed source throws. A
+    /// cancelled source answers that question perfectly well for as long as anyone is still asking.
+    /// </para>
     /// </summary>
-    private bool _saveFailureReported;
+    private readonly CancellationTokenSource _lifetime = new();
 
-    private Timer? _debounceTimer;
-    private readonly Lock _debounceLock = new();
-
-    /// <summary>Set at the start of <see cref="Dispose"/>. The workflow keeps unwinding after the tile
-    /// is closed — the cancelled run still adds its message — and each of those asked for a save, which
-    /// armed a fresh timer after the final flush had already gone out: a write belonging to a tile that
-    /// no longer exists, on a timer nobody would ever dispose.</summary>
+    /// <summary>Set at the start of <see cref="Dispose"/>. The workflow keeps unwinding after the
+    /// tile is closed and the store must not be asked for anything more.</summary>
     private bool _disposed;
 
-    /// <summary>
-    /// Set when the goal file exists but could not be opened, which stops this tile writing for the
-    /// rest of its life. The file is almost certainly intact — locked, or on a disk having a bad
-    /// moment — and the tile standing in front of it is empty, so a save would replace a real session
-    /// with the blank one that failed to load it. Refusing to write costs the user this session; not
-    /// refusing costs them the one already on disk.
-    /// </summary>
-    /// <remarks>Same benign race as <see cref="_saveFailureReported"/>: a write that slips through the
-    /// instant it is set is a write of the state the tile is already showing.</remarks>
-    private bool _saveRefused;
     private List<AiToolInfo>? _cachedTools;
 
     [ObservableProperty] private string _inputText = "";
@@ -54,7 +64,118 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _phaseLabel = "Waiting for goal...";
     [ObservableProperty] private bool _isPaused;
 
+    /// <summary>Whether the completion-criteria panel is open. View state only — a panel left open is
+    /// not something a restart should have to remember.</summary>
+    [ObservableProperty] private bool _showCriteria;
+
+    /// <summary>Whether this workspace has uncommitted changes to work a goal out of. Re-read whenever
+    /// the tile goes idle, because the user is editing in the terminal tiles beside this one.</summary>
+    [ObservableProperty] private bool _hasUncommittedChanges;
+
+    /// <summary>
+    /// Whether the two detect buttons are offered at all.
+    /// <para>Only where a goal is what is wanted next — a tile waiting for one, or a finished one — and
+    /// only when there is something to read. A button that reads the working tree has nothing to say
+    /// about a clean one, and offering it there is offering a run that ends in "there are no changes".
+    /// </para>
+    /// </summary>
+    public bool CanDetectGoal =>
+        HasUncommittedChanges && !IsRunning && CurrentPhase is GoalPhase.Goal or GoalPhase.Summary;
+
+    /// <summary>
+    /// Whether the finished run can be carried on.
+    /// </summary>
+    /// <remarks>
+    /// <para>Two of the five stops, for two different reasons. <b>BudgetSpent</b> is the plain one: the
+    /// attempts ran out and more of them is exactly what is missing. <b>VerifyTimedOut</b> is the one
+    /// the user can <em>fix</em> — and once they have cleared the command that hung, carrying on is
+    /// what they want; the alternative was retyping the goal into an empty tile.</para>
+    /// <para>The other three are not budgets and never will be: a met goal has nothing to continue
+    /// towards, a no-progress stop has just established that two reviews in a row found exactly the
+    /// same things, and a no-change stop means the tool wrote nothing. Offering Continue there would
+    /// sell AI runs whose outcome is already known.</para>
+    /// <para>The ceiling is asked about too: <see cref="GoalCompletionPolicy.Attempts"/> clamps, so
+    /// raising a budget that is already at the top would run the loop round to no next attempt and
+    /// summarise again, having spent nothing and changed nothing but looking exactly like a button that
+    /// does not work.</para>
+    /// </remarks>
+    public bool CanContinue =>
+        !IsRunning
+        && CurrentPhase == GoalPhase.Summary
+        && _engine.IterationCount < GoalCompletionPolicy.MostAttempts
+        && _engine.LastStopReason switch
+        {
+            GoalStopReason.BudgetSpent => true,
+
+            // A timed-out verify command is not a budget, so Continue would normally have nothing to
+            // offer — pressing it would buy another half hour of the same wait. But it is also the one
+            // stop the user can *fix*, and the summary tells them how: clear the command under the tune
+            // button. Once they have, carrying on is exactly what they want, and the alternative is
+            // retyping the goal into an empty tile and paying for the clarification round again. So the
+            // button appears when the command that hung is no longer there to hang again.
+            GoalStopReason.VerifyTimedOut => _engine.Criteria.VerifyCommand.Length == 0,
+
+            // Met has nothing to continue towards, NoChange means the tool wrote nothing, and
+            // NoProgress has just established that two reviews running found exactly the same things.
+            _ => false,
+        };
+
+    /// <summary>The button says how many attempts it will add, because it reads the number out of the
+    /// attempts field at the moment it is clicked — so somebody who wants two more can type 2 and
+    /// see the button agree before pressing it. It adds nothing, and says nothing about adding, where
+    /// the budget was never spent.</summary>
+    public string ContinueLabel =>
+        AttemptsContinueWouldAdd() is var added && added > 0 ? $"Continue · +{added}" : "Continue";
+
+    /// <summary>Why this run stopped, in the words the bar above the button uses. It said "The attempts
+    /// ran out" for both stops, which is untrue of the one where they did not.</summary>
+    public string ContinueReason => _engine.LastStopReason == GoalStopReason.VerifyTimedOut
+        ? "The verify command was cleared."
+        : "The attempts ran out.";
+
+    /// <summary>
+    /// What Continue would really add.
+    /// </summary>
+    /// <remarks>
+    /// <para>Nothing at all where the budget still has attempts in it. That is the VerifyTimedOut case:
+    /// the run stopped on attempt 2 of 5, so there are three left and Continue only has to let them
+    /// happen — adding the field on top raised a ceiling the user had set to 5 up to 7, which is not
+    /// something they asked for and not something the button said it would do.</para>
+    /// <para>Otherwise the attempts field, unless the ceiling is nearer than that. The label used to
+    /// read the field alone, so a goal 48 attempts in offered "+5" and added two.</para>
+    /// </remarks>
+    private int AttemptsContinueWouldAdd() =>
+        _engine.IterationCount < _engine.MaxIter
+            ? 0
+            : Math.Min(_engine.IterationCount + GoalCompletionPolicy.Attempts(_engine.Criteria),
+                       GoalCompletionPolicy.MostAttempts) - _engine.IterationCount;
+
+    partial void OnHasUncommittedChangesChanged(bool value) => OnPropertyChanged(nameof(CanDetectGoal));
+
+    partial void OnIsRunningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanDetectGoal));
+        OnPropertyChanged(nameof(CanContinue));
+    }
+
+    partial void OnCurrentPhaseChanged(GoalPhase value)
+    {
+        OnPropertyChanged(nameof(CanDetectGoal));
+        OnPropertyChanged(nameof(CanContinue));
+    }
+
     public ObservableCollection<GoalMessage> Messages { get; } = [];
+
+    /// <summary>
+    /// The completion-criteria panel. Its own object because editing seven settings is not this class's
+    /// job — see <see cref="GoalCriteriaEditor"/>.
+    /// </summary>
+    public GoalCriteriaEditor Criteria { get; }
+
+    /// <summary>What the last review found, one entry per severity that had anything — so the strip
+    /// shows nothing at all after a clean review, and a severity added later needs no work here.
+    /// </summary>
+    public ObservableCollection<GoalBadge> Badges { get; } = [];
     public ObservableCollection<string> AvailableTools { get; } = [];
     public Action? ScrollToEnd { get; set; }
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
@@ -82,7 +203,18 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         var goalsDir = Path.Combine(workingDirectory, ".mterminal", "goals");
         _filePath = Path.Combine(goalsDir, $"{Guid.NewGuid():N}.json");
 
+        // The store before the editor, as in the other constructor. The editor's callbacks reach the
+        // store, and although they are only invoked later, two constructors building the same object in
+        // two orders is where that stops being true without anybody noticing.
+        _store = NewStore();
+
+        // The editor fills itself from the criteria in its own constructor, and on this path there is
+        // nothing to load afterwards. The other constructor reloads because LoadState has replaced the
+        // criteria underneath it since; doing it here as well suggested a symmetry that is not there.
+        Criteria = NewCriteriaEditor();
+
         DetectTools();
+        RefreshDetectAvailability();
     }
 
     public GoalTileViewModel(string filePath, string workingDirectory, SettingsService settingsService)
@@ -90,9 +222,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         _workingDirectory = workingDirectory;
         _settingsService = settingsService;
         _filePath = filePath;
+        _store = NewStore();
+        Criteria = NewCriteriaEditor();
 
         DetectTools();
         LoadState();
+        Criteria.Reload();
+        RefreshDetectAvailability();
     }
 
     // ── Tool detection ──────────────────────────────────
@@ -171,6 +307,325 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         _resolvedTool = tools.FirstOrDefault(t => t.Name == value && t.IsInstalled);
     }
 
+    // ── Completion criteria ─────────────────────────────
+
+    /// <summary>
+    /// A verify command that came out of the goal file and has not yet been agreed to in this session.
+    /// <para>Deliberately <b>not persisted</b>, and that is the whole design. Goal files live in
+    /// <c>.mterminal/goals/</c> inside the user's own repository; nothing gitignores that directory
+    /// unless the Git tile is used, so a committed one travels with a branch — and it carries a shell
+    /// command that this tile runs after every attempt. A stored "the user agreed" flag would travel
+    /// with it and agree on their behalf.</para>
+    /// </summary>
+    private bool _verifyCommandNeedsConsent;
+
+    /// <summary>
+    /// Set once the tile has explained that it cannot ask about the verify command.
+    /// <para>The loop asks on every attempt and other messages land in between, so <c>SayOnceAsync</c>
+    /// — which only skips a note that is still the <em>last</em> thing in the transcript — printed it
+    /// up to five times a run.</para>
+    /// <para>Per tile, and deliberately <b>not</b> reset by <c>StartFreshGoal</c> beside
+    /// <c>_clarifyBudgetReported</c>: this one is about the tile having nowhere to ask, which a new goal
+    /// does not change.</para>
+    /// </summary>
+    private bool _verifyConsentUnavailableReported;
+
+    /// <summary>Whether this goal has already been told why it is not getting more questions. Reset
+    /// with the goal, not with the tile.</summary>
+    private bool _clarifyBudgetReported;
+
+    private GoalCriteriaEditor NewCriteriaEditor() => new(
+        () => _engine.Criteria,
+        criteria =>
+        {
+            // Read before the assignment: what they say about the state the engine is still holding.
+            var commandChanged = !string.Equals(
+                _engine.Criteria.VerifyCommand, criteria.VerifyCommand, StringComparison.Ordinal);
+            var attemptsChanged = _engine.Criteria.MaxIterations != criteria.MaxIterations;
+
+            _engine.Criteria = criteria;
+
+            // Moving the field by hand makes the number theirs again. AttemptsBeforeExtension exists so
+            // the next goal starts from what the user chose rather than from what Continue wrote — and
+            // once they have chosen again, the remembered value is the stale one: 5, Continue to 10,
+            // then 8 typed in, and the next goal started at 5. Only reached from the panel; Continue
+            // writes through the engine and reloads with _filling set, so it never comes through here.
+            if (attemptsChanged)
+                _engine.AttemptsBeforeExtension = null;
+
+            // The output belonged to the command that printed it. Left in place across an edit, a build
+            // error from `dotnet build` was handed to the next implementation under the heading "the
+            // project's verify command failed with this output" while the command was now `npm test` —
+            // or had been removed entirely, in which case nothing would ever have printed it again.
+            if (commandChanged)
+                _engine.LastVerifyOutput = null;
+
+            // The Continue button names the number it will add, and that number is this field. The
+            // reason with it: clearing the verify command is what makes the button appear after a
+            // timeout, so the bar above it has to be there to be read.
+            OnPropertyChanged(nameof(ContinueLabel));
+            OnPropertyChanged(nameof(ContinueReason));
+            OnPropertyChanged(nameof(CanContinue));
+
+            // Messages alone, and no File.Exists: this runs on every keystroke in a text box, and a
+            // tile with no messages is one with no goal in it — which is exactly the tile that must not
+            // be given a session file. A saved tile always has messages.
+            if (Messages.Count > 0)
+                SaveStateSoon();
+        });
+
+    [RelayCommand]
+    private void ToggleCriteria() => ShowCriteria = !ShowCriteria;
+
+    /// <summary>
+    /// Gives a run that ran out of attempts as many more as the attempts field says, and carries on.
+    /// <para>Re-entered at the <b>implementation</b>, not at the review. The last thing this run did was
+    /// review, and starting there again would spend an AI run re-judging a working tree nothing has
+    /// touched since — the same verdict, twice in the transcript, for the price of a run. The findings
+    /// it produced are still in the engine, so the implementation that follows is handed them.</para>
+    /// <para>The transcript is kept, and that is the whole point of the button. Everything this session
+    /// worked out about the goal is in it, and the alternative before this existed was retyping the goal
+    /// into a fresh tile and paying for the clarification round again.</para>
+    /// </summary>
+    [RelayCommand]
+    private async Task ContinueRun()
+    {
+        if (!CanContinue) return;
+
+        // The same arithmetic the label showed, so the button cannot do something other than what it
+        // said. The ceiling is applied here rather than left to Attempts to clamp later, so what the
+        // panel shows afterwards is the budget really in force: a field reading 60 while the loop uses
+        // 50 is one field saying two things.
+        var added = AttemptsContinueWouldAdd();
+
+        if (added > 0)
+        {
+            // Remembered once, on the first Continue of this goal, so a second one does not record the
+            // raised value as the one the user chose.
+            _engine.AttemptsBeforeExtension ??= _engine.Criteria.MaxIterations;
+
+            _engine.Criteria.MaxIterations = _engine.IterationCount + added;
+            Criteria.Reload();
+        }
+
+        // Cleared before the loop rather than after it: this is no longer a finished run, and a crash
+        // between here and the next summary must not leave a Summary offering Continue over a goal that
+        // is mid-implementation.
+        _engine.LastStopReason = null;
+        _engine.CurrentPhase = GoalPhase.Implement;
+        SyncFromEngine();
+        OnPropertyChanged(nameof(CanContinue));
+
+        await AddMessageAsync(GoalMessageRole.System,
+            added > 0
+                ? $"Continuing for {added} more attempt{(added == 1 ? "" : "s")} " +
+                  $"(up to {_engine.Criteria.MaxIterations} in total)."
+                : $"Continuing with the {_engine.MaxIter - _engine.IterationCount} attempts still left.",
+            GoalPhase.Implement);
+
+        // The same catch of last resort the other three ways into this loop have — Submit, Resume and
+        // the detect path. Without it an exception here comes out of an async command with nobody to
+        // receive it: the button appears to do nothing at all, which is the one outcome a button must
+        // never have, and the tile is left in Implement with nothing implementing.
+        try
+        {
+            await WorkingAsync(() => RunImplementReviewLoopAsync());
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Goal continue error: {ex.Message}");
+            await AddMessageAsync(GoalMessageRole.System, $"Unexpected error: {ex.Message}", CurrentPhase);
+        }
+    }
+
+    // ── Detecting a goal from the working tree ──────────
+
+    /// <summary>
+    /// Asks git whether there is anything to detect a goal from, without making anybody wait for it.
+    /// <para>Fire and forget on purpose: the answer only decides whether two buttons are shown, and the
+    /// user is not blocked on either.</para>
+    /// <para><b>It is asked at moments, not continuously</b>, and the moments are named rather than
+    /// implied: when the tile is built, when a run ends, when a detection finds nothing, and when a
+    /// fresh goal is started. It is emphatically <em>not</em> watching the working tree — the changes
+    /// it asks about are made in the terminal tiles next door, so between those moments the answer can
+    /// be stale and the buttons can be missing from a tree that has since acquired changes, or offered
+    /// over one that has since been committed. Both are recoverable in a click; a filesystem watcher
+    /// over an entire worktree, per Goal tile, is not a price worth paying for a button's visibility,
+    /// and the run itself re-reads the tree rather than trusting this.</para>
+    /// </summary>
+    private void RefreshDetectAvailability()
+    {
+        // The workflow keeps unwinding after Dispose and its finally asks for one of these. There is
+        // nothing left to show the answer to.
+        if (_disposed) return;
+
+        var token = _lifetime.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var has = await NewWorktreeReader().HasChangesAsync(token);
+                if (token.IsCancellationRequested) return;
+
+                await Post(() => HasUncommittedChanges = has);
+            }
+            catch (OperationCanceledException)
+            {
+                // The tile closed while git was answering. Not worth a line in the log.
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning($"Could not check for uncommitted changes: {ex.Message}");
+            }
+        });
+    }
+
+    [RelayCommand]
+    private Task DetectGoalAsync() => DetectAsync(andRun: false);
+
+    /// <summary>Work out the goal and go straight into the fix loop, without a plan and without a
+    /// clarification round — the "I know what I am doing, finish it" path.</summary>
+    [RelayCommand]
+    private Task DetectGoalAndRunAsync() => DetectAsync(andRun: true);
+
+    private async Task DetectAsync(bool andRun)
+    {
+        // Deliberately *not* guarded on CanDetectGoal, which ContinueRun does guard on itself. The
+        // difference is HasUncommittedChanges: it is a cached answer from a git call that ran at one of
+        // four named moments, so it is routinely stale, and refusing here on the strength of it would
+        // turn "the button was shown a second too early" into a click that does nothing at all. The run
+        // re-reads the tree and says what it actually found — which is the honest version of the same
+        // refusal.
+        if (IsRunning) return;
+
+        // The same question the composer asks, and for the same reason: this replaces the transcript.
+        if (!await ConfirmDiscardAsync())
+        {
+            if (ConfirmAction == null)
+                await SayOnceAsync("This tile cannot ask whether to discard the current goal, so it " +
+                                   "has kept it.");
+            return;
+        }
+
+        // The same catch of last resort Submit and Resume have. Without it an exception anywhere in
+        // the detection came out of an async command with nobody to receive it: the button appeared to
+        // do nothing at all, which is the one outcome a button must never have.
+        try
+        {
+            await WorkingAsync(() => RunDetectAsync(andRun));
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Goal detection error: {ex.Message}");
+            await AddMessageAsync(GoalMessageRole.System, $"Unexpected error: {ex.Message}", CurrentPhase);
+        }
+
+        RefreshDetectAvailability();
+    }
+
+    private async Task RunDetectAsync(bool andRun)
+    {
+        // The tree is read *before* the transcript is cleared, and that order is the whole of it. The
+        // button is shown on the strength of `git status`, which is a different command from the one
+        // that builds the prompt: a commit made between the two, an exclusion the two apply
+        // differently, a repository with no HEAD — any of them ends with nothing to detect from, and
+        // clearing first meant the user had paid for that with their session.
+        PhaseLabel = "Reading the working tree...";
+
+        WorktreeSnapshot tree;
+        try
+        {
+            tree = await ReadWorktreeAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // As in RunVerifyAsync: the label has to come back, or the strip keeps saying the tile is
+            // reading a working tree it stopped reading.
+            PhaseLabel = _engine.GetPhaseLabel();
+            return;
+        }
+
+        // Unreadable counts as nothing to detect from. Compose still produces text in that case — the
+        // note saying git could not be read — so without this the tool was handed a working tree
+        // consisting of an apology and asked what it was for.
+        if (tree.Text == null || !tree.Readable)
+        {
+            // Nothing was cleared, so this is a note on top of whatever was already here — and it says
+            // which of the two it is, because "nothing to do" and "I could not look" send the user to
+            // different places.
+            await AddMessageAsync(GoalMessageRole.System,
+                tree.Readable
+                    ? "There are no uncommitted changes to work a goal out of."
+                    : "The working tree could not be read — this workspace may not be a git repository.",
+                CurrentPhase);
+            PhaseLabel = _engine.GetPhaseLabel();
+
+            // The buttons go away because that is now the truth — asked for by DetectAsync on the way
+            // out, for every path through here. Asking again from this one spent a second git process
+            // on the same click for the same answer.
+            return;
+        }
+
+        // Nothing is cleared until there is something to put in its place. The tool has to be run
+        // first, and a tool that fails, returns nothing or names no goal is common enough that the
+        // alternative — an empty tile where a session used to be — is the ordinary outcome rather than
+        // the unlucky one.
+        PhaseLabel = "Working out the goal from your changes...";
+        var run = await RunAiAsync(_engine.BuildDetectGoalPrompt(tree.Text!, PromptBudget()));
+
+        if (run.Verdict != GoalRunVerdict.Answered)
+        {
+            // Every other verdict has already put its own explanation in the transcript. Nothing is
+            // paused: there is no new goal yet, so there is nothing to resume — the buttons are still
+            // there and clicking one again is the whole of "try that again".
+            PhaseLabel = _engine.GetPhaseLabel();
+            return;
+        }
+
+        var goal = GoalResponseParser.ParseDetectedGoal(run.Text);
+        if (goal.Length == 0)
+        {
+            await AddMessageAsync(GoalMessageRole.System,
+                "The tool did not name a goal. Try again, or type one yourself.", CurrentPhase);
+            PhaseLabel = _engine.GetPhaseLabel();
+            return;
+        }
+
+        // Started once, with what it is actually starting. The detect-and-run path used to call this
+        // with "" and then again with the goal a few lines later.
+        StartFreshGoal(andRun ? goal : "");
+        SyncFromEngine(save: File.Exists(_filePath));
+
+        if (!andRun)
+        {
+            // Into the composer, not into the transcript. A detected goal is a draft — it is the tool's
+            // reading of half-finished work, and the user is the only one who knows what the other half
+            // was meant to be. Putting it in the transcript would make it a decision already taken.
+            InputText = goal;
+            await AddMessageAsync(GoalMessageRole.System,
+                "Detected this goal from your uncommitted changes. Edit it if you like, then press " +
+                "Send.", GoalPhase.Goal);
+            PhaseLabel = _engine.GetPhaseLabel();
+            return;
+        }
+
+        // Straight into the loop, starting at the review. The changes are already on disk, so the first
+        // thing owed is a judgement of them, not another implementation — the same reasoning, and the
+        // same argument, as resuming a run that was interrupted after its implementation finished.
+        //
+        // ApprovedPlan is deliberately left empty. It used to be set to the detected goal, which put
+        // the same sentence into the implement prompt twice — once under "the goal" and once under
+        // "Approved implementation plan" — where the second copy is worse than redundant: it claims
+        // the user approved a plan they were never shown, and it spends prompt budget saying so. No
+        // plan phase ran on this path, so there is no plan, and the prompt is right to say nothing.
+        await AddMessageAsync(GoalMessageRole.User, goal, GoalPhase.Goal);
+        _engine.CurrentPhase = GoalPhase.Review;
+        SyncFromEngine();
+
+        await RunImplementReviewLoopAsync(startAtReview: true);
+    }
+
     // ── Phase dispatch ──────────────────────────────────
 
     [RelayCommand]
@@ -197,6 +652,18 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Checked before the pause is touched, and that is the point of it being here rather than in
+        // the switch below. An answer that is only the numbering is not going to start anything, so
+        // clearing the pause for it left a stopped tile unpaused with nothing running — no Resume, no
+        // run, and the only way on a second answer nobody had been asked for.
+        if (CurrentPhase == GoalPhase.Clarify && GoalTranscript.IsBlankAnswer(text))
+        {
+            InputText = text;
+            await SayOnceAsync("Answer at least one of the questions, or say what you want to change, " +
+                               "before sending.");
+            return;
+        }
+
         // Answering is resuming — everywhere the composer has something to send. Leaving the pause
         // standing meant the run happened and was then thrown away at the first hand-over that asks
         // about it: a whole implementation spent on nothing.
@@ -212,23 +679,25 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             {
                 case GoalPhase.Goal:
                 case GoalPhase.Summary:
-                    Messages.Clear();
-                    _engine.StartNewGoal(text);
+                    StartFreshGoal(text);
                     SyncFromEngine();
                     await AddMessageAsync(GoalMessageRole.User, text, GoalPhase.Goal);
                     await WorkingAsync(RunClarifyAsync);
                     break;
 
                 case GoalPhase.Clarify:
-                    // The phase moves before the answer is written, so the two are never on disk apart.
-                    // Between them the file said Clarify with the user's message last, which reads as an
-                    // interrupted Clarify — and a restart there resumed by asking the questions again
-                    // instead of planning.
+                    // The answer goes back to the tool as another clarification round rather than
+                    // straight to a plan. The tool decides when it has enough — it either comes back
+                    // with more questions or says it needs none, at which point RunClarifyAsync plans
+                    // by itself — and RunClarifyAsync stops it asking for ever.
+                    //
+                    // Staying in Clarify is also what makes an interrupted answer resumable: the file
+                    // now says Clarify with the user's message last, which WasInterrupted reads as a
+                    // run that was cut off, and what Resume then does — ask the tool again with the
+                    // answer in hand — is exactly what was owed.
                     _engine.RecordClarification(text);
-                    _engine.CurrentPhase = GoalPhase.Plan;
-                    SyncFromEngine();
                     await AddMessageAsync(GoalMessageRole.User, text, GoalPhase.Clarify);
-                    await WorkingAsync(RunPlanAsync);
+                    await WorkingAsync(RunClarifyAsync);
                     break;
 
                 case GoalPhase.Plan:
@@ -288,11 +757,105 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
     // ── Workflow phases ─────────────────────────────────
 
-    private async Task RunClarifyAsync() =>
-        await RunPhaseAsync(GoalPhase.Clarify, "AI is asking clarifying questions...", _engine.BuildClarifyPrompt());
+    /// <summary>
+    /// One clarification round, or the decision to stop having them.
+    /// <para>The budget is the reason this is a method and not one line. Questions now beget questions:
+    /// an answer goes back for another round, so a tool that keeps finding one more thing to ask about
+    /// would keep the user answering for ever. Three rounds in, the tile plans with what it has — a
+    /// plan the user can still reject, which is a better place to argue from than a fourth question.
+    /// </para>
+    /// </summary>
+    private async Task RunClarifyAsync()
+    {
+        if (_engine.ClarifyRounds >= GoalWorkflowEngine.MaxClarifyRounds)
+        {
+            // Once per goal. Every rejected plan comes back through here, and the explanation is the
+            // same one every time — after the second telling it is not information, it is nagging.
+            if (!_clarifyBudgetReported)
+            {
+                _clarifyBudgetReported = true;
+                await AddMessageAsync(GoalMessageRole.System,
+                    $"That is {GoalWorkflowEngine.MaxClarifyRounds} rounds of questions. Planning with " +
+                    "what we have — you can still reject the plan.", GoalPhase.Clarify);
+            }
+
+            _engine.CurrentPhase = GoalPhase.Plan;
+            SyncFromEngine();
+            await RunPlanAsync();
+            return;
+        }
+
+        await RunPhaseAsync(GoalPhase.Clarify, "AI is checking the goal...",
+            _engine.BuildClarifyPrompt(PromptBudget()), OnClarifyAnsweredAsync);
+    }
+
+    /// <summary>
+    /// What a clarification round produced: questions to answer, or permission to get on with it.
+    /// <para>Two things here are new, and both are answers to the same complaint — that the tile always
+    /// asked, always exactly once, and always made the user reply before anything could be planned.
+    /// The tool can now say it has nothing to ask, and the tile believes it; and a goal that is still
+    /// vague can be asked about again on the next round rather than only after a plan is rejected.
+    /// </para>
+    /// </summary>
+    private async Task OnClarifyAnsweredAsync(string answer)
+    {
+        var clarify = GoalResponseParser.ParseClarify(answer);
+        _engine.ClarifyRounds++;
+
+        // Prose is a legitimate answer: a tool that ignored the schema still asked something, and the
+        // old behaviour — show it, wait for a reply — is exactly right for it.
+        if (clarify.WasStructured && !clarify.NeedsClarification)
+        {
+            // Whatever it said on its way past. A round that decides the goal is clear often says why,
+            // or what it is assuming, and that is the last chance to disagree before a plan is written
+            // against it — so it goes in as the tool's own message, above the tile's note.
+            if (GoalTranscript.Aside(clarify) is { Length: > 0 } aside)
+                await AddMessageAsync(GoalMessageRole.Assistant, aside, GoalPhase.Clarify);
+
+            await AddMessageAsync(GoalMessageRole.System,
+                "No questions to answer — planning now.", GoalPhase.Clarify);
+
+            _engine.CurrentPhase = GoalPhase.Plan;
+            SyncFromEngine();
+            await RunPlanAsync();
+            return;
+        }
+
+        var questions = GoalTranscript.Questions(clarify);
+
+        // An answer made of nothing but fence markers leaves nothing to show: the prose is empty, and
+        // so is the text with the fences stripped out. It is not blank enough for the loop's own
+        // "said nothing" check, which sees the backticks — so without this the transcript got an empty
+        // bubble from the assistant and the history got the bare label "Tool asked: ", which the next
+        // round would then be handed as a question.
+        if (questions.Length == 0)
+        {
+            await AddMessageAsync(GoalMessageRole.System,
+                $"The tool answered with nothing readable. {Capitalised(TryAgain(GoalPhase.Clarify))}",
+                GoalPhase.Clarify);
+            PauseAndWait();
+            return;
+        }
+
+        // Into the history as well as onto the screen. The next round and the plan both read this list,
+        // and without the questions in it they were handed a set of numbered answers to questions
+        // nobody had written down.
+        _engine.RecordClarification(questions, fromUser: false);
+
+        await AddMessageAsync(GoalMessageRole.Assistant, questions, GoalPhase.Clarify);
+
+        // The composer is filled with the numbering, so answering is editing rather than transcribing.
+        // Only when the questions came back structured — there is nothing to number otherwise — and
+        // never over something already in the box: a clarification round takes as long as the tool
+        // takes, and a user who spent it typing their answer had it deleted the moment it arrived.
+        if (string.IsNullOrWhiteSpace(InputText)
+            && GoalTranscript.AnswerSkeleton(clarify) is { Length: > 0 } skeleton)
+            InputText = skeleton;
+    }
 
     private async Task RunPlanAsync() =>
-        await RunPhaseAsync(GoalPhase.Plan, "AI is creating a plan...", _engine.BuildPlanPrompt());
+        await RunPhaseAsync(GoalPhase.Plan, "AI is creating a plan...",
+            _engine.BuildPlanPrompt(PromptBudget()));
 
     /// <summary>
     /// Runs one of the two phases the user answers, and leaves the tile saying where it now stands.
@@ -301,8 +864,26 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// so the same four sentences existed in three places — here, in the engine, and in the summary —
     /// with nothing keeping them in step.</para>
     /// </summary>
-    private async Task RunPhaseAsync(GoalPhase phase, string runningLabel, string prompt)
+    /// <param name="onAnswered">
+    /// What to do with an answer, when adding it to the transcript is not the whole of it. Clarify uses
+    /// it to read the answer, decide whether any questions actually came back, and move straight to the
+    /// plan when none did. Null means the default: the answer goes in the transcript and the tile waits
+    /// for the user.
+    /// </param>
+    private async Task RunPhaseAsync(GoalPhase phase, string runningLabel, string prompt,
+        Func<string, Task>? onAnswered = null)
     {
+        // The same guard the implement/review loop has, and it was missing here for the same reason it
+        // was missing there: nothing between two phases asks. A pause taken after a clarification round
+        // answered and before the plan is asked for arrives here with the tool about to be launched
+        // anyway — the run the user just stopped, started one line later. The label goes back, because
+        // this is before the tool runs and there is no cancelled run for anything else to describe.
+        if (PauseRequested)
+        {
+            PhaseLabel = _engine.GetPhaseLabel();
+            return;
+        }
+
         // A new planning run forgets the last proposal before it starts. Without this, a plan the user
         // rejected outlived the rejection: back through Clarify to Plan, a second run that produced
         // nothing left the old plan standing, and "ok" approved the one they had just turned down.
@@ -320,36 +901,20 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 if (phase == GoalPhase.Plan)
                     _engine.RecordProposedPlan(run.Text!);
 
-                await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase);
+                if (onAnswered != null)
+                    await onAnswered(run.Text!);
+                else
+                    await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase);
+
+                // Read from the engine afterwards, not from the phase this method was called with: the
+                // handler above may have moved the tile on, and labelling it with the phase it has just
+                // left would say "answer the questions above" over a plan.
                 PhaseLabel = _engine.GetPhaseLabel();
                 break;
 
-            case GoalRunVerdict.NoTool:
-            case GoalRunVerdict.Failed:
-                PauseAndWait();
-                break;
-
-            case GoalRunVerdict.Cancelled:
-                // Stopped on purpose, so the phase stays where it is: Resume re-runs this phase, and a
-                // restart finds the tile exactly here. Falling back would have moved the tile backwards
-                // for a run the user paused, and the message would have blamed the tool for it.
-                PhaseLabel = _engine.GetPhaseLabel();
-                break;
-
-            case GoalRunVerdict.Empty:
-                // The same answer the loop gives, which it did not used to. Falling back a phase was
-                // worse than it looked: from Clarify it landed in Goal, where the next thing sent
-                // clears the transcript and starts a new goal — so a tool that replied with nothing
-                // put the session one keystroke from being thrown away.
-                await AddMessageAsync(GoalMessageRole.System,
-                    "The tool returned nothing. Click Resume to try again.", phase);
-                PauseAndWait();
-                break;
-
-            // Named rather than defaulted, here as in RunLoopPhaseAsync: a verdict added later would
-            // otherwise fall into the branch that moves the tile backwards a phase.
             default:
-                throw new UnreachableException($"Unhandled verdict for {phase}.");
+                await HandleNonAnswerAsync(run.Verdict, phase);
+                break;
         }
         // No save here: every branch above has already written, through AddMessageAsync or
         // SyncFromEngine, and PhaseLabel is not part of the state.
@@ -373,12 +938,31 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         {
             var finishing = finishInterruptedIteration;
             var skipImplement = startAtReview;
-            var passed = false;
+
+            // Falling out of the while is the budget running out, so that is what this starts as. Every
+            // other way out of the loop sets it on the way past.
+            var stopReason = GoalStopReason.BudgetSpent;
+
+            // What the last review left standing between this goal and "met", carried out of the loop so
+            // the summary can say it. It used to be worked out only where there was a next attempt to
+            // announce, so the one summary that most needs it — the budget running out — was the one
+            // place it was never computed.
+            string? outstanding = null;
 
             while (GoalLoopPolicy.NextAttempt(_engine.IterationCount, _engine.MaxIter, finishing) is { } attempt)
             {
                 _engine.IterationCount = attempt;
                 finishing = false;
+
+                // Read fresh on every lap, deliberately: what the panel says is what is in force, from
+                // the next question the loop asks. Half of this used to be captured before the loop
+                // while the attempt budget was read live from the engine, so raising the attempts
+                // mid-run worked and raising the tolerated warnings did nothing — the same panel, two
+                // answers. Nothing is decided mid-lap, so a change never lands between an
+                // implementation and the review that judges it.
+                var criteria = _engine.Criteria;
+
+                var treeBeforeImplement = WorktreeSnapshot.Unreadable;
 
                 // The working tree goes into both prompts, and into every implement prompt rather than
                 // only into those following a review: it is the only state that survives the tool's
@@ -390,54 +974,130 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 }
                 else
                 {
-                    var implResult = await RunLoopPhaseAsync(
+                    var impl = await RunLoopPhaseAsync(
                         GoalPhase.Implement,
-                        $"AI is implementing (iteration {attempt}/{_engine.MaxIter})...",
-                        tree => _engine.BuildImplementPrompt(tree));
+                        $"AI is implementing (attempt {attempt}/{_engine.MaxIter})...",
+                        tree => _engine.BuildImplementPrompt(tree, PromptBudget()));
 
-                    if (implResult == null) return;
+                    if (impl is not { } done) return;
+                    treeBeforeImplement = done.Tree;
 
-                    // The implementation is done and only the review is owed, so the phase moves before
-                    // the pause is honoured. Stopping while still in Implement had Resume start the
-                    // whole implementation again — against a worktree that already had its changes.
+                    // Filed before anything else can go wrong with this lap. The tool's closing lines
+                    // say what it changed and what it decided against, and until now they went into the
+                    // transcript and died there — prompts are built from the engine's fields alone, and
+                    // the transcript never comes back. So attempt 2 rediscovered the dead end attempt 1
+                    // had backed out of, and paid an attempt for it.
+                    _engine.RecordAttempt(attempt, done.Text);
+
+                    // The implementation is done and only the review is owed, so the phase moves —
+                    // unconditionally, and here rather than inside the pause below. Everything from
+                    // this point on can be interrupted, the verify command most of all: it is minutes
+                    // of build, it is cancelled by Pause, and leaving Implement standing through it
+                    // meant Resume ran the whole implementation again over a worktree that already had
+                    // its changes.
+                    _engine.CurrentPhase = GoalPhase.Review;
+                    SyncFromEngine();
+
                     if (PauseRequested)
                     {
-                        _engine.CurrentPhase = GoalPhase.Review;
-                        SyncFromEngine();
                         PhaseLabel = _engine.GetPhaseLabel();
                         return;
                     }
+
+                    // Asked here, before the verify command and before the review, and that ordering is
+                    // the whole point of the extra read. The tree the review is handed is read *after*
+                    // the verify command has run, so a command that regenerates a tracked file — a
+                    // build, a formatter, a snapshot test — made the two trees differ and quietly
+                    // disarmed this stop in exactly the workspaces most likely to have one configured.
+                    //
+                    // Two short git processes against a lap that costs minutes of AI, and they pay for
+                    // themselves the moment this fires: there is no sense building and reviewing a
+                    // change that was never made.
+                    if (criteria.StopOnNoChange &&
+                        await ImplementationChangedNothingAsync(treeBeforeImplement))
+                    {
+                        stopReason = GoalStopReason.NoChange;
+                        break;
+                    }
                 }
 
-                var reviewResult = await RunLoopPhaseAsync(
-                    GoalPhase.Review,
-                    "AI is reviewing changes...",
-                    tree => _engine.BuildReviewPrompt(tree));
+                var verify = await RunVerifyAsync(criteria.VerifyCommand);
+                if (verify == null) return;
 
-                if (reviewResult == null) return;
+                // A verification that had to be killed ends the run rather than being tried again. The
+                // timeout is already half an hour, so the attempts still on the budget are hours of
+                // waiting for the same answer — and the answer is unusable either way: a command that
+                // never finished says nothing about whether the goal is met, so every one of those
+                // attempts would end at the same gate. Reviewing this attempt first would spend a run
+                // arguing about a build nobody has seen the result of.
+                // Kept for the next implementation, not only for the review. The reviewer used to be the
+                // only one shown the compiler's own words, and what reached whoever had to fix the build
+                // was the reviewer's account of them: a line and column turned into "there is a type
+                // mismatch somewhere in the cart code". Cleared on a pass, so a build fixed on attempt 2
+                // is not still being explained on attempt 5.
+                _engine.LastVerifyOutput = verify is { Ran: true, Succeeded: false, Output.Length: > 0 }
+                    ? verify.Value.Output
+                    : null;
 
-                if (GoalWorkflowEngine.IsVerdictPass(reviewResult))
+                if (verify is { TimedOut: true })
                 {
-                    _engine.ClearReviewFeedback();
-                    passed = true;
+                    stopReason = GoalStopReason.VerifyTimedOut;
                     break;
                 }
 
-                _engine.RecordReviewFeedback(reviewResult);
+                var reviewRun = await RunLoopPhaseAsync(
+                    GoalPhase.Review,
+                    "AI is reviewing changes...",
+                    tree => _engine.BuildReviewPrompt(tree, verify.Value.Output, PromptBudget()),
+                    // The raw answer is not what goes in the transcript. It is read first and written
+                    // back as a list of findings, because the prose around a JSON block says the same
+                    // things at greater length and printing both means reading every review twice.
+                    addMessage: false);
+
+                if (reviewRun is not { } reviewed) return;
+
+                var review = GoalResponseParser.ParseReview(reviewed.Text);
+                ShowFindings(review);
+                await AddMessageAsync(GoalMessageRole.Assistant,
+                    GoalTranscript.Review(review, verify, criteria.RequireGoalMet), GoalPhase.Review);
+
+                if (GoalCompletionPolicy.IsMet(review, verify, criteria))
+                {
+                    _engine.ClearReviewFeedback();
+                    stopReason = GoalStopReason.Met;
+                    break;
+                }
+
+                // Only the errors and warnings go back, and only as findings. The whole review used to,
+                // nits and prose included, so an attempt could be spent renaming a variable while the
+                // null dereference above it stayed exactly where it was.
+                _engine.RecordReviewFeedback(GoalTranscript.Feedback(review));
+                outstanding = GoalCompletionPolicy.WhyNotMet(review, verify, criteria);
+
+                var repeatedItself = GoalCompletionPolicy.RepeatsPrevious(
+                    review, _engine.LastReviewFingerprint, criteria);
+                _engine.LastReviewFingerprint = review.WasStructured ? review.Fingerprint() : null;
+                if (repeatedItself)
+                {
+                    stopReason = GoalStopReason.NoProgress;
+                    break;
+                }
+
                 if (PauseRequested)
                 {
                     // The review has run and asked for another pass, so what is owed is the next
                     // implementation. Stopping while still in Review had Resume re-run the review it
                     // had just recorded: an AI run spent on an unchanged tree, and the same verdict
-                    // twice in the transcript. When the budget is spent there is no next attempt to
-                    // move to, and staying put is then the honest answer.
+                    // twice in the transcript.
+                    //
+                    // With the budget spent there is no next attempt to move to, and nothing left to
+                    // pause either — this review was the last thing the run had to do. It is summarised
+                    // rather than left paused, because a Resume there could only re-run the review it
+                    // had just finished, for one AI run and the same verdict twice, before summarising
+                    // anyway.
                     if (GoalLoopPolicy.NextAttempt(_engine.IterationCount, _engine.MaxIter, false) is not { } pending)
                     {
-                        // Nothing is left to pause: the budget is spent and this review was the last
-                        // thing the run had to do. Leaving it paused offered a Resume that could only
-                        // re-run the review it had just finished, for one AI run and the same verdict
-                        // twice, before summarising anyway.
-                        await ShowSummaryAsync($"Stopped after {_engine.MaxIter} attempts without a passing review.");
+                        await ShowSummaryAsync(GoalStopReason.BudgetSpent, outstanding);
                         return;
                     }
 
@@ -449,26 +1109,263 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 }
 
                 // The next attempt's number comes from the same rule that decides whether there is one,
-                // rather than from a second copy of the arithmetic that could disagree with it.
+                // rather than from a second copy of the arithmetic that could disagree with it. And it
+                // now says what is actually outstanding: "review found issues" was equally true of a run
+                // blocked by one warning and of one blocked by nine errors and a failing build.
                 if (GoalLoopPolicy.NextAttempt(_engine.IterationCount, _engine.MaxIter, false) is { } next)
-                    await AddMessageAsync(GoalMessageRole.System, $"Review found issues. Re-implementing (attempt {next})...", GoalPhase.Review);
+                    await AddMessageAsync(GoalMessageRole.System,
+                        $"Not done: {outstanding}. Re-implementing (attempt {next})...", GoalPhase.Review);
             }
 
-            // Falling out of the loop is the budget running out, which is not the same thing as the
-            // review passing — and saying "goal completed after 5 iterations" for it told the user the
-            // opposite of what had happened.
-            await ShowSummaryAsync(passed
-                ? null
-                : $"Stopped after {_engine.MaxIter} attempts without a passing review.");
+            await ShowSummaryAsync(stopReason, outstanding);
         }
         finally
         {
             SaveStateNow();
+
+            // The tree has almost certainly moved, and the detect buttons are about to be offered again
+            // in Summary. Asking now is what stops them being offered over a tree that no longer has
+            // anything in it, or hidden over one that does.
+            RefreshDetectAvailability();
         }
     }
 
-    private async Task ShowSummaryAsync(string? reason = null)
+    /// <summary>
+    /// Whether the implementation left the working tree exactly as it found it — the tool did nothing,
+    /// and the same prompt against the same tree gets the same nothing.
+    /// <para>Reads the tree again rather than reusing the review's copy, which is read after the verify
+    /// command and so carries whatever that changed. A cancellation answers <c>false</c>: a pause is
+    /// not evidence about the implementation, and the pause is handled at the next hand-over anyway.
+    /// </para>
+    /// </summary>
+    private async Task<bool> ImplementationChangedNothingAsync(WorktreeSnapshot treeBeforeImplement)
     {
+        try
+        {
+            // Both reads have to have worked. Comparing the *text* alone answered yes for a workspace
+            // that is not a repository at all — where every read produces the same nothing — so every
+            // goal ended after one attempt, told the user the implementation had changed nothing, and
+            // was confidently wrong.
+            return (await ReadWorktreeAsync()).ProvablyUnchangedFrom(treeBeforeImplement);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Runs the tile's verify command, or answers "not run" when there is not one. Null means the user
+    /// paused during it.
+    /// </summary>
+    private async Task<VerifyOutcome?> RunVerifyAsync(string command)
+    {
+        if (string.IsNullOrWhiteSpace(command)) return VerifyOutcome.NotRun();
+
+        if (PauseRequested)
+        {
+            PhaseLabel = _engine.GetPhaseLabel();
+            return null;
+        }
+
+        // No reason attached: ConsentToVerifyCommandAsync has already written the explanation into the
+        // transcript, and a Problem here would have the caller print a second one underneath it.
+        if (!await ConsentToVerifyCommandAsync(command))
+            return VerifyOutcome.NotRun();
+
+        // Asked again on the way out of the dialog. The check above happened before it, and the dialog
+        // is awaited: the panel stays usable while it is on screen, so Pause can be pressed between the
+        // question and the answer — and the build started anyway, which is the one thing Pause exists
+        // to stop.
+        if (PauseRequested)
+        {
+            PhaseLabel = _engine.GetPhaseLabel();
+            return null;
+        }
+
+        PhaseLabel = "Running the verify command...";
+
+        VerifyOutcome outcome;
+        try
+        {
+            outcome = await new VerifyCommandRunner(_workingDirectory, _settingsService.Settings)
+                .RunAsync(command, _cts?.Token ?? CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+            // Or the strip is left saying "Running the verify command..." over a tile with nothing
+            // running in it — which is what the user sees for as long as the tile stays open.
+            PhaseLabel = _engine.GetPhaseLabel();
+            return null;
+        }
+
+        // Said only when there is something to say. A command that passed is reported by the review
+        // line that follows it, and repeating it here would put a line in the transcript after every
+        // successful build for the life of the goal.
+        if (outcome is { TimedOut: true, Problem: { Length: > 0 } killed })
+            // Not "the review will go ahead without it": it will not. A verification that never finished
+            // is about the work, unlike a missing shell, and the loop stops on it.
+            await AddMessageAsync(GoalMessageRole.System,
+                $"The verify command never finished ({killed}).", GoalPhase.Review);
+        else if (outcome.Problem is { Length: > 0 } problem)
+            await AddMessageAsync(GoalMessageRole.System,
+                $"The verify command could not be run ({problem}). The review will go ahead without it.",
+                GoalPhase.Review);
+        else if (outcome is { Ran: true, Succeeded: false })
+            await AddMessageAsync(GoalMessageRole.System,
+                $"Verify command exited {outcome.ExitCode}. Its output goes to the review.",
+                GoalPhase.Review);
+
+        return outcome;
+    }
+
+    /// <summary>
+    /// Everything that has to happen when this tile starts over on a new goal.
+    /// <para>One method because there are three ways in — the composer in Goal or Summary, the + button,
+    /// and detecting a goal from the working tree — and they were four identical lines each. That is
+    /// how <c>_clarifyBudgetReported</c> came to be reset in two of them and not the third, so a fresh
+    /// goal started with + never explained why it was not being asked anything.</para>
+    /// </summary>
+    private void StartFreshGoal(string goal)
+    {
+        Messages.Clear();
+        _clarifyBudgetReported = false;
+
+        // StartNewGoal empties the counts; this only has to take the badges down afterwards. Clearing
+        // them here as well was the same reset written twice, in two files, with nothing keeping the
+        // pair in step.
+        _engine.StartNewGoal(goal);
+
+        // The panel is redrawn because StartNewGoal may have put the attempts field back to what the
+        // user set, undoing what Continue wrote for the goal that has just been replaced.
+        Criteria.Reload();
+        ShowBadges();
+    }
+
+    /// <summary>The severities in declaration order, which is the order the saved counts are stored in.
+    /// Read once: <c>Enum.GetValues</c> allocates.</summary>
+    private static readonly GoalSeverity[] GoalSeverities = Enum.GetValues<GoalSeverity>();
+
+    /// <summary>
+    /// Asks once, per session, before running a verify command this tile did not watch the user type —
+    /// see <see cref="_verifyCommandNeedsConsent"/> for why it is asked at all.
+    /// <para>No dialog means <b>no</b>, as on the Settings dialog and for the same reason: an
+    /// unanswered question is not a yes. Declining clears the command rather than skipping it once —
+    /// otherwise the question returns on every attempt, and a question asked five times is one answered
+    /// wrongly on the fifth.</para>
+    /// </summary>
+    private async Task<bool> ConsentToVerifyCommandAsync(string command)
+    {
+        // A command the user typed in this session is a command they chose.
+        if (!_verifyCommandNeedsConsent || Criteria.VerifyCommandWasTyped) return true;
+
+        // Too long to show is too long to approve. Asking about a command while hiding part of it is
+        // worse than not asking: it collects a yes for something nobody saw. There is no elision
+        // anywhere in this path — a command that will not fit in the question is refused, and the user
+        // is told to shorten it in a panel where they can see the whole thing.
+        if (!CommandDisplay.CanBeConsentedTo(command))
+        {
+            _verifyCommandNeedsConsent = false;
+            _engine.Criteria.VerifyCommand = "";
+            _engine.LastVerifyOutput = null;
+            Criteria.Reload();
+            SaveStateNow();
+
+            await AddMessageAsync(GoalMessageRole.System,
+                $"This goal's verify command is {CommandDisplay.ForDialog(command).Length} characters " +
+                "long — too long " +
+                "to show you in full, and this tile will not ask you to approve something it has to " +
+                "hide half of. It has been removed. Set a shorter one under the tune button.",
+                CurrentPhase);
+
+            return false;
+        }
+
+        // Nowhere to ask. The command is not run — an unanswered question is not a yes — but neither is
+        // it thrown away: "I could not ask" and "they said no" are the same answer about *running* it
+        // and opposite answers about *keeping* it, and deleting somebody's setting because a dialog was
+        // not wired is a decision nobody made. The flag stays up, so a later run with a window in front
+        // of it asks properly.
+        if (ConfirmAction == null)
+        {
+            if (!_verifyConsentUnavailableReported)
+            {
+                _verifyConsentUnavailableReported = true;
+                await AddMessageAsync(GoalMessageRole.System,
+                    $"This goal carries a verify command (`{CommandDisplay.ForDialog(command)}`) that has not been " +
+                    "approved, and this tile cannot ask. It will be skipped.", CurrentPhase);
+            }
+
+            return false;
+        }
+
+        var agreed = await ConfirmAction("This goal was saved with a verify command:\n\n" +
+                                         $"{CommandDisplay.ForDialog(command)}\n\n" +
+                                         "Run it in this workspace after every attempt?");
+
+        _verifyCommandNeedsConsent = false;
+
+        if (agreed) return true;
+
+        // Only if it is still the command that was asked about. The dialog is awaited, and the panel is
+        // usable while it is on screen: somebody who answers "no" to the command out of the file and
+        // then types their own would have had the new one deleted by this line, in the name of a
+        // refusal that was never about it. A command they have just typed is one they chose, so there
+        // is nothing left to refuse either.
+        if (!string.Equals(_engine.Criteria.VerifyCommand, command, StringComparison.Ordinal))
+            return false;
+
+        // An actual refusal removes it, rather than skipping it once: otherwise the question returns on
+        // every attempt, and a question asked five times is one answered wrongly on the fifth.
+        _engine.Criteria.VerifyCommand = "";
+        _engine.LastVerifyOutput = null;
+        Criteria.Reload();
+        SaveStateNow();
+
+        await AddMessageAsync(GoalMessageRole.System,
+            "The verify command was not approved and has been removed from this goal. Set one under the " +
+            "tune button if you want one.", CurrentPhase);
+
+        return false;
+    }
+
+    /// <summary>The badges in the status strip. Set on every review, including one that found nothing,
+    /// so a clean attempt does not keep showing the counts from the one before it.</summary>
+    private void ShowFindings(GoalReviewResult review)
+    {
+        // Counted into the engine rather than straight onto the strip, so the numbers are saved with
+        // everything else and come back with the tile. A run paused mid-review returns with that review
+        // still standing in the transcript, and the strip summarising it used to go blank.
+        // By position in Enum.GetValues, and read back the same way — never by casting to int. The
+        // array is written to disk, and a severity given an explicit value later would make the cast
+        // an index into somewhere else entirely.
+        _engine.LastReviewCounts = GoalSeverities.Select(review.Count).ToArray();
+        ShowBadges();
+    }
+
+    private void ShowBadges()
+    {
+        Badges.Clear();
+
+        // Positional, and only trusted at exactly the right length. The array is saved to disk, so a
+        // file written before a severity existed would otherwise be read against the new ordinals and
+        // put every count beside the wrong letter — a blocker reported as an error. A length that does
+        // not match is from a different version of this enum: drop it, and the strip is blank until the
+        // next review, which is a truth rather than a wrong number.
+        var counts = _engine.LastReviewCounts;
+        if (counts.Length != GoalSeverities.Length) return;
+
+        for (var i = 0; i < GoalSeverities.Length; i++)
+            if (counts[i] > 0)
+                Badges.Add(new GoalBadge { Severity = GoalSeverities[i], Count = counts[i] });
+    }
+
+    private async Task ShowSummaryAsync(GoalStopReason reason, string? outstanding = null)
+    {
+        // Kept with the goal, not merely said in the transcript: the Summary offers Continue for one of
+        // the four reasons only, and a tile reopened tomorrow has nothing to read that back out of.
+        _engine.LastStopReason = reason;
+
         // The pause goes with it. Every route into a summary except a clean finish arrives with a
         // pause outstanding — the budget spent at a pause, a run stopped and then summarised — and a
         // Summary that still calls itself paused labels the tile "Paused. Click Resume to continue."
@@ -476,11 +1373,18 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         _engine.IsPaused = false;
         _engine.CurrentPhase = GoalPhase.Summary;
         SyncFromEngine();
+
+        // The label and the reason too, not only whether the button is there. Both are read from state
+        // that has just moved: the label is the ceiling less the attempts already spent, and the reason
+        // is the stop this method has just recorded.
+        OnPropertyChanged(nameof(CanContinue));
+        OnPropertyChanged(nameof(ContinueLabel));
+        OnPropertyChanged(nameof(ContinueReason));
+
         PhaseLabel = _engine.GetPhaseLabel();
 
-        var summary = reason != null
-            ? $"{reason} Completed {_engine.IterationCount} iteration(s).\nType a new goal, or start a fresh one with +."
-            : $"Goal completed after {_engine.IterationCount} iteration(s).\nType a new goal, or start a fresh one with +.";
+        var summary = GoalCompletionPolicy.Summarise(reason, _engine.IterationCount, outstanding)
+                      + "\nType a new goal, or start a fresh one with +.";
 
         await AddMessageAsync(GoalMessageRole.System, summary, GoalPhase.Summary);
     }
@@ -507,7 +1411,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         if (_resolvedTool?.ExecutablePath == null)
         {
             await AddMessageAsync(GoalMessageRole.System,
-                "No AI tool available. Install Claude Code or another supported tool, then click Resume.",
+                "No AI tool available. Install Claude Code or another supported tool, then " + TryAgain(),
                 CurrentPhase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, toolMissing: true), null);
         }
@@ -536,16 +1440,25 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             // Every cancellation now has a pause recorded before it — Pause and Dispose both set it
             // first — so there is one message rather than a branch, and the branch that said "Operation
             // cancelled." is gone with the window that made it reachable.
-            await AddMessageAsync(GoalMessageRole.System, "Paused. Click Resume to continue.", CurrentPhase);
+            await AddMessageAsync(GoalMessageRole.System,
+                GoalTilePolicy.CanResume(CurrentPhase) ? "Paused. Click Resume to continue." : "Stopped.",
+                CurrentPhase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: true), null);
         }
         catch (Exception ex)
         {
             await AddMessageAsync(GoalMessageRole.System,
-                $"The AI tool failed: {ex.Message}. Click Resume to try again.", CurrentPhase);
+                $"The AI tool failed: {ex.Message}. {Capitalised(TryAgain())}", CurrentPhase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
         }
     }
+
+    /// <summary>What one lap of the loop got out of the tool, and the tree it was asked about.</summary>
+    /// <param name="Tree">What the working tree looked like when the prompt was built — null on a clean
+    /// one. Returned rather than kept inside because the loop compares the tree an implementation
+    /// started from with the tree the review was handed, which is how it notices a tool that did
+    /// nothing at all.</param>
+    private readonly record struct LoopAnswer(string Text, WorktreeSnapshot Tree);
 
     /// <summary>
     /// One phase of the implement/review loop: move into it, read the working tree, ask the tool, and
@@ -555,10 +1468,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// the same twenty lines twice. Which mattered: the NoTool case was added to both by hand, and the
     /// cancelled case was fixed in one of them first.</para>
     /// </summary>
-    private async Task<string?> RunLoopPhaseAsync(
-        GoalPhase phase, string runningLabel, Func<string?, string> buildPrompt)
+    private async Task<LoopAnswer?> RunLoopPhaseAsync(
+        GoalPhase phase, string runningLabel, Func<string?, string> buildPrompt, bool addMessage = true)
     {
-        if (PauseRequested) return null;
+        if (PauseRequested) return Stopped();
 
         _engine.CurrentPhase = phase;
         SyncFromEngine();
@@ -567,7 +1480,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // Asked again after the working tree is read and before the tool is launched. Reading the tree
         // is two short git processes, but the run after it is minutes, and a pause arriving in that
         // window used to be paid for with the whole of it.
-        string? tree;
+        WorktreeSnapshot tree;
         try
         {
             tree = await ReadWorktreeAsync();
@@ -578,48 +1491,77 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             // answering with an empty tree — which would be a prompt claiming nothing had changed —
             // and left uncaught it came out of the loop as "Unexpected error: The operation was
             // canceled", so stopping looked like breaking.
-            return null;
+            return Stopped();
         }
 
-        if (PauseRequested) return null;
+        if (PauseRequested) return Stopped();
 
-        var run = await RunAiAsync(buildPrompt(tree));
+        var run = await RunAiAsync(buildPrompt(tree.Text));
 
         // The verdict, not the text. A tool that answers with whitespace returns a string that is not
         // null, so asking about the string put an empty assistant bubble in the transcript and then
         // summarised the run underneath it.
-        if (run.Verdict == GoalRunVerdict.Answered)
+        if (run.Verdict == GoalRunVerdict.Answered && addMessage)
             await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase);
 
-        switch (run.Verdict)
-        {
-            case GoalRunVerdict.Answered:
-                return run.Text;
+        if (run.Verdict == GoalRunVerdict.Answered)
+            return new LoopAnswer(run.Text!, tree);
 
+        await HandleNonAnswerAsync(run.Verdict, phase);
+        return null;
+
+        // Every way out of here that is not an answer has to put the label back. These three returns
+        // happen *before* the tool is launched, so there is no cancelled run for HandleNonAnswerAsync
+        // to describe and nothing else touches it — the strip went on saying "AI is implementing
+        // (attempt 1/5)…" over a tile that had stopped, until something else happened to write to it.
+        LoopAnswer? Stopped()
+        {
+            PhaseLabel = _engine.GetPhaseLabel();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// What a run that did not answer means, for both the phases the user answers and the phases inside
+    /// the loop.
+    /// <para>One copy rather than two. They were the same four cases twice, and that is how the NoTool
+    /// case came to be added to each by hand and the cancelled case fixed in one of them first.</para>
+    /// </summary>
+    private async Task HandleNonAnswerAsync(GoalRunVerdict verdict, GoalPhase phase)
+    {
+        switch (verdict)
+        {
             case GoalRunVerdict.NoTool:
             case GoalRunVerdict.Failed:
+                // Both are things the user can do something about — install it, click Resume — so the
+                // tile waits rather than ending the goal and throwing away an approved plan.
                 PauseAndWait();
-                return null;
+                break;
 
             // A cancelled run is not a finished one. Summarising it moved the tile into Summary, which
             // Resume has no case for and WasInterrupted does not recognise — so pausing an
             // implementation was a one-way door, both in the session and after a restart. Stopping
-            // here leaves the phase as it is, which both understand.
+            // where it stands leaves the phase as it is, which both understand.
             case GoalRunVerdict.Cancelled:
-                return null;
+                PhaseLabel = _engine.GetPhaseLabel();
+                break;
 
             case GoalRunVerdict.Empty:
                 // Paused, not summarised: a tool that returned nothing once may answer the next time,
-                // which is the argument that has Failed pause rather than end the goal.
+                // which is the argument that has Failed pause rather than end the goal. Falling back a
+                // phase was worse than it looked — from Clarify it landed in Goal, where the next thing
+                // sent clears the transcript, so one empty reply put the session a keystroke from being
+                // thrown away.
                 await AddMessageAsync(GoalMessageRole.System,
-                    "The tool returned nothing. Click Resume to try again.", phase);
+                    $"The tool returned nothing. {Capitalised(TryAgain(phase))}", phase);
                 PauseAndWait();
-                return null;
+                break;
 
-            // Named rather than defaulted: a verdict added later would otherwise be silently treated
-            // as an empty answer, which is the one outcome that ends the run and summarises it.
+            // Named rather than defaulted: a verdict added later would otherwise be silently treated as
+            // an empty answer, which is the one outcome that pauses and explains itself.
+            case GoalRunVerdict.Answered:
             default:
-                throw new UnreachableException($"Unhandled verdict for {phase}.");
+                throw new UnreachableException($"Unhandled verdict {verdict} for {phase}.");
         }
     }
 
@@ -668,12 +1610,39 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         PhaseLabel = _engine.GetPhaseLabel();
     }
 
+    /// <summary>
+    /// How many characters of prompt the chosen tool can be handed on a command line, or null when
+    /// there is no such limit.
+    /// <para>Asked before every prompt is built rather than once, because the tool can change under a
+    /// run — <c>RediscoverSelectedToolAsync</c> can find one mid-loop — and because the answer depends
+    /// on the executable's own path length. Null when a test has replaced the runner: there is no
+    /// command line in that case either.</para>
+    /// </summary>
+    private int? PromptBudget()
+    {
+        // A test has replaced the runner: there is no command line to fit.
+        if (AiRunnerFactory != null) return null;
+
+        if (_resolvedTool?.ExecutablePath is { } path)
+            return AiProcessRunner.PromptBudget(path, AiProcessRunner.GetRunner(_resolvedTool.BinaryName));
+
+        // No tool resolved *yet* — and RunAiAsync scans again before giving up, so one may well be found
+        // a moment from now. The prompt is already built by then and cannot be rebuilt, so answering
+        // "no limit" here meant a prompt fitted to nothing being handed to a .cmd shim, refused by the
+        // guard, and reproduced identically on every Resume. The tightest of the two Windows limits is
+        // the safe assumption: it costs some context in a case that may not even arise, where the other
+        // answer costs the run.
+        return CommandLineLength.Tightest();
+    }
+
     /// <summary>The working tree, as the prompts see it. Read through <see cref="WorktreeReader"/>,
     /// which owns the git commands and the seam that lets a test do without them.</summary>
-    private Task<string?> ReadWorktreeAsync() =>
-        new WorktreeReader(_workingDirectory,
-                _settingsService.Settings.GitPath is { Length: > 0 } p ? p : "git")
-            .ReadAsync(_cts?.Token ?? CancellationToken.None);
+    private Task<WorktreeSnapshot> ReadWorktreeAsync() =>
+        NewWorktreeReader().ReadAsync(_cts?.Token ?? CancellationToken.None);
+
+    private WorktreeReader NewWorktreeReader() =>
+        new(_workingDirectory,
+            _settingsService.Settings.GitPath is { Length: > 0 } p ? p : "git");
 
     // ── Commands ────────────────────────────────────────
 
@@ -762,10 +1731,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // there to prevent and which nothing ever prunes.
         var hadFile = File.Exists(_filePath);
 
-        Messages.Clear();
-        _engine.StartNewGoal("");
+        StartFreshGoal("");
         SyncFromEngine(save: hadFile);
         PhaseLabel = _engine.GetPhaseLabel();
+
+        // About to want the buttons, and the tree may well have moved since the last time anybody
+        // asked — this tile has been sitting on a finished goal.
+        RefreshDetectAvailability();
     }
 
     // ── Engine ↔ ViewModel sync ────────────────────────
@@ -826,93 +1798,33 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     // ── Persistence ─────────────────────────────────────
 
     /// <summary>
-    /// Asks for a save shortly after the last change rather than on the spot.
-    /// <para>Used for messages, which arrive in bursts and cost the most: a save serialises the whole
-    /// transcript, and doing that on the UI thread for every one of a hundred long answers is a hitch
-    /// the user feels. Phase changes still go through <see cref="SaveStateNow"/>, because those are
-    /// what a restart has to have seen exactly, and they are rare.</para>
-    /// <para>The timer's write is wrapped: it runs on a thread-pool thread with nobody left to catch
-    /// anything, and an unhandled exception there ends the process. The same reasoning, and the same
-    /// shape, as <c>SettingsService.DebouncedSave</c>.</para>
+    /// The tile's file. Everything about <em>when</em> to write, and when to refuse, is
+    /// <see cref="GoalStateStore"/>'s; what stays here is the one thing only this class can supply —
+    /// the snapshot, taken on the UI thread.
     /// </summary>
-    private void SaveStateSoon()
+    private GoalStateStore NewStore() => new(_filePath, new GoalStatePersistence())
     {
-        if (_saveRefused) return;
+        // The whole snapshot, engine included, on the UI thread. Copying only the messages there left
+        // ToState enumerating ClarificationHistory on a pool thread while the workflow added to it —
+        // "collection was modified", and a transient race then lit the permanent "this tile could not
+        // save its state" for a tile that saves perfectly well.
+        Snapshot = () => Dispatcher.UIThread.CheckAccess()
+            ? _engine.ToState([..Messages], SelectedToolName)
+            : Dispatcher.UIThread.Invoke(() => _engine.ToState([..Messages], SelectedToolName)),
 
-        lock (_debounceLock)
-        {
-            // Read inside the lock that arms the timer, and set by Dispose inside the lock that clears
-            // it. Checked outside, a caller could pass the check, Dispose could run to completion, and
-            // the caller could then arm a timer nobody is left to dispose — a write on behalf of a tile
-            // that no longer exists.
-            if (_disposed) return;
+        // Into the transcript, from whichever thread the write failed on.
+        Report = text => PostFireAndForget(() => Say(text)),
+    };
 
-            _debounceTimer?.Dispose();
-            _debounceTimer = new Timer(_ => SaveState(), null, AppDefaults.SaveDebounceMs, Timeout.Infinite);
-        }
-    }
+    private void SaveStateSoon() => _store.SaveSoon();
 
-    /// <summary>
-    /// Writes now, and stops the debounce from firing again.
-    /// <para>Deliberately not described as cancelling a write already under way: <c>Timer.Dispose()</c>
-    /// does not promise that a callback in flight will not run. It does not need to. Every writer
-    /// serialises the state as it stands when it runs rather than when it was scheduled, and
-    /// <see cref="GoalStatePersistence.Save"/> takes a lock, so a straggler writes content at least as
-    /// new as this one's — never staler. Waiting for it instead would mean blocking the UI thread on a
-    /// callback that may itself be waiting for the UI thread.</para>
-    /// </summary>
-    private void SaveStateNow()
-    {
-        lock (_debounceLock)
-        {
-            // Refused after Dispose, which has already written the last word. The workflow keeps
-            // unwinding afterwards and its phase changes still call through here, so without this a
-            // closed tile could write again over the state it had just flushed.
-            if (_disposed) return;
-
-            _debounceTimer?.Dispose();
-            _debounceTimer = null;
-        }
-
-        SaveState();
-    }
-
-    private void SaveState()
-    {
-        if (_saveRefused) return;
-
-        try
-        {
-            // The whole snapshot is taken on the UI thread, engine included. Copying only the messages
-            // there left ToState enumerating ClarificationHistory on a pool thread while the workflow
-            // added to it — "collection was modified", caught below, and a transient race then lit the
-            // permanent "this tile could not save its state" for a tile that saves perfectly well.
-            var state = Dispatcher.UIThread.CheckAccess()
-                ? Snapshot()
-                : Dispatcher.UIThread.Invoke(Snapshot);
-
-            _persistence.Save(_filePath, state);
-        }
-        catch (Exception ex)
-        {
-            // Said out loud, once. A tile whose reads fail shouts about it, and a tile whose writes
-            // fail was doing so only into the log — which is the failure that costs the user the
-            // session they are in the middle of, and the one they would want to know about first.
-            Trace.TraceWarning($"Failed to save goal state: {ex.Message}");
-            if (_saveFailureReported) return;
-            _saveFailureReported = true;
-            PostFireAndForget(() => Say($"This tile could not save its state ({ex.Message}). " +
-                           "The conversation is on screen but will not survive a restart."));
-        }
-
-        GoalTileState Snapshot() => _engine.ToState([..Messages], SelectedToolName);
-    }
+    private void SaveStateNow() => _store.SaveNow();
 
     private void LoadState()
     {
         try
         {
-            var state = _persistence.Load(_filePath);
+            var state = _store.Load();
             if (state == null) return;
 
             // LoadFrom is what turns an interrupted run into a pause — the whole of "continue where
@@ -935,6 +1847,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             foreach (var m in state.Messages)
                 Messages.Add(m);
 
+            ShowBadges();
+
             // After the transcript, not before it: a note about this session belongs at the end of the
             // session, and said first it sat above everything the user had ever typed into this tile.
             if (savedToolIsGone)
@@ -945,7 +1859,31 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     ? $"The tool this goal was using ({savedTool}) is not installed. " +
                       $"{_resolvedTool.Name} will be used instead."
                     : $"The tool this goal was using ({savedTool}) is not installed, and " +
-                      "no other AI tool was found. Install one and click Resume.");
+                      "no other AI tool was found. Install one and click Resume.",
+                    aboutThisSession: true);
+
+            // Said out loud, because it is a shell command that arrived in a file and will be run
+            // without the user typing it again. Goal files live in `.mterminal/goals/` inside the
+            // user's own repository, nothing gitignores that directory unless the Git tile is used, and
+            // a committed one travels with the branch. Naming it is the difference between a command
+            // the user chose and one they merely inherited. This line is a notice, not a barrier: the
+            // barrier is the dialog, and it comes before the command is ever run.
+            if (_engine.Criteria.VerifyCommand is { Length: > 0 } verify)
+            {
+                _verifyCommandNeedsConsent = true;
+
+                // One that cannot be shown is named by its length instead. The transcript may elide
+                // where the dialog may not — but the transcript is reserialised into the goal file on
+                // every save, so a command of a hundred kilobytes would be carried there twice over.
+                // The consent gate refuses it anyway; this only has to say what is in the file.
+                Say(CommandDisplay.CanBeConsentedTo(verify)
+                    ? $"This goal carries a verify command: `{CommandDisplay.ForDialog(verify)}`. You will be " +
+                      "asked before it runs."
+                    : $"This goal carries a verify command of {CommandDisplay.ForDialog(verify).Length} " +
+                      "characters — too long to show you in full, so it will not be run. Set a shorter " +
+                      "one under the tune button.",
+                    aboutThisSession: true);
+            }
 
             PhaseLabel = _engine.GetPhaseLabel();
         }
@@ -960,32 +1898,46 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         }
         catch (GoalStateUnavailableException ex)
         {
-            // Nothing was touched and nothing will be: see _saveRefused.
+            // Nothing was touched and nothing will be — the store has already refused, because that
+            // consequence belongs with the file rather than with whoever happens to catch this.
             Trace.TraceWarning($"Unreadable goal file: {ex.InnerException?.Message}");
-            _saveRefused = true;
             Say($"This tile's saved goal could not be opened ({ex.InnerException?.Message}). " +
                 "The file has been left alone and this tile will not save over it — close the tile and " +
                 "open it again once the file can be read.");
         }
         catch (Exception ex)
         {
-            // The same refusal as an unreadable file, and for the same reason: this catch is reached
-            // with the tile half-populated, so the transcript is missing and the next save would put
-            // that emptiness on top of the session it failed to read. Null strings no longer get here
-            // — GoalTileState refuses them in its setters — but whatever does get here is by definition
-            // something nobody anticipated, which is the case worth refusing over.
+            // The store has refused already, for the reason it documents: this catch is reached with
+            // the tile half-populated, so the next save would put that emptiness on top of the session
+            // it failed to read.
             Trace.TraceWarning($"Failed to load goal state: {ex}");
-            _saveRefused = true;
             Say($"This tile's saved goal could not be read ({ex.Message}). The file has been left " +
                 "alone and this tile will not save over it.");
         }
     }
 
+    /// <summary>
+    /// How to try again from where the tile is standing — which is not always "click Resume".
+    /// <para>Resume does nothing in Goal or Summary, and the detection path runs from Goal: every one
+    /// of these messages used to point at a button that was either absent or inert.</para>
+    /// </summary>
+    private string TryAgain(GoalPhase? phase = null) =>
+        GoalTilePolicy.CanResume(phase ?? CurrentPhase) ? "click Resume to try again." : "try again.";
+
+    private static string Capitalised(string sentence) =>
+        sentence.Length == 0 ? sentence : char.ToUpperInvariant(sentence[0]) + sentence[1..];
+
     /// <summary>A note from the tile itself, straight into the transcript. Deliberately not
     /// AddMessageAsync: this is used while loading, before the view is attached, and from the save
     /// path, where saving again would be a loop.</summary>
-    private void Say(string text) =>
-        Messages.Add(new GoalMessage { Role = GoalMessageRole.System, Text = text, Phase = CurrentPhase });
+    private void Say(string text, bool aboutThisSession = false) =>
+        Messages.Add(new GoalMessage
+        {
+            Role = GoalMessageRole.System,
+            Text = text,
+            Phase = CurrentPhase,
+            AboutThisSession = aboutThisSession,
+        });
 
     /// <summary>The same note, but not if it is already the last thing in the transcript. Pressing
     /// Enter at a stopped run answered once per keystroke, and each answer was a write to disk.</summary>
@@ -1054,8 +2006,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             IsPaused = true;
         }
 
-        lock (_debounceLock)
-            _disposed = true;
+        _disposed = true;
 
         // The token is disposed and cleared by RunAiAsync's own finally, so this usually finds nothing
         // — but "usually" is not a guarantee worth an exception on the way out of a tile.
@@ -1063,20 +2014,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // WorkingAsync's own finally. Disposing it here left that run reading Token on a dead object.
         try { _cts?.Cancel(); } catch (ObjectDisposedException) { /* already gone */ }
 
-        // Whatever the debounce was still holding. A tile closed a moment after the tool answered must
-        // not lose that answer to a timer that never got to fire. SaveState directly, because
-        // SaveStateNow now refuses once _disposed is set — which it is, above.
-        //
-        // Only if there is something to write, or something already written to keep current. A Goal
-        // tile opened and closed without a word used to leave an empty session in the user's
-        // repository, and nothing here ever prunes those.
-        if (Messages.Count > 0 || File.Exists(_filePath))
-            SaveState();
+        // Whatever the debounce was still holding — but only if there is something to write, or
+        // something already written to keep current. A Goal tile opened and closed without a word used
+        // to leave an empty session in the user's repository, and nothing here ever prunes those.
+        _store.Dispose(flush: Messages.Count > 0 || _store.FileExists);
 
-        lock (_debounceLock)
-        {
-            _debounceTimer?.Dispose();
-            _debounceTimer = null;
-        }
+        // After the final write, so a probe still in flight cannot be the reason it did not happen.
+        // Cancelled, not disposed — see the field.
+        _lifetime.Cancel();
     }
 }

@@ -94,6 +94,20 @@ public partial class GoalTileView : UserControl
     }
 
     /// <summary>
+    /// Puts the criteria fields back to what the tile is really using, once the user has left one.
+    /// <para>These are text boxes bound to integers, and Avalonia surfaces a failed conversion as a
+    /// binding error rather than as data validation — so the property is simply never set, the
+    /// <c>:error</c> pseudo-class never fires, and "50x" sits in the box looking like a setting. This
+    /// makes it go away at the moment the user stops typing, which is late enough not to fight anyone
+    /// entering "10" one digit at a time.</para>
+    /// </summary>
+    private void NumberBox_LostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is GoalTileViewModel vm)
+            vm.Criteria.Refresh();
+    }
+
+    /// <summary>
     /// The composer draws the field's border, so it has to show the field's focus as well.
     /// </summary>
     private void InputBox_FocusChanged(object? sender, RoutedEventArgs e)
