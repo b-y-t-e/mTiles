@@ -153,6 +153,22 @@ public sealed class GoalTileState
     /// <summary>What the verify command printed the last time it failed. Null once it passes.</summary>
     public string? LastVerifyOutput { get; set; }
 
+    /// <summary>
+    /// Questions the tool has asked and the user has not answered yet.
+    /// </summary>
+    /// <remarks>
+    /// Persisted, and that is what lets them be asked in controls rather than printed into the
+    /// transcript. A block of text in the transcript survives a restart by being part of the
+    /// transcript; a panel built from a parsed answer would not, and closing the tile mid-question
+    /// would leave a goal waiting for an answer to questions nobody could see any more.
+    /// </remarks>
+    public List<GoalQuestion> PendingQuestions
+    {
+        get => _pendingQuestions;
+        set => _pendingQuestions = Without.Nulls(value);
+    }
+    private List<GoalQuestion> _pendingQuestions = [];
+
     /// <summary>One line per earlier attempt — what it changed and what it decided against — so a
     /// restart does not send the next attempt back down a dead end an earlier one already backed out
     /// of.</summary>

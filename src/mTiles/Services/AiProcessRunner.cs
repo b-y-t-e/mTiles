@@ -1,13 +1,66 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 
 namespace mTiles.Services;
 
+/// <summary>What one piece of a tool's output is.</summary>
+public enum AiChunkKind
+{
+    /// <summary>Words the tool wrote. Kept, and joined in order, as the fallback answer.</summary>
+    Text,
+
+    /// <summary>The tool's own final text — its answer, in preference to this side's reassembly.
+    /// </summary>
+    Result,
+
+    /// <summary>What it is doing this second: a file, a command, a skill. Shown and thrown away.
+    /// </summary>
+    Activity,
+
+    /// <summary>The tool saying it failed. Never the answer while there is one, and never silently
+    /// dropped either.</summary>
+    Error,
+}
+
 public sealed class AiOutputChunk
 {
-    public string Type { get; init; } = "text";
+    public AiChunkKind Kind { get; init; } = AiChunkKind.Text;
     public string Content { get; init; } = "";
+}
+
+/// <summary>
+/// What a run produced, and whether the tool said it failed.
+/// </summary>
+/// <remarks>
+/// The flag is separate from the text because they answer different questions and the loop needs both.
+/// It used to be text alone, so a run that ended in <c>error_max_turns</c> or a refused API key came
+/// back as a non-empty string and was judged <c>Answered</c> — the failure adopted as the plan, or as
+/// the review, and acted on. Throwing the text away instead would have been the other half of the same
+/// mistake: a failed implementation has usually already written files, and what it managed to say about
+/// them is the only account of what is now in the worktree.
+/// </remarks>
+public readonly record struct AiOutput(string Text, bool Failed)
+{
+    /// <summary>A run that said something and did not fail. Named rather than implicit: a conversion
+    /// from string would set <c>Failed</c> to false silently, and that bit is the whole of what this
+    /// type was introduced to stop being decided by accident.</summary>
+    public static AiOutput Answered(string text) => new(text, Failed: false);
+
+    /// <summary>A run the tool said had failed, keeping whatever it managed to say.</summary>
+    public static AiOutput Failure(string text) => new(text, Failed: true);
+
+    /// <summary>
+    /// A bare string is an answer that did not fail.
+    /// </summary>
+    /// <remarks>
+    /// Kept for the tests, which stand in for a tool a few dozen times over and mean "it answered this"
+    /// every time. Nothing in the application converts a string any more — every producer here names
+    /// <see cref="Answered"/> or <see cref="Failure"/>, so the bit this type exists to carry is chosen
+    /// rather than defaulted wherever it actually matters.
+    /// </remarks>
+    public static implicit operator AiOutput(string text) => Answered(text);
 }
 
 public interface IAiToolRunner
@@ -15,7 +68,17 @@ public interface IAiToolRunner
     // No model parameter — each tool uses its own default model.
     // Tools support many providers so there's no way to build a universal model list.
     // If tools add a model listing command in the future, we can re-add model selection.
-    void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming);
+    void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming);
+
+    /// <summary>
+    /// Whether this tool can report what it is doing as it does it.
+    /// </summary>
+    /// <remarks>
+    /// Opt-in per tool, like <see cref="AcceptsPromptOnStdin"/> and for the same reason: it is a claim
+    /// about somebody else's CLI. A tool that does not stream is run exactly as it was before and its
+    /// output read at the end.
+    /// </remarks>
+    bool SupportsStreaming => false;
 
     /// <summary>
     /// Whether this tool reads its prompt from standard input when the prompt is left off the command
@@ -28,7 +91,18 @@ public interface IAiToolRunner
     /// per tool, by somebody who has checked, rather than assumed for all four.</para>
     /// </summary>
     bool AcceptsPromptOnStdin => false;
-    AiOutputChunk? ParseLine(string line);
+
+    /// <summary>
+    /// Everything one line of the tool's output says, in the order it says it.
+    /// </summary>
+    /// <remarks>
+    /// A list rather than one chunk, because a single assistant message carries both prose and tool
+    /// calls — "let me look at the cart" and then the Read. Returning one meant choosing, and choosing
+    /// the tool call threw the sentence away: invisible while the run ends with a result line, and the
+    /// whole of what is left when it does not — which is exactly the interrupted run, where what it
+    /// managed to say is all there is to show for it.
+    /// </remarks>
+    IReadOnlyList<AiOutputChunk> ParseLine(string line);
 }
 
 public sealed class ClaudeToolRunner : IAiToolRunner
@@ -36,18 +110,60 @@ public sealed class ClaudeToolRunner : IAiToolRunner
     /// <summary><c>claude -p</c> with no prompt after it reads the prompt from standard input.</summary>
     public bool AcceptsPromptOnStdin => true;
 
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming)
+    public bool SupportsStreaming => true;
+
+    /// <summary>
+    /// The command line, and one flag that is deliberately absent.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>No <c>--max-turns</c>.</b> It used to be there at 20, which was my number and an
+    /// arbitrary one, and it was doing harm two ways. An agent that reads a few files, loads a skill and
+    /// then edits spends turns quickly, so twenty was reachable in ordinary work — and with
+    /// <c>--output-format text</c> there is no way to tell "I finished" from "I ran out of turns". A run
+    /// cut off half way through an implementation looked exactly like a completed one: it went to
+    /// review, the review found unfinished work, and the next attempt started from a state nobody had
+    /// named. Turns are the wrong unit anyway. What bounds this tile is its attempt budget and the Pause
+    /// button, both of which are about the work rather than about the tool's inner loop.</para>
+    /// <para><c>--verbose</c> is not optional with <c>stream-json</c>: print mode refuses the pair
+    /// without it.</para>
+    /// </remarks>
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming)
     {
         // No prompt argument: `claude -p` with nothing after it reads it from standard input, which
         // AiProcessRunner writes. `prompt` is unused here for exactly that reason.
         psi.ArgumentList.Add("-p");
         psi.ArgumentList.Add("--output-format");
         psi.ArgumentList.Add(streaming ? "stream-json" : "text");
+
+        if (!streaming) return;
+
+        psi.ArgumentList.Add("--verbose");
+
+        // Only on the streaming path, and that is the whole argument for having it at all: the ceiling
+        // is tolerable because error_max_turns arrives as a result line marked as an error and is
+        // reported as one. Without the stream there is nothing to read it from, so hitting the limit
+        // would again be indistinguishable from finishing — the failure this replaced. A plain run is
+        // therefore left unbounded rather than bounded invisibly.
         psi.ArgumentList.Add("--max-turns");
-        psi.ArgumentList.Add(maxTurns.ToString());
+        psi.ArgumentList.Add(RunawayTurns.ToString());
     }
 
-    public AiOutputChunk? ParseLine(string line)
+    /// <summary>
+    /// A ceiling on the agent's own loop, set where it should never be reached.
+    /// </summary>
+    /// <remarks>
+    /// <para>Not the twenty this used to be. Twenty was reachable in ordinary work — a few files read,
+    /// a skill loaded, then edits — so it cut real implementations short, and with plain text output
+    /// there was no way to tell that from finishing. Removing it altogether left the other end: nothing
+    /// bounds a run but the Pause button, and the tile is meant to be left alone for hours.</para>
+    /// <para>What makes a ceiling acceptable again is that the stream says when it is hit:
+    /// <c>error_max_turns</c> arrives as a result line marked as an error, which
+    /// <see cref="ParseLine"/> reports as one instead of as an answer. The failure that mattered was
+    /// never the limit — it was a truncated run being read as a finished one.</para>
+    /// </remarks>
+    private const int RunawayTurns = 200;
+
+    public IReadOnlyList<AiOutputChunk> ParseLine(string line)
     {
         try
         {
@@ -55,7 +171,7 @@ public sealed class ClaudeToolRunner : IAiToolRunner
             var root = doc.RootElement;
 
             if (!root.TryGetProperty("type", out var typeProp))
-                return null;
+                return [];
 
             var type = typeProp.GetString() ?? "";
 
@@ -63,63 +179,142 @@ public sealed class ClaudeToolRunner : IAiToolRunner
                 && msg.TryGetProperty("content", out var contentArr)
                 && contentArr.ValueKind == JsonValueKind.Array)
             {
+                // Both halves, in the order the message wrote them. This used to return the tool call
+                // and drop the prose, on the grounds that the answer comes from the result line anyway
+                // — true until the run is interrupted, which is the one case where what it managed to
+                // say is all there is.
+                var said = new List<AiOutputChunk>();
+
                 foreach (var block in contentArr.EnumerateArray())
                 {
-                    if (block.TryGetProperty("text", out var text))
-                        return new AiOutputChunk { Type = "text", Content = text.GetString() ?? "" };
+                    if (block.TryGetProperty("text", out var text)
+                        && text.GetString() is { Length: > 0 } prose)
+                        said.Add(new AiOutputChunk { Kind = AiChunkKind.Text, Content = prose });
+
+                    if (Activity(block) is { Length: > 0 } doing)
+                        said.Add(new AiOutputChunk { Kind = AiChunkKind.Activity, Content = doing });
                 }
+
+                if (said.Count > 0) return said;
             }
 
             if (type == "content_block_delta" && root.TryGetProperty("delta", out var delta)
                 && delta.TryGetProperty("text", out var deltaText))
             {
-                return new AiOutputChunk { Type = "text", Content = deltaText.GetString() ?? "" };
+                return [new AiOutputChunk { Kind = AiChunkKind.Text, Content = deltaText.GetString() ?? "" }];
             }
 
             if (type == "result")
             {
-                if (root.TryGetProperty("result", out var result))
-                    return new AiOutputChunk { Type = "result", Content = result.GetString() ?? "" };
-                if (root.TryGetProperty("subtype", out var subtype) && subtype.GetString() == "error_response")
-                    return new AiOutputChunk { Type = "error", Content = "Claude returned an error." };
+                // Asked before the text is taken, because the text is there either way. A result line
+                // carrying is_error is the tool saying this is what went wrong, not what it produced —
+                // and read as an answer it becomes a plan, an implementation, or a review that nobody
+                // wrote. The error path keeps it out of the answer unless there is nothing else.
+                var failed = root.TryGetProperty("is_error", out var isError)
+                             && isError.ValueKind == JsonValueKind.True;
+
+                if (root.TryGetProperty("subtype", out var subtype)
+                    && (subtype.GetString() ?? "").StartsWith("error", StringComparison.OrdinalIgnoreCase))
+                    failed = true;
+
+                var text = root.TryGetProperty("result", out var result) ? result.GetString() ?? "" : "";
+
+                if (failed)
+                    return [new AiOutputChunk
+                    {
+                        Kind = AiChunkKind.Error,
+                        Content = text.Length > 0 ? text : "Claude returned an error.",
+                    }];
+
+                if (text.Length > 0)
+                    return [new AiOutputChunk { Kind = AiChunkKind.Result, Content = text }];
             }
 
-            return null;
+            return [];
         }
         catch (JsonException)
         {
-            return null;
+            return [];
         }
+    }
+
+    /// <summary>
+    /// One tool call, in the fewest words that still say what is happening.
+    /// </summary>
+    /// <remarks>
+    /// The tool's name alone is nearly useless — "Edit" tells you it is editing something — and the
+    /// whole input is a JSON object nobody wants in a status strip. What is worth a line is the name
+    /// and the one field that says which thing: the file, the command, the skill.
+    /// </remarks>
+    private static string Activity(JsonElement block)
+    {
+        if (!block.TryGetProperty("type", out var kind) || kind.GetString() != "tool_use") return "";
+        if (!block.TryGetProperty("name", out var nameProp)) return "";
+
+        var name = nameProp.GetString() ?? "";
+        if (name.Length == 0) return "";
+
+        if (!block.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object)
+            return name;
+
+        foreach (var field in Subjects)
+            if (input.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String
+                && value.GetString() is { Length: > 0 } subject)
+                return $"{name} {Shorten(subject)}";
+
+        return name;
+    }
+
+    /// <summary>The field that says what a tool call is about, in the order worth trying. A path comes
+    /// before a pattern because "Grep src/Goal" reads better than "Grep TODO", and a command near the
+    /// end because it is the one that is usually long; description is last, as the fallback for a tool
+    /// that names nothing else.</summary>
+    private static readonly string[] Subjects =
+        ["file_path", "path", "notebook_path", "skill", "pattern", "url", "command", "description"];
+
+    /// <summary>One line's worth, with the useful end kept: a path is told apart by its last segment,
+    /// not its first, so this trims from the left and marks it.</summary>
+    private static string Shorten(string subject)
+    {
+        var flat = subject.ReplaceLineEndings(" ").Trim();
+        if (flat.Length <= 48) return flat;
+
+        // By rune, not by char. A path with an emoji or anything else outside the basic plane is two
+        // chars for one character, and cutting at 47 of them splits the pair and leaves a lone
+        // surrogate on the status strip — the distinction CommandDisplay.Visible already spells out a
+        // few files away.
+        var runes = flat.EnumerateRunes().ToList();
+        return "\u2026" + string.Concat(runes.Skip(Math.Max(0, runes.Count - 47)));
     }
 }
 
 public sealed class CodexToolRunner : IAiToolRunner
 {
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming)
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming)
     {
         psi.ArgumentList.Add("exec");
         psi.ArgumentList.Add(prompt);
     }
 
-    public AiOutputChunk? ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? null : new AiOutputChunk { Content = line };
+    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
+        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
 }
 
 public sealed class OpenCodeToolRunner : IAiToolRunner
 {
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming)
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming)
     {
         psi.ArgumentList.Add("run");
         psi.ArgumentList.Add(prompt);
     }
 
-    public AiOutputChunk? ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? null : new AiOutputChunk { Content = line };
+    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
+        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
 }
 
 public sealed class PiToolRunner : IAiToolRunner
 {
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming)
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming)
     {
         psi.ArgumentList.Add("-p");
         psi.ArgumentList.Add(prompt);
@@ -127,8 +322,8 @@ public sealed class PiToolRunner : IAiToolRunner
         psi.ArgumentList.Add("text");
     }
 
-    public AiOutputChunk? ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? null : new AiOutputChunk { Content = line };
+    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
+        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
 }
 
 /// <summary>
@@ -140,11 +335,11 @@ public sealed class PiToolRunner : IAiToolRunner
 /// </summary>
 public sealed class GenericToolRunner : IAiToolRunner
 {
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, int maxTurns, bool streaming) =>
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming) =>
         psi.ArgumentList.Add(prompt);
 
-    public AiOutputChunk? ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? null : new AiOutputChunk { Content = line };
+    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
+        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
 }
 
 public static class AiProcessRunner
@@ -222,20 +417,29 @@ public static class AiProcessRunner
     /// killed. That is a decision made by somebody who can see the tile, which is the right kind of
     /// decision for this.</para>
     /// </remarks>
-    public static async Task<string> RunPlainAsync(
+    /// <param name="onActivity">
+    /// Called with a few words about what the tool is doing, as it does it, when the tool can say —
+    /// see <see cref="IAiToolRunner.SupportsStreaming"/>. <b>Called from the thread draining the child's
+    /// output</b>, so anything touching the UI marshals for itself.
+    /// <para>Passing one is what turns streaming on. Without it the tool is run exactly as it was and
+    /// its output read at the end, which is what the tools that cannot stream always do.</para>
+    /// </param>
+    public static async Task<AiOutput> RunPlainAsync(
         string executablePath,
         string prompt,
         string workingDirectory,
         IAiToolRunner runner,
-        int maxTurns = 20,
+        Action<string>? onActivity = null,
         CancellationToken ct = default)
     {
         if (!runner.AcceptsPromptOnStdin)
             GuardPromptLength(executablePath, prompt);
 
+        var streaming = onActivity != null && runner.SupportsStreaming;
+
         var psi = CreateProcessStartInfo(executablePath, workingDirectory);
         psi.RedirectStandardInput = runner.AcceptsPromptOnStdin;
-        runner.ConfigureProcess(psi, prompt, maxTurns, streaming: false);
+        runner.ConfigureProcess(psi, prompt, streaming);
 
         using var process = new Process { StartInfo = psi };
         process.Start();
@@ -243,7 +447,9 @@ public static class AiProcessRunner
         // The readers start first, then the prompt goes down stdin. The other order deadlocks on a
         // prompt large enough to fill the pipe: this side blocks writing the rest of it while the child
         // blocks writing output nobody is draining, which is the size of prompt stdin exists for.
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stdoutTask = streaming
+            ? ReadStreamAsync(process.StandardOutput, runner, onActivity!)
+            : ReadToEndAsync(process.StandardOutput);
         var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
 
         // Registered before the write, not after. A prompt big enough to block — the child not draining
@@ -264,10 +470,109 @@ public static class AiProcessRunner
 
         ct.ThrowIfCancellationRequested();
 
+        // A non-zero exit with something on stderr is the plain path's version of the stream's error
+        // chunk, and is now reported the same way: the words kept, the fact carried beside them.
         if (process.HasExited && process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
-            return $"{output.Trim()}\n\n[stderr] {stderr.Trim()}".Trim();
+            return AiOutput.Failure(
+                $"{output.Text.Trim()}\n\n[stderr] {stderr.Trim()}".Trim());
 
-        return output.Trim();
+        return new AiOutput(output.Text.Trim(), output.Failed);
+    }
+
+    /// <summary>The whole of standard output, for a tool that cannot say anything about itself as it
+    /// goes. Nothing here can fail on its own account — the exit code is the only signal, and the
+    /// caller reads it.</summary>
+    private static async Task<AiOutput> ReadToEndAsync(TextReader output) =>
+        new(await output.ReadToEndAsync(CancellationToken.None), Failed: false);
+
+    /// <summary>
+    /// Drains a streaming tool, reporting what it does and keeping what it answers.
+    /// </summary>
+    /// <remarks>
+    /// <para>The answer is the <c>result</c> line when there is one, because that is the tool's own
+    /// final text rather than this side's reassembly of the pieces. Falling back to the pieces matters
+    /// all the same: a run killed part way through has no result line, and the text it did produce is
+    /// better than nothing to show for it.</para>
+    /// <para>A line that parses to nothing is dropped, which is most of them — init, usage, tool
+    /// results. Reading them is how the tile knows the difference between a tool that finished and one
+    /// that stopped, which is the whole reason for streaming: with plain text output those two are the
+    /// same string.</para>
+    /// </remarks>
+    /// <param name="output">
+    /// The child's standard output. A <see cref="TextReader"/> rather than the process, so the rules
+    /// below can be read off a string in a test instead of needing a tool installed to state them.
+    /// </param>
+    internal static async Task<AiOutput> ReadStreamAsync(
+        TextReader output, IAiToolRunner runner, Action<string> onActivity)
+    {
+        var text = new StringBuilder();
+        string? result = null;
+        string? error = null;
+
+        while (await output.ReadLineAsync() is { } line)
+        {
+            foreach (var chunk in runner.ParseLine(line))
+            {
+                switch (chunk.Kind)
+                {
+                    case AiChunkKind.Activity:
+                        // Not awaited and not marshalled: this is the caller's business, and holding the
+                        // reader while a dispatcher gets round to it stalls the pipe the child is writing
+                        // into.
+                        try { onActivity(chunk.Content); } catch { /* a status line is not worth a run */ }
+                        break;
+
+                    case AiChunkKind.Result:
+                        // Only when it says something. An empty result line is what a run that was killed
+                        // or that failed leaves behind, and taking it anyway meant an empty string beat the
+                        // text the tool had already produced — the answer thrown away in favour of the
+                        // absence of one.
+                        if (chunk.Content.Length > 0) result = chunk.Content;
+                        break;
+
+                    case AiChunkKind.Error:
+                        // Kept apart, not appended. The tool's account of its own failure is not a paragraph
+                        // of its answer, and glued onto a half-finished one it becomes a sentence the review
+                        // prompt reads as something the implementation decided.
+                        error = chunk.Content;
+                        break;
+
+                    case AiChunkKind.Text:
+                        // Appended without a newline. A whole assistant message ends where it ends, and a
+                        // content_block_delta is a fragment — often half a word — so a line break between
+                        // them puts one inside the word. Claude emits no deltas without
+                        // --include-partial-messages, so this is unreached today and is written for the day
+                        // it is not.
+                        text.Append(chunk.Content);
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+        }
+
+        // The tool's own final text first, then whatever it said on the way. The error is never thrown
+        // away: dropping it whenever anything else had been printed is how a run that stopped half way
+        // through came back looking like one that finished, and the thing that went wrong — a credit
+        // balance, a revoked key — was never said out loud anywhere.
+        //
+        // Labelled rather than glued on, and after the answer rather than into it, which is the same
+        // shape RunPlainAsync already uses for a non-zero exit with something on stderr. The verdict
+        // stays content-based on purpose: a failed implementation has usually already written files, and
+        // what it managed to say about them is worth more to the next attempt than a clean "it failed".
+        var answer = result is { Length: > 0 } ? result
+            : text.Length > 0 ? text.ToString().TrimEnd()
+            : "";
+
+        if (error is not { Length: > 0 }) return AiOutput.Answered(answer);
+
+        // Both halves. The text is kept because a failed implementation has usually already written
+        // files and this is the only account of what is in the worktree; the flag is kept because
+        // without it the loop reads that account as an answer and adopts it as the plan, or as the
+        // review, and carries on.
+        return AiOutput.Failure(
+            answer.Length > 0 ? $"{answer}\n\n[error] {error}" : error);
     }
 
     /// <summary>

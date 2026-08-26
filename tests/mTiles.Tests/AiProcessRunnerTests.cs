@@ -23,7 +23,7 @@ public class AiProcessRunnerTests
         Assert.False(runner.AcceptsPromptOnStdin);
 
         var psi = new ProcessStartInfo();
-        runner.ConfigureProcess(psi, "the prompt", maxTurns: 20, streaming: false);
+        runner.ConfigureProcess(psi, "the prompt", streaming: false);
 
         Assert.Contains("the prompt", psi.ArgumentList);
     }
@@ -32,7 +32,7 @@ public class AiProcessRunnerTests
     public void Claude_leaves_the_prompt_off_the_command_line_because_it_reads_stdin()
     {
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", maxTurns: 20, streaming: false);
+        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: false);
 
         Assert.DoesNotContain("the prompt", psi.ArgumentList);
         Assert.Contains("-p", psi.ArgumentList);
@@ -44,6 +44,239 @@ public class AiProcessRunnerTests
         Assert.False(((IAiToolRunner)new CodexToolRunner()).AcceptsPromptOnStdin);
         Assert.False(((IAiToolRunner)new OpenCodeToolRunner()).AcceptsPromptOnStdin);
         Assert.False(((IAiToolRunner)new PiToolRunner()).AcceptsPromptOnStdin);
+    }
+
+
+    [Fact]
+    public void Claudes_turn_limit_is_a_runaway_guard_rather_than_a_budget()
+    {
+        // It used to be 20, which was an arbitrary number of mine and reachable in ordinary work: a few
+        // files read, a skill loaded, then edits. Worse, with plain text output there was no way to tell
+        // "I finished" from "I ran out of turns", so a run cut off half way through an implementation
+        // looked exactly like a completed one.
+        //
+        // Removing it altogether left the other end — nothing bounding a run but the Pause button, on a
+        // tile meant to be left alone for hours. What makes a ceiling acceptable again is that the
+        // stream says when it is hit: error_max_turns arrives as a result line marked as an error.
+        var psi = new ProcessStartInfo();
+        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true);
+
+        var at = psi.ArgumentList.IndexOf("--max-turns");
+        Assert.True(at >= 0);
+        Assert.True(int.Parse(psi.ArgumentList[at + 1]) >= 100,
+            "a ceiling low enough to reach in ordinary work is the bug this replaced");
+    }
+
+    [Fact]
+    public async Task Running_out_of_turns_is_reported_as_an_error_rather_than_as_an_answer()
+    {
+        // The whole reason a ceiling is tolerable now. Read as an answer, a truncated run becomes a
+        // plan or an implementation that stops mid-thought and is reviewed as if it were finished.
+        var (answer, failed, _) = await Drain(Said,
+            """{"type":"result","subtype":"error_max_turns","is_error":true,"result":"turn limit"}""");
+
+        Assert.StartsWith("partial", answer);
+        Assert.Contains("[error]", answer);
+        Assert.True(failed);
+    }
+
+    [Fact]
+    public void Streaming_asks_for_json_and_for_the_verbosity_it_requires()
+    {
+        var psi = new ProcessStartInfo();
+        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true);
+
+        Assert.Contains("stream-json", psi.ArgumentList);
+
+        // Not decoration: print mode refuses stream-json without it, so forgetting this is a run that
+        // fails before it starts.
+        Assert.Contains("--verbose", psi.ArgumentList);
+
+        // And only where it is asked for. The plain path is what the tile used for a year and what the
+        // other three tools still use.
+        var plain = new ProcessStartInfo();
+        new ClaudeToolRunner().ConfigureProcess(plain, "the prompt", streaming: false);
+        Assert.Contains("text", plain.ArgumentList);
+        Assert.DoesNotContain("--verbose", plain.ArgumentList);
+    }
+
+    [Fact]
+    public void Only_claude_claims_it_can_say_what_it_is_doing()
+    {
+        // Like AcceptsPromptOnStdin, this is a claim about somebody else's CLI, so it is opted into per
+        // tool by somebody who has checked. A tool wrongly marked as streaming is run with flags it does
+        // not understand.
+        Assert.True(((IAiToolRunner)new ClaudeToolRunner()).SupportsStreaming);
+        Assert.False(((IAiToolRunner)new CodexToolRunner()).SupportsStreaming);
+        Assert.False(((IAiToolRunner)new OpenCodeToolRunner()).SupportsStreaming);
+        Assert.False(((IAiToolRunner)new PiToolRunner()).SupportsStreaming);
+        Assert.False(((IAiToolRunner)new GenericToolRunner()).SupportsStreaming);
+    }
+
+    [Theory]
+    // The name alone says almost nothing — "Edit" tells you it is editing something — so the one
+    // field that says which thing goes with it.
+    [InlineData("""{"type":"tool_use","name":"Read","input":{"file_path":"src/Cart.cs"}}""",
+        "Read src/Cart.cs")]
+    [InlineData("""{"type":"tool_use","name":"Bash","input":{"command":"dotnet build"}}""",
+        "Bash dotnet build")]
+    [InlineData("""{"type":"tool_use","name":"Skill","input":{"skill":"code-review"}}""",
+        "Skill code-review")]
+    // No input worth naming is still worth reporting: something is happening.
+    [InlineData("""{"type":"tool_use","name":"TodoWrite","input":{}}""", "TodoWrite")]
+    public void A_tool_call_is_reported_as_what_it_is_and_what_it_is_about(string block, string expected)
+    {
+        var line = """{"type":"assistant","message":{"content":[""" + block + """]}}""";
+
+        var chunk = Assert.Single(new ClaudeToolRunner().ParseLine(line));
+
+        Assert.Equal(AiChunkKind.Activity, chunk.Kind);
+        Assert.Equal(expected, chunk.Content);
+    }
+
+    [Fact]
+    public void A_long_subject_keeps_the_end_of_itself()
+    {
+        // A path is told apart by its last segment, not its first, so this trims from the left.
+        var line = """
+            {"type":"assistant","message":{"content":[
+              {"type":"tool_use","name":"Edit","input":{"file_path":"
+            """.Trim() + new string('d', 80) + """
+            /Cart.cs"}}]}}
+            """.Trim();
+
+        var chunk = Assert.Single(new ClaudeToolRunner().ParseLine(line));
+
+        Assert.EndsWith("Cart.cs", chunk.Content);
+        Assert.True(chunk.Content.Length < 60, chunk.Content);
+    }
+
+    [Fact]
+    public void A_message_that_says_something_and_does_something_reports_both()
+    {
+        // It used to report the tool call and drop the sentence, on the grounds that the answer comes
+        // from the result line anyway. True until the run is interrupted — and that is the one case
+        // where what the tool managed to say is the whole of what there is to show for it.
+        const string line = """
+            {"type":"assistant","message":{"content":[
+              {"type":"text","text":"Let me look at the cart."},
+              {"type":"tool_use","name":"Read","input":{"file_path":"src/Cart.cs"}}]}}
+            """;
+
+        var chunks = new ClaudeToolRunner().ParseLine(line);
+
+        Assert.Equal(2, chunks.Count);
+        Assert.Equal(AiChunkKind.Text, chunks[0].Kind);
+        Assert.Equal("Let me look at the cart.", chunks[0].Content);
+        Assert.Equal(AiChunkKind.Activity, chunks[1].Kind);
+        Assert.Equal("Read src/Cart.cs", chunks[1].Content);
+    }
+
+    [Fact]
+    public async Task An_interrupted_run_keeps_the_prose_from_a_message_that_also_used_a_tool()
+    {
+        // One line, because the reader splits on newlines: a pretty-printed fixture is a JSON document
+        // torn into pieces that parse as nothing, and the test then passes or fails for the wrong reason.
+        const string both = """{"type":"assistant","message":{"content":[{"type":"text","text":"Renaming the totals helper."},{"type":"tool_use","name":"Edit","input":{"file_path":"src/Cart.cs"}}]}}""";
+
+        // No result line: the run was killed. What is left is the fallback, and dropping the prose left
+        // an attempt with nothing at all to say for itself.
+        var (answer, _, doing) = await Drain(both);
+
+        Assert.Equal("Renaming the totals helper.", answer.Trim());
+        Assert.Equal(["Edit src/Cart.cs"], doing);
+    }
+
+    [Fact]
+    public async Task The_tools_own_final_text_is_the_answer()
+    {
+        var (answer, _, doing) = await Drain(Used, Said, Result);
+
+        // The result line, not this side's reassembly of the pieces — and the pieces are still read,
+        // because that is what says which tool call is running right now.
+        Assert.Equal("the final answer", answer);
+        Assert.Equal(["Read a.cs"], doing);
+    }
+
+    [Fact]
+    public async Task Without_a_final_line_what_the_tool_managed_to_say_is_kept()
+    {
+        // A run that was killed part way through has no result line at all, and the text it did produce
+        // is better than nothing to show for it.
+        var (answer, _, _) = await Drain(Said);
+
+        Assert.Equal("partial", answer.Trim());
+    }
+
+    [Fact]
+    public async Task An_empty_final_line_does_not_beat_the_text_before_it()
+    {
+        // What a failed or killed run leaves behind. Taking it anyway threw the answer away in favour
+        // of the absence of one — and an empty answer is judged "the tool returned nothing", which
+        // pauses the tile over a run that had in fact said something.
+        var (answer, _, _) = await Drain(Said, EmptyResult);
+
+        Assert.Equal("partial", answer.Trim());
+    }
+
+    [Fact]
+    public async Task An_error_is_kept_apart_from_the_answer_and_never_dropped()
+    {
+        // Labelled and after the answer, not glued into it: the tool's account of its own failure is
+        // not a paragraph of what it produced, and inside a half-finished answer it becomes a sentence
+        // the review prompt reads as something the implementation decided.
+        var (withText, failedWithText, _) = await Drain(Said, Failed);
+        Assert.StartsWith("partial", withText);
+        Assert.Contains("[error]", withText);
+
+        // And the fact travels beside the words. Without it the loop judges the text alone, and text is
+        // exactly what a failed run has — so the failure was adopted as the plan, or as the review.
+        Assert.True(failedWithText);
+
+        // And never simply dropped because something else had been printed. That is how a run which
+        // stopped half way came back looking like one that finished, with the thing that went wrong
+        // — a credit balance, a revoked key — said out loud nowhere at all.
+        var (alone, failedAlone, _) = await Drain(Failed);
+        Assert.Contains("error", alone, StringComparison.OrdinalIgnoreCase);
+        Assert.True(failedAlone);
+    }
+
+    /// <summary>Everything the stream reader has to get right, read off a string. It took a
+    /// <c>Process</c> before, which is why none of this was asked: stating any of it needed a tool
+    /// installed and a run to observe.</summary>
+    private static async Task<(string Answer, bool Failed, List<string> Doing)> Drain(
+        params string[] lines)
+    {
+        var doing = new List<string>();
+        var output = await AiProcessRunner.ReadStreamAsync(
+            new StringReader(string.Join("\n", lines)), new ClaudeToolRunner(), doing.Add);
+        return (output.Text, output.Failed, doing);
+    }
+
+    private const string Result = """{"type":"result","result":"the final answer"}""";
+    private const string EmptyResult = """{"type":"result","result":""}""";
+    private const string Said = """{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}""";
+    private const string Used = """{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"a.cs"}}]}}""";
+    private const string Failed = """{"type":"result","subtype":"error_response"}""";
+
+    [Fact]
+    public async Task A_final_line_that_says_it_failed_is_not_read_as_the_answer()
+    {
+        // The text is there either way. A result line carrying is_error is the tool saying this is what
+        // went wrong, not what it produced — and taken as an answer it becomes a plan, an
+        // implementation or a review that nobody wrote, judged and acted on like any other.
+        const string failed = """{"type":"result","is_error":true,"result":"Credit balance is too low"}""";
+
+        var (withText, failedWithText, _) = await Drain(Said, failed);
+        Assert.StartsWith("partial", withText);
+        Assert.Contains("Credit balance is too low", withText);
+        Assert.True(failedWithText);
+
+        // Alone it is still the only thing that explains the silence, and it says what actually
+        // happened rather than "Claude returned an error".
+        var (alone, failedAlone, _) = await Drain(failed);
+        Assert.Equal("Credit balance is too low", alone);
+        Assert.True(failedAlone);
     }
 
     [Fact]

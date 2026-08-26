@@ -134,4 +134,36 @@ public class GoalResumeTests
         reloaded.LoadFrom(state);
         return reloaded;
     }
+
+    /// <summary>
+    /// A tile waiting on questions is waiting, not interrupted.
+    /// </summary>
+    /// <remarks>
+    /// The signal used to be read off the transcript — the tool having spoken last — and that stopped
+    /// being true the moment structured questions moved out of the transcript and into a panel of their
+    /// own. The last turn is then the user's goal, so every tile with questions on screen came back from
+    /// a restart calling itself interrupted, offering Resume, and Resume asks the same round again.
+    /// </remarks>
+    [Fact]
+    public void Questions_waiting_for_an_answer_are_not_an_interrupted_run()
+    {
+        var waiting = new GoalTileState
+        {
+            CurrentPhase = GoalPhase.Clarify,
+            Messages = [new GoalMessage { Role = GoalMessageRole.User, Text = "a goal" }],
+            PendingQuestions = [new GoalQuestion { Question = "Which file?" }],
+        };
+
+        Assert.False(GoalWorkflowEngine.WasInterrupted(waiting));
+
+        // And the same state with nothing pending is interrupted, which is what makes the line above
+        // load-bearing rather than incidental.
+        var cutOff = new GoalTileState
+        {
+            CurrentPhase = GoalPhase.Clarify,
+            Messages = [new GoalMessage { Role = GoalMessageRole.User, Text = "a goal" }],
+        };
+
+        Assert.True(GoalWorkflowEngine.WasInterrupted(cutOff));
+    }
 }

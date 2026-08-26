@@ -201,29 +201,14 @@ internal static class GoalTranscript
         clarify.WasStructured ? Prose(clarify.RawText) : "";
 
     /// <summary>
-    /// What the composer is filled with when questions arrive: the numbers, ready to be typed into.
-    /// <para>Answering in place is the whole of it. A blank box under three numbered questions asks the
-    /// user to reproduce the numbering themselves, and the ones who do not leave an answer nothing can
-    /// be matched against.</para>
-    /// <para>The numbers and nothing else. The tool's first option used to be filled in beside each
-    /// one, which turned Enter into "send the tool's own guess back as my answer" — from a box the user
-    /// may not have read, on a question they may not have understood. The options are still printed
-    /// under the question, where they are an offer rather than a default.</para>
-    /// </summary>
-    public static string AnswerSkeleton(GoalClarifyResult clarify)
-    {
-        if (!clarify.WasStructured || clarify.Questions.Count == 0) return "";
-
-        return string.Join("\n", clarify.Questions.Select((_, i) => $"{i + 1}. "));
-    }
-
-    /// <summary>
-    /// Whether an answer says nothing — the numbered skeleton sent back untouched, or a line or two of
-    /// it with the numbers still bare.
-    /// <para>Prefilling the composer put a real string in it, so pressing Enter sent one: a
-    /// clarification round spent, one of three, on an answer of "1.\n2.". The check strips the markers
-    /// this class writes and asks whether anything is left, so an answer to one question out of three
-    /// still counts and only a genuinely empty one does not.</para>
+    /// Whether an answer says nothing — bare numbering, or a line or two of it with the numbers
+    /// still empty.
+    /// <para>It guards the <em>prose</em> path, which is the only one that still answers in the
+    /// composer: structured questions have a box each and a command that refuses an empty set. What
+    /// arrives here is free text, and it used to cost a clarification round out of three whenever it
+    /// was nothing but numbering. The check strips the markers this class writes and asks whether
+    /// anything is left, so an answer to one question out of three still counts and only a genuinely
+    /// empty one does not.</para>
     /// </summary>
     public static bool IsBlankAnswer(string? text)
     {

@@ -156,13 +156,227 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
+        RefreshAsk();
     }
 
     partial void OnCurrentPhaseChanged(GoalPhase value)
     {
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
+        RefreshAsk();
     }
+
+    /// <summary>The approval panel's button reads the box, so it has to be told when the box changes.
+    /// </summary>
+    partial void OnInputTextChanged(string value) => OnPropertyChanged(nameof(ApprovalActionLabel));
+
+    // ── What the tile is asking for right now ───────────
+
+    /// <summary>
+    /// The clarifying questions, each with its own box.
+    /// </summary>
+    /// <remarks>
+    /// Rebuilt from the engine rather than added to, so there is one copy of the truth and a reload
+    /// produces the same panel a fresh round does.
+    /// </remarks>
+    public ObservableCollection<GoalQuestionAnswer> Questions { get; } = [];
+
+    /// <summary>
+    /// Wired once, from both constructors, because <see cref="ShowQuestions"/> is derived from the
+    /// collection and a derived flag that only updates when somebody remembers to say so is a flag that
+    /// is wrong the first time somebody does not.
+    /// </summary>
+    private void WatchQuestions() => Questions.CollectionChanged += (_, _) => RefreshAsk();
+
+    /// <summary>
+    /// Whether the question panel is up.
+    /// </summary>
+    /// <remarks>
+    /// The panel replaces the composer rather than sitting above it, because they would be two boxes
+    /// asking for the same thing with different filing rules. While it is up the composer has nothing
+    /// to send that the panel cannot send better.
+    /// </remarks>
+    public bool ShowQuestions =>
+        !IsRunning && Questions.Count > 0 && CurrentPhase == GoalPhase.Clarify;
+
+    /// <summary>
+    /// Whether the plan is waiting to be approved. Not while questions are up: a tool that asked
+    /// something has not proposed anything yet.
+    /// </summary>
+    /// <remarks>
+    /// <c>ProposedPlan</c> is nullable and starts null, so it is matched rather than measured — the
+    /// engine's own idiom, and reading <c>.Length</c> off it threw on every tile that had not proposed
+    /// one yet. Which is every tile, at the moment the binding first asks.
+    /// </remarks>
+    public bool ShowApproval =>
+        !IsRunning && !ShowQuestions && CurrentPhase == GoalPhase.Plan
+        && _engine.ProposedPlan is { Length: > 0 };
+
+    /// <summary>
+    /// Whether the plain composer is up.
+    /// </summary>
+    /// <remarks>
+    /// <para>Not while the tool is working. The guard at the top of <c>Submit</c> returns while
+    /// <c>IsRunning</c>, so a composer shown there is a box that accepts text and does nothing with it
+    /// — and the one thing it did do, silently, was hold the text that a finishing detection then
+    /// overwrote.</para>
+    /// <para>Still up in Implement and Review when the run is stopped, where there is nothing to send
+    /// but the tile answers with what to do instead. That sentence is the point: a phase with no
+    /// composer and no explanation is a tile that has stopped responding.</para>
+    /// </remarks>
+    public bool ShowComposer => !IsRunning && !ShowQuestions && !ShowApproval;
+
+    /// <summary>What the panel's one button does, which follows the box under it. A user who has typed
+    /// a correction is not asking to approve, and a button labelled "Approve" that sends their
+    /// correction instead — or throws it away — would be the same betrayal twice.</summary>
+    public string ApprovalActionLabel =>
+        InputText.Trim() is { Length: > 0 } typed && !GoalWorkflowEngine.IsApproval(typed)
+            ? "Send changes"
+            : "Approve plan";
+
+    /// <summary>
+    /// The count, above the questions.
+    /// </summary>
+    /// <remarks>
+    /// All that is left of a line that used to say what was being asked as well. The panel is capped
+    /// and scrolls, so the count is the one thing it cannot show for itself — everything else that
+    /// line said was already on the status strip, in the placeholder and on the button.
+    /// </remarks>
+    public string QuestionsTitle =>
+        Questions.Count == 1 ? "1 question" : $"{Questions.Count} questions";
+
+    /// <summary>
+    /// Puts the engine's pending questions on screen.
+    /// </summary>
+    /// <remarks>
+    /// Any answers already typed are lost, and that is correct: this runs only when the set of
+    /// questions is replaced, and an answer to a question that is no longer being asked has nowhere to
+    /// go.
+    /// </remarks>
+    private void SyncQuestions()
+    {
+        Questions.Clear();
+        for (var i = 0; i < _engine.PendingQuestions.Count; i++)
+        {
+            // The engine's own question object, written straight back into. Saving is debounced by the
+            // store, so a keystroke costs nothing here and the answers survive the tile being closed —
+            // which is what persisting the questions was for.
+            var question = _engine.PendingQuestions[i];
+            Questions.Add(new GoalQuestionAnswer(i + 1, question, answer =>
+            {
+                question.Answer = answer;
+                _store.SaveSoon();
+            }));
+        }
+
+        RefreshAsk();
+    }
+
+    private void RefreshAsk()
+    {
+        OnPropertyChanged(nameof(ShowQuestions));
+        OnPropertyChanged(nameof(ShowApproval));
+        OnPropertyChanged(nameof(ShowComposer));
+        OnPropertyChanged(nameof(QuestionsTitle));
+    }
+
+    /// <summary>
+    /// Sends the answers as one numbered message, the shape the next prompt reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>Unanswered questions are left out rather than sent empty. A blank line under a number
+    /// says "none of your business" to a model that cannot tell it from a skipped one, and the round
+    /// after it asks again.</para>
+    /// <para>The questions go into the transcript here, at the moment they are answered, rather than
+    /// when they were asked. That keeps the record complete — question then answer, in order, exactly
+    /// as it always read — without spending the screen on a second copy of what the panel above is
+    /// already showing. Which is the whole point: the conversation has to stay readable while three
+    /// questions are on screen.</para>
+    /// </remarks>
+    [RelayCommand]
+    private async Task SendAnswers()
+    {
+        // The same question the panel's own visibility asks, so a phase the tile has moved on from
+        // cannot send answers to questions it is no longer asking.
+        if (!ShowQuestions) return;
+
+        var answered = Questions.Where(q => q.Answer.Trim().Length > 0).ToList();
+        if (answered.Count == 0)
+        {
+            // Not the composer's version of this sentence, which offers to hear what you want changed
+            // instead: while the panel is up the composer is not, so there is nowhere to say it.
+            await SayOnceAsync("Answer at least one of the questions before sending.");
+            return;
+        }
+
+        var text = string.Join("\n", answered.Select(q => $"{q.Marker} {q.Answer.Trim()}"));
+        var asked = GoalTranscript.Questions(new GoalClarifyResult
+        {
+            WasStructured = true,
+            Questions = [.._engine.PendingQuestions],
+        });
+
+        // The transcript first, the pending set second: clearing is what takes the questions off the
+        // screen, and doing it before the record is written is a moment in which they exist nowhere at
+        // all. Not markdown, because this is a numbered list composed here rather than prose the tool
+        // wrote, and markdown would re-flow it.
+        await AddMessageAsync(GoalMessageRole.Assistant, asked, GoalPhase.Clarify);
+        ClearPendingQuestions();
+
+        InputText = text;
+        await Submit();
+    }
+
+    /// <summary>Approves the plan, or sends the correction typed under it — whichever the box says.
+    /// Both go through <c>Submit</c>, which is where every rule about phases, pauses and discarding a
+    /// session already lives.</summary>
+    [RelayCommand]
+    private async Task ApproveOrChange()
+    {
+        // The same question the panel's visibility asks. IsRunning alone let the command run in a phase
+        // with no plan in it, where Submit's own "there is no plan to approve yet" is the only thing
+        // that catches it.
+        if (!ShowApproval) return;
+
+        if (InputText.Trim().Length == 0)
+            InputText = "ok";
+
+        await Submit();
+    }
+
+    /// <summary>What a status line does when it finally reaches the dispatcher: nothing, if the run it
+    /// belonged to has ended. Internal so the race can be stated in a test rather than raced in one.
+    /// </summary>
+    internal void SetActivityIfRunning(string doing)
+    {
+        if (IsRunning) Activity = doing;
+    }
+
+    private void ClearPendingQuestions()
+    {
+        if (_engine.PendingQuestions.Count == 0 && Questions.Count == 0) return;
+
+        _engine.SetPendingQuestions(null);
+        SyncQuestions();
+
+        // Written, not left for whatever saves next. The pending set is persisted precisely so a closed
+        // tile comes back still asking; a set cleared only in memory comes back asking questions that
+        // were answered, or abandoned, before the application stopped.
+        SaveStateNow();
+    }
+
+    /// <summary>
+    /// What the tool is doing at this moment, in a few words, or empty.
+    /// </summary>
+    /// <remarks>
+    /// <para>Shown beside the phase on the status strip and nowhere else. It is not transcript: a run
+    /// touches dozens of files and every one of those lines would be in the way tomorrow, while the
+    /// question it answers — "is this thing still doing something?" — is only ever asked about now.
+    /// </para>
+    /// <para>Cleared whenever a run ends, by <c>WorkingAsync</c>, so a finished tile never sits showing
+    /// the last file the tool happened to open.</para>
+    /// </remarks>
+    [ObservableProperty] private string _activity = "";
 
     public ObservableCollection<GoalMessage> Messages { get; } = [];
 
@@ -191,7 +405,11 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// because nothing in the application chooses it and a parameter every call site has to pass null
     /// for is a parameter that will be passed the wrong thing eventually.</para>
     /// </summary>
-    internal static Func<AiToolInfo, string, string, CancellationToken, Task<string>>? AiRunnerFactory { get; set; }
+    /// <summary>The stand-in for a real tool. It answers with an <see cref="AiOutput"/> rather than a
+    /// string so a test can say the tool <em>failed</em> — the path that pauses the run and prints what
+    /// the tool managed to say. While this returned a string that path could only be reached at the
+    /// level of the stream reader, which is the half that does not decide anything.</summary>
+    internal static Func<AiToolInfo, string, string, CancellationToken, Task<AiOutput>>? AiRunnerFactory { get; set; }
 
     public string FilePath => _filePath;
 
@@ -207,6 +425,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // store, and although they are only invoked later, two constructors building the same object in
         // two orders is where that stops being true without anybody noticing.
         _store = NewStore();
+        WatchQuestions();
 
         // The editor fills itself from the criteria in its own constructor, and on this path there is
         // nothing to load afterwards. The other constructor reloads because LoadState has replaced the
@@ -223,6 +442,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         _settingsService = settingsService;
         _filePath = filePath;
         _store = NewStore();
+        WatchQuestions();
         Criteria = NewCriteriaEditor();
 
         DetectTools();
@@ -531,7 +751,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // that builds the prompt: a commit made between the two, an exclusion the two apply
         // differently, a repository with no HEAD — any of them ends with nothing to detect from, and
         // clearing first meant the user had paid for that with their session.
-        PhaseLabel = "Reading the working tree...";
+        Working("Reading the working tree...");
 
         WorktreeSnapshot tree;
         try
@@ -571,7 +791,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // first, and a tool that fails, returns nothing or names no goal is common enough that the
         // alternative — an empty tile where a session used to be — is the ordinary outcome rather than
         // the unlucky one.
-        PhaseLabel = "Working out the goal from your changes...";
+        Working("Working out the goal from your changes...");
         var run = await RunAiAsync(_engine.BuildDetectGoalPrompt(tree.Text!, PromptBudget()));
 
         if (run.Verdict != GoalRunVerdict.Answered)
@@ -789,6 +1009,14 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// </summary>
     private async Task RunClarifyAsync()
     {
+        // First, before the budget is even looked at. Whatever is on screen is about to be answered by
+        // a fresh set, by none, or by the tile giving up and planning — and that last path returns
+        // below without ever reaching the round. Clearing after the check left a tile in Plan still
+        // showing the old questions, with the approval panel suppressed behind them (ShowApproval
+        // stands down while ShowQuestions is up), so the only thing on screen was a set of questions
+        // nobody was going to read and no way to approve the plan they had been abandoned for.
+        ClearPendingQuestions();
+
         if (_engine.ClarifyRounds >= GoalWorkflowEngine.MaxClarifyRounds)
         {
             // Once per goal. Every rejected plan comes back through here, and the explanation is the
@@ -832,7 +1060,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             // or what it is assuming, and that is the last chance to disagree before a plan is written
             // against it — so it goes in as the tool's own message, above the tile's note.
             if (GoalTranscript.Aside(clarify) is { Length: > 0 } aside)
-                await AddMessageAsync(GoalMessageRole.Assistant, aside, GoalPhase.Clarify);
+                await AddMessageAsync(GoalMessageRole.Assistant, aside, GoalPhase.Clarify, markdown: true);
 
             await AddMessageAsync(GoalMessageRole.System,
                 "No questions to answer — planning now.", GoalPhase.Clarify);
@@ -864,15 +1092,23 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // nobody had written down.
         _engine.RecordClarification(questions, fromUser: false);
 
-        await AddMessageAsync(GoalMessageRole.Assistant, questions, GoalPhase.Clarify);
+        // Structured questions are asked in the panel, which owns a box per question — so they are
+        // deliberately *not* put in the transcript here. They go in when they are answered, together
+        // with the answer, which keeps the record in the order it always read while leaving the screen
+        // to the conversation. Three questions and their reasons is most of a small tile.
+        //
+        // Prose is the other half of the rule and keeps the behaviour it always had: there is nothing
+        // to build a panel from, so it is a message and the composer answers it.
+        if (clarify.WasStructured && clarify.Questions.Count > 0)
+        {
+            _engine.SetPendingQuestions(clarify.Questions);
+            SyncQuestions();
+            SaveStateNow();
+            return;
+        }
 
-        // The composer is filled with the numbering, so answering is editing rather than transcribing.
-        // Only when the questions came back structured — there is nothing to number otherwise — and
-        // never over something already in the box: a clarification round takes as long as the tool
-        // takes, and a user who spent it typing their answer had it deleted the moment it arrived.
-        if (string.IsNullOrWhiteSpace(InputText)
-            && GoalTranscript.AnswerSkeleton(clarify) is { Length: > 0 } skeleton)
-            InputText = skeleton;
+        // Prose, straight from the tool: the structured path never reaches here.
+        await AddMessageAsync(GoalMessageRole.Assistant, questions, GoalPhase.Clarify, markdown: true);
     }
 
     private async Task RunPlanAsync() =>
@@ -914,7 +1150,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
         _engine.CurrentPhase = phase;
         SyncFromEngine();
-        PhaseLabel = runningLabel;
+        Working(runningLabel);
 
         var run = await RunAiAsync(prompt);
         switch (run.Verdict)
@@ -923,10 +1159,16 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 if (phase == GoalPhase.Plan)
                     _engine.RecordProposedPlan(run.Text!);
 
+                    // Said here rather than left to IsRunning going false a moment later. ProposedPlan
+                    // is a plain field that notifies nobody, and the phase does not move when a plan
+                    // arrives, so the approval panel appeared by luck — luck that runs out the day
+                    // anything else sets a plan.
+                    RefreshAsk();
+
                 if (onAnswered != null)
                     await onAnswered(run.Text!);
                 else
-                    await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase);
+                    await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase, markdown: true);
 
                 // Read from the engine afterwards, not from the phase this method was called with: the
                 // handler above may have moved the tile on, and labelling it with the phase it has just
@@ -1035,8 +1277,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     // Two short git processes against a lap that costs minutes of AI, and they pay for
                     // themselves the moment this fires: there is no sense building and reviewing a
                     // change that was never made.
-                    if (criteria.StopOnNoChange &&
-                        await ImplementationChangedNothingAsync(treeBeforeImplement))
+                    if (await ImplementationChangedNothingAsync(treeBeforeImplement))
                     {
                         stopReason = GoalStopReason.NoChange;
                         break;
@@ -1097,7 +1338,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 outstanding = GoalCompletionPolicy.WhyNotMet(review, verify, criteria);
 
                 var repeatedItself = GoalCompletionPolicy.RepeatsPrevious(
-                    review, _engine.LastReviewFingerprint, criteria);
+                    review, _engine.LastReviewFingerprint);
                 _engine.LastReviewFingerprint = review.WasStructured ? review.Fingerprint() : null;
                 if (repeatedItself)
                 {
@@ -1205,7 +1446,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             return null;
         }
 
-        PhaseLabel = "Running the verify command...";
+        Working("Running the verify command...");
 
         VerifyOutcome outcome;
         try
@@ -1262,6 +1503,11 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // user set, undoing what Continue wrote for the goal that has just been replaced.
         Criteria.Reload();
         ShowBadges();
+
+        // StartNewGoal drops the pending questions; this takes them off the screen. They belonged to
+        // the goal that has just been replaced, and answering them would file an answer against a
+        // question this tile is no longer asking.
+        SyncQuestions();
     }
 
     /// <summary>The severities in declaration order, which is the order the saved counts are stored in.
@@ -1453,9 +1699,40 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     prompt,
                     _workingDirectory,
                     AiProcessRunner.GetRunner(_resolvedTool.BinaryName),
+                    // Refused once the tile is disposed, and that guard is here rather than implied:
+                    // PostFireAndForget does not drop anything — it posts, and a post that lands after
+                    // Dispose sets a property on a view model nobody is looking at. Harmless, and the
+                    // comment that used to be here claimed it was prevented, which is worse than not
+                    // saying so. It is still a race by a few microseconds; what it buys is that a run
+                    // being torn down stops queueing work rather than queueing it to the end.
+                    onActivity: doing =>
+                    {
+                        if (_disposed) return;
+
+                        // Checked again on the dispatcher, not only here. This runs on the thread
+                        // draining the child, so a line posted a moment before the run ends lands after
+                        // the finally that clears Activity — leaving an idle tile naming the last file
+                        // the tool happened to open, for the rest of the session.
+                        PostFireAndForget(() => SetActivityIfRunning(doing));
+                    },
                     ct: token);
 
-            return new AiRun(GoalLoopPolicy.Judge(result, cancelled: false), result);
+            // The failure the tool reported about itself, carried beside its words rather than read out
+            // of them. A run that ended in a turn limit or a refused key comes back with text in it —
+            // an apology, a half-finished note — and judged on the text alone that was Answered: the
+            // failure adopted as the plan, or as the review, and acted on.
+            //
+            // The text still goes into the message, because a failed implementation has usually already
+            // written files and this is the only account of what is now in the worktree.
+            if (result.Failed)
+            {
+                await AddMessageAsync(GoalMessageRole.System,
+                    $"The AI tool reported a failure. {Capitalised(TryAgain())}\n\n{result.Text}",
+                    CurrentPhase);
+                return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
+            }
+
+            return new AiRun(GoalLoopPolicy.Judge(result.Text, cancelled: false), result.Text);
         }
         catch (OperationCanceledException)
         {
@@ -1497,7 +1774,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
         _engine.CurrentPhase = phase;
         SyncFromEngine();
-        PhaseLabel = runningLabel;
+        Working(runningLabel);
 
         // Asked again after the working tree is read and before the tool is launched. Reading the tree
         // is two short git processes, but the run after it is minutes, and a pause arriving in that
@@ -1524,7 +1801,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // null, so asking about the string put an empty assistant bubble in the transcript and then
         // summarised the run underneath it.
         if (run.Verdict == GoalRunVerdict.Answered && addMessage)
-            await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase);
+            await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase, markdown: true);
 
         if (run.Verdict == GoalRunVerdict.Answered)
             return new LoopAnswer(run.Text!, tree);
@@ -1605,6 +1882,12 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         finally
         {
             IsRunning = false;
+
+            // Here rather than at each call site: a run ends five ways — finished, paused, cancelled,
+            // failed, thrown — and a tile left showing the last file the tool happened to open is one
+            // that looks busy while it waits for you.
+            Activity = "";
+
             _cts?.Dispose();
             _cts = null;
         }
@@ -1778,10 +2061,26 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// method wrote unconditionally — the file was created here, a line before anything asked whether
     /// it should be.
     /// </param>
+    /// <summary>The label a phase runs under, and the end of whatever the last phase was doing. The
+    /// clear belongs with the label because they change together: without it the strip named a file
+    /// from the implementation for the whole of a verify command, which can run for half an hour —
+    /// a tile looking busy about something that finished.</summary>
+    private void Working(string label)
+    {
+        PhaseLabel = label;
+        Activity = "";
+    }
+
     private void SyncFromEngine(bool save = true)
     {
         CurrentPhase = _engine.CurrentPhase;
         IsPaused = _engine.IsPaused;
+
+        // ShowApproval reads the engine's proposed plan, which is a plain field and notifies nobody.
+        // The phase does not move when a plan arrives — it was set to Plan before the run started —
+        // so without this the panel waited on IsRunning going false to be asked again, which happens to
+        // work and would stop the day anything else set the plan.
+        RefreshAsk();
 
         if (save)
             SaveStateNow();
@@ -1798,18 +2097,24 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// is written once per answer, so this is a handful of small writes over a run, and after it every
     /// point the transcript can be interrupted at is a point it can be resumed from.</para>
     /// </summary>
-    private async Task AddMessageAsync(GoalMessageRole role, string text, GoalPhase phase)
+    /// <param name="markdown">Text the tool wrote in its own words — see
+    /// <see cref="GoalMessage.Markdown"/>. Off by default, so anything this application composed is
+    /// shown as written: its columns are made of spaces, and markdown does not keep spaces.</param>
+    private async Task AddMessageAsync(GoalMessageRole role, string text, GoalPhase phase,
+        bool markdown = false)
     {
         if (Dispatcher.UIThread.CheckAccess())
         {
-            Messages.Add(new GoalMessage { Role = role, Text = text, Phase = phase });
+            Messages.Add(new GoalMessage
+                { Role = role, Text = text, Phase = phase, Markdown = markdown });
             ScrollToEnd?.Invoke();
         }
         else
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Messages.Add(new GoalMessage { Role = role, Text = text, Phase = phase });
+                Messages.Add(new GoalMessage
+                    { Role = role, Text = text, Phase = phase, Markdown = markdown });
                 ScrollToEnd?.Invoke();
             });
         }
@@ -1870,6 +2175,11 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 Messages.Add(m);
 
             ShowBadges();
+
+            // The questions a closed tile was waiting on. This is what the pending set is persisted
+            // for — a panel built from a parsed answer would not survive the tile being closed, and the
+            // goal would come back waiting for an answer to questions nobody could see any more.
+            SyncQuestions();
 
             // After the transcript, not before it: a note about this session belongs at the end of the
             // session, and said first it sat above everything the user had ever typed into this tile.

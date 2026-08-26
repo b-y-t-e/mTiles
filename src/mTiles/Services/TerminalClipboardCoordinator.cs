@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Notepad.Avalonia.Controls;
 using Terminal.Avalonia;
 
 namespace mTiles.Services;
@@ -131,11 +132,24 @@ public static class TerminalClipboardCoordinator
     /// first, so without it a selection made in the Goal tile's transcript was answered with text from
     /// whichever terminal still had one, in a tile the user was not even looking at.
     /// </summary>
-    private static bool HandlesItsOwnCopy(Visual? element)
+    internal static bool HandlesItsOwnCopy(Visual? element)
     {
         for (var v = element; v != null; v = v.GetVisualParent())
         {
             if (v is TextBox or SelectableTextBlock) return true;
+
+            // Both of this package's controls — the Note tile's editor and the Goal tile's markdown
+            // view — draw their own text, hold their own selection and copy on Ctrl+C, and neither is a
+            // TextBox or anything derived from one. The comment above has claimed the Note editor was
+            // covered since before it was this control: it was written when notes were AvaloniaEdit, and
+            // moving them left the sentence true and the check false.
+            //
+            // Matched by type rather than by namespace, and that is not tidiness: `is` catches a
+            // subclass and a namespace prefix does not. The Goal tile's viewer *is* a subclass, living
+            // in this assembly, so the prefix version missed the very control it was written for —
+            // silently, as this failure always is: a selection answered with text from a terminal in a
+            // tile the user is not looking at.
+            if (v is MarkdownViewer or NoteEditor) return true;
             if ((v.GetType().FullName ?? "").StartsWith("AvaloniaEdit.")) return true;
         }
         return false;

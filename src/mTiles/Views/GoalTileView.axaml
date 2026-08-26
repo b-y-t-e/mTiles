@@ -3,6 +3,7 @@
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
              xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:v="using:mTiles.Views"
              x:Class="mTiles.Views.GoalTileView"
              x:DataType="vm:GoalTileViewModel">
 
@@ -18,14 +19,68 @@
         text, muted chrome and one hairline per edge.
     -->
     <UserControl.Styles>
-        <!-- ======== Transcript rows ======== -->
+        <!-- ======== Transcript rows ========
+             Read as turns, not as lines. Everything here is one decision: a message is a block with air
+             around it, and what separates two of them is space rather than a rule. Rules would be
+             cheaper and would turn a conversation into a table.
+
+             The one line that is drawn is above a message of yours, because that is where a turn
+             begins — the tool's answer belongs to the question above it, and the eye needs to know
+             where to go back to. -->
         <Style Selector="Border.row">
-            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Margin" Value="0,0,0,2" />
         </Style>
+
         <!-- What you typed keeps the raised band it has in a terminal: it is the thing you scroll back
-             to look for, and it is the only row that gets a background. -->
+             to look for, and it is still the only row with a background. Inset and rounded now, so it
+             reads as a block somebody wrote rather than a stripe across the tile, and with the hairline
+             above it that says a new turn starts here. -->
         <Style Selector="Border.row-user">
             <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Margin" Value="4,10,4,4" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
+        </Style>
+
+        <!-- ======== Copy ========
+             One per message, at the top right rather than under the text: it costs no vertical space in
+             a transcript where every line is read, and the first line of a message is where the eye
+             already is.
+
+             Hidden until the pointer is over the message. A button under every turn, always lit, is
+             three pieces of chrome per exchange in a panel whose whole argument is that the
+             conversation stays readable — and this is a convenience, not a thing anybody comes here to
+             do. It fades rather than appearing, so a pointer crossing the transcript on its way
+             somewhere else does not make the tile flicker. -->
+        <Style Selector="Button.msg-copy">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.row:pointerover Button.msg-copy">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Button.msg-copy:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+
+        <!-- A note from the tile itself: quieter, and closer to whatever it is a note about — it is a
+             footnote to the message above, not a turn of its own. -->
+        <Style Selector="Border.row-system">
+            <Setter Property="Padding" Value="10,1,10,4" />
         </Style>
 
         <Style Selector="TextBlock.gutter">
@@ -47,8 +102,12 @@
             <Setter Property="Text" Value="&#x2514;" />
         </Style>
 
+        <!-- The line spacing is the whole of why this reads better. A wall of monospace set solid is
+             the hardest thing on this screen to scan, and two pixels a line is the difference between a
+             log and something written to be read. -->
         <Style Selector="SelectableTextBlock.msg">
             <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineSpacing" Value="2" />
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
             <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
@@ -70,6 +129,13 @@
         <!-- The phase's colour comes from the ANSI palette (ThemeBridge), so it stays legible on
              whatever background the terminal theme paints. Set as a class rather than as a brush
              resolved in code-behind, so changing theme repaints it without rebuilding the view. -->
+        <!-- Dimmer than the phase beside it, and it never grows the strip: a tool call is transient and
+             must not be able to push what the tile is doing off the end of the line. -->
+        <Style Selector="TextBlock.strip-activity">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="MaxWidth" Value="220" />
+        </Style>
+
         <Style Selector="Ellipse.phase-goal">
             <Setter Property="Fill" Value="{DynamicResource TextMuted}" />
         </Style>
@@ -196,6 +262,95 @@
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         </Style>
 
+
+        <!-- ======== The ask ========
+             When the tile needs something from you it says so in one place, and that place replaces
+             the composer rather than sitting above it: two boxes asking for the same thing with
+             different filing rules is how an answer ends up against the wrong question.
+
+             It is marked by a two-pixel accent rail down its left edge — the same idiom the app uses
+             for the active tile, and the only saturated colour in this tile besides the phase dot. No
+             card, no shadow, no second background: the panel is part of the transcript's surface and
+             the rail is what says it is waiting on you. -->
+        <Style Selector="Border.ask">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="Border.ask-rail">
+            <Setter Property="Width" Value="2" />
+            <Setter Property="Background" Value="{DynamicResource AccentDefault}" />
+        </Style>
+        <Style Selector="TextBlock.ask-title">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+
+        <!-- The number lives in its own column, so a question that wraps keeps its indent instead of
+             returning to column zero under its own marker. That is the whole reason these are controls
+             and not a paragraph: it is unreadable at three questions and this is why. -->
+        <Style Selector="TextBlock.ask-marker">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Margin" Value="0,1,8,0" />
+        </Style>
+        <Style Selector="TextBlock.ask-question">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <!-- The reason under a question, at the question's own size: it is a sentence about the same
+             thing, and setting it smaller made one thought look like two kinds of text. The colour is
+             the whole of the difference, and it is enough. -->
+        <Style Selector="TextBlock.ask-why">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,2,0,0" />
+        </Style>
+
+        <!-- An offered answer.
+             Quieter than the question and louder than a caption. It began at the caption end of that
+             range — small type, muted — on the reasoning that a suggestion drawn like an action reads
+             as the choice you are meant to make. That reasoning holds for a chip saying "yes" and fails
+             for one saying a whole sentence, which is what a tool produces whenever the decision is
+             about behaviour: three lines of small grey text carrying the actual content of the
+             question, under a question set in full size. These are answers. They are set like answers,
+             and the border and the transparent ground are what keep them from reading as the default. -->
+        <Style Selector="Button.ask-option">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.ask-option:pointerover">
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        </Style>
+
+        <Style Selector="TextBox.ask-field">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="Background" Value="{DynamicResource BgBase}" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Margin" Value="0,5,0,0" />
+        </Style>
+
         <!-- ======== Composer ======== -->
         <!-- The prompt glyph belongs inside the field, as it does in a shell, so the border is drawn
              by the surrounding Border and the TextBox gives up its own. -->
@@ -309,11 +464,23 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock Classes="strip"
+                    <!-- The phase is pinned to the right edge and the activity flows in front of it,
+                         because a DockPanel trims its *last* child — the one that fills. With the two the
+                         other way round the phase was what gave way, which is backwards: the phase says
+                         what the tile is doing and the activity is about this second. Docking the phase
+                         puts the reading that has to survive out of the way of the one that does not. -->
+                    <TextBlock DockPanel.Dock="Right"
+                               Classes="strip"
                                Text="{Binding PhaseLabel}"
                                TextTrimming="CharacterEllipsis"
                                ToolTip.Tip="{Binding PhaseLabel}"
                                Margin="6,0,8,0" />
+                    <TextBlock Classes="strip strip-activity"
+                               Text="{Binding Activity}"
+                               IsVisible="{Binding Activity, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding Activity}"
+                               Margin="6,0,0,0" />
                 </DockPanel>
             </DockPanel>
         </Border>
@@ -383,21 +550,55 @@
                 <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireGoalMet}"
                           Content="the review says the goal is met"
                           ToolTip.Tip="Separate from the counts: clean code that does the wrong thing has no findings" />
-                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.StopOnNoProgress}"
-                          Content="stop early when two reviews find the same things"
-                          ToolTip.Tip="The implementation is circling, and the attempts left would prove it" />
-                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.StopOnNoChange}"
-                          Content="stop early when an attempt changes nothing"
-                          ToolTip.Tip="The tool did nothing, and the same prompt gets the same nothing" />
+                <!-- The two mechanical stops used to be checkboxes here and are neither settings nor
+                     switches any more: both are always on. A switch is worth a line of this panel where
+                     two users would reasonably choose differently, and nobody reasonably chooses to
+                     spend attempts on a tool that just wrote nothing, or on a review that has said the
+                     same thing twice. What replaced them is the summary naming which of the two ended
+                     the run — see GoalCompletionPolicy.Summarise. -->
             </StackPanel>
         </Border>
 
-        <!-- ======== Composer ======== -->
+
+        <!-- ======== The ask: the plan ========
+             One box and one button, and the button follows the box: empty means approve, anything
+             typed means send that instead. Two buttons would have made "Approve" the thing that
+             happens to whatever the user had just written. -->
+        <Border DockPanel.Dock="Bottom" Classes="ask" IsVisible="{Binding ShowApproval}">
+            <DockPanel>
+                <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                <StackPanel Margin="10,6,10,8">
+                    <!-- Enter sends, as it does in the composer and in an answer box. It takes line
+                         breaks too, so Shift+Enter is the one that adds one. -->
+                    <TextBox x:Name="PlanBox"
+                             Classes="ask-field"
+                             Margin="0"
+                             Text="{Binding InputText}"
+                             PlaceholderText="Approve the plan, or describe what to change&#x2026;"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             MaxHeight="120"
+                             KeyDown="PlanBox_KeyDown" />
+
+                    <Button HorizontalAlignment="Right"
+                            Margin="0,6,0,0"
+                            Classes="goal-action primary"
+                            Command="{Binding ApproveOrChangeCommand}"
+                            Content="{Binding ApprovalActionLabel}"
+                            ToolTip.Tip="An empty box approves the plan as it stands" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ======== Composer ========
+             Only when there is something it can send: not while the tool is working, and not while one
+             of the panels above is asking for the same thing in a better shape. -->
         <Border DockPanel.Dock="Bottom"
                 Padding="6,5"
                 Background="{DynamicResource BgSurface}"
                 BorderBrush="{DynamicResource BorderSubtle}"
-                BorderThickness="{DynamicResource BorderTop}">
+                BorderThickness="{DynamicResource BorderTop}"
+                IsVisible="{Binding ShowComposer}">
             <!-- No second "the tool is busy" line here. The status strip already carries it, with the
                  phase and the iteration number in it, so a line saying only that something is happening
                  was the same news told worse. -->
@@ -438,20 +639,19 @@
                 Padding="6,4,6,0"
                 Background="{DynamicResource BgSurface}"
                 IsVisible="{Binding CanDetectGoal}">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-system" Margin="0,3,0,0" />
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
-                    <Button Classes="goal-action"
-                            Command="{Binding DetectGoalCommand}"
-                            Content="Detect goal"
-                            ToolTip.Tip="Read the uncommitted changes and put the goal in the box to edit" />
-                    <Button Classes="goal-action primary"
-                            Command="{Binding DetectGoalAndRunCommand}"
-                            Content="Detect &amp; run"
-                            ToolTip.Tip="Read the goal and start reviewing and fixing straight away" />
-                </StackPanel>
-                <TextBlock Classes="strip" Text="You have uncommitted changes." VerticalAlignment="Center" />
-            </DockPanel>
+            <!-- No sentence saying there are uncommitted changes: the bar is shown only when there are,
+                 so it was a line spent restating why it was on screen. The tooltips say what the two
+                 buttons read from. -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                <Button Classes="goal-action"
+                        Command="{Binding DetectGoalCommand}"
+                        Content="Detect goal"
+                        ToolTip.Tip="Read the uncommitted changes and put the goal in the box to edit" />
+                <Button Classes="goal-action primary"
+                        Command="{Binding DetectGoalAndRunCommand}"
+                        Content="Detect &amp; run"
+                        ToolTip.Tip="Read the goal and start reviewing and fixing straight away" />
+            </StackPanel>
         </Border>
 
         <!-- ======== More attempts for a run that ran out ========
@@ -475,29 +675,191 @@
             </DockPanel>
         </Border>
 
-        <!-- ======== Transcript ======== -->
+        <!-- ======== Transcript, and the questions under it ========
+             One grid rather than another docked bar, because the divider between them is draggable: at
+             three questions with reasons and offered answers the panel is most of a small tile, and how
+             much of it to give up for the conversation is a judgement only the person reading can make.
+             The splitter and the panel share one visibility, so nothing is left to grab at when there is
+             nothing being asked — and the row is collapsed with them, or an empty band would sit under
+             the transcript holding the height of the last question that was asked (GoalTileView.axaml.cs).
+        -->
+        <Grid x:Name="AskGrid" RowDefinitions="*,Auto,Auto" SizeChanged="AskGrid_SizeChanged">
         <ScrollViewer x:Name="ChatScroll"
+                      Grid.Row="0"
+                      MinHeight="48"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding Messages}" Margin="0,4">
+            <ItemsControl x:Name="Transcript" ItemsSource="{Binding Messages}" Margin="0,4">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="m:GoalMessage">
                         <Border Classes="row"
-                                Classes.row-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}">
+                                Classes.row-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
+                                Classes.row-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}">
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Left"
                                            Classes="gutter"
                                            Classes.gutter-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
                                            Classes.gutter-assistant="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.Assistant}}"
                                            Classes.gutter-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}" />
-                                <SelectableTextBlock Classes="msg"
-                                                     Classes.msg-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}"
-                                                     Text="{Binding Text}" />
+                                <Button DockPanel.Dock="Right"
+                                        Classes="msg-copy"
+                                        Click="CopyMessage_Click"
+                                        ToolTip.Tip="Copy this message">
+                                    <mi:MaterialIcon Kind="ContentCopy" Width="13" Height="13" />
+                                </Button>
+
+<!-- ======== The message ========
+                                     One fill child, and that is load-bearing: a DockPanel gives its
+                                     *last* child the remaining space and docks every other to the left.
+                                     With the two text controls as siblings the markdown view was never
+                                     the last one, so it was laid out at the width of its own content
+                                     instead of the width of the row — every rendered answer narrower
+                                     than the message beside it, for no reason a reader could see.
+
+                                     Which of the two is shown is the message's own answer (IsMarkdown).
+                                     The tool's prose is markdown — agents write headings, bold and fenced
+                                     code whether or not anything reads them, and raw those markers are
+                                     noise in every answer. What this application composed is not: a
+                                     review is a column of severities with the detail indented under
+                                     each, and markdown collapses runs of spaces, reads a two-space
+                                     indent as a continuation, and turns a `*` inside a finding into
+                                     emphasis. Nor is your own text, where an asterisk is one you typed.
+
+                                     No external ScrollViewer around the viewer *by height*: it scrolls
+                                     itself when given a finite height and sizes to its content when it
+                                     is not. Inside the transcript's scroller the height is
+                                     unconstrained, so it lays out as a block and the transcript does the
+                                     scrolling, which is what a message in a list has to do. -->
+                                <ContentControl Content="{Binding}">
+                                    <ContentControl.ContentTemplate>
+                                        <v:GoalMessageTemplate>
+                                            <v:GoalMessageTemplate.Markdown>
+                                                <DataTemplate DataType="m:GoalMessage">
+                                                    <v:GoalMarkdownView MarkdownText="{Binding Text}" />
+                                                </DataTemplate>
+                                            </v:GoalMessageTemplate.Markdown>
+                                            <v:GoalMessageTemplate.Plain>
+                                                <DataTemplate DataType="m:GoalMessage">
+                                                    <SelectableTextBlock Classes="msg"
+                                                                         Classes.msg-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}"
+                                                                         Text="{Binding Text}" />
+                                                </DataTemplate>
+                                            </v:GoalMessageTemplate.Plain>
+                                        </v:GoalMessageTemplate>
+                                    </ContentControl.ContentTemplate>
+                                </ContentControl>
                             </DockPanel>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
+
+        <GridSplitter x:Name="AskSplitter"
+                      Grid.Row="1"
+                      Height="5"
+                      ResizeDirection="Rows"
+                      Background="Transparent"
+                      IsVisible="{Binding ShowQuestions}" />
+
+        <!-- ======== The ask: questions ========
+             Docked where the composer is, because it replaces it. Capped and scrollable: the request
+             was that the conversation stay readable while questions are on screen, and a panel that
+             grows with the number of questions is a panel that eats the tile at four of them.
+
+             And no MinHeight. One used to be here at 110, which quietly outranked that cap: on a tile
+             150 pixels tall three fifths is 90, the floor won, and the transcript was squeezed past its
+             own minimum until the Send button left the bottom edge — the failure the cap exists to
+             prevent, reintroduced by the guard sitting next to it. -->
+        <Border Grid.Row="2"
+                x:Name="AskPanel"
+                Classes="ask"
+                IsVisible="{Binding ShowQuestions}">
+            <DockPanel>
+                <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                <Grid Margin="10,6,10,8" RowDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Row="0"
+                               Classes="ask-title"
+                               Margin="0,0,0,4"
+                               Text="{Binding QuestionsTitle}" />
+
+                    <!-- No MaxHeight any more: the panel's height is the splitter's business, and a cap
+                         in here would have left the list scrolling inside 260 pixels of a panel the
+                         user had just dragged to twice that. -->
+                    <!-- The padding is for the scroll bar, which is drawn over the content rather
+                         than beside it: without it the right-hand border of every answer box sat
+                         underneath the bar and looked cut off. It is on the scroller rather than on the
+                         rows so that it is there only when there is something to scroll past. -->
+                    <ScrollViewer Grid.Row="1"
+                                  Padding="0,0,10,0"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="QuestionList" ItemsSource="{Binding Questions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:GoalQuestionAnswer">
+                                    <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,16">
+                                        <TextBlock Grid.Column="0" Classes="ask-marker" Text="{Binding Marker}" />
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Classes="ask-question" Text="{Binding Question}" />
+                                            <TextBlock Classes="ask-why"
+                                                       IsVisible="{Binding HasWhy}"
+                                                       Text="{Binding Why}" />
+
+                                            <!-- One offered answer per row, each the full width of the
+                                                 panel.
+
+                                                 Two shapes were tried first and both cut the text off
+                                                 mid-word: a WrapPanel measures its children with
+                                                 unlimited width, so a chip carrying a sentence is never
+                                                 asked to wrap, and a chip sized to its own content is
+                                                 not asked either — it is simply clipped when it does not
+                                                 fit. A row that fills the width has a width to wrap at,
+                                                 which is the only version of this that cannot lose a
+                                                 word. A short answer in a wide row is a little empty
+                                                 space; a long one in a narrow chip was unreadable. -->
+                                            <ItemsControl ItemsSource="{Binding Options}"
+                                                          IsVisible="{Binding HasOptions}"
+                                                          Margin="0,5,0,0">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="vm:GoalOption">
+                                                        <Button Classes="ask-option"
+                                                                HorizontalAlignment="Stretch"
+                                                                Margin="0,0,0,5"
+                                                                Command="{Binding Use}"
+                                                                ToolTip.Tip="Put this in the answer below">
+                                                            <TextBlock Text="{Binding Text}"
+                                                                       TextWrapping="Wrap" />
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
+                                            <!-- Enter sends, as it does in the composer. The box refuses
+                                                 line breaks, so without this Enter was the one key that
+                                                 did nothing at all in a panel you answer by typing. -->
+                                            <TextBox Classes="ask-field"
+                                                     Text="{Binding Answer}"
+                                                     PlaceholderText="Your answer&#x2026;"
+                                                     AcceptsReturn="False"
+                                                     TextWrapping="Wrap"
+                                                     KeyDown="AnswerBox_KeyDown" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <Button Grid.Row="2"
+                            HorizontalAlignment="Right"
+                            Margin="0,4,0,0"
+                            Classes="goal-action primary"
+                            Command="{Binding SendAnswersCommand}"
+                            Content="Send answers"
+                            ToolTip.Tip="Send what you have written. A question left blank is skipped." />
+                </Grid>
+            </DockPanel>
+        </Border>
+        </Grid>
     </DockPanel>
 </UserControl>

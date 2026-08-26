@@ -62,11 +62,19 @@ public class GoalStateNullGuardTests
               "ClarificationHistory": ["User: appsettings.json", null],
               "AttemptLog": [null, "Attempt 1: did a thing"],
               "Messages": [null, { "Role": "User", "Text": "hello" }],
+              "PendingQuestions": [null, { "Question": "Which?", "Options": ["a", null] }],
               "CurrentPhase": "Clarify"
             }
             """;
 
         var state = JsonSerializer.Deserialize<GoalTileState>(hostile, JsonDefaults.Options)!;
+
+        // Two levels down, which is where this keeps going wrong: the walk covers properties, and a
+        // list inside a list element is still named by hand. A null in a question's options ends as a
+        // NullReferenceException in GoalQuestionAnswer's constructor or in GoalTranscript.Questions —
+        // inside the view model's catch of last resort, which stops the tile saving for good.
+        var question = Assert.Single(state.PendingQuestions);
+        Assert.Equal(["a"], question.Options);
 
         Assert.Single(state.ClarificationHistory);
         Assert.Single(state.AttemptLog);
@@ -184,4 +192,43 @@ public class GoalStateNullGuardTests
             .Where(p => p.CanRead && p.CanWrite)
             .Where(p => !p.PropertyType.IsValueType)
             .Where(p => new NullabilityInfoContext().Create(p).WriteState != NullabilityState.Nullable);
+
+    /// <summary>
+    /// Which messages are markdown survives a save and a load.
+    /// </summary>
+    /// <remarks>
+    /// The flag decides how a message is drawn, so a round trip that loses it re-flows a review's
+    /// columns on the first restart — which is the failure the flag was turned round to prevent, and it
+    /// would come back through persistence instead of through the default.
+    /// </remarks>
+    [Fact]
+    public void Whether_a_message_is_markdown_survives_the_file()
+    {
+        var saved = new GoalTileState
+        {
+            OriginalGoal = "a goal",
+            Messages =
+            [
+                new GoalMessage { Role = GoalMessageRole.Assistant, Text = "## Plan", Markdown = true },
+                new GoalMessage { Role = GoalMessageRole.Assistant, Text = "error  a.cs:1" },
+                new GoalMessage { Role = GoalMessageRole.User, Text = "*mine*" },
+            ],
+        };
+
+        var loaded = JsonSerializer.Deserialize<GoalTileState>(
+            JsonSerializer.Serialize(saved, JsonDefaults.Options), JsonDefaults.Options)!;
+
+        Assert.True(loaded.Messages[0].IsMarkdown);
+        Assert.False(loaded.Messages[1].IsMarkdown);
+        Assert.False(loaded.Messages[2].IsMarkdown);
+
+        // A file written before the flag existed has no field at all, and must read as the behaviour it
+        // was written under: no markdown, whatever the role.
+        const string old = """
+            {"OriginalGoal":"a goal","Messages":[{"Role":"Assistant","Text":"error  a.cs:1"}]}
+            """;
+
+        var older = JsonSerializer.Deserialize<GoalTileState>(old, JsonDefaults.Options)!;
+        Assert.False(older.Messages[0].IsMarkdown);
+    }
 }

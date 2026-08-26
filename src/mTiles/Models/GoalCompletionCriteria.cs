@@ -38,13 +38,20 @@ public sealed class GoalCompletionCriteria
     }
     private string _verifyCommand = "";
 
-    /// <summary>Stop when two consecutive reviews find exactly the same things. The implementation is
-    /// circling, and the attempts left would be spent proving it.</summary>
-    public bool StopOnNoProgress { get; set; } = true;
-
-    /// <summary>Stop when an implementation leaves the working tree exactly as it found it. The tool
-    /// did nothing, and asking it again with the same prompt gets the same nothing.</summary>
-    public bool StopOnNoChange { get; set; } = true;
+    // The two mechanical stops — two reviews in a row reaching the same conclusion, and an
+    // implementation that left the working tree exactly as it found it — used to be settings here and
+    // checkboxes on the panel. They are neither now: both are always on.
+    //
+    // A setting is worth having where two users would reasonably choose differently. Nobody
+    // reasonably chooses to spend attempts on a tool that just wrote nothing, or on a review that has
+    // already said the same thing twice — turning either off buys nothing but a longer wait for the
+    // same ending. They were switches over a decision with one sensible answer, and every switch on
+    // that panel costs a line the user has to read and decide about.
+    //
+    // What replaces them is the summary saying plainly which of the two ended the run, which is the
+    // part the user actually needed. Old goal files may still carry the two fields; System.Text.Json
+    // ignores what it does not recognise, so they are read as absent and that is correct — the
+    // behaviour they used to switch off is no longer switchable.
 
     public GoalCompletionCriteria Copy() => new()
     {
@@ -53,7 +60,5 @@ public sealed class GoalCompletionCriteria
         RequireGoalMet = RequireGoalMet,
         MaxIterations = MaxIterations,
         VerifyCommand = VerifyCommand,
-        StopOnNoProgress = StopOnNoProgress,
-        StopOnNoChange = StopOnNoChange,
     };
 }

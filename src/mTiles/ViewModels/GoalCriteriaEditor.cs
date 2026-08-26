@@ -35,8 +35,6 @@ public partial class GoalCriteriaEditor : ObservableObject
     [ObservableProperty] private int _maxErrors;
     [ObservableProperty] private int _maxWarnings;
     [ObservableProperty] private bool _requireGoalMet = true;
-    [ObservableProperty] private bool _stopOnNoProgress = true;
-    [ObservableProperty] private bool _stopOnNoChange = true;
 
     /// <summary>Empty unless the typed attempt count is outside what will actually be run. See
     /// <see cref="ShowClampNotes"/>.</summary>
@@ -100,8 +98,6 @@ public partial class GoalCriteriaEditor : ObservableObject
             MaxErrors = c.MaxErrors;
             MaxWarnings = c.MaxWarnings;
             RequireGoalMet = c.RequireGoalMet;
-            StopOnNoProgress = c.StopOnNoProgress;
-            StopOnNoChange = c.StopOnNoChange;
         }
         finally { _filling = false; }
 
@@ -168,8 +164,6 @@ public partial class GoalCriteriaEditor : ObservableObject
     partial void OnMaxErrorsChanged(int value) => Changed();
     partial void OnMaxWarningsChanged(int value) => Changed();
     partial void OnRequireGoalMetChanged(bool value) => Changed();
-    partial void OnStopOnNoProgressChanged(bool value) => Changed();
-    partial void OnStopOnNoChangeChanged(bool value) => Changed();
 
     /// <summary>
     /// One edit, written through to wherever the criteria live.
@@ -189,8 +183,6 @@ public partial class GoalCriteriaEditor : ObservableObject
             MaxErrors = MaxErrors,
             MaxWarnings = MaxWarnings,
             RequireGoalMet = RequireGoalMet,
-            StopOnNoProgress = StopOnNoProgress,
-            StopOnNoChange = StopOnNoChange,
         });
 
         ShowClampNotes();

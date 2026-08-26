@@ -94,10 +94,8 @@ internal static class GoalCompletionPolicy
     /// the schema down to two attempts, reporting it as "the last two reviews found the same things"
     /// when nothing had been compared at all.</para>
     /// </summary>
-    public static bool RepeatsPrevious(GoalReviewResult review, string? previousFingerprint,
-        GoalCompletionCriteria criteria) =>
-        criteria.StopOnNoProgress
-        && review.WasStructured
+    public static bool RepeatsPrevious(GoalReviewResult review, string? previousFingerprint) =>
+        review.WasStructured
         && previousFingerprint != null
         && previousFingerprint == review.Fingerprint();
 
@@ -130,12 +128,12 @@ internal static class GoalCompletionPolicy
         // why the run ended and the outstanding line says what it ended *with*, and the caller knows
         // both by the time either of these is reached.
         GoalStopReason.NoProgress =>
-            $"Stopped after {Count(attempts, "attempt")}: the last two reviews reached exactly the same " +
-            "conclusion, so the remaining attempts would repeat it" + Outstanding(outstanding),
+            $"Stopped after {Count(attempts, "attempt")}: two reviews in a row reached the same " +
+            "conclusion, so more attempts would reach it again" + Outstanding(outstanding),
 
         GoalStopReason.NoChange =>
-            $"Stopped after {Count(attempts, "attempt")}: the last implementation changed nothing in the " +
-            "working tree" + Outstanding(outstanding),
+            $"Stopped after {Count(attempts, "attempt")}: the last attempt changed no files, so the " +
+            "same prompt would change none again" + Outstanding(outstanding),
 
         // Stopped rather than tried again. The timeout is already half an hour, so the attempts left
         // are hours of waiting for the same answer — and the answer is unusable either way, because a

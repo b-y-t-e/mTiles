@@ -607,13 +607,9 @@ public class GoalClarifyParsingTests
             "{\"question\":\"Which file?\",\"options\":[\"appsettings.json\",\"launchSettings.json\"]}," +
             "{\"question\":\"Sync or async?\"}]}\n```");
 
-        // Answering in place is the point: a blank box under numbered questions asks the user to
-        // reproduce the numbering, and the ones who do not leave answers nothing can be matched to.
-        //
-        // The options are NOT filled in. Doing that made Enter mean "send the tool's own guess back as
-        // my answer", from a box the user may not have read. They are printed under the question,
-        // where they are an offer rather than a default.
-        Assert.Equal("1. \n2. ", GoalTranscript.AnswerSkeleton(clarify));
+        // The options are printed under their question rather than filled into the answer. Filling
+        // them in made Send mean "send the tool's own guess back as my answer", from a box the user may
+        // not have read.
         Assert.Contains("appsettings.json", GoalTranscript.Questions(clarify));
     }
 
@@ -668,15 +664,16 @@ public class GoalClarifyParsingTests
     }
 
     [Fact]
-    public void The_questions_and_the_skeleton_number_themselves_the_same_way()
+    public void The_questions_and_the_answers_number_themselves_the_same_way()
     {
-        // An answer is matched to its question by eye. "1)" above and "1." below is one more thing for
-        // the reader to reconcile, in the one place where the whole point is that they line up.
+        // An answer is filed under its number, and the panel prints that number beside the question:
+        // "1)" in one place and "1." in the other is one more thing for the reader to reconcile, in the
+        // one place where the whole point is that they line up.
         var clarify = GoalResponseParser.ParseClarify(
             "```json\n{\"questions\":[{\"question\":\"Which file?\"}]}\n```");
 
         Assert.StartsWith("1. ", GoalTranscript.Questions(clarify));
-        Assert.StartsWith("1. ", GoalTranscript.AnswerSkeleton(clarify));
+        Assert.Equal("1.", new GoalQuestionAnswer(1, clarify.Questions[0]).Marker);
     }
 
     [Fact]
@@ -777,8 +774,7 @@ public class GoalCompletionPolicyTests
         // tool that ignores the schema down to two attempts — and blamed it on findings it never read.
         var prose = GoalResponseParser.ParseReview("VERDICT: FAIL");
 
-        Assert.False(GoalCompletionPolicy.RepeatsPrevious(prose, prose.Fingerprint(),
-            new GoalCompletionCriteria()));
+        Assert.False(GoalCompletionPolicy.RepeatsPrevious(prose, prose.Fingerprint()));
     }
 
     [Fact]

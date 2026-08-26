@@ -66,7 +66,7 @@ public class GoalWorkflowLoopTests : IDisposable
     {
         var asked = 0;
         GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
-            Task.FromResult(answers[Math.Min(asked++, answers.Length - 1)]);
+            Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
     }
 
     /// <summary>Waits for the tile's file to appear — messages are written on a debounce.</summary>
@@ -180,7 +180,7 @@ public class GoalWorkflowLoopTests : IDisposable
             await vm.SubmitCommand.ExecuteAsync(null);
 
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("changed nothing in the working tree"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("changed no files"));
         });
     }
 
@@ -197,7 +197,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
                 asked++;
-                return Task.FromResult(asked switch
+                return Task.FromResult<AiOutput>(asked switch
                 {
                     1 => "Which files?",
                     2 => NoMoreQuestions,
@@ -216,7 +216,7 @@ public class GoalWorkflowLoopTests : IDisposable
             await vm.SubmitCommand.ExecuteAsync(null);
 
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("reached exactly the same"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("reached the same conclusion"));
 
             // And it stopped short of the budget rather than proving the point five times.
             Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("attempt 4"));
@@ -307,7 +307,7 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 prompts.Add(prompt);
                 asked++;
-                return Task.FromResult(asked switch
+                return Task.FromResult<AiOutput>(asked switch
                 {
                     1 => "Which files?",
                     2 => NoMoreQuestions,
@@ -407,7 +407,7 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 asked++;
                 if (asked == 3) first.PauseCommand.Execute(null);
-                return Task.FromResult(asked switch { 1 => "Which files?", 2 => NoMoreQuestions, _ => "The plan" });
+                return Task.FromResult<AiOutput>(asked switch { 1 => "Which files?", 2 => NoMoreQuestions, _ => "The plan" });
             };
 
             first.InputText = "a goal";
@@ -437,7 +437,7 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 prompts.Add(prompt);
                 asked++;
-                return Task.FromResult(asked == 1
+                return Task.FromResult<AiOutput>(asked == 1
                     ? "```json\n{\"questions\":[{\"question\":\"Which config file holds the port?\"}]}\n```"
                     : NoMoreQuestions);
             };
@@ -469,7 +469,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
                 asked++;
-                return Task.FromResult(
+                return Task.FromResult<AiOutput>(
                     "```json\n{\"questions\":[{\"question\":\"Which file?\"},{\"question\":\"Sync?\"}]}\n```");
             };
 
@@ -478,15 +478,24 @@ public class GoalWorkflowLoopTests : IDisposable
             vm.InputText = "a goal";
             await vm.SubmitCommand.ExecuteAsync(null);
 
-            // The composer was filled with the numbering, and pressing Enter used to send it — one of
-            // three rounds spent on "1.\n2.".
-            Assert.Equal("1. \n2. ", vm.InputText);
+            // The composer used to be filled with the numbering and pressing Enter sent it — one of
+            // three rounds spent on "1.\n2.". The questions now have a box each and the composer is
+            // not even up, so there is nothing to send by accident.
+            Assert.Equal(2, vm.Questions.Count);
+            Assert.True(vm.ShowQuestions);
+            Assert.False(vm.ShowComposer);
+            Assert.Equal("", vm.InputText);
 
-            await vm.SubmitCommand.ExecuteAsync(null);
+            // The rule the numbering test was really about, asked where it now lives: sending with
+            // every box empty spends no round.
+            await vm.SendAnswersCommand.ExecuteAsync(null);
 
             Assert.Equal(1, asked);
             Assert.Contains(vm.Messages, m => m.Text.Contains("Answer at least one"));
             Assert.DoesNotContain(vm.Messages, m => m.Role == GoalMessageRole.User && m.Text.StartsWith("1."));
+
+            // And the questions are still there to answer, rather than having been spent.
+            Assert.Equal(2, vm.Questions.Count);
         });
     }
 
@@ -534,7 +543,6 @@ public class GoalWorkflowLoopTests : IDisposable
             first.Criteria.MaxIterations = 9;
             first.Criteria.MaxWarnings = 2;
             first.Criteria.RequireGoalMet = false;
-            first.Criteria.StopOnNoChange = false;
             first.Dispose();
 
             using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
@@ -543,7 +551,6 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Equal(9, second.Criteria.MaxIterations);
             Assert.Equal(2, second.Criteria.MaxWarnings);
             Assert.False(second.Criteria.RequireGoalMet);
-            Assert.False(second.Criteria.StopOnNoChange);
 
             // And a command that arrived in a file is named out loud, and gated: goal files live in the
             // user's own repository and a committed one travels with the branch.
@@ -561,7 +568,7 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 asked++;
                 // Nothing at all, which pauses the tile in Clarify with the questions on screen.
-                return Task.FromResult(asked == 1
+                return Task.FromResult<AiOutput>(asked == 1
                     ? "```json\n{\"questions\":[{\"question\":\"Which file?\"}]}\n```"
                     : "   ");
             };
@@ -598,7 +605,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
                 asked++;
-                return Task.FromResult(asked == 1
+                return Task.FromResult<AiOutput>(asked == 1
                     ? "The goal is clear; I am assuming the API stays as it is.\n\n" +
                       "```json\n{\"needsClarification\":false}\n```"
                     : "The plan");
@@ -626,7 +633,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
             {
                 prompts.Add(prompt);
-                return Task.FromResult(++asked == 1
+                return Task.FromResult<AiOutput>(++asked == 1
                     ? "```json\n{\"needsClarification\":true,\"questions\":[]}\n```"
                     : "The plan");
             };
@@ -686,7 +693,7 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 asked++;
                 if (asked == 4) vm.PauseCommand.Execute(null);
-                return Task.FromResult(asked switch
+                return Task.FromResult<AiOutput>(asked switch
                 {
                     1 => "Which files?",
                     2 => NoMoreQuestions,
@@ -725,7 +732,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
                 asked++;
-                return Task.FromResult("some goal");
+                return Task.FromResult<AiOutput>("some goal");
             };
 
             // What the real reader produces where git cannot be run: not null — a note saying so. The
@@ -913,18 +920,18 @@ public class GoalWorkflowLoopTests : IDisposable
             if (prompt.Contains("Implement the following goal"))
             {
                 implemented++;
-                return Task.FromResult("Implemented it");
+                return Task.FromResult<AiOutput>("Implemented it");
             }
 
             if (prompt.Contains("Review the code changes"))
             {
                 reviews++;
-                return Task.FromResult(
+                return Task.FromResult<AiOutput>(
                     "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"warning\"," +
                     $"\"title\":\"W{reviews}\"}}]}}\n```");
             }
 
-            return Task.FromResult(before++ switch
+            return Task.FromResult<AiOutput>(before++ switch
             {
                 0 => "Which files?",
                 1 => NoMoreQuestions,
@@ -962,7 +969,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
             {
                 if (prompt.Contains("Review the code changes")) reviews++;
-                return Task.FromResult(
+                return Task.FromResult<AiOutput>(
                     prompt.Contains("Implement the following goal") ? "Implemented it" : NoMoreQuestions);
             };
 
@@ -1100,7 +1107,7 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 asked++;
                 if (asked == 2) vm.PauseCommand.Execute(null);
-                return Task.FromResult(asked == 1 ? "Which files?" : NoMoreQuestions);
+                return Task.FromResult<AiOutput>(asked == 1 ? "Which files?" : NoMoreQuestions);
             };
 
             vm.InputText = "a goal";
@@ -1282,14 +1289,14 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
             {
                 if (!prompt.Contains("Review the code changes"))
-                    return Task.FromResult(prompt.Contains("Implement the following goal")
+                    return Task.FromResult<AiOutput>(prompt.Contains("Implement the following goal")
                         ? "Implemented it"
                         : NoMoreQuestions);
 
                 // A title that moves, so two reviews never look alike and the no-progress stop stays
                 // out of the way of what this test is about.
                 reviews++;
-                return Task.FromResult(
+                return Task.FromResult<AiOutput>(
                     "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"warning\"," +
                     $"\"title\":\"W{reviews}\"}}]}}\n```");
             };
@@ -1416,7 +1423,7 @@ public class GoalWorkflowLoopTests : IDisposable
             // It ran out of attempts, which is the truth. It used to stop after one and say the
             // implementation had changed nothing — in a workspace where nobody could see whether it had.
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("changed nothing in the working tree"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("changed no files"));
             Assert.Contains(vm.Messages, m => m.Text.Contains("without meeting the completion criteria"));
         });
     }
@@ -1454,7 +1461,7 @@ public class GoalWorkflowLoopTests : IDisposable
             await vm.SubmitCommand.ExecuteAsync(null);
 
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("changed nothing in the working tree"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("changed no files"));
         });
     }
 
@@ -1544,7 +1551,7 @@ public class GoalWorkflowLoopTests : IDisposable
             // The tool answers nothing. Clearing the transcript before running it made that — the
             // ordinary outcome of a flaky CLI, not the unlucky one — into an empty tile where a
             // session used to be.
-            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult("   ");
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult<AiOutput>("   ");
 
             await vm.DetectGoalCommand.ExecuteAsync(null);
 
@@ -1566,7 +1573,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
                 asked++;
-                return Task.FromResult(asked switch
+                return Task.FromResult<AiOutput>(asked switch
                 {
                     1 => "Which files?",
                     2 => NoMoreQuestions,
@@ -1599,7 +1606,7 @@ public class GoalWorkflowLoopTests : IDisposable
             // review of plan B matches the last review of plan A. With the fingerprint left standing
             // the run ended after a single attempt, reporting that two reviews had agreed when only
             // one of them belonged to this plan.
-            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("reached exactly the same"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("reached the same conclusion"));
         });
     }
 
@@ -1668,7 +1675,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
                 vm.InputText = "what I was writing";
-                return Task.FromResult("Finish the pairing flow.");
+                return Task.FromResult<AiOutput>("Finish the pairing flow.");
             };
 
             await vm.DetectGoalCommand.ExecuteAsync(null);
@@ -1701,6 +1708,345 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
+    public void Answers_go_back_numbered_and_the_questions_join_the_transcript_with_them()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(++asked == 1
+                    ? """{"questions":[{"question":"Which file?"},{"question":"Sync or async?"}]}"""
+                    : NoMoreQuestions);
+            };
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            vm.Questions[0].Answer = "appsettings.json";
+            vm.Questions[1].Answer = "async";
+            await vm.SendAnswersCommand.ExecuteAsync(null);
+
+            // Filed against their numbers, which is what the next prompt reads them back by.
+            Assert.Contains("1. appsettings.json", prompts[1]);
+            Assert.Contains("2. async", prompts[1]);
+
+            // The questions reach the transcript when they are answered, not when they are asked —
+            // so the record still reads question then answer, without a second copy of the panel
+            // sitting above the conversation while it is being filled in.
+            var questionsAt = vm.Messages.ToList().FindIndex(m => m.Text.Contains("Sync or async?"));
+            var answersAt = vm.Messages.ToList().FindIndex(m => m.Text.Contains("2. async"));
+            Assert.True(questionsAt >= 0 && answersAt == questionsAt + 1);
+
+            // And the panel is gone, because there is nothing left to answer: the tool said it had no
+            // more questions and the tile went on to the plan, which is the next thing it asks about.
+            Assert.Empty(vm.Questions);
+            Assert.False(vm.ShowQuestions);
+        });
+    }
+
+    [Fact]
+    public void An_unanswered_question_is_left_out_rather_than_sent_empty()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(++asked == 1
+                    ? """{"questions":[{"question":"Which file?"},{"question":"Sync or async?"}]}"""
+                    : NoMoreQuestions);
+            };
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            vm.Questions[1].Answer = "async";
+            await vm.SendAnswersCommand.ExecuteAsync(null);
+
+            // A blank line under a number says "none of your business" to a model that cannot tell it
+            // from a question that was skipped, and the round after it asks the same thing again.
+            Assert.Contains("2. async", prompts[1]);
+            Assert.DoesNotContain("1. \n", prompts[1]);
+        });
+    }
+
+    [Fact]
+    public void Questions_come_back_with_the_tile_and_do_not_look_like_an_interrupted_run()
+    {
+        OnUiThread(async () =>
+        {
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            settings.Settings.CustomAiTools.Add(FakeTool());
+
+            AnswerWith("""
+                {"questions":[{"question":"Which file?","why":"Two candidates.",
+                  "options":["appsettings.json","launchSettings.json"]}]}
+                """);
+
+            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+            first.SelectedToolName = "Fake Tool";
+            var path = first.FilePath;
+            first.InputText = "a goal";
+            await first.SubmitCommand.ExecuteAsync(null);
+            Assert.Single(first.Questions);
+            first.Dispose();
+
+            using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+
+            // Persisted, because a panel built from a parsed answer would not survive the tile being
+            // closed — and the goal would come back waiting for questions nobody could see.
+            var question = Assert.Single(second.Questions);
+            Assert.Equal("Which file?", question.Question);
+            Assert.Equal("Two candidates.", question.Why);
+            Assert.Equal(2, question.Options.Count);
+
+            // And a tile waiting on the user is not a run that was cut off. That used to be read as
+            // "did the tool speak last", which stopped being true the moment the questions left the
+            // transcript — every restart then offered Resume, which asks the same round again.
+            Assert.False(second.IsPaused);
+        });
+    }
+
+    [Fact]
+    public void A_fresh_round_of_questions_replaces_the_one_on_screen()
+    {
+        OnUiThread(async () =>
+        {
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult<AiOutput>(++asked == 1
+                ? """{"questions":[{"question":"Which file?"}]}"""
+                : """{"questions":[{"question":"Which port?"},{"question":"Which host?"}]}""");
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            vm.Questions[0].Answer = "appsettings.json";
+            await vm.SendAnswersCommand.ExecuteAsync(null);
+
+            // Replaced rather than added to. An answer typed against "Which file?" has nowhere to go
+            // once the tool has moved on to ports and hosts.
+            Assert.Equal(2, vm.Questions.Count);
+            Assert.Equal("Which port?", vm.Questions[0].Question);
+            Assert.All(vm.Questions, q => Assert.Equal("", q.Answer));
+        });
+    }
+
+    [Fact]
+    public void The_plan_is_approved_by_a_button_and_changed_by_typing_into_the_same_box()
+    {
+        OnUiThread(async () =>
+        {
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult<AiOutput>(++asked switch
+            {
+                1 => NoMoreQuestions,
+                2 => "The plan",
+                3 => "Implemented it",
+                _ => "VERDICT: PASS",
+            });
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // The composer gives way to the approval panel, and its one button says what an empty box
+            // will do.
+            Assert.True(vm.ShowApproval);
+            Assert.False(vm.ShowComposer);
+            Assert.Equal("Approve plan", vm.ApprovalActionLabel);
+
+            // Typing turns it into the other thing, rather than leaving a button that would send an
+            // approval over the top of a correction — or throw the correction away.
+            vm.InputText = "no, do it differently";
+            Assert.Equal("Send changes", vm.ApprovalActionLabel);
+
+            vm.InputText = "";
+            await vm.ApproveOrChangeCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Role == GoalMessageRole.User && m.Text == "ok");
+        });
+    }
+
+    [Fact]
+    public void Prose_questions_keep_the_composer_because_there_is_no_panel_to_build()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Which file holds the port, and should it be async?");
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // A tool that ignored the schema still asked something, and the behaviour this tile always
+            // had is exactly right for it: a message, and the composer to answer it in.
+            Assert.Empty(vm.Questions);
+            Assert.True(vm.ShowComposer);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("holds the port"));
+        });
+    }
+
+    [Fact]
+    public void Nothing_can_be_typed_at_a_tile_that_is_working()
+    {
+        OnUiThread(async () =>
+        {
+            var gate = new TaskCompletionSource<AiOutput>();
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => gate.Task;
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            var running = vm.SubmitCommand.ExecuteAsync(null);
+
+            // Submit returns while IsRunning, so a composer shown here is a box that takes text and
+            // does nothing with it — and the one thing it did do, silently, was hold text that a
+            // finishing detection then wrote over.
+            Assert.True(vm.IsRunning);
+            Assert.False(vm.ShowComposer);
+            Assert.False(vm.ShowQuestions);
+            Assert.False(vm.ShowApproval);
+
+            gate.SetResult(NoMoreQuestions);
+            await running;
+        });
+    }
+
+    [Fact]
+    public void An_offered_answer_fills_the_box_without_deleting_what_was_typed_in_it()
+    {
+        var q = new GoalQuestionAnswer(1, new GoalQuestion
+        {
+            Question = "Which file?",
+            Options = ["appsettings.json", "launchSettings.json"],
+        });
+
+        // Empty: it is the answer.
+        q.Options[0].Use.Execute(null);
+        Assert.Equal("appsettings.json", q.Answer);
+
+        // Already an option: changing your mind between two offers should not need a selection first.
+        q.Options[1].Use.Execute(null);
+        Assert.Equal("launchSettings.json", q.Answer);
+
+        // Typed: appended. A suggestion that deletes the sentence somebody wrote is not a suggestion.
+        q.Answer = "neither, use the environment";
+        q.Options[0].Use.Execute(null);
+        Assert.Equal("neither, use the environment appsettings.json", q.Answer);
+    }
+
+    [Fact]
+    public void Giving_up_on_questions_takes_them_off_the_screen_as_well()
+    {
+        OnUiThread(async () =>
+        {
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult<AiOutput>(++asked <= 3
+                ? """{"questions":[{"question":"Which file?"}]}"""
+                : "The plan");
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // Three rounds, which is the budget, and each one answered.
+            for (var round = 0; round < 3; round++)
+            {
+                Assert.Single(vm.Questions);
+                vm.Questions[0].Answer = "appsettings.json";
+                await vm.SendAnswersCommand.ExecuteAsync(null);
+            }
+
+            // The fourth round is refused and the tile plans with what it has. That path returns before
+            // the round starts, so the questions were being cleared after it and never on this route:
+            // the tile arrived in Plan still showing the old questions, and the approval panel stands
+            // down while questions are up — leaving a set nobody was going to read and no way to
+            // approve the plan they had been abandoned for.
+            Assert.Equal(GoalPhase.Plan, vm.CurrentPhase);
+            Assert.Empty(vm.Questions);
+            Assert.False(vm.ShowQuestions);
+            Assert.True(vm.ShowApproval);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("rounds of questions"));
+        });
+    }
+
+    [Fact]
+    public void A_status_line_arriving_after_the_run_is_not_shown()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Which files?");
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            Assert.False(vm.IsRunning);
+
+            // What the reader thread does, at the moment it loses the race: the run has ended and the
+            // finally has already cleared Activity. Posting anyway left an idle tile naming the last
+            // file the tool happened to open, for the rest of the session.
+            vm.SetActivityIfRunning("Read src/Cart.cs");
+
+            Assert.Equal("", vm.Activity);
+        });
+    }
+
+    [Fact]
+    public void The_status_strip_stops_saying_what_the_tool_is_doing_when_it_stops_doing_it()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Which files?");
+
+            using var vm = NewTile();
+
+            // Set as the reader thread sets it, mid-run. Every way a run can end — finished, paused,
+            // cancelled, failed, thrown — has to take it back down, or a tile that is waiting for you
+            // sits there naming the last file the tool happened to open.
+            vm.Activity = "Read src/Cart.cs";
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.False(vm.IsRunning);
+            Assert.Equal("", vm.Activity);
+        });
+    }
+
+    [Fact]
+    public void A_tool_that_says_it_failed_stops_the_run_instead_of_being_believed()
+    {
+        OnUiThread(async () =>
+        {
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult(
+                AiOutput.Failure("I got as far as renaming Cart.cs.\n\n[error] Credit balance is too low"));
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // Judged on the fact, not on the text. A failed run has text in it — an apology, a
+            // half-finished note — and read as an answer that became the clarification, the plan or the
+            // review, and the loop carried on from it.
+            Assert.True(vm.IsPaused);
+            Assert.DoesNotContain(vm.Messages, m => m.Role == GoalMessageRole.Assistant);
+
+            // And what it managed to say is still shown, because a failed implementation has usually
+            // already written files and this is the only account of what is in the worktree.
+            Assert.Contains(vm.Messages, m => m.Text.Contains("renaming Cart.cs"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("reported a failure"));
+        });
+    }
+
+    [Fact]
     public void Detect_and_run_starts_at_the_review_because_the_changes_are_already_on_disk()
     {
         OnUiThread(async () =>
@@ -1711,7 +2057,7 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 prompts.Add(prompt);
                 asked++;
-                return Task.FromResult(asked == 1 ? "Make the totals include discounts." : "VERDICT: PASS");
+                return Task.FromResult<AiOutput>(asked == 1 ? "Make the totals include discounts." : "VERDICT: PASS");
             };
 
             using var vm = NewTile();
@@ -1819,7 +2165,7 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 asked++;
                 if (asked == 4) first.PauseCommand.Execute(null);
-                return Task.FromResult(asked switch
+                return Task.FromResult<AiOutput>(asked switch
                 {
                     1 => "Which files?",
                     2 => NoMoreQuestions,
@@ -1845,7 +2191,7 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Equal(GoalPhase.Review, second.CurrentPhase);
             Assert.Contains("Resume", second.PhaseLabel);
 
-            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult("VERDICT: PASS");
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult<AiOutput>("VERDICT: PASS");
             await second.ResumeCommand.ExecuteAsync(null);
 
             // It carried on from the review rather than starting the implementation over, and finished.
@@ -1957,7 +2303,7 @@ public class GoalWorkflowLoopTests : IDisposable
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
                 asked++;
-                return Task.FromResult(asked switch
+                return Task.FromResult<AiOutput>(asked switch
                 {
                     1 => "Which files?",
                     2 => NoMoreQuestions,

@@ -17,6 +17,15 @@ public sealed partial class GoalWorkflowEngine
     public const int MaxClarifyRounds = 3;
 
     public string OriginalGoal { get; set; } = "";
+
+    /// <summary>The questions waiting for an answer, in the order they were asked. Empty whenever the
+    /// tile is not waiting on the user — see <c>GoalTileViewModel.ShowQuestions</c>.</summary>
+    public List<GoalQuestion> PendingQuestions { get; private set; } = [];
+
+    /// <summary>Replaces the pending set, which is the only way it ever changes: a clarification round
+    /// asks a new set or none, and a partial update has no meaning.</summary>
+    public void SetPendingQuestions(IEnumerable<GoalQuestion>? questions) =>
+        PendingQuestions = questions is null ? [] : [..questions];
     public List<string> ClarificationHistory { get; } = [];
     public string ApprovedPlan { get; set; } = "";
     public string? LastReviewFeedback { get; set; }
@@ -225,6 +234,7 @@ public sealed partial class GoalWorkflowEngine
         IterationCount = 0;
         LastStopReason = null;
         ClarifyRounds = 0;
+        PendingQuestions = [];
         IsPaused = false;
         CurrentPhase = GoalPhase.Goal;
 
@@ -451,6 +461,13 @@ public sealed partial class GoalWorkflowEngine
         if (IsMidRun(state.CurrentPhase)) return true;
         if (state.CurrentPhase is not (GoalPhase.Clarify or GoalPhase.Plan)) return false;
 
+        // Questions on screen are a tile waiting on the user, not a run that was cut off. "The tool
+        // spoke last" used to be the whole signal, and it worked while the questions were a message in
+        // the transcript. Once they became a panel of their own the last turn was the user's goal, and
+        // every tile waiting for an answer came back from a restart calling itself interrupted —
+        // offering Resume, which asks the tool the same round again over questions already on screen.
+        if (state.PendingQuestions.Count > 0) return false;
+
         var lastTurn = state.Messages.LastOrDefault(m => m.Role != GoalMessageRole.System);
         return lastTurn is not { Role: GoalMessageRole.Assistant };
     }
@@ -465,8 +482,13 @@ public sealed partial class GoalWorkflowEngine
         : CurrentPhase switch
         {
             GoalPhase.Goal => "Waiting for goal...",
-            GoalPhase.Clarify => "Answer the questions above, then press Send.",
-            GoalPhase.Plan => "Type 'ok' to approve, or describe what to change.",
+            // Status, not instruction. Both of these used to spell out what to do, and both are now
+            // said better a few pixels away by a button with a word on it and a placeholder in the box
+            // above it — three copies of one sentence, of which this was the one that could not change
+            // when the box did. The paused labels below still name Resume, and deliberately: that
+            // button is an icon, so nothing else on screen says the word.
+            GoalPhase.Clarify => "Waiting for your answers.",
+            GoalPhase.Plan => "Waiting for your approval.",
             GoalPhase.Summary => "Done. Type a new goal, or start a fresh one with +.",
             _ => $"Resumed at {CurrentPhase} phase."
         };
@@ -483,6 +505,7 @@ public sealed partial class GoalWorkflowEngine
         LastStopReason = LastStopReason,
         AttemptsBeforeExtension = AttemptsBeforeExtension,
         ClarifyRounds = ClarifyRounds,
+        PendingQuestions = [..PendingQuestions],
         IsPaused = IsPaused,
         LastReviewFeedback = LastReviewFeedback,
         LastVerifyOutput = LastVerifyOutput,
@@ -514,6 +537,7 @@ public sealed partial class GoalWorkflowEngine
         LastStopReason = state.LastStopReason;
         AttemptsBeforeExtension = state.AttemptsBeforeExtension;
         ClarifyRounds = state.ClarifyRounds;
+        PendingQuestions = [..state.PendingQuestions];
         LastReviewFeedback = state.LastReviewFeedback;
         LastVerifyOutput = state.LastVerifyOutput;
         AttemptLog.Clear();

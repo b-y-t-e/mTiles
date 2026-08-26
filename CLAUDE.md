@@ -63,6 +63,14 @@ dotnet test                     # tests/mTiles.Tests
   that would let the base library satisfy the entry for the dispatcher, so all three would pass on one
   file — the trailing wildcards on the Linux names are safe precisely because they come after the part
   that tells the three apart.
+- **Notepad.Avalonia** — its `MarkdownViewer` renders what the AI tool writes in the Goal tile's
+  transcript. Wrapped in the transcript's own `ScrollViewer` on purpose: the control scrolls itself
+  only when given a finite height and sizes to its content when it is not, which is what a message
+  in a list needs. `ColorTheme="None"` is load-bearing — any other value makes it assign its own
+  brushes over the tokens, and its default is Light — which is why the wrapper is
+  `Views/GoalMarkdownView.cs` rather than a page of attributes: the control assigns those brushes in its
+  own constructor, as local values, before any markup runs. The wrapper also refuses to open a link
+  without asking, showing the address rather than the words.
 - **AvaloniaEdit** — text editor. Requires `StyleInclude` in App.axaml. Text sync via `Document.Changed`.
 - **Material.Icons.Avalonia** — Material Design icons. Requires `<MaterialIconStyles />` in `App.axaml` Styles. Usage: `<mi:MaterialIcon Kind="Close" />`.
 
@@ -211,8 +219,8 @@ verify command, what a run remembers between attempts, Continue, the persistence
 reasoning behind each. The section grew to a third of this file, which is the same argument that moved
 dictation out: read it before touching `Services/Goal*`, `Services/WorktreeReader.cs`,
 `Services/VerifyCommandRunner.cs`, `Services/CommandDisplay.cs` or `ViewModels/Goal*` — the last of
-which is a wider glob than it looks: `GoalCriteriaEditor` and `GoalBadge` are view models of their own,
-not part of the tile's.
+which is a wider glob than it looks: `GoalCriteriaEditor`, `GoalBadge` and `GoalQuestionAnswer` are
+view models of their own, not part of the tile's.
 
 ## Database tile
 
