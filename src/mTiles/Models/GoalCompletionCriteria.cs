@@ -38,6 +38,28 @@ public sealed class GoalCompletionCriteria
     }
     private string _verifyCommand = "";
 
+    /// <summary>
+    /// Which SOLID principles the work is held to. All five unless the user says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>Here rather than in the application's settings because it belongs to the goal, not to the
+    /// person: the same user wants all five in a library they will maintain for years and none of them
+    /// in a one-page script, and a global switch would make them choose once for both.</para>
+    /// <para>Here rather than in a panel of its own because it is a completion criterion in the only
+    /// sense that matters. A violation is reported as a warning, and the tolerance beside it is zero by
+    /// default — so these switches decide, as directly as <see cref="MaxWarnings"/> does, what the run
+    /// has to fix before it may stop.</para>
+    /// <para>Guarded against a null in its own setter, the rule everything deserialised here follows: a
+    /// property initialiser does not survive <c>"Solid": null</c>, and what follows is a
+    /// <see cref="NullReferenceException"/> in the middle of building a prompt.</para>
+    /// </remarks>
+    public SolidPrinciples Solid
+    {
+        get => _solid;
+        set => _solid = value ?? new SolidPrinciples();
+    }
+    private SolidPrinciples _solid = new();
+
     // The two mechanical stops — two reviews in a row reaching the same conclusion, and an
     // implementation that left the working tree exactly as it found it — used to be settings here and
     // checkboxes on the panel. They are neither now: both are always on.
@@ -60,5 +82,8 @@ public sealed class GoalCompletionCriteria
         RequireGoalMet = RequireGoalMet,
         MaxIterations = MaxIterations,
         VerifyCommand = VerifyCommand,
+        // Copied, not shared. Copy() exists so a caller can hold the criteria as they were; handing it
+        // the same instance would let a later edit reach back into the snapshot.
+        Solid = Solid.Copy(),
     };
 }

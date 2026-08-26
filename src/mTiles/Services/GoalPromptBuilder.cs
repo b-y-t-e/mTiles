@@ -1,12 +1,68 @@
+using System.Text;
+using mTiles.Models;
+
 namespace mTiles.Services;
 
 public sealed class GoalPromptBuilder
 {
-    private const string QualityRules =
-        "All changes MUST follow Clean Code principles (descriptive naming, small single-purpose functions, " +
-        "no duplication, self-documenting code) and SOLID principles — especially:\n" +
-        "- Single Responsibility Principle: each class/method has one reason to change\n" +
-        "- Open/Closed Principle: open for extension, closed for modification\n\n";
+    private readonly Func<SolidPrinciples> _solid;
+
+    /// <param name="solid">Which SOLID principles this goal is held to, read fresh on every prompt.
+    /// A function rather than a value because the criteria are edited while a run is paused, and the
+    /// builder outlives the object they were read from — <c>GoalWorkflowEngine.Criteria</c> is replaced
+    /// wholesale on every keystroke in the panel. Captured by value, the switches would take effect on
+    /// the next tile rather than the next attempt. Defaults to all five, which is what a builder made
+    /// without an opinion should ask for.</param>
+    public GoalPromptBuilder(Func<SolidPrinciples>? solid = null) =>
+        _solid = solid ?? (static () => new SolidPrinciples());
+
+    /// <summary>
+    /// The rules every change here is held to: Clean Code always, and the SOLID principles the user
+    /// left switched on.
+    /// </summary>
+    /// <remarks>
+    /// <para>A method rather than the constant it used to be, and it earns the change twice. It used to
+    /// name two of the five and wave at the rest with "especially", which is how a reviewer decides for
+    /// itself which principles are in scope; each one that is on is now stated outright.</para>
+    /// <para>The out-of-scope sentence is the half that does the work. Saying nothing about a switched
+    /// off principle does not switch it off — a model reviewing C# reports a fat interface whether it
+    /// was asked to or not, and the finding lands as a warning against a tolerance of zero. So the
+    /// prompt has to say what is <em>not</em> being asked for, and only when that is not obvious from
+    /// the list above it: with all five on there is nothing to exclude, and with none on there is no
+    /// list to read the exclusion off.</para>
+    /// </remarks>
+    private string QualityRules()
+    {
+        var solid = _solid();
+        var text = new StringBuilder(
+            "All changes MUST follow Clean Code principles (descriptive naming, small single-purpose " +
+            "functions, no duplication, self-documenting code).\n");
+
+        if (!solid.Any)
+        {
+            // Stated, not omitted. This is a goal whose author has said the abstractions are not the
+            // point — a script, a spike, a one-page fix — and a reviewer left to its own devices will
+            // spend the run's remaining attempts on exactly what they switched off.
+            text.Append("SOLID principles are out of scope for this goal: do not report violations of " +
+                        "them.\n\n");
+            return text.ToString();
+        }
+
+        text.Append("They MUST also follow these SOLID principles:\n");
+        foreach (var principle in SolidPrincipleCatalog.All.Where(p => p.IsOn(solid)))
+            text.Append("- ").Append(principle.Rule).Append('\n');
+
+        if (solid.Partial)
+            text.Append("The SOLID principles not listed are out of scope for this goal: do not report " +
+                        "violations of them.\n");
+
+        return text.Append('\n').ToString();
+    }
+
+    /// <summary>How a violation of these rules is described where the review is told what a warning is.
+    /// SOLID is left out of that sentence when none of it applies, so the one place the reviewer is
+    /// given a reason to reach for the severity does not contradict the scope it was just given.</summary>
+    private string WarningSubjects() => _solid().Any ? "a Clean Code / SOLID violation" : "a Clean Code violation";
 
     /// <summary>
     /// Every prompt here ends with one worked example of the answer it wants, and never more than one.
@@ -119,13 +175,13 @@ public sealed class GoalPromptBuilder
     public string BuildPlan(string goal, IReadOnlyList<string> clarificationHistory, int? budget = null) =>
         Fit(cap => ComposePlan(goal, clarificationHistory, cap), budget);
 
-    private static string ComposePlan(string goal, IReadOnlyList<string> clarificationHistory, int cap)
+    private string ComposePlan(string goal, IReadOnlyList<string> clarificationHistory, int cap)
     {
         var prompt = "You are planning the implementation of a goal in a software project.\n\n"
                      + Block("Original goal", goal, GoalCap(cap));
         if (clarificationHistory.Count > 0 && cap > 0)
             prompt += Block("User clarifications", Recent(clarificationHistory, Cap(cap)), int.MaxValue);
-        prompt += QualityRules;
+        prompt += QualityRules();
         prompt += AnswerLanguage;
         prompt += "Create a concise implementation plan. Do not implement anything yet.\n\n" +
                   "Example shape:\n" +
@@ -300,12 +356,12 @@ public sealed class GoalPromptBuilder
     public string BuildImplement(ImplementContext context, int? budget = null) =>
         Fit(cap => ComposeImplement(context, cap), budget);
 
-    private static string ComposeImplement(ImplementContext c, int cap)
+    private string ComposeImplement(ImplementContext c, int cap)
     {
         var prompt = Block("Implement the following goal in this project", c.Goal, GoalCap(cap));
         if (!string.IsNullOrEmpty(c.ApprovedPlan))
             prompt += Block("Approved implementation plan", c.ApprovedPlan, Cap(cap));
-        prompt += QualityRules;
+        prompt += QualityRules();
         // The first thing dropped when the prompt will not fit, and this is a reversal of what was
         // written here before. The old rule kept the diff to the last rung and dropped the attempt notes
         // first, on the grounds that the diff is the state of the work. It is — and the tool can read
@@ -362,11 +418,11 @@ public sealed class GoalPromptBuilder
     public string BuildReview(string goal, string? gitDiff, string? verifyOutput = null, int? budget = null) =>
         Fit(cap => ComposeReview(goal, gitDiff, verifyOutput, cap), budget);
 
-    private static string ComposeReview(string goal, string? gitDiff, string? verifyOutput, int cap)
+    private string ComposeReview(string goal, string? gitDiff, string? verifyOutput, int cap)
     {
         var prompt = "Review the code changes that were just made in this project.\n\n"
                      + Block("The original goal was", goal, GoalCap(cap));
-        prompt += QualityRules;
+        prompt += QualityRules();
         if (verifyOutput is { Length: > 0 } && cap > 0)
             prompt += Block("Output of the project's verify command", verifyOutput, Cap(cap));
         // The fitting step itself, with no ceiling over it — see the note in ComposeImplement —
@@ -398,7 +454,7 @@ public sealed class GoalPromptBuilder
                   "assumption of the goal, or fails outside the case in front of you: a platform limit, " +
                   "a race, data loss, a security hole.\n" +
                   "- error: it is wrong — broken, incorrect, or missing.\n" +
-                  "- warning: it works, but should not stay — a real risk, or a Clean Code / SOLID violation.\n" +
+                  "- warning: it works, but should not stay — a real risk, or " + WarningSubjects() + ".\n" +
                   "- suggestion: worth knowing, not worth blocking on.\n" +
                   "The line between blocker and error is whether the code is unacceptable or simply " +
                   "wrong. Do not reach for blocker to add weight to an error.\n" +

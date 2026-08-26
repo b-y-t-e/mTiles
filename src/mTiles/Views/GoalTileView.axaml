@@ -255,6 +255,56 @@
             <Setter Property="Margin" Value="0,2,0,0" />
         </Style>
 
+        <!-- ======== SOLID, as five letters ========
+             Five checkboxes with five long names would be a third of this panel for a setting most
+             users will never touch. The acronym is already the interface: the letters in order spell
+             what the row is, each one carries its full name in a tooltip, and lit means "held to it".
+
+             Lit is the default and unlit is the deliberate act, which is why the off state is drawn as
+             the quiet one — a letter switched off should read as absent from the word, not as a control
+             waiting to be filled in. -->
+        <Style Selector="ToggleButton.crit-solid">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Width" Value="22" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0,2" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <!-- The template targets are what actually paint: Fluent's ToggleButton keeps its own
+             background and border in the ContentPresenter, so setting them on the control alone leaves
+             the checked state looking exactly like the unchecked one.
+
+             Four rules rather than three, and the reason is that hovering must not answer the question
+             the chip exists to answer. Written as one `:pointerover`, the pointer lit the letter up —
+             elevated fill, bright text — so an *off* chip under the cursor looked exactly like an on
+             one, at the only moment anybody is looking closely at it: while deciding whether to click.
+             Hover is therefore a border, and only a border; the fill and the letter stay with the
+             state. Both hovered cases are spelled out because a rule that sets only the border leaves
+             Fluent's own hover fill showing through underneath, which is the same lie by another
+             route. -->
+        <Style Selector="ToggleButton.crit-solid:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
+            <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+        <Style Selector="ToggleButton.crit-solid:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
+            <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="ToggleButton.crit-solid:checked:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
+            <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+
         <!-- ======== A button with a word on it ========
              The app-wide `outlined-sm`, restated here in the terminal face. Everything with text in
              this tile is monospaced, and a UI-font button in the middle of it is the one element that
@@ -729,6 +779,36 @@
                                    Margin="0"
                                    IsVisible="{Binding Criteria.TolerancesNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     </StackPanel>
+
+                    <!-- Which SOLID principles this goal's work is held to. On the criteria panel and
+                         not in Settings because it belongs to the goal: the same person wants all five
+                         in a library they will maintain for years and none of them in a one-page
+                         script. And it is a completion criterion in the only sense that matters — a
+                         violation comes back as a warning, against the tolerance two rows up. -->
+                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="crit-label" Text="principles" Margin="0,6,10,0" />
+                    <ItemsControl Grid.Row="3" Grid.Column="1" Margin="0,6,0,0"
+                                  ItemsSource="{Binding Criteria.Solid}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:GoalSolidToggle">
+                                <!-- The name is on the chip as well as in the tooltip. The content is
+                                     one character and a tooltip is a pointer gesture, so to anything
+                                     reading this aloud the row was five buttons called S, O, L, I and
+                                     D — the letters only spell something to somebody who already knows
+                                     what they stand for, which is the one reader that does not need
+                                     them read out. -->
+                                <ToggleButton Classes="crit-solid"
+                                              Content="{Binding Letter}"
+                                              IsChecked="{Binding IsOn}"
+                                              AutomationProperties.Name="{Binding Name}"
+                                              ToolTip.Tip="{Binding Name}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </Grid>
 
                 <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireGoalMet}"

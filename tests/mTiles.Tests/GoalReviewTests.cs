@@ -1300,6 +1300,17 @@ public class GoalCompletionCriteriaTests
         type == typeof(int) ? 37
         : type == typeof(bool) ? false
         : type == typeof(string) ? "a distinctive value"
+        // Every switch off, which is the opposite of the default in all five places at once. It is a
+        // record, so this is compared by value — a Copy that shared the instance would pass here and is
+        // caught in SolidPrinciplesTests instead.
+        : type == typeof(SolidPrinciples) ? new SolidPrinciples
+        {
+            SingleResponsibility = false,
+            OpenClosed = false,
+            Liskov = false,
+            InterfaceSegregation = false,
+            DependencyInversion = false,
+        }
         : throw new NotSupportedException(
             $"GoalCompletionCriteria grew a {type.Name} property; teach this test what an unusual one " +
             "looks like.");

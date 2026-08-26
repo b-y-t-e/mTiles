@@ -14,11 +14,11 @@ dotnet test                     # tests/mTiles.Tests
 
 - `src/mTiles/` — the application
 - `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
-- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, AppSettings, AppDefaults, ShellProfile, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, GoalTileState, GoalFinding, GoalReviewResult, GoalClarifyResult, GoalCompletionCriteria, GoalStopReason, AiPermissionMode, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, SpeechSettings, PhoneSettings)
+- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, AppSettings, AppDefaults, ShellProfile, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, GoalTileState, GoalFinding, GoalReviewResult, GoalClarifyResult, GoalCompletionCriteria, GoalStopReason, SolidPrinciples, AiPermissionMode, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, SpeechSettings, PhoneSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`
-- `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), shell detection (ShellDetector), AI tools detection (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/GitIgnoreFile, DiffFormatter, FileHelper, ProtectedStringConverter, TolerantEnumConverter, TileFactory, TileTreeSerializer, TileNameGenerator, the Goal tile's engine (AiProcessRunner, AiPermissionModes, GoalWorkflowEngine, GoalPromptBuilder, GoalStatePersistence, GoalLoopPolicy, GoalTilePolicy, GoalCompletionPolicy, GoalDiffContext, CommandDisplay, CommandLineLength, GoalResponseParser, GoalStateStore, GoalTranscript, VerifyCommandRunner, WorktreeReader), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
+- `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), shell detection (ShellDetector), AI tools detection (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/GitIgnoreFile, DiffFormatter, FileHelper, ProtectedStringConverter, TolerantEnumConverter, TileFactory, TileTreeSerializer, TileNameGenerator, the Goal tile's engine (AiProcessRunner, AiPermissionModes, GoalWorkflowEngine, GoalPromptBuilder, GoalStatePersistence, GoalLoopPolicy, GoalTilePolicy, GoalCompletionPolicy, GoalDiffContext, CommandDisplay, CommandLineLength, GoalResponseParser, GoalStateStore, GoalTranscript, SolidPrincipleCatalog, VerifyCommandRunner, WorktreeReader), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
 - `Services/Database/` — DatabaseServiceManager, DbHttpServer, DiscoveryService, DbRegistry, DbLogger, QueryHandler, SqlGuard, SqlGuardProfile, SqlServerProvider, PostgreSqlProvider, SubnetScanner, IDbProvider, ClaudeLocalMdWriter
 - `Services/ShellStarter.cs` — one call that replaces whatever session a `TerminalControl` holds and hands the shell its startup script (`${tileId}` substituted, one line per `\r`). The control owns the rest: killing the old session, waiting for it, and gating the script on `ShellReady` for *that* session
 - `Services/TileLauncher.cs` — launching a terminal tile: disposes the previous launch, picks the profile's current scripts, then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it
@@ -216,13 +216,13 @@ the tile are met → summary**. A goal can also be worked out from the uncommitt
 typed.
 
 **Everything else is in [`docs/GOAL.md`](docs/GOAL.md)** — the phase machine, the prompts and how they
-are fitted to a command line, the structured review and its severities, the completion criteria and the
-verify command, what a run remembers between attempts, Continue, the persistence rules, and the
+are fitted to a command line, the structured review and its severities, the completion criteria, the
+verify command and the per-goal SOLID switches, what a run remembers between attempts, Continue, the persistence rules, and the
 reasoning behind each. The section grew to a third of this file, which is the same argument that moved
 dictation out: read it before touching `Services/Goal*`, `Services/WorktreeReader.cs`,
 `Services/VerifyCommandRunner.cs`, `Services/CommandDisplay.cs` or `ViewModels/Goal*` — the last of
-which is a wider glob than it looks: `GoalCriteriaEditor`, `GoalBadge` and `GoalQuestionAnswer` are
-view models of their own, not part of the tile's.
+which is a wider glob than it looks: `GoalCriteriaEditor`, `GoalBadge`, `GoalSolidToggle` and
+`GoalQuestionAnswer` are view models of their own, not part of the tile's.
 
 ## Database tile
 

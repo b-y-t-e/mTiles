@@ -5,7 +5,12 @@ namespace mTiles.Services;
 
 public sealed partial class GoalWorkflowEngine
 {
-    private readonly GoalPromptBuilder _promptBuilder = new();
+    // Read through a function, not handed over: Criteria is replaced wholesale by every edit in the
+    // panel, so a builder given today's instance would hold yesterday's switches for the life of the
+    // tile.
+    private readonly GoalPromptBuilder _promptBuilder;
+
+    public GoalWorkflowEngine() => _promptBuilder = new GoalPromptBuilder(() => Criteria.Solid);
 
     /// <summary>
     /// How many times the tool may be asked to clarify before the tile plans anyway.

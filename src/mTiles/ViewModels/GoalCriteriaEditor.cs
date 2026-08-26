@@ -28,8 +28,19 @@ public partial class GoalCriteriaEditor : ObservableObject
     {
         _read = read;
         _write = write;
+        Solid = [..SolidPrincipleCatalog.All.Select(p => new GoalSolidToggle(p, Changed))];
         Reload();
     }
+
+    /// <summary>
+    /// The five SOLID principles this goal is held to, in the order that spells the acronym.
+    /// </summary>
+    /// <remarks>
+    /// Built once and refilled, never rebuilt: the row is bound to this list, and replacing it on every
+    /// reload would throw away the control the user is in the middle of clicking. It is the same reason
+    /// the number fields are properties rather than a regenerated form.
+    /// </remarks>
+    public IReadOnlyList<GoalSolidToggle> Solid { get; }
 
     [ObservableProperty] private int _maxIterations = 5;
     [ObservableProperty] private string _verifyCommand = "";
@@ -156,6 +167,7 @@ public partial class GoalCriteriaEditor : ObservableObject
             MaxErrors = c.MaxErrors;
             MaxWarnings = c.MaxWarnings;
             RequireGoalMet = c.RequireGoalMet;
+            foreach (var chip in Solid) chip.Fill(c.Solid);
         }
         finally { _filling = false; }
 
@@ -265,9 +277,18 @@ public partial class GoalCriteriaEditor : ObservableObject
             MaxErrors = MaxErrors,
             MaxWarnings = MaxWarnings,
             RequireGoalMet = RequireGoalMet,
+            Solid = SolidFromToggles(),
         });
 
         ShowClampNotes();
+    }
+
+    /// <summary>The chips as the model that goes to disk and into the prompts.</summary>
+    private SolidPrinciples SolidFromToggles()
+    {
+        var principles = new SolidPrinciples();
+        foreach (var chip in Solid) chip.Apply(principles);
+        return principles;
     }
 
     /// <summary>
