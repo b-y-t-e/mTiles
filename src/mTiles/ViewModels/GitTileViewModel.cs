@@ -64,7 +64,7 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     /// <summary>Mirrors the application setting so the refresh can read it without reaching into the
     /// settings service. A plain field: nothing in this tile's view binds to it, and an observable
     /// property that nobody observes is a notification raised on every change for no reader.</summary>
-    private bool _gitIgnoreMTerminalDir = true;
+    private bool _gitIgnoreWorkspaceDir = true;
 
     [ObservableProperty]
     private bool _diffSkipEmptyLines = true;
@@ -134,7 +134,7 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
         _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
         _fontSize = s?.FontSize ?? AppDefaults.FontSize;
         _diffTrimIndent = s?.DiffTrimIndent ?? true;
-        _gitIgnoreMTerminalDir = s?.GitIgnoreMTerminalDir ?? true;
+        _gitIgnoreWorkspaceDir = s?.GitIgnoreWorkspaceDir ?? true;
         UpdateSizeMetrics();
 
         if (_settingsService != null)
@@ -149,7 +149,11 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
 
     /// <summary>The entry this setting is about. A trailing slash because it is a directory, which is
     /// how a person would write it by hand and what git reads as "directory only".</summary>
-    private const string MTerminalIgnoreEntry = ".mterminal/";
+    private const string WorkspaceIgnoreEntry = WorkspacePaths.DirName + "/";
+
+    /// <summary>The entry written under the application's old name. Removed whenever this runs, so a
+    /// repository does not end up ignoring two directories when only one of them exists.</summary>
+    private const string LegacyIgnoreEntry = WorkspacePaths.LegacyDirName + "/";
 
     /// <summary>
     /// Brings the workspace's <c>.gitignore</c> into line with the setting.
@@ -166,19 +170,46 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
     /// </summary>
     /// <returns>True when the file was actually written, which is the caller's cue that the status it
     /// holds is out of date. False on failure as well: nothing changed, so nothing needs re-reading.</returns>
-    private async Task<bool> ApplyMTerminalIgnoreSettingAsync(CancellationToken ct)
+    private async Task<bool> ApplyWorkspaceIgnoreSettingAsync(CancellationToken ct)
     {
         try
         {
-            bool changed = _gitIgnoreMTerminalDir
-                ? await GitIgnoreFile.EnsureAsync(WorktreePath, MTerminalIgnoreEntry, ct)
-                : await GitIgnoreFile.RemoveAsync(WorktreePath, MTerminalIgnoreEntry, ct);
+            // First, and this order is the whole of it. The old entry is removed below on the grounds
+            // that the directory it names has been moved — but nothing had moved it. WorkspacePaths
+            // migrates on first *use*, and the only users are the note, todo, goal and database tiles:
+            // a workspace holding a Git tile and none of those still had `.mterminal/` sitting on disk
+            // when its ignore line was deleted, which puts its contents in front of the user as
+            // untracked files in their own repository. Asking for the path is what performs the move,
+            // and it is a pair of Directory.Exists calls once per workspace afterwards.
+            WorkspacePaths.Dir(WorktreePath);
 
+            bool changed = _gitIgnoreWorkspaceDir
+                ? await GitIgnoreFile.EnsureAsync(WorktreePath, WorkspaceIgnoreEntry, ct)
+                : await GitIgnoreFile.RemoveAsync(WorktreePath, WorkspaceIgnoreEntry, ct);
+
+            // Only once the directory it names has actually gone, and the migration above is allowed
+            // not to move it: a workspace opened by both versions keeps both directories on purpose,
+            // and a move can fail. Removing the entry in either of those cases un-ignores a directory
+            // that is still on disk, and this application's own notes and transcripts appear in the
+            // user's repository as untracked files — which is the outcome the entry exists to prevent,
+            // arriving via the tidying-up.
+            //
+            // Whichever way the setting is set, though: the line describes a directory this application
+            // no longer uses, so leaving it behind for somebody who turned the feature off would be
+            // leaving litter with no way to ask for it to go.
+            var legacyRemoved = !WorkspacePaths.LegacyDirExists(WorktreePath)
+                                && await GitIgnoreFile.RemoveAsync(WorktreePath, LegacyIgnoreEntry, ct);
+
+            // Told apart, because they are different edits and the log is how anybody finds out this
+            // application wrote to their repository. Reporting both as "Added .mtiles/" made the line
+            // say the opposite of what happened whenever the only change was dropping the old entry.
             if (changed)
                 Trace.TraceInformation("{0} {1} in {2}/.gitignore",
-                    _gitIgnoreMTerminalDir ? "Added" : "Removed", MTerminalIgnoreEntry, WorktreePath);
+                    _gitIgnoreWorkspaceDir ? "Added" : "Removed", WorkspaceIgnoreEntry, WorktreePath);
+            if (legacyRemoved)
+                Trace.TraceInformation("Removed {0} from {1}/.gitignore", LegacyIgnoreEntry, WorktreePath);
 
-            return changed;
+            return changed || legacyRemoved;
         }
         catch (OperationCanceledException)
         {
@@ -202,9 +233,9 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
             UpdateSizeMetrics();
         }
         var needsRefresh = false;
-        if (s.GitIgnoreMTerminalDir != _gitIgnoreMTerminalDir)
+        if (s.GitIgnoreWorkspaceDir != _gitIgnoreWorkspaceDir)
         {
-            _gitIgnoreMTerminalDir = s.GitIgnoreMTerminalDir;
+            _gitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
             needsRefresh = true;
         }
         var newGitPath = GitService.ResolveGitPath(s.GitPath);
@@ -250,7 +281,7 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
             // by looking at .gitignore, so the status in hand predates it and would still list the very
             // files the setting exists to hide. That is the uncommon path: on every refresh after the
             // first, the entry is already there and nothing is written or re-read.
-            if (await ApplyMTerminalIgnoreSettingAsync(ct))
+            if (await ApplyWorkspaceIgnoreSettingAsync(ct))
             {
                 status = await _gitService.GetStatusAsync(ct);
                 ct.ThrowIfCancellationRequested();
@@ -263,7 +294,7 @@ public partial class GitTileViewModel : ObservableObject, IDisposable
             // No filtering here any more. The setting used to hide these files in this list, which left
             // them untracked *and* unignored — invisible here and waiting in every other git client the
             // user opens. Now the entry goes in .gitignore and git itself stops reporting them, so what
-            // this tile shows is what `git status` shows. Files already committed under .mterminal/ do
+            // this tile shows is what `git status` shows. Files already committed under .mtiles/ do
             // appear now, and correctly: ignoring something git is already tracking changes nothing.
             ReconcileChanges(status.Changes);
 

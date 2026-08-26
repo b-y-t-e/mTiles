@@ -6,7 +6,7 @@
         x:Class="mTiles.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="mTiles"
-        Icon="/Assets/mterminal-icon.png"
+        Icon="/Assets/mtiles-icon.png"
         Background="{DynamicResource BgBase}">
 
     <Panel>

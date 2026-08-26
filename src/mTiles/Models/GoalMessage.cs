@@ -77,4 +77,33 @@ public sealed class GoalMessage
     /// </summary>
     [JsonIgnore]
     public bool AboutThisSession { get; set; }
+
+    /// <summary>
+    /// What a review found, kept as findings rather than only as the sentence they were flattened into.
+    /// </summary>
+    /// <remarks>
+    /// <para>The transcript is a terminal and a review was a column of monospace: a padded severity, a
+    /// file and a category on one line, the title and detail indented under it. It scans, up to a
+    /// point, and the point is colour — a warning and a blocker were the same grey text, so the one
+    /// thing worth seeing first was the thing the eye had to search for.</para>
+    /// <para>Kept <em>beside</em> <see cref="Text"/>, not instead of it. Text still holds the head of
+    /// the review — the verdict, the counts, the tool's own reason where it gave one — so a message
+    /// written by an older build, which has no findings here, still renders exactly as it always did.
+    /// That is also what the copy button assembles from, so what lands on the clipboard is the whole
+    /// review rather than the half that happens to be a string.</para>
+    /// <para>Guarded against a null list and a null <em>in</em> the list, as everything reachable from
+    /// <see cref="GoalTileState"/> is: this is bound straight into an items control that reads
+    /// <c>Severity</c> off every element.</para>
+    /// </remarks>
+    public List<GoalFinding> Findings
+    {
+        get => _findings;
+        set => _findings = Without.Nulls(value);
+    }
+    private List<GoalFinding> _findings = [];
+
+    /// <summary>Whether this message is a review with findings to draw as rows rather than as text.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasFindings => Findings.Count > 0;
 }

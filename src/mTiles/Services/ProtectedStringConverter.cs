@@ -9,6 +9,16 @@ namespace mTiles.Services;
 public sealed class ProtectedStringConverter : JsonConverter<string>
 {
     private const string Prefix = "enc:";
+    /// <summary>
+    /// The additional entropy every protected string in this file was encrypted with.
+    /// </summary>
+    /// <remarks>
+    /// <b>It keeps the application's old name deliberately, and must never be changed.</b> This is not
+    /// a label — DPAPI takes it as part of the key, so a different string here does not rename
+    /// anything, it makes every password already in <c>settings.json</c> undecryptable, silently and
+    /// with no way back. The rename that moved <c>MTerminal</c> to <c>mTiles</c> everywhere else stopped
+    /// at this line for that reason.
+    /// </remarks>
     private static readonly byte[] Entropy = "MTerminal.v1"u8.ToArray();
     private static bool _warnedNonWindows;
 

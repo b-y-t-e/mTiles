@@ -98,6 +98,28 @@ internal sealed class TolerantGoalPhaseConverter : TolerantEnumOrDefaultConverte
     protected override GoalPhase Fallback => GoalPhase.Goal;
 }
 
+/// <summary>
+/// A permission mode this build does not know reads as <see cref="AiPermissionMode.Auto"/>.
+/// </summary>
+/// <remarks>
+/// <para>The stakes here are higher than anywhere else this converter is used, and that is the reason
+/// it is used. The other two guard a goal file; this one guards <c>settings.json</c>, which also holds
+/// the user's shell profiles, their AI tool paths and their DPAPI-encrypted database passwords — and
+/// <c>SettingsService.Load</c> quite correctly treats a <c>JsonException</c> as a damaged file, sets it
+/// aside as <c>settings.bad-…</c> and starts over from defaults. Losing all of that over one word is
+/// out of proportion by an enormous margin.</para>
+/// <para>And the way an unknown word gets in here is not exotic: pick <c>bypassPermissions</c>, let
+/// Velopack roll the installation back a version, and the name in the file is one the running build has
+/// never heard of. Exactly the downgrade the goal file was given this protection for.</para>
+/// <para><see cref="AiPermissionMode.Auto"/> because it is what an installation that has never been
+/// configured runs at: an unreadable answer degrades to the default rather than to a mode the user
+/// might never have chosen, and it is never <em>more</em> permissive than what it replaces.</para>
+/// </remarks>
+internal sealed class TolerantAiPermissionModeConverter : TolerantEnumOrDefaultConverter<AiPermissionMode>
+{
+    protected override AiPermissionMode Fallback => AiPermissionMode.Auto;
+}
+
 /// <summary>A role this build does not know reads as <see cref="GoalMessageRole.System"/>: a line in the
 /// transcript attributed to the tile is the least misleading place to put something whose speaker cannot
 /// be identified, and it is never fed back to a tool as the user's words or the tool's own.</summary>

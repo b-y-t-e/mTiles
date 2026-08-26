@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
@@ -6,10 +7,12 @@ using Avalonia.Input;
 // in this namespace, and the interface itself is never named here.
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Material.Icons;
 using Material.Icons.Avalonia;
 using mTiles.Models;
+using mTiles.Services;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
@@ -30,7 +33,7 @@ public partial class GoalTileView : UserControl
         if (_subscribedVm != null)
         {
             _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
-            _subscribedVm.ScrollToEnd = null;
+            _subscribedVm.Messages.CollectionChanged -= OnMessagesChanged;
 
             // ConfirmAction too, and for more than tidiness: the closure holds this view, so a view
             // model left with it keeps the view alive — and if that view model ever asks again, the
@@ -42,7 +45,16 @@ public partial class GoalTileView : UserControl
         if (DataContext is GoalTileViewModel vm)
         {
             _subscribedVm = vm;
-            vm.ScrollToEnd = () => ChatScroll.ScrollToEnd();
+
+            // The collection, and only the collection. There used to be a hook on the view model as
+            // well, called where the workflow adds a message — which is most of them and not all: a
+            // tile reopened from its file fills the transcript without going through it, and opened on
+            // a finished run it showed the top of a conversation whose interesting end was several
+            // screens down. Watching the collection covers both, and covers the hook's cases twice
+            // over: every message cost two synchronous UpdateLayout passes over the whole transcript,
+            // markdown views included, and four ScrollToEnd calls. One event is the whole answer.
+            vm.Messages.CollectionChanged += OnMessagesChanged;
+            ScrollTranscriptToEnd(force: true);
             vm.ConfirmAction = async message =>
             {
                 // No window to ask in means no, the same answer the Settings dialog gives. The view
@@ -66,6 +78,46 @@ public partial class GoalTileView : UserControl
         }
     }
 
+    private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Reset)
+            ScrollTranscriptToEnd();
+    }
+
+    /// <summary>
+    /// Follows the transcript down as it grows.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Asked before the scroll, and asked here rather than after a layout pass.</b> The message
+    /// has been added to the collection but not yet measured, so the extent still describes the
+    /// transcript without it — which is exactly the question worth asking: was the reader at the bottom
+    /// <em>before</em> this arrived. A run posts a dozen messages over an hour, and a tile that yanks
+    /// the view down while somebody is reading back through the plan is worse than one that does not
+    /// follow at all.</para>
+    /// <para>Then the scroll happens twice, and both are needed. <c>UpdateLayout</c> forces the new
+    /// message to be measured so <c>ScrollToEnd</c> has the real extent to scroll to — without it the
+    /// call used the old one and stopped a message short, which is the bug this replaced. The posted
+    /// one catches what sizes late: a rendered markdown answer arrives at its final height after its
+    /// own pass, and <c>Loaded</c> is the priority that runs once layout is done.</para>
+    /// </remarks>
+    private void ScrollTranscriptToEnd(bool force = false)
+    {
+        if (!force)
+        {
+            var below = ChatScroll.Extent.Height - ChatScroll.Viewport.Height - ChatScroll.Offset.Y;
+            if (below > StuckToBottom) return;
+        }
+
+        ChatScroll.UpdateLayout();
+        ChatScroll.ScrollToEnd();
+        Dispatcher.UIThread.Post(ChatScroll.ScrollToEnd, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>How far off the bottom still counts as watching the run rather than reading the
+    /// history. A line and a half: enough that a message arriving as the last one is measured does not
+    /// break the follow, and short enough that a deliberate scroll up does.</summary>
+    private const double StuckToBottom = 48;
+
     /// <summary>
     /// Puts one message on the clipboard.
     /// </summary>
@@ -85,7 +137,9 @@ public partial class GoalTileView : UserControl
 
         try
         {
-            await clipboard.SetTextAsync(message.Text);
+            // Not Text on its own: a review's findings are findings now, and its text is only the
+            // head, so copying that alone handed over a verdict with the defects it counted missing.
+            await clipboard.SetTextAsync(GoalTranscript.Copyable(message));
         }
         catch (Exception ex)
         {

@@ -43,3 +43,4 @@ Thumbs.db
 publish/
 Releases/
 TestResults/
+.mtiles/

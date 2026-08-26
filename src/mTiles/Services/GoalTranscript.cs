@@ -13,20 +13,17 @@ namespace mTiles.Services;
 internal static class GoalTranscript
 {
     /// <summary>
-    /// A review, as it appears in the transcript.
-    /// <para>The tool's own prose is not reprinted under a list of findings. It said the same things at
-    /// greater length, and printing both makes the transcript a place where every review is read
-    /// twice.</para>
-    /// <para><b>Unless there are no findings</b>, in which case the prose is the only account of why —
-    /// and dropping it left "Goal not met · nothing found" standing alone as the entire explanation of
-    /// a failed attempt. The argument against duplication only holds where there is something to
-    /// duplicate.</para>
+    /// Everything a review says apart from its findings: the verdict, the counts, and the tool's own
+    /// reason where the list is empty and the prose is the only account there is.
     /// </summary>
-    /// <param name="goalMetMatters">Whether the run is actually gated on <c>goalMet</c>. The note about
-    /// a review that never mentioned it is advice about a criterion, so it must not be given where that
-    /// criterion is switched off — it told the user their goal had failed a check nothing was
-    /// making.</param>
-    public static string Review(GoalReviewResult review, VerifyOutcome? verify = null,
+    /// <remarks>
+    /// Split out because the findings are no longer only text. The transcript draws them as rows,
+    /// coloured by severity, which is the one thing a column of monospace could not do: a blocker and
+    /// a suggestion were the same grey, so the line worth reading first was the line the eye had to
+    /// search for. <see cref="Review"/> still glues the two back together, because the clipboard and
+    /// every goal file written before the rows existed want one string.
+    /// </remarks>
+    public static string ReviewHead(GoalReviewResult review, VerifyOutcome? verify = null,
         bool goalMetMatters = true)
     {
         if (!review.WasStructured)
@@ -46,8 +43,11 @@ internal static class GoalTranscript
 
         sb.Append(counts.Count > 0 ? $" · {string.Join(" · ", counts)}" : " · nothing found");
 
-        if (verify is { Ran: true } v)
-            sb.Append(v.Succeeded ? " · verify passed" : $" · verify exited {v.ExitCode}");
+        // Only the pass. A failure is now a blocker in the list below, carrying its exit code and the
+        // command's own output — naming it here as well reported one event twice on one line, and the
+        // shorter of the two tellings was the one at the top.
+        if (verify is { Ran: true, Succeeded: true })
+            sb.Append(" · verify passed");
 
         // Not when the goal is being counted as met anyway. A structured review that omits goalMet
         // still falls back to the prose verdict, so it can perfectly well end up met — and the note
@@ -60,7 +60,21 @@ internal static class GoalTranscript
         if (review.Findings.Count == 0 && Prose(review.RawText) is { Length: > 0 } why)
             sb.Append('\n').Append('\n').Append(why);
 
-        foreach (var f in Ordered(review.Findings))
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// The findings as text: a severity and a place on one line, the title and the detail indented
+    /// under it.
+    /// </summary>
+    /// <remarks>
+    /// Still the shape a goal file written before the rows existed holds, which is why it is kept
+    /// rather than tidied: those messages have no findings of their own and are drawn straight out of
+    /// their text, exactly as they always were. It is also what the clipboard gets.
+    /// </remarks>
+    public static void AppendFindings(StringBuilder sb, IEnumerable<GoalFinding> findings)
+    {
+        foreach (var f in findings)
         {
             sb.Append('\n').Append('\n').Append(Label(f.Severity));
 
@@ -71,9 +85,27 @@ internal static class GoalTranscript
             if (f.Detail.Length > 0)
                 sb.Append('\n').Append("  ").Append(f.Detail.ReplaceLineEndings("\n  "));
         }
+    }
 
+    /// <summary>
+    /// One message as text, whatever it is drawn from: what the copy button puts on the clipboard.
+    /// <para>A review keeps its findings as findings now, so its own text is only the head. Copying
+    /// that alone handed over a verdict and a count with the defects it was counting missing.</para>
+    /// </summary>
+    public static string Copyable(GoalMessage message)
+    {
+        if (!message.HasFindings) return message.Text;
+
+        var sb = new StringBuilder(message.Text);
+        AppendFindings(sb, message.Findings);
         return sb.ToString();
     }
+
+    /// <summary>Blockers first, as a list. Public because the view model stores findings already
+    /// ordered: they are written to the goal file and read back by a control that sorts nothing.
+    /// </summary>
+    public static IReadOnlyList<GoalFinding> InOrder(IEnumerable<GoalFinding> findings) =>
+        Ordered(findings).ToList();
 
 
     /// <summary>How wide a set of options may be before it stops being one line.</summary>
@@ -136,7 +168,12 @@ internal static class GoalTranscript
         if (!review.WasStructured)
             return review.RawText.Trim();
 
-        var blocking = Ordered(review.Findings.Where(f => f.Severity != GoalSeverity.Suggestion)).ToList();
+        // The verify blocker is left out as well, and for a different reason from the suggestions: it
+        // is not dropped, it is already there. The next implement prompt carries the command's own
+        // output under its own heading — the compiler's words rather than an account of them — so
+        // including this finding too would spend the prompt's budget saying the same thing twice.
+        var blocking = Ordered(review.Findings.Where(f =>
+            f.Severity != GoalSeverity.Suggestion && f.Category != GoalFinding.VerifyCategory)).ToList();
         if (blocking.Count == 0)
             return review.GoalMet
                 ? "The review found nothing blocking."

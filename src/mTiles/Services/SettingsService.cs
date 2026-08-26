@@ -85,7 +85,7 @@ public sealed class SettingsService
     /// Carries answers forward from settings written by an older version.
     /// <para>Renaming a property means the old value is simply not read, and the new one starts at its
     /// default. That is harmless for a font size. It is not harmless for
-    /// <see cref="AppSettings.GitIgnoreMTerminalDir"/>, whose default writes to the user's repository:
+    /// <see cref="AppSettings.GitIgnoreWorkspaceDir"/>, whose default writes to the user's repository:
     /// somebody who turned the old switch off had said no, and an update is not the moment to stop
     /// hearing it.</para>
     /// </summary>
@@ -93,10 +93,20 @@ public sealed class SettingsService
     {
         var changed = false;
 
-        if (Settings.LegacyGitHideMTerminalDir is { } wanted)
+        // Oldest first, so the newer answer wins where a file carries both. A settings file written
+        // before the application was renamed can hold either name, or both, and the two are the same
+        // question asked twice rather than two settings.
+        if (Settings.LegacyGitHideMTerminalDir is { } hidden)
         {
-            Settings.GitIgnoreMTerminalDir = wanted;
+            Settings.GitIgnoreWorkspaceDir = hidden;
             Settings.LegacyGitHideMTerminalDir = null;   // read once; the next save drops it
+            changed = true;
+        }
+
+        if (Settings.LegacyGitIgnoreMTerminalDir is { } ignored)
+        {
+            Settings.GitIgnoreWorkspaceDir = ignored;
+            Settings.LegacyGitIgnoreMTerminalDir = null;
             changed = true;
         }
 

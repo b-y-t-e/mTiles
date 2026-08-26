@@ -21,9 +21,10 @@ namespace mTiles.Services;
 /// A digest of the <em>whole</em> git output, before any of it was cut to fit a prompt. Null when
 /// nobody could read the tree.
 /// <para>Its own field because <see cref="Text"/> cannot answer the question it was being asked.
-/// <c>GoalDiffContext.Compose</c> clips the diff to 6 000 characters and the untracked list to 1 000, so
-/// two reads of a large working tree are character-for-character identical whenever the change falls
-/// past the cut — which is the ordinary case on the resume-after-a-big-implementation the no-change
+/// <c>GoalDiffContext.Compose</c> clips the diff to whatever the transport allows and the untracked
+/// list to a thousand characters, so two reads of a large working tree are character-for-character
+/// identical whenever the change falls past the cut — the ordinary case on the
+/// resume-after-a-big-implementation the no-change
 /// stop exists for. The run then ended after one attempt saying "the last implementation changed nothing
 /// in the working tree": confident, specific and false. The same class of bug
 /// <see cref="Readable"/> was added to close, one layer along.</para>
@@ -69,6 +70,19 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     internal static Func<string, CancellationToken, Task<string?>>? Factory { get; set; }
 
     /// <summary>
+    /// The pathspec every read here carries: this application's own workspace state, under both the
+    /// name it uses now and the one it used before it was renamed.
+    /// </summary>
+    /// <remarks>
+    /// Both, because the old directory outlives the rename in any workspace this application has not
+    /// opened since — and until it does, that directory is exactly what it always was: this tile's
+    /// own transcript, rewritten after every message, handed to the agent as "recent changes" and left
+    /// there to be tidied up or edited.
+    /// </remarks>
+    private const string Excluded =
+        "\":(exclude)" + WorkspacePaths.DirName + "\" \":(exclude)" + WorkspacePaths.LegacyDirName + "\"";
+
+    /// <summary>
     /// Whether there is anything uncommitted here at all — the question the "Detect goal" button asks
     /// before it offers itself.
     /// <para>One <c>git status --porcelain</c> rather than the two commands <see cref="ReadAsync"/>
@@ -86,7 +100,7 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
         {
             var git = new GitCommandRunner(workingDirectory, gitPath);
             var status = await git.RunAsync(
-                "--no-optional-locks status --porcelain -- \":(exclude).mterminal\"", ct);
+                $"--no-optional-locks status --porcelain -- {Excluded}", ct);
             return status.Trim().Length > 0;
         }
         catch (OperationCanceledException)
@@ -100,8 +114,15 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
         }
     }
 
-    public async Task<WorktreeSnapshot> ReadAsync(CancellationToken ct)
+    /// <param name="caps">How much of the diff and the file summary may be kept, from
+    /// <see cref="GoalDiffContext.CapsFor"/>. Null means the command-line figures: a caller that does
+    /// not know which tool will receive the prompt gets the safe answer rather than the generous one.
+    /// </param>
+    public async Task<WorktreeSnapshot> ReadAsync(
+        CancellationToken ct, GoalDiffContext.WorktreeCaps? caps = null)
     {
+        var limits = caps ?? GoalDiffContext.OnCommandLine;
+
         // A stub is a fixture, not git: whatever it says, it said it successfully. Its text is not
         // clipped by anything, so it is its own fingerprint.
         if (Factory is { } stub)
@@ -114,20 +135,53 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
         {
             var git = new GitCommandRunner(workingDirectory, gitPath);
 
-            // Two commands, each allowed to fail on its own: `diff HEAD` fails in a repository with no
-            // commits yet, and losing the untracked list to that would be losing the only part that
+            // Three commands, each allowed to fail on its own: `diff HEAD` fails in a repository with
+            // no commits yet, and losing the untracked list to that would be losing the only part that
             // still had something to say.
             // The pathspec is on the diff too, not only on the listing. An untracked goal file cannot
-            // appear in a diff — but a *committed* one can, and `.mterminal/` is only added to
+            // appear in a diff — but a *committed* one can, and the directory is only added to
             // .gitignore by the Git tile, so a workspace without one can easily have this tile's own
             // transcript under version control and its contents handed to the tool as "recent changes".
             var (diff, diffProblem) = await RunAsync(
-                git, "--no-optional-locks diff HEAD -- \":(exclude).mterminal\"", ct);
-            // `.mterminal` excluded by pathspec. Without a Git tile in the workspace nothing adds it to
-            // .gitignore, so the listing included this tile's own state file — the transcript being
-            // rewritten after every message — and handed the agent its path to tidy up or edit.
+                git, $"--no-optional-locks diff HEAD -- {Excluded}", ct);
+            // Excluded by pathspec. Without a Git tile in the workspace nothing adds it to .gitignore,
+            // so the listing included this tile's own state file — the transcript being rewritten
+            // after every message — and handed the agent its path to tidy up or edit.
             var (untracked, untrackedProblem) = await RunAsync(
-                git, "--no-optional-locks ls-files --others --exclude-standard -- \":(exclude).mterminal\"", ct);
+                git, $"--no-optional-locks ls-files --others --exclude-standard -- {Excluded}", ct);
+
+            // Skipped where the caller has said it wants no summary. The no-change check reads the
+            // tree only for its fingerprint, and the summary is deliberately outside that — so without
+            // this the check spawned a git process whose output could not affect its answer, twice a
+            // lap, in the user's own repository.
+            //
+            // A third process for one line per file, and where it is asked for it earns it: the diff is
+            // clipped and the stat is not, so this is the only part of the block that describes the
+            // *whole* change. The
+            // explicit widths matter — git formats --stat for a terminal and defaults to 80 columns
+            // when there is none, which abbreviates the middle of exactly the long paths that say which
+            // area of the project moved: `.../Parakeet/Internal/Thing.cs` for a path beginning
+            // `src/mTiles/Services/Speech`.
+            //
+            // The graph is narrowed with --stat-graph-width and the widths are left large, which is
+            // the opposite of the obvious way round and is the only one that works. git clamps the
+            // *name* to about three eighths of the total width once name + numbers + graph exceed it,
+            // so asking for a narrow total to save room on the bar of plusses truncates the path
+            // instead — measured: at --stat=100,180 an 84-character path with 900 changed lines came
+            // back elided, with the leading directories, the informative half, gone. Narrowing the
+            // graph alone is both shorter and complete: 1 473 characters against 1 685 for this
+            // repository's own working tree, with every path whole.
+            //
+            // Its failure is deliberately not joined into `problems`: it is derived from the same
+            // command as the diff, so it fails only when the diff already has, and a second line saying
+            // so would report one broken repository twice.
+            var (summary, _) = limits.Summary <= 0
+                ? ("", (string?)null)
+                : await RunAsync(
+                git,
+                "--no-optional-locks diff HEAD --stat=1000,1000 --stat-graph-width=10 " +
+                $"-- {Excluded}",
+                ct);
 
             // Both problems, joined: reporting only the first hid the second, and the two commands fail
             // for different reasons.
@@ -144,8 +198,11 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
             // starts or stops being readable counts as a tree that moved.
             var whole = string.Join("\u0000", diff, untracked, problems);
 
+            // The summary is deliberately absent from `whole`: it is computed from the same diff, so it
+            // cannot move unless the diff has, and a fingerprint that counts it would only be the same
+            // fact twice.
             return new WorktreeSnapshot(
-                GoalDiffContext.Compose(diff, untracked, problems),
+                GoalDiffContext.Compose(diff, untracked, problems, summary, limits),
                 readable,
                 readable ? WorktreeSnapshot.Digest(whole) : null);
         }

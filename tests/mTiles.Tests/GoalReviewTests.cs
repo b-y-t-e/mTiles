@@ -6,6 +6,29 @@ using Xunit;
 namespace mTiles.Tests;
 
 /// <summary>
+/// A whole review as one string: the head plus its findings.
+/// </summary>
+/// <remarks>
+/// This used to be <c>GoalTranscript.Review</c>. The transcript draws findings as rows now, so
+/// production assembles the two halves only for the clipboard, from a stored message rather than from a
+/// review — which left that method with no caller outside this file. A method only its tests use is not
+/// production code, so the three lines live where they are used.
+/// </remarks>
+internal static class Rendered
+{
+    public static string Review(GoalReviewResult review, VerifyOutcome? verify = null,
+        bool goalMetMatters = true)
+    {
+        var head = GoalTranscript.ReviewHead(review, verify, goalMetMatters);
+        if (!review.WasStructured || review.Findings.Count == 0) return head;
+
+        var sb = new System.Text.StringBuilder(head);
+        GoalTranscript.AppendFindings(sb, GoalTranscript.InOrder(review.Findings));
+        return sb.ToString();
+    }
+}
+
+/// <summary>
 /// Reading a review, and deciding what it means. Both used to be the expression
 /// <c>response.Contains("VERDICT: PASS")</c>, and all three ways that was wrong are pinned here.
 /// </summary>
@@ -146,12 +169,12 @@ public class GoalReviewParsingTests
         // It still does not *claim* the goal is met — that is a separate question the tool did not
         // answer — but the tile now says so instead of silently spending the budget.
         Assert.True(review.SaidNothingAboutTheGoal);
-        Assert.Contains("did not say whether the goal is met", GoalTranscript.Review(review));
+        Assert.Contains("did not say whether the goal is met", Rendered.Review(review));
 
         // And the note is advice about a criterion, so it is not given where that criterion is off: it
         // told the user their goal had failed a check nothing was making.
         Assert.DoesNotContain("did not say whether the goal is met",
-            GoalTranscript.Review(review, verify: null, goalMetMatters: false));
+            Rendered.Review(review, verify: null, goalMetMatters: false));
 
         // And with the requirement off, a clean review finishes.
         Assert.True(GoalCompletionPolicy.IsMet(review, null,
@@ -389,7 +412,7 @@ public class GoalReviewParsingTests
         var review = GoalResponseParser.ParseReview(
             "````json\n{\"goalMet\":false,\"findings\":[]}\n````\n\nNothing calls the new method.");
 
-        var text = GoalTranscript.Review(review);
+        var text = Rendered.Review(review);
         Assert.Contains("Nothing calls the new method", text);
         Assert.DoesNotContain("`Nothing", text);
     }
@@ -403,7 +426,7 @@ public class GoalReviewParsingTests
             "The change never runs: nothing calls the new method.\n\n" +
             "```json\n{\"goalMet\":false,\"findings\":[]}\n```");
 
-        Assert.Contains("nothing calls the new method", GoalTranscript.Review(review));
+        Assert.Contains("nothing calls the new method", Rendered.Review(review));
     }
 
     [Fact]
@@ -416,7 +439,7 @@ public class GoalReviewParsingTests
             "```json\n{\"goalMet\":false,\"findings\":[]}\n```\n\n" +
             "The change never runs: nothing calls the new method.");
 
-        Assert.Contains("nothing calls the new method", GoalTranscript.Review(review));
+        Assert.Contains("nothing calls the new method", Rendered.Review(review));
     }
 
     [Fact]
@@ -505,6 +528,37 @@ public class GoalClarifyParsingTests
 
         Assert.True(clarify.NeedsClarification);
         Assert.Single(clarify.Questions);
+    }
+
+    [Fact]
+    public void The_command_that_checks_the_goal_is_read_from_the_round_that_asks_nothing()
+    {
+        // The round that decides the goal is clear plans immediately and never comes back, so a
+        // command read only from a questioning round would be missing from every goal precise enough
+        // to need no questions — which is most of the goals that state a checkable condition at all.
+        var clarify = GoalResponseParser.ParseClarify(
+            "```json\n{\"needsClarification\":false,\"verify\":\"npm test\"}\n```");
+
+        Assert.Equal("npm test", clarify.Verify);
+    }
+
+    [Fact]
+    public void A_command_written_across_two_lines_arrives_as_one()
+    {
+        // It is bound for a command line. A shell handed two lines runs the first and calls that the
+        // verification, so a goal would be gated on half a command with nothing saying so.
+        var clarify = GoalResponseParser.ParseClarify(
+            "```json\n{\"needsClarification\":false,\"verify\":\"npm run build\\nnpm test\"}\n```");
+
+        Assert.Equal("npm run build npm test", clarify.Verify);
+    }
+
+    [Fact]
+    public void A_round_that_names_no_command_leaves_it_empty()
+    {
+        var clarify = GoalResponseParser.ParseClarify("```json\n{\"needsClarification\":false}\n```");
+
+        Assert.Equal("", clarify.Verify);
     }
 
     [Fact]
@@ -768,6 +822,49 @@ public class GoalCompletionPolicyTests
     }
 
     [Fact]
+    public void A_failing_verify_command_is_one_problem_and_is_reported_once()
+    {
+        // It is a blocker in the findings now, so it is counted where everything else that stops a
+        // goal is counted. Counted here as well, one failing build was two separate problems in the
+        // summary — "the verify command exited 1, 1 blocker" — and the vaguer of the two tellings was
+        // the one that sounded like a second defect.
+        var review = Review(met: true);
+        review.Findings.Add(new GoalFinding
+        {
+            Severity = GoalSeverity.Blocker,
+            Category = GoalFinding.VerifyCategory,
+            Title = "The verify command exited 1",
+        });
+        var failed = new VerifyOutcome(Ran: true, ExitCode: 1, Output: "error CS0103");
+
+        var why = GoalCompletionPolicy.WhyNotMet(review, failed, new GoalCompletionCriteria());
+
+        Assert.Equal("the verify command exited 1", why);
+    }
+
+    [Fact]
+    public void A_blocker_the_review_found_is_still_counted_beside_a_failing_verify_command()
+    {
+        var review = Review(met: true);
+        review.Findings.Add(new GoalFinding
+        {
+            Severity = GoalSeverity.Blocker,
+            Category = GoalFinding.VerifyCategory,
+            Title = "The verify command exited 1",
+        });
+        review.Findings.Add(new GoalFinding
+        {
+            Severity = GoalSeverity.Blocker, Category = "security", Title = "Token in the log",
+        });
+        var failed = new VerifyOutcome(Ran: true, ExitCode: 1, Output: "error CS0103");
+
+        var why = GoalCompletionPolicy.WhyNotMet(review, failed, new GoalCompletionCriteria());
+
+        Assert.Contains("the verify command exited 1", why);
+        Assert.Contains("1 blocker", why);
+    }
+
+    [Fact]
     public void An_unstructured_review_never_trips_the_no_progress_stop()
     {
         // Its fingerprint is the same two words every lap, so the check would have cut every run by a
@@ -775,6 +872,34 @@ public class GoalCompletionPolicyTests
         var prose = GoalResponseParser.ParseReview("VERDICT: FAIL");
 
         Assert.False(GoalCompletionPolicy.RepeatsPrevious(prose, prose.Fingerprint()));
+    }
+
+    [Fact]
+    public void A_run_that_was_never_allowed_to_edit_says_so_rather_than_calling_it_a_dead_end()
+    {
+        // The worktree looks the same either way — no files changed — and the reader's next move does
+        // not: one is a goal that has run out of road, the other is a permission mode two clicks away.
+        var text = GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 1, null, permissionDenials: 3);
+
+        Assert.Contains("3 tool calls were refused permission", text);
+        Assert.Contains("permission mode", text);
+        Assert.DoesNotContain("would change none again", text);
+    }
+
+    [Fact]
+    public void One_refusal_reads_as_one()
+    {
+        Assert.Contains("1 tool call was refused", 
+            GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 2, null, permissionDenials: 1));
+    }
+
+    [Fact]
+    public void Without_a_refusal_the_dead_end_is_still_a_dead_end()
+    {
+        var text = GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 2);
+
+        Assert.Contains("would change none again", text);
+        Assert.DoesNotContain("permission", text);
     }
 
     [Fact]
@@ -835,7 +960,7 @@ public class GoalTranscriptTests
             "{\"severity\":\"suggestion\",\"title\":\"Last\"}," +
             "{\"severity\":\"error\",\"title\":\"First\"}]}\n```");
 
-        var text = GoalTranscript.Review(review);
+        var text = Rendered.Review(review);
 
         Assert.True(text.IndexOf("First", StringComparison.Ordinal)
                     < text.IndexOf("Last", StringComparison.Ordinal));
@@ -846,16 +971,57 @@ public class GoalTranscriptTests
     {
         var review = GoalResponseParser.ParseReview("It all looks fine to me. VERDICT: PASS");
 
-        Assert.Equal("It all looks fine to me. VERDICT: PASS", GoalTranscript.Review(review));
+        Assert.Equal("It all looks fine to me. VERDICT: PASS", Rendered.Review(review));
     }
 
     [Fact]
-    public void A_verify_run_is_reported_beside_the_counts()
+    public void A_verify_run_that_passed_is_reported_beside_the_counts()
     {
         var review = GoalResponseParser.ParseReview("```json\n{\"goalMet\":true,\"findings\":[]}\n```");
 
-        Assert.Contains("verify exited 2",
-            GoalTranscript.Review(review, new VerifyOutcome(true, 2, "boom")));
+        Assert.Contains("verify passed",
+            Rendered.Review(review, new VerifyOutcome(true, 0, "")));
+    }
+
+    [Fact]
+    public void A_verify_run_that_failed_is_said_once_and_as_a_blocker()
+    {
+        // It used to be a suffix on the header line — "· verify exited 2" — and nothing else, so a run
+        // that could not finish showed "nothing found" beside it and no blocker anywhere. The failure
+        // is a finding now, which is where the tile counts everything else that stops a goal; saying it
+        // in the header as well would report one event twice on one line.
+        var review = GoalResponseParser.ParseReview("```json\n{\"goalMet\":true,\"findings\":[]}\n```");
+        review.Findings.Add(new GoalFinding
+        {
+            Severity = GoalSeverity.Blocker,
+            Category = GoalFinding.VerifyCategory,
+            Title = "The verify command exited 2",
+            Detail = "boom",
+        });
+
+        var text = Rendered.Review(review, new VerifyOutcome(true, 2, "boom"));
+
+        Assert.Contains("The verify command exited 2", text);
+        Assert.Contains("boom", text);
+        Assert.DoesNotContain("verify exited 2", text);
+    }
+
+    [Fact]
+    public void The_verify_blocker_is_not_sent_back_as_feedback()
+    {
+        // The command's own output already reaches the next implement prompt under its own heading, in
+        // the compiler's words. This finding is an account of the same thing, and the prompt has a size
+        // budget it would be spending twice.
+        var review = GoalResponseParser.ParseReview("```json\n{\"goalMet\":false,\"findings\":[]}\n```");
+        review.Findings.Add(new GoalFinding
+        {
+            Severity = GoalSeverity.Blocker,
+            Category = GoalFinding.VerifyCategory,
+            Title = "The verify command exited 2",
+            Detail = "boom",
+        });
+
+        Assert.DoesNotContain("verify command exited", GoalTranscript.Feedback(review));
     }
 }
 

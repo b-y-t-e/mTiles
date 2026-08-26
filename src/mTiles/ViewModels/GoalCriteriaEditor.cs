@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
 using mTiles.Services;
 
@@ -63,6 +64,63 @@ public partial class GoalCriteriaEditor : ObservableObject
 
     public bool HasVerifyCommandNote => VerifyCommandAsShown.Length > 0;
 
+    /// <summary>
+    /// Whether this goal has a verify command at all — and therefore whether the panel shows a row for
+    /// one.
+    /// </summary>
+    /// <remarks>
+    /// <para>The row used to be there always, empty, asking the user to translate their own goal into
+    /// a shell command and to know which command this project uses. It is written by the clarification
+    /// round now, from the goal, by a tool standing in the repository — so an empty box is a question
+    /// nobody is being asked any more, and the field went away with the question.</para>
+    /// <para>It is still a <em>box</em> rather than a label whenever there is something in it. What
+    /// arrives is a proposal, and the two things a user wants to do with a proposal — read it and
+    /// change it — both need the text where it can be selected and edited. Emptying it is how one is
+    /// refused, and typing in it is what <see cref="VerifyCommandWasTyped"/> is about.</para>
+    /// </remarks>
+    public bool HasVerifyCommand => VerifyCommand.Length > 0;
+
+    /// <summary>
+    /// Whether the panel shows the verify row at all: because there is a command, or because the user
+    /// asked for the field.
+    /// </summary>
+    /// <remarks>
+    /// <para>The second half is not a convenience. <c>verify</c> is read only out of a structured JSON
+    /// clarification, and three of the four supported tools answer in prose often enough that the
+    /// proposal simply never arrives — as it also never arrives for a repository whose build the tool
+    /// cannot identify, or a goal about writing documentation. Hiding the field whenever nothing had
+    /// been proposed therefore took a working feature away from those users entirely: no field, and no
+    /// way to arm the one gate in this tile that is not a model's opinion of its own work.</para>
+    /// <para>So the row is hidden, not removed, and one quiet button brings it back. The panel stays
+    /// free of an empty box nobody is being asked to fill, which is what the row's disappearance was
+    /// for, and the manual route survives for the users who need it most.</para>
+    /// <para>Once shown it <b>stays</b> shown until the panel is reloaded, and that is not stickiness
+    /// for its own sake: bound to whether the box has anything in it, the field vanished under the
+    /// cursor the moment somebody held backspace to retype a command, taking the focus with it. A box
+    /// being emptied on the way to a new value is not a box being refused, and nothing here can tell
+    /// the two apart while the user is still typing. <see cref="Reload"/> is where the panel is filled
+    /// from the goal, so that is where the question is asked again.</para>
+    /// </remarks>
+    public bool ShowVerifyRow => HasVerifyCommand || _verifyRowShown;
+
+    /// <summary>Shown exactly when the row is not: the way back to a field this panel no longer offers
+    /// by default.</summary>
+    public bool CanAddVerifyCommand => !ShowVerifyRow;
+
+    /// <summary>Whether this panel is currently showing the verify row — because a command arrived in
+    /// it, or because the button below was clicked. Reset by <see cref="Reload"/> and by nothing
+    /// else.</summary>
+    private bool _verifyRowShown;
+
+    /// <summary>Opens the verify row on an empty command, so it can be typed into.</summary>
+    [RelayCommand]
+    private void AddVerifyCommand()
+    {
+        _verifyRowShown = true;
+        OnPropertyChanged(nameof(ShowVerifyRow));
+        OnPropertyChanged(nameof(CanAddVerifyCommand));
+    }
+
     /// <summary>True while the fields are being filled from the criteria, so the setters below do not
     /// read their own writes back as edits and save seven times on load.</summary>
     private bool _filling;
@@ -112,6 +170,13 @@ public partial class GoalCriteriaEditor : ObservableObject
             VerifyCommandWasTyped = false;
         }
 
+        // The one place the row closes. Reload is the panel being filled from the goal, so a goal with
+        // no command gets no row — and a click on "+ verify command" that was never typed into does not
+        // outlive the goal it was made for.
+        _verifyRowShown = HasVerifyCommand;
+        OnPropertyChanged(nameof(ShowVerifyRow));
+        OnPropertyChanged(nameof(CanAddVerifyCommand));
+
         ShowClampNotes();
     }
 
@@ -153,11 +218,28 @@ public partial class GoalCriteriaEditor : ObservableObject
         // of "the user typed it"; nothing else needs to be established.
         // Recomputed, not latched: see VerifyCommandWasTyped. Typing a character into a command that
         // came out of the file and deleting it again left the string unchanged and the gate open.
+        //
+        // An empty box is never a choice, and that half is a fix rather than a nicety. Emptying the
+        // field is how a proposal is refused, and the row then disappears with it — so latching the
+        // flag on "" left a tile that could not be given a command by anyone: the panel had no field to
+        // type into, and AdoptVerifyCommandAsync stands down in front of a command the user typed, so
+        // no later round could offer one either. One clearing disabled verification for the rest of the
+        // session, for every goal after it, under a message promising the opposite. There is no command
+        // here to have chosen.
         if (!_filling)
-            VerifyCommandWasTyped = !string.Equals(value, _notTyped, StringComparison.Ordinal);
+            VerifyCommandWasTyped =
+                value.Length > 0 && !string.Equals(value, _notTyped, StringComparison.Ordinal);
 
         OnPropertyChanged(nameof(VerifyCommandAsShown));
         OnPropertyChanged(nameof(HasVerifyCommandNote));
+        OnPropertyChanged(nameof(HasVerifyCommand));
+
+        // A command arriving keeps the row open, so clearing the box to retype does not pull the
+        // field out from under the cursor. It closes again at the next Reload, which is where the
+        // panel is filled from the goal and the question is worth asking.
+        if (value.Length > 0) _verifyRowShown = true;
+        OnPropertyChanged(nameof(ShowVerifyRow));
+        OnPropertyChanged(nameof(CanAddVerifyCommand));
 
         Changed();
     }

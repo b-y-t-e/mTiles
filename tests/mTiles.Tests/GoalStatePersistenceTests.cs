@@ -49,6 +49,47 @@ public class GoalStatePersistenceTests : IDisposable
     }
 
     [Fact]
+    public void A_reviews_findings_come_back_with_it()
+    {
+        // They are drawn as rows now, so they are saved as findings rather than as the sentence they
+        // used to be flattened into. A tile reopened on a finished run would otherwise show the
+        // verdict and the counts with nothing under them.
+        var path = File_("goal.json");
+        _persistence.Save(path, new GoalTileState
+        {
+            Messages =
+            [
+                new GoalMessage
+                {
+                    Role = GoalMessageRole.Assistant,
+                    Text = "Goal not met",
+                    Phase = GoalPhase.Review,
+                    Findings =
+                    [
+                        new GoalFinding
+                        {
+                            Severity = GoalSeverity.Blocker,
+                            Category = "correctness",
+                            File = "src/Cart.cs",
+                            Line = 42,
+                            Title = "The total is never recomputed",
+                            Detail = "Adding an item leaves the cached sum in place.",
+                        },
+                    ],
+                },
+            ],
+        });
+
+        var finding = Assert.Single(Assert.Single(_persistence.Load(path)!.Messages).Findings);
+
+        Assert.Equal(GoalSeverity.Blocker, finding.Severity);
+        Assert.Equal("src/Cart.cs", finding.File);
+        Assert.Equal(42, finding.Line);
+        Assert.Equal("The total is never recomputed", finding.Title);
+        Assert.Equal("correctness", finding.Category);
+    }
+
+    [Fact]
     public void A_missing_file_is_a_new_tile_rather_than_an_error()
     {
         Assert.Null(_persistence.Load(File_("never-written.json")));

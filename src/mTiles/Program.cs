@@ -14,6 +14,14 @@ public static class Program
         CrashHandler.Initialize(logWriter);
         Trace.Listeners.Add(new LogTraceListener(logWriter));
 
+        // After the listener, and that is the point of it being here rather than where it happens.
+        // Resolving the application data directory is what may *move* it, and the first thing to ask
+        // for that directory is the log writer above — so a line written at the moment of the move
+        // reaches no log file at all, which is the one line somebody will search for on the day their
+        // settings appear to have vanished.
+        if (AppPaths.MigrationNote is { } moved)
+            Trace.TraceInformation(moved);
+
         // Claude Code ≥2.1.89 defaults to "fullscreen rendering": it draws on the
         // alternate screen buffer and captures the mouse, which kills the terminal's
         // native scrollback, drag-selection and select-while-scrolling in tiles.

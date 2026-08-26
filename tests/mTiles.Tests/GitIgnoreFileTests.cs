@@ -10,7 +10,7 @@ namespace mTiles.Tests;
 /// </summary>
 public sealed class GitIgnoreFileTests : IDisposable
 {
-    private const string Entry = ".mterminal/";
+    private const string Entry = ".mtiles/";
     private const string Marker = "# mTiles workspace state";
 
     private readonly string _repo =
@@ -77,9 +77,9 @@ public sealed class GitIgnoreFileTests : IDisposable
     /// <summary>Called on every refresh, so "already there" has to be the common case and has to be
     /// free. A second copy would grow the file by a line every time the tile looked at it.</summary>
     [Theory]
-    [InlineData(".mterminal/")]
-    [InlineData(".mterminal")]      // git ignores the same directory either way
-    [InlineData("  .mterminal/  ")] // and a user's spacing is still the same entry
+    [InlineData(".mtiles/")]
+    [InlineData(".mtiles")]      // git ignores the same directory either way
+    [InlineData("  .mtiles/  ")] // and a user's spacing is still the same entry
     public async Task An_entry_that_is_already_listed_is_not_added_again(string existing)
     {
         Given($"bin/\n{existing}\nobj/\n");
@@ -93,7 +93,7 @@ public sealed class GitIgnoreFileTests : IDisposable
     [Fact]
     public async Task A_commented_out_entry_does_not_count_as_listed()
     {
-        Given("#.mterminal/\n");
+        Given("#.mtiles/\n");
 
         Assert.True(await GitIgnoreFile.EnsureAsync(_repo, Entry));
     }
@@ -140,8 +140,8 @@ public sealed class GitIgnoreFileTests : IDisposable
     /// same pattern in general, but for a directory sitting right here they all ignore it. Comparing the
     /// text literally read a user's own spelling as absent and added a second line beneath it.</summary>
     [Theory]
-    [InlineData("/.mterminal/")]
-    [InlineData("/.mterminal")]
+    [InlineData("/.mtiles/")]
+    [InlineData("/.mtiles")]
     public async Task A_user_spelling_of_the_same_directory_is_not_duplicated(string existing)
     {
         Given($"bin/\n{existing}\n");
@@ -184,17 +184,17 @@ public sealed class GitIgnoreFileTests : IDisposable
     }
 
     /// <summary>
-    /// The same text, but not our line. A user who listed <c>.mterminal/</c> themselves — quite possibly
+    /// The same text, but not our line. A user who listed <c>.mtiles/</c> themselves — quite possibly
     /// long before this setting existed — keeps it. Turning a setting off is not permission to delete
     /// something somebody else put there, and matching on the text alone could not tell the two apart.
     /// </summary>
     [Fact]
     public async Task An_entry_the_user_wrote_themselves_is_not_removed()
     {
-        Given("bin/\n.mterminal/\nobj/\n");
+        Given("bin/\n.mtiles/\nobj/\n");
 
         Assert.False(await GitIgnoreFile.RemoveAsync(_repo, Entry));
-        Assert.Equal("bin/\n.mterminal/\nobj/\n", Content);
+        Assert.Equal("bin/\n.mtiles/\nobj/\n", Content);
     }
 
     /// <summary>

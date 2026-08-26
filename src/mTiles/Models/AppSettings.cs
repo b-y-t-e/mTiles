@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using mTiles.Services;
 
 namespace mTiles.Models;
 
@@ -62,21 +63,30 @@ public sealed class AppSettings
     }
     private Dictionary<string, string> _goalDefaultModels = [];
 
+    /// <summary>
+    /// How much the Goal tile's AI runs may do without asking — see <see cref="AiPermissionMode"/>.
+    /// <para>Here rather than in the goal file so that it cannot travel with a branch, and one setting
+    /// for every Goal tile rather than one each: it describes this machine's appetite for unattended
+    /// edits, which does not change from tile to tile.</para>
+    /// </summary>
+    [JsonConverter(typeof(TolerantAiPermissionModeConverter))]
+    public AiPermissionMode GoalPermissionMode { get; set; } = AiPermissionMode.Auto;
+
     public bool DiffTrimIndent { get; set; } = true;
     /// <summary>
-    /// Whether <c>.mterminal/</c> is listed in each workspace's <c>.gitignore</c>.
+    /// Whether <c>.mtiles/</c> is listed in each workspace's <c>.gitignore</c>.
     /// <para>It used to mean "hide those files in the Git tile", which left them untracked and
     /// unignored: invisible here and waiting in every other git client the user opens. Ignoring them is
     /// what people did by hand anyway — the directory holds this application's own workspace state, and
     /// nothing in it belongs in someone else's repository.</para>
     /// </summary>
-    public bool GitIgnoreMTerminalDir { get; set; } = true;
+    public bool GitIgnoreWorkspaceDir { get; set; } = true;
 
     /// <summary>
     /// The setting this replaced, read from existing files so an explicit "off" is honoured.
     /// <para>Without it, renaming the property means every user starts again at the default — and this
     /// default writes to their repository. Somebody who turned the old switch off had said, as clearly
-    /// as the old feature let them, that they wanted mTiles to leave <c>.mterminal/</c> alone; coming
+    /// as the old feature let them, that they wanted mTiles to leave that directory alone; coming
     /// back after an update and editing their <c>.gitignore</c> anyway is the one thing this feature
     /// must not do. Its meaning did change — hiding versus ignoring — but the answer to "no, thank you"
     /// carries across the two readings.</para>
@@ -86,6 +96,21 @@ public sealed class AppSettings
     [JsonPropertyName("GitHideMTerminalDir")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? LegacyGitHideMTerminalDir { get; set; }
+
+    /// <summary>
+    /// The same answer again, under the name it had between the two renames.
+    /// </summary>
+    /// <remarks>
+    /// A second legacy property rather than a cleverer one, because these are two different questions
+    /// asked at two different times and a user may have answered either. The order they are applied in
+    /// is what makes them a chain: the older is read first and the newer overrides it, so somebody who
+    /// said no once and yes later gets yes. Renaming this property was a rename of the *application*,
+    /// which is no reason at all to stop hearing "leave my repository alone" — and this default
+    /// writes to it.
+    /// </remarks>
+    [JsonPropertyName("GitIgnoreMTerminalDir")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyGitIgnoreMTerminalDir { get; set; }
     public string GitPath { get; set; } = "";
 
     public string? LastWorkspaceId { get; set; }

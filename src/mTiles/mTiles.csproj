@@ -13,7 +13,7 @@
 
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) Or '$(RuntimeIdentifier)' == 'win-x64'">
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>mterminal.ico</ApplicationIcon>
+    <ApplicationIcon>mtiles.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,8 +29,8 @@
          git repository does not do. Settings → General opens it. -->
     <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <AvaloniaResource Include="Assets\mterminal-icon.png" />
-    <AvaloniaResource Include="Assets\mTerminal-logo.png" />
+    <AvaloniaResource Include="Assets\mtiles-icon.png" />
+    <AvaloniaResource Include="Assets\mTiles-logo.png" />
     <!-- The page a phone loads to dictate. Embedded rather than copied next to the executable: the
          bridge serves it from memory, and a file on disk would be one more thing that can go missing
          from a publish and turn the feature into a blank screen on somebody's phone. -->

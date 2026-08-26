@@ -134,6 +134,33 @@ public class GoalPromptBuilderTests
     }
 
     /// <summary>
+    /// The clarification round is asked how this project checks itself on every goal, not only on one
+    /// that mentions running something.
+    /// </summary>
+    /// <remarks>
+    /// Most goals are business goals — "add cart discounts" — and they still have to compile. Asking
+    /// only when the user spelled out a command left the one gate that is not the tool's opinion of its
+    /// own work disarmed in front of the exact failure it exists for.
+    /// </remarks>
+    [Fact]
+    public void The_clarify_round_is_asked_what_this_project_checks_itself_with()
+    {
+        var prompt = new GoalPromptBuilder().BuildClarify("add cart discounts", []);
+
+        Assert.Contains("Set verify to the command this project uses to check itself", prompt);
+
+        // Looked up, never invented: a command this repository gives no evidence for is one that fails
+        // on every attempt for a reason that has nothing to do with the goal.
+        Assert.Contains("rather than assumed", prompt);
+        Assert.Contains("never propose a command this repository gives no evidence for", prompt);
+
+        // And the carve-outs, which are the ordinary cases rather than the exotic ones: a project with
+        // no tests, and a goal whose work no exit code can judge.
+        Assert.Contains("a project with no tests is the ordinary case", prompt);
+        Assert.Contains("not code that runs", prompt);
+    }
+
+    /// <summary>
     /// The instruction survives every fitting step, because it is fixed text rather than borrowed.
     /// </summary>
     /// <remarks>

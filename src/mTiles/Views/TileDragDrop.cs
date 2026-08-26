@@ -8,7 +8,7 @@ internal enum DropZone { None, Left, Right, Top, Bottom, Center }
 
 internal static class TileDragDrop
 {
-    public const string DataFormat = "application/x-mterminal-tile";
+    public const string DataFormat = "application/x-mtiles-tile";
     public static LeafTileNodeViewModel? DragSource { get; set; }
 
     public static DropZone GetDropZone(Point position, Size bounds)

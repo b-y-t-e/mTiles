@@ -143,7 +143,7 @@ public partial class SettingsViewModel : ObservableObject
     private string _customShellType;
 
     [ObservableProperty]
-    private bool _gitIgnoreMTerminalDir;
+    private bool _gitIgnoreWorkspaceDir;
 
     [ObservableProperty]
     private string _gitPath;
@@ -420,7 +420,7 @@ public partial class SettingsViewModel : ObservableObject
         _customShellPath = s.CustomShellPath;
         _customShellArgs = s.CustomShellArgs;
         _customShellType = s.CustomShellType.ToString();
-        _gitIgnoreMTerminalDir = s.GitIgnoreMTerminalDir;
+        _gitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
         _gitPath = s.GitPath;
 
         _ = DetectGitAsync();
@@ -463,7 +463,7 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnTerminalFontSizeChanged(double value) { _settingsService.Settings.TerminalFontSize = value; _settingsService.NotifyChanged(); }
     partial void OnFontFamilyChanged(string value) { _settingsService.Settings.FontFamily = value; _settingsService.NotifyChanged(); }
     partial void OnFontSizeChanged(double value) { _settingsService.Settings.FontSize = value; _settingsService.NotifyChanged(); }
-    partial void OnGitIgnoreMTerminalDirChanged(bool value) { _settingsService.Settings.GitIgnoreMTerminalDir = value; _settingsService.NotifyChanged(); }
+    partial void OnGitIgnoreWorkspaceDirChanged(bool value) { _settingsService.Settings.GitIgnoreWorkspaceDir = value; _settingsService.NotifyChanged(); }
     partial void OnGitPathChanged(string value) { _settingsService.Settings.GitPath = value; _settingsService.NotifyChanged(); _ = DetectGitAsync(); }
 
     [RelayCommand]

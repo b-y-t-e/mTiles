@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using mTiles.Models;
 using mTiles.Services;
 using Xunit;
 
@@ -342,6 +343,131 @@ public class AiProcessRunnerTests
 
         var whole = new GoalPromptBuilder().BuildReview("the goal", new string('d', 20_000), null, budget: null);
         Assert.Contains("dddd", whole);
+    }
+
+    // ── Permission mode ─────────────────────────────────
+
+    [Theory]
+    [InlineData(AiPermissionMode.Auto, "auto")]
+    [InlineData(AiPermissionMode.AcceptEdits, "acceptEdits")]
+    [InlineData(AiPermissionMode.BypassPermissions, "bypassPermissions")]
+    public void Claude_is_told_what_it_may_do_without_asking(AiPermissionMode mode, string expected)
+    {
+        // The tile used to pass nothing, so a run inherited whatever the user's own Claude Code
+        // settings said — and the factory default there is to ask, which a `-p` run has nobody to do.
+        // Every edit was refused, the implementation wrote no files, and the tile reported "the last
+        // attempt changed no files": a true sentence about the wrong thing.
+        var psi = new ProcessStartInfo();
+        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true, permission: mode);
+
+        var at = psi.ArgumentList.IndexOf("--permission-mode");
+        Assert.True(at >= 0);
+        Assert.Equal(expected, psi.ArgumentList[at + 1]);
+    }
+
+    [Fact]
+    public void The_tools_own_settings_are_the_one_mode_that_adds_no_flag()
+    {
+        // The way back to what this did before the setting existed, for somebody whose Claude Code
+        // configuration already says something deliberate.
+        var psi = new ProcessStartInfo();
+        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: false,
+            permission: AiPermissionMode.ToolDefault);
+
+        Assert.DoesNotContain("--permission-mode", psi.ArgumentList);
+    }
+
+    [Fact]
+    public void A_run_that_is_not_told_a_mode_gets_on_with_the_work()
+    {
+        // The default is the flag, not its absence. Defaulting to "pass nothing" would leave the
+        // inherited ask-first mode in place for every caller that forgets — which is every caller
+        // written before the parameter existed.
+        var psi = new ProcessStartInfo();
+        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: false);
+
+        Assert.Contains("auto", psi.ArgumentList);
+    }
+
+    [Fact]
+    public void A_tool_with_no_such_flag_ignores_the_mode()
+    {
+        var psi = new ProcessStartInfo();
+        new GenericToolRunner().ConfigureProcess(psi, "the prompt", streaming: false,
+            permission: AiPermissionMode.BypassPermissions);
+
+        Assert.Equal(["the prompt"], psi.ArgumentList);
+    }
+
+    // ── Refused tool calls ──────────────────────────────
+
+    [Fact]
+    public async Task A_refused_tool_call_is_counted_rather_than_shown()
+    {
+        // A denial arrives as a user turn carrying the tool_result, not as an error line, so nothing
+        // in the reader saw one: a run refused every edit and came back looking like an agent that had
+        // read some files and decided to change nothing.
+        const string denied = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"Claude requested permissions to write to src/Cart.cs, but you haven't granted it yet."}]}}""";
+
+        var output = await AiProcessRunner.ReadStreamAsync(
+            new StringReader(string.Join("\n", [Said, denied, denied, Result])),
+            new ClaudeToolRunner(), _ => { });
+
+        Assert.Equal(2, output.PermissionDenials);
+
+        // Counted, and kept out of the answer: the sentence is the harness talking, not the tool.
+        Assert.Equal("the final answer", output.Text);
+        Assert.False(output.Failed);
+    }
+
+    [Fact]
+    public async Task An_ordinary_tool_failure_is_not_mistaken_for_a_refusal()
+    {
+        // is_error is set by every failed command and missing file too, so the flag alone cannot be
+        // the test. A false denial would tell a user their permission mode is wrong when it is not.
+        const string failed = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"error: no such file or directory"}]}}""";
+
+        var output = await AiProcessRunner.ReadStreamAsync(
+            new StringReader(failed), new ClaudeToolRunner(), _ => { });
+
+        Assert.Equal(0, output.PermissionDenials);
+    }
+
+    [Theory]
+    // The three that mattered, in the words the tools actually print. Every one of them arrives as an
+    // ordinary tool_result with is_error set, and every one is a real failure of the work rather than
+    // the harness refusing anything.
+    [InlineData("git@github.com: Permission denied (publickey).")]
+    [InlineData("bash: ./build.sh: Permission denied")]
+    [InlineData("EACCES: permission denied, open '/etc/hosts'")]
+    public async Task A_permission_error_from_the_work_itself_is_not_a_refusal(string message)
+    {
+        // A test matching "permission" and "denied" anywhere in the same result reads all three as the
+        // harness declining a tool call. The tile then tells the user their permission mode is wrong
+        // and points them at a setting that cannot help, while the actual cause — an ssh key, a file
+        // mode — goes unmentioned. Cheap to miss a new spelling of a real denial; expensive to invent
+        // one.
+        var json =
+            """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"""
+            + System.Text.Json.JsonSerializer.Serialize(message)
+            + """}]}}""";
+
+        var output = await AiProcessRunner.ReadStreamAsync(
+            new StringReader(json), new ClaudeToolRunner(), _ => { });
+
+        Assert.Equal(0, output.PermissionDenials);
+    }
+
+    [Fact]
+    public async Task A_refusal_is_read_out_of_a_content_list_as_well_as_a_string()
+    {
+        // Both shapes are the harness's, not a choice this side gets to make.
+        const string denied = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":[{"type":"text","text":"Claude requested permissions to use Edit, but you haven't granted it yet."}]}]}}""";
+
+        var output = await AiProcessRunner.ReadStreamAsync(
+            new StringReader(denied), new ClaudeToolRunner(), _ => { });
+
+        Assert.Equal(1, output.PermissionDenials);
     }
 
     /// <summary>Starts a run and lets the guard throw before anything is launched. Whatever happens

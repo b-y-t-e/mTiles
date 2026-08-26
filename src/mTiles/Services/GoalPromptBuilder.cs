@@ -22,7 +22,7 @@ public sealed class GoalPromptBuilder
         "Answer with one fenced json block and nothing else.\n\n" +
         "Example:\n" +
         "```json\n" +
-        "{\"needsClarification\":true,\"questions\":[" +
+        "{\"needsClarification\":true,\"verify\":\"npm test\",\"questions\":[" +
         "{\"question\":\"Which file holds the port?\",\"why\":\"There are two candidates.\"," +
         "\"options\":[\"appsettings.json\",\"launchSettings.json\"]}]}\n" +
         "```";
@@ -86,6 +86,30 @@ public sealed class GoalPromptBuilder
                   "no questions. Do not invent questions to be thorough — an unnecessary round costs " +
                   "the user a reply.\n" +
                   "- Offer options when the sensible answers are few and knowable.\n" +
+                  // The one instruction here that is not about questions, and it replaces a text box.
+                  // The criteria panel used to ask the user to turn "the tests must pass" into a shell
+                  // command themselves and to know which command this project uses — a fair question
+                  // in a C# repository and a worse one in every other, since the panel had no idea
+                  // whether it was looking at dotnet, npm or cargo. The tool is standing in the
+                  // repository, so it is asked to look; and where it cannot tell, to ask, which is the
+                  // one thing this round already exists to do.
+                  //
+                  // Asked for on *every* goal, not only one that mentions a command. Most goals are
+                  // business goals — "add cart discounts" — and they still have to compile; making the
+                  // command conditional on the user saying so meant the gate almost never armed, in
+                  // front of the failure it exists for. A review written by the same family of model
+                  // that wrote the code will call a build broken or working with equal confidence, and
+                  // an exit code will not.
+                  "- Set verify to the command this project uses to check itself, found by looking at " +
+                  "the repository rather than assumed: its test runner where it has one, and otherwise " +
+                  "its build. Prefer tests — compiling is a precondition of running them, so tests " +
+                  "cover both — but a project with no tests is the ordinary case, not a problem: use " +
+                  "the build. One line, no shell operators. If the goal names a check of its own, that " +
+                  "one wins. Leave verify out when the repository offers nothing to run at all, and " +
+                  "when the goal's work is not code that runs — writing documentation, prose, a " +
+                  "README — since no exit code says anything about whether that was done well. When " +
+                  "you cannot tell which command the project uses, ask about that instead: never " +
+                  "guess, and never propose a command this repository gives no evidence for.\n" +
                   "Do not implement anything yet.\n\n" +
                   AnswerLanguage +
                   ClarifyExample;
@@ -414,6 +438,15 @@ public sealed class GoalPromptBuilder
                + "Work out what the person making these changes is trying to achieve, and state it as a " +
                  "goal that is not yet finished — what should be true when the work is done, not a list " +
                  "of what has been touched.\n" +
+                 // The block above is clipped and the file list in it is not, so the tool can see that
+                 // the change reaches files whose diff it was never shown. Without this it answered
+                 // from the fragment with complete confidence and no hint that there was more — which
+                 // is how a working tree of twenty-one files came back as a goal about the two that
+                 // sorted first.
+                 "Use the whole of what you are shown, including the list of changed files: the diff " +
+                 "may be truncated, and a file listed there but absent from it has still changed. If " +
+                 "the changes plainly cover more than one piece of work, say so in that sentence and " +
+                 "name the largest.\n" +
                  "Answer with that one sentence and nothing else: no preamble, no bullet points, no " +
                  "code block.\n\n" +
                  "Example: Phone pairings survive a restart, so a paired device does not have to scan " +

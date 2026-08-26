@@ -36,7 +36,7 @@ public sealed class SettingsMigrationTests : IDisposable
 
         var service = new SettingsService(SettingsPath);
 
-        Assert.False(service.Settings.GitIgnoreMTerminalDir);
+        Assert.False(service.Settings.GitIgnoreWorkspaceDir);
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class SettingsMigrationTests : IDisposable
     {
         GivenSettings("""{ "GitHideMTerminalDir": true }""");
 
-        Assert.True(new SettingsService(SettingsPath).Settings.GitIgnoreMTerminalDir);
+        Assert.True(new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
     }
 
     /// <summary>Never having said anything is not the same as having said no: those users get the
@@ -54,24 +54,48 @@ public sealed class SettingsMigrationTests : IDisposable
     {
         GivenSettings("""{ "FontSize": 13 }""");
 
-        Assert.True(new SettingsService(SettingsPath).Settings.GitIgnoreMTerminalDir);
+        Assert.True(new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
     }
 
     /// <summary>
-    /// With both keys present the old one wins, and that is the intended rule rather than an accident.
-    /// <para>The old key exists only in a file written by a version that did not know the new one, so
-    /// its presence is what marks the file as coming from before the rename — and it is removed as soon
-    /// as it has been read, so it can never override a choice made afterwards. A file holding both is
-    /// only reachable by hand-editing, and there the more cautious reading wins: the one that can leave
-    /// somebody's repository alone.</para>
+    /// With more than one of these keys present the <b>newest</b> answer wins, and each is dropped
+    /// once it has been read.
     /// </summary>
+    /// <remarks>
+    /// <para>There are three generations of this setting now — <c>GitHideMTerminalDir</c>,
+    /// <c>GitIgnoreMTerminalDir</c> and <c>GitIgnoreWorkspaceDir</c> — and with three, "the oldest
+    /// wins" stops being caution and becomes an answer nobody can change: somebody who said no years
+    /// ago and yes last week would be held to the no for as long as the key survived. Applying them in
+    /// order and letting the later override is the only rule that reads a file as a history rather
+    /// than a vote.</para>
+    /// <para>This is a change: the two-generation version deliberately let the older key win, on the
+    /// grounds that it marked a pre-rename file and the cautious reading should carry. That argument
+    /// does not survive a third name, and a file holding two of them is reachable only by hand anyway.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void With_both_keys_present_the_old_answer_wins_and_is_then_gone()
+    public void With_several_keys_present_the_newest_answer_wins_and_they_are_then_gone()
     {
         GivenSettings("""{ "GitHideMTerminalDir": false, "GitIgnoreMTerminalDir": true }""");
 
-        Assert.False(new SettingsService(SettingsPath).Settings.GitIgnoreMTerminalDir);
-        Assert.DoesNotContain("GitHideMTerminalDir", File.ReadAllText(SettingsPath));
+        Assert.True(new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
+
+        var written = File.ReadAllText(SettingsPath);
+        Assert.DoesNotContain("GitHideMTerminalDir", written);
+        Assert.DoesNotContain("GitIgnoreMTerminalDir", written);
+    }
+
+    /// <summary>The name between the two renames. It is the one most existing installations actually
+    /// hold, so it is the hop that matters in practice rather than in principle.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_answer_under_the_middle_name_is_carried_across(bool answered)
+    {
+        GivenSettings($$"""{ "GitIgnoreMTerminalDir": {{(answered ? "true" : "false")}} }""");
+
+        Assert.Equal(answered, new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
+        Assert.DoesNotContain("GitIgnoreMTerminalDir", File.ReadAllText(SettingsPath));
     }
 
     /// <summary>Read once. The old key is gone from the file afterwards, so the migration cannot run a
@@ -85,7 +109,7 @@ public sealed class SettingsMigrationTests : IDisposable
         Assert.DoesNotContain("GitHideMTerminalDir", File.ReadAllText(SettingsPath));
 
         // And a run after that leaves the answer where the first one put it.
-        Assert.False(new SettingsService(SettingsPath).Settings.GitIgnoreMTerminalDir);
+        Assert.False(new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
     }
 
     /// <summary>

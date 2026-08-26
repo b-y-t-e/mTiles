@@ -28,10 +28,21 @@ public sealed class GoalMessageTemplate : IDataTemplate
     /// application composed — whose columns markdown would re-flow.</summary>
     public IDataTemplate? Plain { get; set; }
 
+    /// <summary>
+    /// Drawn for a review that kept its findings: the head as text, and a row per finding under it.
+    /// </summary>
+    /// <remarks>
+    /// Asked before <see cref="Markdown"/>, and it costs nothing to ask: a review is composed here, so
+    /// it is never markdown, and the order only decides which of two false answers is reached first.
+    /// A message from a goal file written before findings were kept has none, falls through to
+    /// <see cref="Plain"/>, and is drawn exactly as it was written.
+    /// </remarks>
+    public IDataTemplate? Findings { get; set; }
+
     public bool Match(object? data) => data is GoalMessage;
 
     public Control? Build(object? param) =>
         param is not GoalMessage message
             ? null
-            : (message.IsMarkdown ? Markdown : Plain)?.Build(param);
+            : (message.HasFindings ? Findings : message.IsMarkdown ? Markdown : Plain)?.Build(param);
 }

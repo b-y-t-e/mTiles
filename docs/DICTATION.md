@@ -414,7 +414,7 @@ rather than to `main`**. The digest already makes a substituted file a refusal r
 what the pin prevents is the refusal itself — a file republished upstream would turn every download into
 "does not match the published checksum" with no way to get the model at all. Verified against the pinned
 revision: all four resolve and their sizes match the catalogue to the byte. `SpeechModelStore`
-downloads to `<AppData>/MTerminal/models/<file>.partial`, resumes with `Range`, verifies the digest and
+downloads to `<AppData>/mTiles/models/<file>.partial`, resumes with `Range`, verifies the digest and
 only then moves the file into place — with files this size, "download it again" is not a recovery plan.
 An archive model (`Kind == ParakeetOnnx`) is then unpacked through a `.unpacking` staging directory;
 `IsDownloaded` asks `ParakeetSpeechEngine.HasRequiredFiles` — **every** file the engine opens (the

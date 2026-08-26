@@ -68,7 +68,11 @@ internal static class GoalCompletionPolicy
                 ? "the review did not say whether the goal is met"
                 : "the review says the goal is not met");
 
-        var blockers = review.Count(GoalSeverity.Blocker);
+        // The verify blocker is excluded, because the two sentences above already name it precisely —
+        // with its exit code, which "1 blocker" does not have. Counted as well, one failing build would
+        // be reported as two separate problems: "the verify command exited 1, 1 blocker".
+        var blockers = review.Findings.Count(
+            f => f.Severity == GoalSeverity.Blocker && f.Category != GoalFinding.VerifyCategory);
         if (blockers > 0)
             reasons.Add(Count(blockers, "blocker"));
 
@@ -100,7 +104,13 @@ internal static class GoalCompletionPolicy
         && previousFingerprint == review.Fingerprint();
 
     /// <summary>How a finished run is summarised, given why it ended.</summary>
-    public static string Summarise(GoalStopReason reason, int attempts, string? outstanding = null) =>
+    /// <param name="permissionDenials">How many tool calls the last run was refused permission for.
+    /// It changes only the <see cref="GoalStopReason.NoChange"/> sentence, and it changes what that
+    /// sentence is <em>about</em>: an empty worktree because the tool decided against the work is a
+    /// dead end, and an empty worktree because it was never allowed to touch a file is a setting two
+    /// clicks away. The old wording said the first of those in both cases.</param>
+    public static string Summarise(GoalStopReason reason, int attempts, string? outstanding = null,
+        int permissionDenials = 0) =>
         reason switch
     {
         GoalStopReason.Met => $"Goal completed after {Count(attempts, "attempt")}.",
@@ -130,6 +140,16 @@ internal static class GoalCompletionPolicy
         GoalStopReason.NoProgress =>
             $"Stopped after {Count(attempts, "attempt")}: two reviews in a row reached the same " +
             "conclusion, so more attempts would reach it again" + Outstanding(outstanding),
+
+        // Two sentences from one stop, because the worktree looks the same either way and the reader's
+        // next move does not: one is a goal that has run out of road, the other is a run that was never
+        // allowed to do the work and needs the permission mode on the strip changed, not a new goal.
+        GoalStopReason.NoChange when permissionDenials > 0 =>
+            $"Stopped after {Count(attempts, "attempt")}: the last attempt changed no files because "
+            + $"{Count(permissionDenials, "tool call")} {(permissionDenials == 1 ? "was" : "were")} "
+            + "refused permission. Set the permission "
+            + "mode beside the tool name to auto or higher, then try again"
+            + Outstanding(outstanding),
 
         GoalStopReason.NoChange =>
             $"Stopped after {Count(attempts, "attempt")}: the last attempt changed no files, so the " +

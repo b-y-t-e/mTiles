@@ -70,7 +70,7 @@ public class GoalStateStoreTests : IDisposable
 
         store.Dispose(flush: false);
 
-        // .mterminal/goals/ lives in the user's repository and nothing ever prunes it.
+        // .mtiles/goals/ lives in the user's repository and nothing ever prunes it.
         Assert.False(File.Exists(path));
     }
 
@@ -119,7 +119,7 @@ public class GoalStateStoreTests : IDisposable
         store.SaveNow();
 
         // The same question GoalTilePolicy.WorthConfirming asks, so the two cannot disagree: a tile
-        // nobody has set a goal in is not a session, whatever it has said to itself. .mterminal/goals/
+        // nobody has set a goal in is not a session, whatever it has said to itself. .mtiles/goals/
         // lives in the user's repository and nothing ever prunes it.
         Assert.False(File.Exists(path));
 

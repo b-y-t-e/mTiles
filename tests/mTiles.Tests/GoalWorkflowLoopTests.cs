@@ -251,8 +251,11 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Contains(vm.Messages, m => m.Text.StartsWith("Goal completed"));
 
             // The review is rendered, not reprinted: the finding is there, the prose around the block
-            // is not.
-            Assert.Contains(vm.Messages, m => m.Text.Contains("suggest") && m.Text.Contains("src/X.cs:4"));
+            // is not. Kept as a finding rather than flattened into the text, which is what lets the
+            // transcript draw it as a row with its severity in colour.
+            Assert.Contains(vm.Messages, m => m.Findings.Any(
+                f => f.Severity == GoalSeverity.Suggestion && f.File == "src/X.cs" && f.Line == 4
+                     && f.Title == "Rename this"));
             Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("Looks mostly fine"));
 
             Assert.Equal(["1S"], vm.Badges.Select(b => b.Text));
@@ -290,6 +293,166 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
             Assert.DoesNotContain(vm.Messages, m => m.Text.StartsWith("Goal completed"));
             Assert.Contains(vm.Messages, m => m.Text.Contains("exited 1"));
+        });
+    }
+
+    [Fact]
+    public void The_command_a_project_checks_itself_with_is_adopted_and_asked_about_before_it_runs()
+    {
+        OnUiThread(async () =>
+        {
+            var ran = new List<string>();
+            VerifyCommandRunner.Factory = (_, command, _) =>
+            {
+                ran.Add(command);
+                return Task.FromResult(new VerifyOutcome(true, 0, ""));
+            };
+
+            AnswerWith(
+                "```json\n{\"needsClarification\":false,\"verify\":\"npm test\"}\n```",
+                "The plan", "Implemented it", "VERDICT: PASS");
+
+            var asked = new List<string>();
+            using var vm = NewTile();
+            vm.ConfirmAction = q => { asked.Add(q); return Task.FromResult(true); };
+
+            vm.InputText = "make the tests pass";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // Nobody typed this into the panel. It was worked out from the goal by a tool standing in
+            // the repository — which is the whole point, since the panel had no idea whether this
+            // project is built with dotnet, npm or cargo.
+            Assert.Equal("npm test", vm.Criteria.VerifyCommand);
+
+            // Adopting is not running. An AI tool proposing a shell command is precisely the case the
+            // consent gate exists for, and the question says where it came from.
+            Assert.Contains(asked, q => q.Contains("npm test") && q.Contains("proposes checking"));
+            Assert.Equal(["npm test"], ran.Distinct());
+        });
+    }
+
+    [Fact]
+    public void A_command_the_user_typed_is_not_overwritten_by_the_clarification_round()
+    {
+        OnUiThread(async () =>
+        {
+            VerifyCommandRunner.Factory = (_, _, _) => Task.FromResult(new VerifyOutcome(true, 0, ""));
+
+            AnswerWith(
+                "```json\n{\"needsClarification\":false,\"verify\":\"npm test\"}\n```",
+                "The plan", "Implemented it", "VERDICT: PASS");
+
+            using var vm = NewTile();
+
+            // They are looking at the panel and they put it there. A clarification round replacing it
+            // would be the tile arguing with the person using it.
+            vm.Criteria.VerifyCommand = "dotnet test";
+
+            vm.InputText = "make the tests pass";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal("dotnet test", vm.Criteria.VerifyCommand);
+        });
+    }
+
+    [Fact]
+    public void A_proposal_too_long_to_show_is_ignored_rather_than_reported_as_a_removal()
+    {
+        OnUiThread(async () =>
+        {
+            var ran = 0;
+            VerifyCommandRunner.Factory = (_, _, _) =>
+            {
+                ran++;
+                return Task.FromResult(new VerifyOutcome(true, 0, ""));
+            };
+
+            var huge = new string('x', CommandDisplay.MaxConsentable + 1);
+            AnswerWith(
+                "```json\n{\"needsClarification\":false,\"verify\":\"" + huge + "\"}\n```",
+                "The plan", "Implemented it", "VERDICT: PASS");
+
+            using var vm = NewTile();
+
+            vm.InputText = "make the tests pass";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // Refused before it is stored, not at the consent gate. The gate's version of this refusal
+            // announces a *removal*, which is the wrong thing to say about something the user never had.
+            Assert.Equal("", vm.Criteria.VerifyCommand);
+            Assert.Equal(0, ran);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("too long to show you in full")
+                                              && m.Text.Contains("ignored"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("has been removed"));
+        });
+    }
+
+    [Fact]
+    public void A_proposal_refused_in_the_dialog_is_dropped_and_never_run()
+    {
+        OnUiThread(async () =>
+        {
+            var ran = 0;
+            VerifyCommandRunner.Factory = (_, _, _) =>
+            {
+                ran++;
+                return Task.FromResult(new VerifyOutcome(true, 0, ""));
+            };
+
+            AnswerWith(
+                "```json\n{\"needsClarification\":false,\"verify\":\"npm test\"}\n```",
+                "The plan", "Implemented it", "VERDICT: PASS");
+
+            var asked = new List<string>();
+            using var vm = NewTile();
+            vm.ConfirmAction = q => { asked.Add(q); return Task.FromResult(false); };
+
+            vm.InputText = "make the tests pass";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // The question describes where it came from, and a no removes it rather than skipping it
+            // once: a question asked on every attempt is one answered wrongly on the fifth.
+            Assert.Contains(asked, q => q.Contains("proposes checking"));
+            Assert.Equal(0, ran);
+            Assert.Equal("", vm.Criteria.VerifyCommand);
+        });
+    }
+
+    [Fact]
+    public void A_failing_verify_command_is_counted_as_a_blocker()
+    {
+        OnUiThread(async () =>
+        {
+            VerifyCommandRunner.Factory = (_, _, _) =>
+                Task.FromResult(new VerifyOutcome(true, 1, "error CS0103"));
+
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it",
+                "```json\n{\"goalMet\":true,\"findings\":[]}\n```");
+
+            using var vm = NewTile();
+            vm.Criteria.VerifyCommand = "dotnet build";
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // It was always a hard gate and it was always invisible: the strip said "nothing found"
+            // over a run that could not finish, and the one line naming the exit code scrolled away
+            // with the attempt. A blocker is what this is, in the word the tile already uses for it.
+            Assert.Contains("1B", vm.Badges.Select(b => b.Text));
+            Assert.Contains(vm.Messages, m => m.Findings.Any(
+                f => f.Severity == GoalSeverity.Blocker && f.Title.Contains("The verify command exited 1")));
         });
     }
 
@@ -2129,7 +2292,7 @@ public class GoalWorkflowLoopTests : IDisposable
             var untouchedPath = untouched.FilePath;
             untouched.Dispose();
 
-            // .mterminal/goals/ lives in the user's repository and nothing ever prunes it, so a tile
+            // .mtiles/goals/ lives in the user's repository and nothing ever prunes it, so a tile
             // opened and closed without a word must not leave an empty session in it.
             Assert.False(File.Exists(untouchedPath));
 

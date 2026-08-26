@@ -20,8 +20,8 @@
         </DataTemplate>
         <!-- Shared by the toggle's two states. Says where it applies, because it does not apply
              everywhere: the entry is written by the Git tile, so a workspace without one is untouched. -->
-        <StackPanel x:Key="MTerminalIgnoreCaption" x:Shared="False">
-            <TextBlock Text="Add .mterminal to .gitignore" Classes="label" />
+        <StackPanel x:Key="WorkspaceIgnoreCaption" x:Shared="False">
+            <TextBlock Text="Add .mtiles to .gitignore" Classes="label" />
             <TextBlock Text="Written to each workspace that has a Git tile open, keeping this app's state out of your repository"
                        FontSize="{DynamicResource FontXs}"
                        Foreground="{DynamicResource TextMuted}"
@@ -315,11 +315,11 @@
                                              toggles it: text sitting next to a control is text people try
                                              to click. One template for both states rather than two copies
                                              of the same label — the wording is true either way. -->
-                                        <ToggleSwitch IsChecked="{Binding GitIgnoreMTerminalDir}"
+                                        <ToggleSwitch IsChecked="{Binding GitIgnoreWorkspaceDir}"
                                                       HorizontalAlignment="Stretch"
                                                       VerticalAlignment="Center"
-                                                      OnContent="{StaticResource MTerminalIgnoreCaption}"
-                                                      OffContent="{StaticResource MTerminalIgnoreCaption}" />
+                                                      OnContent="{StaticResource WorkspaceIgnoreCaption}"
+                                                      OffContent="{StaticResource WorkspaceIgnoreCaption}" />
                                     </DockPanel>
                                 </Border>
                             </DockPanel>

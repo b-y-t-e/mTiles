@@ -42,18 +42,26 @@ public sealed class FileLogWriter
         return sb.ToString();
     }
 
+    /// <summary>What today's log is called, and what every log written before the application was
+    /// renamed is called. Both are pruned; only the first is written.</summary>
+    private const string Prefix = "mtiles-";
+    private const string LegacyPrefix = "mterminal-";
+
     private string GetTodayFilePath() =>
-        Path.Combine(_logDirectory, $"mterminal-{DateTime.Now:yyyy-MM-dd}.log");
+        Path.Combine(_logDirectory, $"{Prefix}{DateTime.Now:yyyy-MM-dd}.log");
 
     private void CleanupOldLogs()
     {
         try
         {
             var cutoff = DateTime.Now.AddDays(-AppDefaults.LogRetentionDays);
-            foreach (var file in Directory.GetFiles(_logDirectory, "mterminal-*.log"))
+            // Both prefixes, or the logs written under the old name are never cleaned up again — a
+            // retention policy that stops applying to yesterday's files is not one.
+            foreach (var prefix in new[] { Prefix, LegacyPrefix })
+            foreach (var file in Directory.GetFiles(_logDirectory, $"{prefix}*.log"))
             {
                 var name = Path.GetFileNameWithoutExtension(file);
-                var datePart = name.Replace("mterminal-", "");
+                var datePart = name[prefix.Length..];
                 if (DateTime.TryParseExact(datePart, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
                     && date < cutoff)
                 {

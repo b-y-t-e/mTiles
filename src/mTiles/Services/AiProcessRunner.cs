@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using mTiles.Models;
 
 namespace mTiles.Services;
 
@@ -22,6 +23,11 @@ public enum AiChunkKind
     /// <summary>The tool saying it failed. Never the answer while there is one, and never silently
     /// dropped either.</summary>
     Error,
+
+    /// <summary>A tool call the tool was refused permission for. Counted rather than shown: one of
+    /// these is normal — an agent asking for something it does not need — and a run made entirely of
+    /// them is the tile's own permission mode being wrong, which is what the count is for.</summary>
+    Denied,
 }
 
 public sealed class AiOutputChunk
@@ -41,7 +47,7 @@ public sealed class AiOutputChunk
 /// mistake: a failed implementation has usually already written files, and what it managed to say about
 /// them is the only account of what is now in the worktree.
 /// </remarks>
-public readonly record struct AiOutput(string Text, bool Failed)
+public readonly record struct AiOutput(string Text, bool Failed, int PermissionDenials = 0)
 {
     /// <summary>A run that said something and did not fail. Named rather than implicit: a conversion
     /// from string would set <c>Failed</c> to false silently, and that bit is the whole of what this
@@ -68,7 +74,12 @@ public interface IAiToolRunner
     // No model parameter — each tool uses its own default model.
     // Tools support many providers so there's no way to build a universal model list.
     // If tools add a model listing command in the future, we can re-add model selection.
-    void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming);
+    /// <param name="permission">How much the tool may do without asking. Optional, and defaulted to
+    /// <see cref="AiPermissionMode.Auto"/> rather than to "pass nothing", because "pass nothing" is
+    /// the behaviour that made a headless run refuse every edit on a machine whose Claude Code is at
+    /// its factory ask-first default. A tool with no such flag ignores it.</param>
+    void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+        AiPermissionMode permission = AiPermissionMode.Auto);
 
     /// <summary>
     /// Whether this tool can report what it is doing as it does it.
@@ -127,11 +138,23 @@ public sealed class ClaudeToolRunner : IAiToolRunner
     /// <para><c>--verbose</c> is not optional with <c>stream-json</c>: print mode refuses the pair
     /// without it.</para>
     /// </remarks>
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming)
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+        AiPermissionMode permission = AiPermissionMode.Auto)
     {
         // No prompt argument: `claude -p` with nothing after it reads it from standard input, which
         // AiProcessRunner writes. `prompt` is unused here for exactly that reason.
         psi.ArgumentList.Add("-p");
+
+        // Said out loud rather than inherited. Without it the run takes whatever mode the user's own
+        // Claude Code settings are in, and the factory default is to ask — which a `-p` run cannot do,
+        // so every edit is refused and the implementation writes nothing. ToolDefault is the way back
+        // to that inheritance for somebody who wants it, and it is the only mode that adds no flag.
+        if (AiPermissionModes.Flag(permission) is { } mode)
+        {
+            psi.ArgumentList.Add("--permission-mode");
+            psi.ArgumentList.Add(mode);
+        }
+
         psi.ArgumentList.Add("--output-format");
         psi.ArgumentList.Add(streaming ? "stream-json" : "text");
 
@@ -198,6 +221,20 @@ public sealed class ClaudeToolRunner : IAiToolRunner
                 if (said.Count > 0) return said;
             }
 
+            // A refused tool call comes back as a user turn carrying the tool_result, not as an error
+            // line, so nothing above this ever saw one: the run looked like an agent that read some
+            // files and decided to change nothing. Counted here so the tile can tell "it declined the
+            // work" from "it was not allowed to do the work" — the two produce an identical worktree.
+            if (type == "user" && root.TryGetProperty("message", out var userMsg)
+                && userMsg.TryGetProperty("content", out var userContent)
+                && userContent.ValueKind == JsonValueKind.Array)
+            {
+                var refused = userContent.EnumerateArray().Count(IsPermissionDenial);
+                if (refused > 0)
+                    return Enumerable.Repeat(
+                        new AiOutputChunk { Kind = AiChunkKind.Denied, Content = "" }, refused).ToList();
+            }
+
             if (type == "content_block_delta" && root.TryGetProperty("delta", out var delta)
                 && delta.TryGetProperty("text", out var deltaText))
             {
@@ -237,6 +274,52 @@ public sealed class ClaudeToolRunner : IAiToolRunner
             return [];
         }
     }
+
+    /// <summary>
+    /// Whether one block of a user turn is the harness saying a tool call was not allowed.
+    /// </summary>
+    /// <remarks>
+    /// <para>Matched on the words, because there is no field that says so: a denial arrives as an
+    /// ordinary <c>tool_result</c> with <c>is_error</c> set, which is also what a failed command or a
+    /// missing file looks like. The error flag is therefore the gate and the wording is the test, and
+    /// both halves are needed — the wording alone would count an agent quoting the sentence.</para>
+    /// <para>Two spellings, because the harness has used both. Getting this wrong is cheap in one
+    /// direction and not the other: a missed denial only leaves the old, unhelpful message in place,
+    /// while a false one would tell a user their permission mode is wrong when it is not. Hence the
+    /// narrow phrases rather than the word "permission" on its own.</para>
+    /// <para>There was a third test here — "permission" and "denied" anywhere in the same result —
+    /// as a catch-all, and it was the exact failure the paragraph above forbids, written one line
+    /// below it. Those two words appear together in <c>Permission denied (publickey)</c> from a git
+    /// push, in <c>bash: ./x: Permission denied</c>, and in <c>EACCES: permission denied, open</c> from
+    /// node — every one of them an ordinary <c>tool_result</c> with <c>is_error</c> set, and every one
+    /// of them a real failure of the work rather than a refusal by the harness. It turned "your ssh key
+    /// is not loaded" into "mTiles was not allowed to touch a file; change the permission mode", which
+    /// sends the user to a setting that will not help. A new spelling by the harness costs a missed
+    /// denial and the old message; a guess costs the user the diagnosis.</para>
+    /// </remarks>
+    private static bool IsPermissionDenial(JsonElement block)
+    {
+        if (!block.TryGetProperty("type", out var kind) || kind.GetString() != "tool_result") return false;
+        if (!block.TryGetProperty("is_error", out var isError) || isError.ValueKind != JsonValueKind.True)
+            return false;
+
+        var text = block.TryGetProperty("content", out var content) ? Flatten(content) : "";
+
+        return text.Contains("requested permissions", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("permission to use", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A tool_result's content, which is a string in the simple case and a list of blocks in
+    /// the other. Both shapes are the harness's, not a choice this side gets to make.</summary>
+    private static string Flatten(JsonElement content) => content.ValueKind switch
+    {
+        JsonValueKind.String => content.GetString() ?? "",
+        JsonValueKind.Array => string.Join(" ", content.EnumerateArray()
+            .Select(b => b.ValueKind == JsonValueKind.Object && b.TryGetProperty("text", out var t)
+                ? t.GetString() ?? ""
+                : "")),
+        _ => "",
+    };
 
     /// <summary>
     /// One tool call, in the fewest words that still say what is happening.
@@ -290,7 +373,8 @@ public sealed class ClaudeToolRunner : IAiToolRunner
 
 public sealed class CodexToolRunner : IAiToolRunner
 {
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming)
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+        AiPermissionMode permission = AiPermissionMode.Auto)
     {
         psi.ArgumentList.Add("exec");
         psi.ArgumentList.Add(prompt);
@@ -302,7 +386,8 @@ public sealed class CodexToolRunner : IAiToolRunner
 
 public sealed class OpenCodeToolRunner : IAiToolRunner
 {
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming)
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+        AiPermissionMode permission = AiPermissionMode.Auto)
     {
         psi.ArgumentList.Add("run");
         psi.ArgumentList.Add(prompt);
@@ -314,7 +399,8 @@ public sealed class OpenCodeToolRunner : IAiToolRunner
 
 public sealed class PiToolRunner : IAiToolRunner
 {
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming)
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+        AiPermissionMode permission = AiPermissionMode.Auto)
     {
         psi.ArgumentList.Add("-p");
         psi.ArgumentList.Add(prompt);
@@ -335,7 +421,8 @@ public sealed class PiToolRunner : IAiToolRunner
 /// </summary>
 public sealed class GenericToolRunner : IAiToolRunner
 {
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming) =>
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+        AiPermissionMode permission = AiPermissionMode.Auto) =>
         psi.ArgumentList.Add(prompt);
 
     public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
@@ -429,6 +516,7 @@ public static class AiProcessRunner
         string prompt,
         string workingDirectory,
         IAiToolRunner runner,
+        AiPermissionMode permission = AiPermissionMode.Auto,
         Action<string>? onActivity = null,
         CancellationToken ct = default)
     {
@@ -439,7 +527,7 @@ public static class AiProcessRunner
 
         var psi = CreateProcessStartInfo(executablePath, workingDirectory);
         psi.RedirectStandardInput = runner.AcceptsPromptOnStdin;
-        runner.ConfigureProcess(psi, prompt, streaming);
+        runner.ConfigureProcess(psi, prompt, streaming, permission);
 
         using var process = new Process { StartInfo = psi };
         process.Start();
@@ -474,9 +562,10 @@ public static class AiProcessRunner
         // chunk, and is now reported the same way: the words kept, the fact carried beside them.
         if (process.HasExited && process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
             return AiOutput.Failure(
-                $"{output.Text.Trim()}\n\n[stderr] {stderr.Trim()}".Trim());
+                $"{output.Text.Trim()}\n\n[stderr] {stderr.Trim()}".Trim())
+                with { PermissionDenials = output.PermissionDenials };
 
-        return new AiOutput(output.Text.Trim(), output.Failed);
+        return new AiOutput(output.Text.Trim(), output.Failed, output.PermissionDenials);
     }
 
     /// <summary>The whole of standard output, for a tool that cannot say anything about itself as it
@@ -508,6 +597,7 @@ public static class AiProcessRunner
         var text = new StringBuilder();
         string? result = null;
         string? error = null;
+        var denied = 0;
 
         while (await output.ReadLineAsync() is { } line)
         {
@@ -535,6 +625,10 @@ public static class AiProcessRunner
                         // of its answer, and glued onto a half-finished one it becomes a sentence the review
                         // prompt reads as something the implementation decided.
                         error = chunk.Content;
+                        break;
+
+                    case AiChunkKind.Denied:
+                        denied++;
                         break;
 
                     case AiChunkKind.Text:
@@ -565,14 +659,15 @@ public static class AiProcessRunner
             : text.Length > 0 ? text.ToString().TrimEnd()
             : "";
 
-        if (error is not { Length: > 0 }) return AiOutput.Answered(answer);
+        if (error is not { Length: > 0 }) return AiOutput.Answered(answer) with { PermissionDenials = denied };
 
         // Both halves. The text is kept because a failed implementation has usually already written
         // files and this is the only account of what is in the worktree; the flag is kept because
         // without it the loop reads that account as an answer and adopts it as the plan, or as the
         // review, and carries on.
         return AiOutput.Failure(
-            answer.Length > 0 ? $"{answer}\n\n[error] {error}" : error);
+            answer.Length > 0 ? $"{answer}\n\n[error] {error}" : error)
+            with { PermissionDenials = denied };
     }
 
     /// <summary>

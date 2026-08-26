@@ -65,6 +65,75 @@ public class GoalDiffContextTests
     }
 
     [Fact]
+    public void The_file_summary_survives_a_diff_that_does_not()
+    {
+        // The failure this is for, measured: 140 000 characters of diff across twenty-one files, of
+        // which 6 000 reached the tool — four per cent, and by path order that four per cent was two
+        // markdown files. Nothing in the block said the change went any further, so "Detect goal" named
+        // a goal drawn from the fragment, confidently and about the wrong work.
+        var huge = new string('x', 200_000);
+        var summary = string.Join("\n", Enumerable.Range(0, 21).Select(i => $" src/File{i}.cs | 12 ++--"));
+
+        var composed = GoalDiffContext.Compose(huge, null, null, summary)!;
+
+        Assert.Contains("src/File20.cs", composed);
+        Assert.Contains("diff truncated", composed);
+
+        // Above the body, because whatever cuts this block again cuts it from the end — the same rule
+        // the untracked names follow, and for the same reason: it is bounded by the file count rather
+        // than by the size of the change.
+        Assert.True(composed.IndexOf("Changed files:", StringComparison.Ordinal)
+                    < composed.IndexOf('x'));
+    }
+
+    [Fact]
+    public void The_caps_follow_the_transport_rather_than_being_constants()
+    {
+        // Six thousand is what a Windows command line allows. A tool that reads its prompt on stdin has
+        // no such limit, and neither has any tool off Windows — so charging it there was paying a
+        // transport cost on a channel with no transport.
+        var shim = GoalDiffContext.CapsFor(8_191);
+        var stdin = GoalDiffContext.CapsFor(null);
+
+        Assert.Equal(GoalDiffContext.MaxDiffCharsOnCommandLine, shim.Diff);
+        Assert.Equal(GoalDiffContext.MaxDiffCharsOffCommandLine, stdin.Diff);
+
+        var diff = new string('x', 20_000);
+
+        Assert.Contains("diff truncated", GoalDiffContext.Compose(diff, null, null, null, shim)!);
+        Assert.DoesNotContain("diff truncated", GoalDiffContext.Compose(diff, null, null, null, stdin)!);
+    }
+
+    /// <summary>
+    /// The file summary took its room from the diff rather than from nowhere.
+    /// </summary>
+    /// <remarks>
+    /// Added without this, the worktree block grew from at most 7 000 characters to at most 10 000
+    /// against the 8 191 a <c>.cmd</c> shim allows — so <c>GoalPromptBuilder.Fit</c> would have started
+    /// cutting the diff harder than before the summary existed, silently, for three of the four
+    /// supported tools. A block that grows has to say where the room came from.
+    /// </remarks>
+    [Fact]
+    public void The_block_on_a_command_line_is_no_bigger_than_it_was_before_the_summary_existed()
+    {
+        var shim = GoalDiffContext.CapsFor(8_191);
+
+        Assert.Equal(GoalDiffContext.MaxDiffChars, shim.Diff + shim.Summary);
+        Assert.Equal(GoalDiffContext.MaxSummaryCharsOnCommandLine, shim.Summary);
+
+        // And it is spent, not merely reserved: a real block gets both parts, neither empty.
+        var composed = GoalDiffContext.Compose(
+            new string('x', 50_000), null, null,
+            string.Join("\n", Enumerable.Range(0, 400).Select(i => $" src/File{i}.cs | 3 +++")),
+            shim)!;
+
+        Assert.True(composed.Length < GoalDiffContext.MaxDiffChars + 500);
+        Assert.Contains("src/File0.cs", composed);
+        Assert.Contains("summary truncated", composed);
+        Assert.Contains("diff truncated", composed);
+    }
+
+    [Fact]
     public void A_tree_that_could_not_be_read_says_so_rather_than_looking_clean()
     {
         // Silence and a clean tree are the same thing to whatever reads this, and a tool told nothing

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=mTiles
 Exec=mTiles
-Icon=mterminal
+Icon=mtiles
 Type=Application
 Categories=Development;System;TerminalEmulator;
 Comment=Cross-platform terminal manager

@@ -101,14 +101,14 @@ public sealed class TileFactory
 
     private NoteTileViewModel CreateNote(string workingDir)
     {
-        var notesDir = Path.Combine(workingDir, ".mterminal", "notes");
+        var notesDir = WorkspacePaths.Combine(workingDir, "notes");
         var filePath = Path.Combine(notesDir, $"{Guid.NewGuid():N}.md");
         return new NoteTileViewModel(filePath, _settingsService);
     }
 
     private TodoTileViewModel CreateTodo(string workingDir)
     {
-        var todosDir = Path.Combine(workingDir, ".mterminal", "todos");
+        var todosDir = WorkspacePaths.Combine(workingDir, "todos");
         var filePath = Path.Combine(todosDir, $"{Guid.NewGuid():N}.md");
         return new TodoTileViewModel(filePath, _settingsService);
     }

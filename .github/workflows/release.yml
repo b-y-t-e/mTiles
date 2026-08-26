@@ -87,8 +87,8 @@ jobs:
           chmod +x AppDir/AppRun
 
           # Copy icon for AppImage
-          cp src/mTiles/Assets/mterminal-icon.png AppDir/mterminal.png
-          cp src/mTiles/Assets/mterminal-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/mterminal.png
+          cp src/mTiles/Assets/mtiles-icon.png AppDir/mtiles.png
+          cp src/mTiles/Assets/mtiles-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/mtiles.png
 
       - name: Verify the AppImage tree
         shell: pwsh

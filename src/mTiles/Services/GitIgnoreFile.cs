@@ -165,8 +165,8 @@ internal static class GitIgnoreFile
     /// Whether the entry is already listed, in any of the spellings that mean the same directory here.
     /// <para>A trailing slash is git's "directory only" and a leading one is "at this level, not in
     /// subdirectories" — different patterns in general, but for a directory sitting right here they all
-    /// ignore it. Comparing the text literally would read a user's <c>/.mterminal/</c> as absent and add
-    /// a second line that changes nothing. A negation (<c>!.mterminal/</c>) is deliberately not a match:
+    /// ignore it. Comparing the text literally would read a user's <c>/.mtiles/</c> as absent and add
+    /// a second line that changes nothing. A negation (<c>!.mtiles/</c>) is deliberately not a match:
     /// it is the user turning the ignore off, and our line would go in above it and lose anyway.</para>
     /// </summary>
     private static bool Matches(byte[] line, string entry)

@@ -190,7 +190,7 @@ public partial class DatabaseTileViewModel : ObservableObject, IDisposable
     }
 
     private string GetWorkspaceConfigPath() =>
-        Path.Combine(_workingDirectory, ".mterminal", "databases.json");
+        WorkspacePaths.Combine(_workingDirectory, "databases.json");
 
     public void RefreshDatabaseList()
     {

@@ -391,7 +391,103 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// </summary>
     public ObservableCollection<GoalBadge> Badges { get; } = [];
     public ObservableCollection<string> AvailableTools { get; } = [];
-    public Action? ScrollToEnd { get; set; }
+
+    /// <summary>The permission modes the strip offers, as words.</summary>
+    public IReadOnlyList<string> AvailablePermissionModes { get; } = AiPermissionModes.Labels;
+
+    /// <summary>
+    /// How much the tool may do without asking, read from and written straight back to settings.
+    /// </summary>
+    /// <remarks>
+    /// <para>Not an <c>[ObservableProperty]</c> over a field of its own: the value lives in
+    /// <c>settings.json</c>, and a field beside it would be a second copy to keep in step — the tile is
+    /// rebuilt from settings on every open, so the copy would be the one that is wrong.</para>
+    /// <para>Written on selection rather than behind a Save button, like everything else on this strip.
+    /// A second Goal tile already open keeps showing the old word until it is rebuilt, which is the one
+    /// cost of there being a single setting; the run itself always reads settings, so no tile ever
+    /// <em>runs</em> with the stale one.</para>
+    /// </remarks>
+    public string PermissionModeLabel
+    {
+        get => AiPermissionModes.Label(_settingsService.Settings.GoalPermissionMode);
+        set
+        {
+            var mode = AiPermissionModes.FromLabel(value);
+            if (mode == _settingsService.Settings.GoalPermissionMode) return;
+
+            // One mode is asked about, once, and the asymmetry is the point: this tile already refuses
+            // to run a shell command out of a goal file without a question, and "nothing is asked about
+            // at all, on every Goal tile you have" is a larger grant than any single command. A combo
+            // box is a fine control for a preference and a thin one for a decision with no undo — the
+            // first unattended run is where it is discovered.
+            //
+            // Deliberately not a repeat: it is a setting, so once chosen it stays chosen. And the
+            // question is asked *before* the write, so a refusal leaves the setting exactly as it was.
+            if (mode == AiPermissionMode.BypassPermissions)
+            {
+                // Discarded rather than awaited, because a property setter cannot await — and the task
+                // catches everything itself, so nothing is left unobserved. The setting is written only
+                // on a yes, and the notification at the end puts the strip back to what is stored,
+                // which is how a refusal undoes the selection the combo box has already made.
+                _ = ConfirmBypassThenApplyAsync();
+                return;
+            }
+
+            _settingsService.Settings.GoalPermissionMode = mode;
+            _settingsService.NotifyChanged();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Asks before turning every safeguard off, and writes the setting only on a yes.
+    /// </summary>
+    /// <remarks>
+    /// <para>No dialog means <b>no</b>, as on the Settings dialog and in front of a verify command out
+    /// of a goal file. An unanswered question is not a yes, and this is the largest single grant this
+    /// application makes: it applies to every Goal tile, and the first place it is noticed is an
+    /// unattended run that has already happened.</para>
+    /// <para>The other three modes are not asked about. They are preferences with a floor under them;
+    /// this one removes the floor.</para>
+    /// </remarks>
+    private async Task ConfirmBypassThenApplyAsync()
+    {
+        try
+        {
+            var agreed = ConfirmAction != null && await ConfirmAction(
+                "Run the AI tool with no permission checks at all?\n\n" +
+                "It will edit, create and delete files and run commands in this workspace without " +
+                "asking. This applies to every Goal tile, until you change it back.");
+
+            if (agreed)
+            {
+                _settingsService.Settings.GoalPermissionMode = AiPermissionMode.BypassPermissions;
+                _settingsService.NotifyChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            // Swallowed to a warning rather than left to the dispatcher: this runs detached from any
+            // caller, and an escape from here ends the process over a combo box.
+            Trace.TraceWarning($"Asking about the permission mode failed: {ex.Message}");
+        }
+        finally
+        {
+            // Whatever happened, the strip is put back to what is actually stored — which is how a
+            // refusal undoes the selection the combo box has already made on screen.
+            OnPropertyChanged(nameof(PermissionModeLabel));
+        }
+    }
+
+    /// <summary>
+    /// How many tool calls the most recent AI run was refused permission for.
+    /// <para>Kept for one question only: an implementation that changed no files is a dead end when the
+    /// tool decided against the work and a misconfiguration when it was never allowed to do it, and the
+    /// worktree looks identical either way. Not persisted — it describes the run that has just
+    /// happened, and after a restart there is nothing left to explain.</para>
+    /// </summary>
+    private int _lastRunDenials;
+
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
     private AiToolInfo? _resolvedTool;
@@ -418,7 +514,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         _workingDirectory = workingDirectory;
         _settingsService = settingsService;
 
-        var goalsDir = Path.Combine(workingDirectory, ".mterminal", "goals");
+        var goalsDir = WorkspacePaths.Combine(workingDirectory, "goals");
         _filePath = Path.Combine(goalsDir, $"{Guid.NewGuid():N}.json");
 
         // The store before the editor, as in the other constructor. The editor's callbacks reach the
@@ -532,12 +628,22 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// <summary>
     /// A verify command that came out of the goal file and has not yet been agreed to in this session.
     /// <para>Deliberately <b>not persisted</b>, and that is the whole design. Goal files live in
-    /// <c>.mterminal/goals/</c> inside the user's own repository; nothing gitignores that directory
+    /// <c>.mtiles/goals/</c> inside the user's own repository; nothing gitignores that directory
     /// unless the Git tile is used, so a committed one travels with a branch — and it carries a shell
     /// command that this tile runs after every attempt. A stored "the user agreed" flag would travel
     /// with it and agree on their behalf.</para>
     /// </summary>
     private bool _verifyCommandNeedsConsent;
+
+    /// <summary>
+    /// Whether the command awaiting consent was worked out from the goal in this session, rather than
+    /// read out of the goal file.
+    /// <para>Only the wording of the question depends on it, and the wording is the question: "this
+    /// goal was saved with a verify command" said over one the tool proposed a second ago describes
+    /// the wrong event, and the user is being asked to approve a shell command on the strength of that
+    /// description. Not persisted, for the reason <see cref="_verifyCommandNeedsConsent"/> is not.</para>
+    /// </summary>
+    private bool _verifyCommandFromGoal;
 
     /// <summary>
     /// Set once the tile has explained that it cannot ask about the verify command.
@@ -1052,6 +1158,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         var clarify = GoalResponseParser.ParseClarify(answer);
         _engine.ClarifyRounds++;
 
+        // Before either branch below, because both of them lead somewhere: the round that asks
+        // questions is followed by another one, and the round that asks none plans immediately and
+        // never comes back here. A command adopted only on the second path would be missing from every
+        // goal clear enough to need no questions — which is most of the goals that state a condition
+        // precisely enough to have one.
+        await AdoptVerifyCommandAsync(clarify.Verify);
+
         // Prose is a legitimate answer: a tool that ignored the schema still asked something, and the
         // old behaviour — show it, wait for a reply — is exactly right for it.
         if (clarify.WasStructured && !clarify.NeedsClarification)
@@ -1320,9 +1433,14 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 if (reviewRun is not { } reviewed) return;
 
                 var review = GoalResponseParser.ParseReview(reviewed.Text);
+                AddVerifyFinding(review, verify);
                 ShowFindings(review);
+                // The head as text, the findings as findings. They used to be one string, so the one
+                // part of the transcript arranged to be scanned was also the one part with no colour
+                // in it: a blocker and a suggestion were the same grey, three lines apart.
                 await AddMessageAsync(GoalMessageRole.Assistant,
-                    GoalTranscript.Review(review, verify, criteria.RequireGoalMet), GoalPhase.Review);
+                    GoalTranscript.ReviewHead(review, verify, criteria.RequireGoalMet), GoalPhase.Review,
+                    findings: GoalTranscript.InOrder(review.Findings));
 
                 if (GoalCompletionPolicy.IsMet(review, verify, criteria))
                 {
@@ -1409,7 +1527,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             // that is not a repository at all — where every read produces the same nothing — so every
             // goal ended after one attempt, told the user the implementation had changed nothing, and
             // was confidently wrong.
-            return (await ReadWorktreeAsync()).ProvablyUnchangedFrom(treeBeforeImplement);
+            return (await ReadWorktreeForComparisonAsync()).ProvablyUnchangedFrom(treeBeforeImplement);
         }
         catch (OperationCanceledException)
         {
@@ -1515,6 +1633,65 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     private static readonly GoalSeverity[] GoalSeverities = Enum.GetValues<GoalSeverity>();
 
     /// <summary>
+    /// Takes the command the clarification round worked out from the goal, if it named one.
+    /// </summary>
+    /// <remarks>
+    /// <para>This is how a goal comes to be verified now. Saying "and the tests must pass" in the goal
+    /// is the whole of it: the tool is standing in the repository, so it knows whether that means
+    /// <c>dotnet test</c>, <c>npm test</c> or <c>cargo test</c>, and if it cannot tell it asks in the
+    /// same round. What this replaces is a text box that asked the user to do that translation.</para>
+    /// <para>Adopting is not running. The command goes in still needing consent, so the dialog in
+    /// <see cref="ConsentToVerifyCommandAsync"/> is asked before the first attempt is verified — an AI
+    /// tool proposing a shell command is exactly the case that gate exists for, and it is a weaker
+    /// claim on the shell than a file the user's own repository carried.</para>
+    /// </remarks>
+    private async Task AdoptVerifyCommandAsync(string proposed)
+    {
+        var command = proposed.Trim();
+        if (command.Length == 0) return;
+
+        // Nothing to do when it is already the command in hand — every round proposes one, and a
+        // three-round clarification would otherwise reset the consent flag twice and ask twice.
+        if (string.Equals(_engine.Criteria.VerifyCommand, command, StringComparison.Ordinal)) return;
+
+        // A command the user typed in this session outranks one the tool worked out. They are looking
+        // at the panel, they put it there, and having a clarification round overwrite it would be the
+        // tile arguing with the person using it.
+        if (Criteria.VerifyCommandWasTyped) return;
+
+        // Refused before it is stored, not at the gate. The gate's version of this deletes the command
+        // and explains that it was too long to show — which is the right answer for a file that already
+        // had one, and the wrong one for a proposal nobody has seen: it would report the removal of
+        // something that was never there.
+        if (!CommandDisplay.CanBeConsentedTo(command))
+        {
+            await AddMessageAsync(GoalMessageRole.System,
+                $"The tool proposed a verify command of {CommandDisplay.ForDialog(command).Length} " +
+                "characters — too long to show you in full, so it has been ignored.", CurrentPhase);
+            return;
+        }
+
+        _engine.Criteria.VerifyCommand = command;
+
+        // The old command's output goes with the old command. Kept, it would be handed to the next
+        // implement prompt as "the project's verify command failed with this output" over a command
+        // that has since been replaced.
+        _engine.LastVerifyOutput = null;
+
+        _verifyCommandNeedsConsent = true;
+        _verifyCommandFromGoal = true;
+        Criteria.Reload();
+        SaveStateNow();
+
+        await AddMessageAsync(GoalMessageRole.System,
+            "This is how the project checks itself, so it will run after every attempt:\n\n" +
+            $"{CommandDisplay.ForDialog(command)}\n\n" +
+            "You will be asked before it runs the first time. While it fails, the goal is not met. " +
+            "Empty the field under the tune button to drop it for this goal.",
+            CurrentPhase);
+    }
+
+    /// <summary>
     /// Asks once, per session, before running a verify command this tile did not watch the user type —
     /// see <see cref="_verifyCommandNeedsConsent"/> for why it is asked at all.
     /// <para>No dialog means <b>no</b>, as on the Settings dialog and for the same reason: an
@@ -1543,7 +1720,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 $"This goal's verify command is {CommandDisplay.ForDialog(command).Length} characters " +
                 "long — too long " +
                 "to show you in full, and this tile will not ask you to approve something it has to " +
-                "hide half of. It has been removed. Set a shorter one under the tune button.",
+                "hide half of. It has been removed. Shorten it under the tune button.",
                 CurrentPhase);
 
             return false;
@@ -1567,9 +1744,15 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             return false;
         }
 
-        var agreed = await ConfirmAction("This goal was saved with a verify command:\n\n" +
-                                         $"{CommandDisplay.ForDialog(command)}\n\n" +
-                                         "Run it in this workspace after every attempt?");
+        // Two questions, because they are two different events and the user is deciding on the strength
+        // of which one this is. "Saved with" said over a command the tool proposed a minute ago is a
+        // description of something that did not happen, collected as a yes for a shell command.
+        var agreed = await ConfirmAction(
+            (_verifyCommandFromGoal
+                ? "The tool proposes checking every attempt with this project's own command:\n\n"
+                : "This goal was saved with a verify command:\n\n") +
+            $"{CommandDisplay.ForDialog(command)}\n\n" +
+            "Run it in this workspace after every attempt?");
 
         _verifyCommandNeedsConsent = false;
 
@@ -1591,10 +1774,57 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         SaveStateNow();
 
         await AddMessageAsync(GoalMessageRole.System,
-            "The verify command was not approved and has been removed from this goal. Set one under the " +
-            "tune button if you want one.", CurrentPhase);
+            "The verify command was not approved and has been removed from this goal. Say what has to " +
+            "pass in the goal itself if you want one — the tool works out the command from there.",
+            CurrentPhase);
 
         return false;
+    }
+
+    /// <summary>
+    /// Puts a failed verification into the review as a blocker, so it is counted where every other
+    /// reason a goal cannot finish is counted.
+    /// </summary>
+    /// <remarks>
+    /// <para>It was already a hard gate — <see cref="GoalCompletionPolicy.IsMet"/> refuses on it before
+    /// it looks at anything else — but it was invisible: the strip showed "0 findings" over a run that
+    /// could not finish, the badges said the review was clean, and the one line naming the exit code
+    /// scrolled away with the attempt. A blocker is precisely what this is, in the word the tile
+    /// already uses for it: not merely wrong, unacceptable, and with no tolerance anybody can raise.
+    /// </para>
+    /// <para>Added to the parsed review rather than counted separately, which is what makes it appear
+    /// in the badges, in the findings the transcript renders, and in the fingerprint two reviews are
+    /// compared by — a build failing identically twice, over a review that found the same things, is a
+    /// run going round in a circle and should end as one.</para>
+    /// <para>Deliberately <b>not</b> fed back into the next implement prompt by this route: the
+    /// command's own output is already carried there by <c>LastVerifyOutput</c>, in the compiler's
+    /// words rather than in a summary of them.</para>
+    /// </remarks>
+    private static void AddVerifyFinding(GoalReviewResult review, VerifyOutcome? verify)
+    {
+        if (verify is not { } outcome) return;
+
+        // One case only, and deliberately not two. A verification that timed out never reaches here:
+        // the loop breaks on it and summarises as VerifyTimedOut before a review is run, so there is
+        // no review for a finding to go into — a branch for it would be a line nothing can execute,
+        // claiming to handle something that is handled by ending the run instead.
+        //
+        // A command that could not be *started* is not a failure either. That is the machine's fault,
+        // it is forgiven everywhere else, and blaming the work for the tooling is the one thing this
+        // whole mechanism is careful not to do.
+        if (outcome is not { Ran: true, Succeeded: false }) return;
+
+        var title = $"The verify command exited {outcome.ExitCode}";
+
+        // First, because it is the one finding here that is not an opinion. The transcript renders them
+        // in order, and a compiler's verdict belongs above a model's reading of the same code.
+        review.Findings.Insert(0, new GoalFinding
+        {
+            Severity = GoalSeverity.Blocker,
+            Category = GoalFinding.VerifyCategory,
+            Title = title,
+            Detail = outcome.Output,
+        });
     }
 
     /// <summary>The badges in the status strip. Set on every review, including one that found nothing,
@@ -1651,7 +1881,12 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
         PhaseLabel = _engine.GetPhaseLabel();
 
-        var summary = GoalCompletionPolicy.Summarise(reason, _engine.IterationCount, outstanding)
+        // The denials go with it only where they explain something: every other stop happened for a
+        // reason of its own, and mentioning a refused tool call beside "the criteria were met" would
+        // read as a problem with a run that had none.
+        var summary = GoalCompletionPolicy.Summarise(
+                          reason, _engine.IterationCount, outstanding,
+                          reason == GoalStopReason.NoChange ? _lastRunDenials : 0)
                       + "\nType a new goal, or start a fresh one with +.";
 
         await AddMessageAsync(GoalMessageRole.System, summary, GoalPhase.Summary);
@@ -1690,6 +1925,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // taken while the working tree was being read waited for both processes to finish.
         var token = _cts?.Token ?? CancellationToken.None;
 
+        // Before the run, not after it. The assignment below is past an await, so a cancellation or an
+        // unexpected exception leaves the *previous* run's count standing in a field whose whole
+        // meaning is "the run that has just happened" — and the NoChange summary reads it to decide
+        // whether to blame the permission mode. Neither path reaches that summary today; the field is
+        // one line of housekeeping away from not depending on that being true.
+        _lastRunDenials = 0;
+
         try
         {
             var result = AiRunnerFactory is { } run
@@ -1699,6 +1941,9 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     prompt,
                     _workingDirectory,
                     AiProcessRunner.GetRunner(_resolvedTool.BinaryName),
+                    // Read at the moment of the run, not when the tile was built: a user who changes
+                    // the mode because a run was refused expects the next attempt to use the new one.
+                    _settingsService.Settings.GoalPermissionMode,
                     // Refused once the tile is disposed, and that guard is here rather than implied:
                     // PostFireAndForget does not drop anything — it posts, and a post that lands after
                     // Dispose sets a property on a view model nobody is looking at. Harmless, and the
@@ -1717,6 +1962,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     },
                     ct: token);
 
+            _lastRunDenials = result.PermissionDenials;
+
             // The failure the tool reported about itself, carried beside its words rather than read out
             // of them. A run that ended in a turn limit or a refused key comes back with text in it —
             // an apology, a half-finished note — and judged on the text alone that was Answered: the
@@ -1726,8 +1973,16 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             // written files and this is the only account of what is now in the worktree.
             if (result.Failed)
             {
+                // One recognisable cause gets named, because it is the one that fails *every* run on
+                // the default setting while saying nothing about itself: a tool too old for the mode
+                // this tile asked for rejects the flag, and "the AI tool reported a failure" over a
+                // usage message about a flag the user never typed sends nobody anywhere.
+                var cause = AiPermissionModes.LooksLikeRejectedMode(result.Text)
+                    ? $"{AiPermissionModes.RejectedModeAdvice} "
+                    : "";
+
                 await AddMessageAsync(GoalMessageRole.System,
-                    $"The AI tool reported a failure. {Capitalised(TryAgain())}\n\n{result.Text}",
+                    $"The AI tool reported a failure. {cause}{Capitalised(TryAgain())}\n\n{result.Text}",
                     CurrentPhase);
                 return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
             }
@@ -1940,10 +2195,35 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         return CommandLineLength.Tightest();
     }
 
-    /// <summary>The working tree, as the prompts see it. Read through <see cref="WorktreeReader"/>,
-    /// which owns the git commands and the seam that lets a test do without them.</summary>
+    /// <summary>
+    /// The working tree, as the prompts see it and cut to what the tool about to receive it can be
+    /// handed. Read through <see cref="WorktreeReader"/>, which owns the git commands and the seam that
+    /// lets a test do without them.
+    /// </summary>
+    /// <remarks>
+    /// The caps follow the transport rather than being constants, because they always were: 6 000
+    /// characters is what a Windows command line allows, and Claude Code takes its prompt on stdin,
+    /// where nothing is allowed less than everything. Charging the command line's limit on a channel
+    /// without one showed the tool four per cent of a real working tree.
+    /// </remarks>
     private Task<WorktreeSnapshot> ReadWorktreeAsync() =>
-        NewWorktreeReader().ReadAsync(_cts?.Token ?? CancellationToken.None);
+        NewWorktreeReader().ReadAsync(
+            _cts?.Token ?? CancellationToken.None, GoalDiffContext.CapsFor(PromptBudget()));
+
+    /// <summary>
+    /// The working tree read for its <see cref="WorktreeSnapshot.Fingerprint"/> alone — the no-change
+    /// check, which never looks at the text.
+    /// </summary>
+    /// <remarks>
+    /// The file summary is asked for with a cap of zero, which is how the reader is told not to run the
+    /// command at all. It is deliberately outside the fingerprint, so a summary gathered here could not
+    /// change the answer by any route: it was a git process per check, twice a lap, in the user's own
+    /// repository, spent on something nothing would read.
+    /// </remarks>
+    private Task<WorktreeSnapshot> ReadWorktreeForComparisonAsync() =>
+        NewWorktreeReader().ReadAsync(
+            _cts?.Token ?? CancellationToken.None,
+            GoalDiffContext.CapsFor(PromptBudget()) with { Summary = 0 });
 
     private WorktreeReader NewWorktreeReader() =>
         new(_workingDirectory,
@@ -2032,7 +2312,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         }
 
         // Only over a file that already exists. Clicking + on a tile nobody has used yet otherwise
-        // created an empty session in .mterminal/goals/, which is the thing the guard in Dispose is
+        // created an empty session in .mtiles/goals/, which is the thing the guard in Dispose is
         // there to prevent and which nothing ever prunes.
         var hadFile = File.Exists(_filePath);
 
@@ -2100,22 +2380,29 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// <param name="markdown">Text the tool wrote in its own words — see
     /// <see cref="GoalMessage.Markdown"/>. Off by default, so anything this application composed is
     /// shown as written: its columns are made of spaces, and markdown does not keep spaces.</param>
+    /// <param name="findings">A review's findings, drawn as rows under the text rather than flattened
+    /// into it. Ordered by the caller: this list is what goes in the file, and what comes back out of it
+    /// is bound straight into an items control that sorts nothing.</param>
     private async Task AddMessageAsync(GoalMessageRole role, string text, GoalPhase phase,
-        bool markdown = false)
+        bool markdown = false, IReadOnlyList<GoalFinding>? findings = null)
     {
         if (Dispatcher.UIThread.CheckAccess())
         {
             Messages.Add(new GoalMessage
-                { Role = role, Text = text, Phase = phase, Markdown = markdown });
-            ScrollToEnd?.Invoke();
+                {
+                    Role = role, Text = text, Phase = phase, Markdown = markdown,
+                    Findings = findings is null ? [] : [..findings],
+                });
         }
         else
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 Messages.Add(new GoalMessage
-                    { Role = role, Text = text, Phase = phase, Markdown = markdown });
-                ScrollToEnd?.Invoke();
+                    {
+                        Role = role, Text = text, Phase = phase, Markdown = markdown,
+                        Findings = findings is null ? [] : [..findings],
+                    });
             });
         }
 
@@ -2195,7 +2482,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     aboutThisSession: true);
 
             // Said out loud, because it is a shell command that arrived in a file and will be run
-            // without the user typing it again. Goal files live in `.mterminal/goals/` inside the
+            // without the user typing it again. Goal files live in `.mtiles/goals/` inside the
             // user's own repository, nothing gitignores that directory unless the Git tile is used, and
             // a committed one travels with the branch. Naming it is the difference between a command
             // the user chose and one they merely inherited. This line is a notice, not a barrier: the
@@ -2203,6 +2490,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             if (_engine.Criteria.VerifyCommand is { Length: > 0 } verify)
             {
                 _verifyCommandNeedsConsent = true;
+
+                // Set together with the flag it qualifies, always, rather than only where it is true.
+                // A provenance flag that is only ever raised is the shape of bug the note on
+                // VerifyCommandWasTyped is about: it describes the last thing that happened rather than
+                // the thing being asked about. Unreachable today, since nothing adopts before this
+                // runs — and "unreachable today" is what the loop's own latching bugs all were.
+                _verifyCommandFromGoal = false;
 
                 // One that cannot be shown is named by its length instead. The transcript may elide
                 // where the dialog may not — but the transcript is reserialised into the goal file on
