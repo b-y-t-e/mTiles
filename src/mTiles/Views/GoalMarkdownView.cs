@@ -24,6 +24,23 @@ namespace mTiles.Views;
 /// </remarks>
 public sealed class GoalMarkdownView : MarkdownViewer
 {
+    /// <summary>
+    /// Whether this is the quiet half of something, rather than the thing itself.
+    /// </summary>
+    /// <remarks>
+    /// A property rather than a style class, because the colours here are pushed as local values in
+    /// <see cref="ApplyTokens"/> — that is the whole reason this subclass exists — and a local value
+    /// beats any style setter. A class on this control would be read by nobody.
+    /// </remarks>
+    public static readonly StyledProperty<bool> MutedProperty =
+        AvaloniaProperty.Register<GoalMarkdownView, bool>(nameof(Muted));
+
+    public bool Muted
+    {
+        get => GetValue(MutedProperty);
+        set => SetValue(MutedProperty, value);
+    }
+
     public GoalMarkdownView()
     {
         // Shape, not colour: none of this depends on a theme, so none of it has to wait for one.
@@ -46,6 +63,14 @@ public sealed class GoalMarkdownView : MarkdownViewer
         ResourcesChanged += (_, _) => ApplyTokens();
     }
 
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        // The one token this control picks by a property of its own, so the property has to re-push it.
+        if (change.Property == MutedProperty) ApplyTokens();
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -62,7 +87,11 @@ public sealed class GoalMarkdownView : MarkdownViewer
     /// </remarks>
     internal void ApplyTokens()
     {
-        if (Brush("TextPrimary") is { } text) Foreground = text;
+        // TextSecondary and not TextMuted: muted is the shade for a fact *beside* something — a path, a
+        // count — and a paragraph set in it on the elevated ground of a dialog is the part of a finding
+        // that explains it, printed in the least readable colour on screen. One step down from the
+        // title, not three.
+        if (Brush(Muted ? "TextSecondary" : "TextPrimary") is { } text) Foreground = text;
         if (Brush("TextMuted") is { } muted) MutedBrush = muted;
         if (Brush("AccentDefault") is { } accent)
         {

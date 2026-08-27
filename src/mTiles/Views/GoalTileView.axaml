@@ -40,10 +40,8 @@
                                    Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
                                    Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}"
                                    Text="{Binding Severity}" />
-                        <!-- One line, three optional parts. Every one of
-                             them is a thing the tool may not have said,
-                             and an empty bracket or a bare colon is worse
-                             than nothing there. -->
+                        <!-- Three optional parts. Every one of them is a thing the tool may not have
+                             said, and an empty bracket or a bare colon is worse than nothing there. -->
                         <TextBlock Classes="f-where"
                                    Text="{Binding File}"
                                    IsVisible="{Binding File, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -57,9 +55,15 @@
                         <Panel />
                     </DockPanel>
                     <SelectableTextBlock Classes="f-title" Text="{Binding Title}" />
-                    <SelectableTextBlock Classes="f-detail"
-                                         Text="{Binding Detail}"
-                                         IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <!-- Through the markdown viewer, like every other thing the tool writes. A finding's
+                         detail is prose about code and comes back full of `identifiers`, and printed as
+                         plain text those backticks were on screen as backticks. It is the same control
+                         the transcript uses, so a name in a finding is set the way the same name is set
+                         in the message the finding came from. -->
+                    <v:GoalMarkdownView Muted="True"
+                                        Margin="0,3,0,0"
+                                        MarkdownText="{Binding Detail}"
+                                        IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
             </Border>
         </DataTemplate>
@@ -260,6 +264,12 @@
             <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
             <Setter Property="BorderThickness" Value="{DynamicResource BorderBottom}" />
             <Setter Property="Padding" Value="14,8,8,8" />
+        </Style>
+        <!-- The head already says which severity these are, so the word on every row is the same
+             word four times over, taking the first line of each finding to say what the reader has
+             just read. It stays in the transcript, where the rows of a review are mixed. -->
+        <Style Selector="Border.findings-card TextBlock.f-sev">
+            <Setter Property="IsVisible" Value="False" />
         </Style>
         <Style Selector="TextBlock.findings-title">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
@@ -512,13 +522,22 @@
              edge, which says how much it matters before a word of it is read. The colours are the
              badges own: one danger token for blockers and errors, the plan colour for warnings, and
              faint for suggestions, so the strip at the top and the list below agree. -->
+        <!-- A rail and some air, not a box. The band of BgSurface behind each finding was a second
+             ground inside a card that already has one, and with three or four findings in a row the
+             list read as a stack of panels rather than as a list — the same argument that took the
+             chips out of the workspaces panel. What tells the severities apart is the coloured edge,
+             which is doing that job either way; what separates two findings is the space between them.
+
+             No corner radius, and that is not only taste: a Border with a radius clips its child, and
+             this one holds text that is measured elsewhere. Every clip here is a line the reader loses
+             the end of without being told. -->
         <Style Selector="Border.finding">
-            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
             <Setter Property="BorderThickness" Value="2,0,0,0" />
-            <Setter Property="CornerRadius" Value="2" />
-            <Setter Property="Padding" Value="8,5,8,6" />
-            <Setter Property="Margin" Value="0,6,0,0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="10,2,0,4" />
+            <Setter Property="Margin" Value="0,14,0,0" />
         </Style>
         <!-- The gap belongs between two findings, so the first does not carry it: in the popup it put
              a band of empty ground under the head's rule. After the base style, or the base's own
@@ -561,31 +580,29 @@
         <Style Selector="TextBlock.f-sev.f-suggestion">
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
+        <!-- Muted, not faint. Faint is what this application uses for something it is prepared to have
+             the reader skip; a file and a line are how the reader gets from a finding to the code, and
+             on the dialog's elevated ground the faint token had them fading out of the row. -->
         <Style Selector="TextBlock.f-where">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
             <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
-        <!-- The title reads at the transcript own size and in its own colour: it is the sentence the
-             finding is. The detail is the argument for it, one step quieter. -->
+        <!-- The title reads at the transcript's own size and in its own colour: it is the sentence the
+             finding is. The detail is the argument for it, one step quieter — and with no band behind
+             the row any more, that one step is the whole of what separates them, so the title takes the
+             weight the box used to carry. -->
         <Style Selector="SelectableTextBlock.f-title">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
             <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
             <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
-            <Setter Property="Margin" Value="0,3,0,0" />
+            <Setter Property="Margin" Value="0,2,0,0" />
         </Style>
-        <Style Selector="SelectableTextBlock.f-detail">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="LineSpacing" Value="2" />
-            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
-            <Setter Property="Margin" Value="0,3,0,0" />
-        </Style>
+
 
         <!-- ======== While the tool is working ========
              The strip already says which phase and which file, in words, at the top of the tile. What
@@ -721,6 +738,15 @@
                               ItemsSource="{Binding AvailablePermissionModes}"
                               SelectedItem="{Binding PermissionModeLabel}"
                               ToolTip.Tip="What the AI tool may do without asking. auto gets on with the work and still stops at what it considers dangerous; accept edits waves through file changes only; bypass asks about nothing at all; tool default passes no flag and leaves it to the tool's own settings." />
+                    <!-- Beside the mode because they are the same kind of fact: how this tile runs its
+                         tool. High by default rather than the tool's own, which is tuned for a person
+                         watching — a goal run is left alone, and an attempt spent on a shallow answer
+                         costs as much of the budget as a careful one. -->
+                    <ComboBox DockPanel.Dock="Left"
+                              Classes="goal-tool"
+                              ItemsSource="{Binding AvailableEfforts}"
+                              SelectedItem="{Binding EffortLabel}"
+                              ToolTip.Tip="How hard the AI tool is asked to think. Higher costs time and tokens and is usually worth it here, because the budget is in attempts and a shallow attempt spends one just the same. tool default passes no flag — pick it if your Claude Code is old enough not to know the option." />
                     <TextBlock DockPanel.Dock="Left" Classes="strip" Text="&#xB7;" Margin="6,0" />
                     <Ellipse DockPanel.Dock="Left"
                              x:Name="PhaseDot" Width="6" Height="6"
@@ -880,6 +906,13 @@
                 <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireTestsPass}"
                           Content="the tests still pass"
                           ToolTip.Tip="The tool is told to run this project's own tests. Failures that were already there are reported, not fixed — turn this off in a repository whose suite is red on purpose." />
+                <!-- The only switch on this panel that starts off, and the only one that writes to the
+                     user's history. Off does not mean the feature is unavailable — the same conditions
+                     put a Commit button in the summary — so this says who starts it, never whether it
+                     is confirmed. It always is. -->
+                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.CommitWhenDone}"
+                          Content="commit the work when done"
+                          ToolTip.Tip="When a run ends with no blockers and no errors, work out the commits and ask. Only files this run changed are committed — anything you had already changed before the goal started is left alone. Off: the same offer appears as a button instead." />
                 <!-- The two mechanical stops used to be checkboxes here and are neither settings nor
                      switches any more: both are always on. A switch is worth a line of this panel where
                      two users would reasonably choose differently, and nobody reasonably chooses to
@@ -976,7 +1009,14 @@
                 <Button Classes="goal-action"
                         Command="{Binding DetectGoalCommand}"
                         Content="Detect goal"
-                        ToolTip.Tip="Read the uncommitted changes and put the goal in the box to edit" />
+                        ToolTip.Tip="Read the uncommitted changes, adopt the goal and go on to the questions about it" />
+                <!-- Same first half as the other two — work the goal out — and then one review and
+                     nothing else. For looking at what is already in the tree without letting anything
+                     write to it. -->
+                <Button Classes="goal-action"
+                        Command="{Binding DetectGoalAndReviewCommand}"
+                        Content="Review"
+                        ToolTip.Tip="Work the goal out, then judge the working tree against it once. Nothing is changed." />
                 <Button Classes="goal-action primary"
                         Command="{Binding DetectGoalAndRunCommand}"
                         Content="Detect &amp; run"
@@ -984,30 +1024,40 @@
             </StackPanel>
         </Border>
 
-        <!-- ======== More attempts for a run that ran out ========
-             Above the detect bar, and only after the attempts ran out — see CanContinue. It is the one
-             stop a button can do anything about; the other three have already established that another
-             attempt would change nothing. The label carries the number so the button says what it does. -->
+        <!-- ======== What to do with a finished run ========
+             One bar, and no sentence in it. Each of these used to be its own strip with its own line of
+             prose — "The attempts ran out.", "This run's changes are not committed." — and a third would
+             have made three sentences stacked above the composer, each restating the summary message
+             printed directly above them. The summary already says why the run stopped and what is
+             outstanding; a bar that repeats it is the same fault the status strip's four idle labels had.
+             The tooltips carry what a button does, which is the part that is not already on screen.
+
+             Same shape as the detect bar below: buttons right, no explanation. Each appears on its own
+             condition, so in practice one or two are here at a time. -->
         <Border DockPanel.Dock="Bottom"
                 Padding="6,4,6,0"
                 Background="{DynamicResource BgSurface}"
-                IsVisible="{Binding CanContinue}">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-system" Margin="0,3,0,0" />
-                <Button DockPanel.Dock="Right"
-                        Classes="goal-action primary"
+                IsVisible="{Binding HasFinishedRunActions}">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                <!-- Judge the tree again against the same goal. It does not re-derive the goal: the
+                     reason to press this is that something has just been fixed by hand next door, and
+                     working the goal out afresh from a changed tree answers a different question. -->
+                <Button Classes="goal-action"
+                        Command="{Binding ReReviewCommand}"
+                        IsVisible="{Binding CanReReview}"
+                        Content="Re-review"
+                        ToolTip.Tip="Judge the working tree against the same goal again, changing nothing" />
+                <Button Classes="goal-action"
+                        Command="{Binding CommitWorkCommand}"
+                        IsVisible="{Binding CanCommit}"
+                        Content="Commit"
+                        ToolTip.Tip="Divide this run's own changes into commits and ask before making them" />
+                <Button Classes="goal-action primary"
                         Command="{Binding ContinueRunCommand}"
+                        IsVisible="{Binding CanContinue}"
                         Content="{Binding ContinueLabel}"
-                        ToolTip.Tip="Give this goal that many more attempts and carry on, keeping the conversation" />
-                <!-- Literal, not a binding. The bar is shown only when CanContinue, and Continue is
-                     offered for one stop — BudgetSpent — so this sentence cannot say anything else.
-                     It was a property while a timed-out verify command was the second continuable
-                     stop; bound to a constant it only suggested a variation that no longer exists,
-                     and the notification that went with it could never fire. -->
-                <TextBlock Classes="strip"
-                           Text="The attempts ran out."
-                           VerticalAlignment="Center" />
-            </DockPanel>
+                        ToolTip.Tip="Carry on into the implement and review loop, keeping the conversation" />
+            </StackPanel>
         </Border>
 
         <!-- ======== Transcript, and the questions under it ========
@@ -1258,17 +1308,19 @@
          Settings: these findings are one tile's, and in a split a window-wide dialog would dim three
          other tiles to answer a question asked in the fourth.
 
-         Centred with a margin rather than stretched: with an alignment of Center the card is measured
-         against the tile less that margin, so a short list is a small dialog and a long one fills the
-         tile and scrolls inside itself. -->
+         Full width of the tile less a gutter, and centred vertically: a short list is a short dialog
+         and a long one fills the tile and scrolls inside itself. The width is taken rather than fitted
+         to the content because the content is paths and wrapped prose — every pixel not taken comes
+         back as another wrapped line — and capped, because past about 90 characters a line stops being
+         easier to read for being longer. -->
     <Panel IsVisible="{Binding IsShowingFindings}" ZIndex="100">
         <Border Background="{DynamicResource OverlayModal}"
                 PointerPressed="FindingsScrim_PointerPressed" />
-        <Border Classes="modal-card"
-                Margin="18"
-                MinWidth="300"
-                MaxWidth="620"
-                HorizontalAlignment="Center"
+        <Border Classes="modal-card findings-card"
+                Margin="12"
+                MinWidth="280"
+                MaxWidth="760"
+                HorizontalAlignment="Stretch"
                 VerticalAlignment="Center">
             <DockPanel>
                 <Border DockPanel.Dock="Top" Classes="findings-head">
@@ -1284,8 +1336,18 @@
                                    Text="{Binding OpenBadge.Tooltip}" />
                     </DockPanel>
                 </Border>
-                <ScrollViewer Padding="14,12" HorizontalScrollBarVisibility="Disabled">
-                    <ItemsControl ItemsSource="{Binding OpenBadge.Findings}"
+                <!-- The spacing is a margin on the list and NOT padding on the scroller, which is
+                     what cost this dialog every line's last few characters. A ScrollViewer takes its
+                     padding off the width it measures its content against, and then arranges that
+                     content against the width *without* it: the rows came out 26px wider than the list
+                     they are in, were clipped by their own rounded border, and every line ended a word
+                     early — "nie mają n", "implementacj" — with nothing in the markup looking wrong.
+
+                     The right side is wider than the left on purpose: the scrollbar is drawn over the
+                     content, so without a lane of its own it sits on the longest line. -->
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl Margin="14,10,20,14"
+                                  ItemsSource="{Binding OpenBadge.Findings}"
                                   ItemTemplate="{StaticResource FindingTemplate}" />
                 </ScrollViewer>
             </DockPanel>
