@@ -1479,10 +1479,17 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // array is written to disk, and a severity given an explicit value later would make the cast
         // an index into somewhere else entirely.
         _engine.LastReviewCounts = GoalSeverities.Select(review.Count).ToArray();
-        ShowBadges();
+        ShowBadges(review.Findings);
     }
 
-    private void ShowBadges()
+    /// <param name="findings">
+    /// The review the counts came from, when there is one in hand. There is not on a restore or after
+    /// a new goal, and the review still standing in the transcript is then the one they belong to -
+    /// which is also why this cannot simply always read the transcript: the strip is set before the
+    /// review is added to it, so doing that would show every badge over the findings of the review
+    /// before.
+    /// </param>
+    private void ShowBadges(IReadOnlyList<GoalFinding>? findings = null)
     {
         Badges.Clear();
 
@@ -1494,9 +1501,20 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         var counts = _engine.LastReviewCounts;
         if (counts.Length != GoalSeverities.Length) return;
 
+        findings ??= Messages.LastOrDefault(m => m.HasFindings)?.Findings;
+
         for (var i = 0; i < GoalSeverities.Length; i++)
             if (counts[i] > 0)
-                Badges.Add(new GoalBadge { Severity = GoalSeverities[i], Count = counts[i] });
+                Badges.Add(new GoalBadge
+                {
+                    Severity = GoalSeverities[i],
+                    Count = counts[i],
+                    // Filtered here rather than trusted to arrive grouped: the saved counts and a
+                    // transcript from an older build are two records of one review, and a mismatch
+                    // between them must come out as a badge that shows less than it counts, never as
+                    // one severity's popup listing another's findings.
+                    Findings = findings?.Where(f => f.Severity == GoalSeverities[i]).ToArray() ?? [],
+                });
     }
 
     private async Task ShowSummaryAsync(GoalStopReason reason, string? outstanding = null)

@@ -961,6 +961,13 @@ public class GoalWorkflowLoopTests : IDisposable
             await first.SubmitCommand.ExecuteAsync(null);
 
             Assert.Equal(["1B", "1S"], first.Badges.Select(b => b.Text));
+
+            // The count is a question, and the badge carries its own answer: pressing it shows that
+            // severity's findings and no other's.
+            Assert.Equal(["Unacceptable"], Titles(first, GoalSeverity.Blocker));
+            Assert.Equal(["Rename"], Titles(first, GoalSeverity.Suggestion));
+            Assert.All(first.Badges, b => Assert.True(b.HasFindings));
+
             first.Dispose();
 
             using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
@@ -970,6 +977,45 @@ public class GoalWorkflowLoopTests : IDisposable
             // rather than four zeroes.
             Assert.Equal(["1B", "1S"], second.Badges.Select(b => b.Text));
             Assert.DoesNotContain(second.Badges, b => b.Severity == GoalSeverity.Error);
+
+            // And so does what they open. The counts are saved; the findings are not saved with them,
+            // so a restored badge has to take them from the review still standing in the transcript.
+            Assert.Equal(["Unacceptable"], Titles(second, GoalSeverity.Blocker));
+            Assert.Equal(["Rename"], Titles(second, GoalSeverity.Suggestion));
+        });
+    }
+
+    /// <summary>What one badge's popup would list.</summary>
+    private static IEnumerable<string> Titles(GoalTileViewModel vm, GoalSeverity severity) =>
+        vm.Badges.Single(b => b.Severity == severity).Findings.Select(f => f.Title);
+
+    [Fact]
+    public void A_badge_from_a_transcript_without_findings_has_nothing_to_open()
+    {
+        OnUiThread(async () =>
+        {
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            settings.Settings.CustomAiTools.Add(FakeTool());
+
+            // Prose, not JSON: parsed as unstructured, so the review is counted but has no findings —
+            // which is also the shape of a goal file written before findings were kept.
+            var vm = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+            vm.SelectedToolName = "Fake Tool";
+            vm.Criteria.MaxIterations = 1;
+
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it",
+                       "This is not done yet.");
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // The badge still says what it counted; it just does not offer a popup with nothing in it.
+            Assert.All(vm.Badges, b => Assert.False(b.HasFindings));
+            vm.Dispose();
         });
     }
 

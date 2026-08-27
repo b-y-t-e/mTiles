@@ -18,6 +18,53 @@
         The one saturated colour in here is the phase dot in the status strip. Everything else is
         text, muted chrome and one hairline per edge.
     -->
+    <UserControl.Resources>
+        <!-- ======== One finding ========
+             Shared by the transcript and by the popup a badge opens, which are two views of the same
+             review: the severity is a thing to see rather than a word to read, so the coloured edge
+             answers "how much does this matter" before the title is reached, and it has to answer it
+             the same way in both places. Two copies of this markup drifted apart the first time one of
+             them was touched. -->
+        <DataTemplate x:Key="FindingTemplate" DataType="m:GoalFinding">
+            <Border Classes="finding"
+                    Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
+                    Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
+                    Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
+                    Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}">
+                <StackPanel>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left"
+                                   Classes="f-sev"
+                                   Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
+                                   Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
+                                   Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
+                                   Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}"
+                                   Text="{Binding Severity}" />
+                        <!-- One line, three optional parts. Every one of
+                             them is a thing the tool may not have said,
+                             and an empty bracket or a bare colon is worse
+                             than nothing there. -->
+                        <TextBlock Classes="f-where"
+                                   Text="{Binding File}"
+                                   IsVisible="{Binding File, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Classes="f-where"
+                                   Text="{Binding Line, StringFormat=':{0}'}"
+                                   IsVisible="{Binding Line, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock Classes="f-where"
+                                   Margin="6,0,0,0"
+                                   Text="{Binding Category, StringFormat='[{0}]'}"
+                                   IsVisible="{Binding Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <Panel />
+                    </DockPanel>
+                    <SelectableTextBlock Classes="f-title" Text="{Binding Title}" />
+                    <SelectableTextBlock Classes="f-detail"
+                                         Text="{Binding Detail}"
+                                         IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
     <UserControl.Styles>
         <!-- ======== Transcript rows ========
              Read as turns, not as lines. Everything here is one decision: a message is a block with air
@@ -184,6 +231,50 @@
         </Style>
         <Style Selector="TextBlock.badge.badge-suggestion">
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+
+        <!-- The badge is the whole button: no chrome of its own, because the strip is a line of text
+             and a bordered control in it would be the only box on the bar. What says it can be pressed
+             is the ground lifting under the pointer, which is what every other pressable thing in this
+             application does. -->
+        <Style Selector="Button.badge-button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="2,0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.badge-button:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        </Style>
+        <Style Selector="Button.badge-button:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+        </Style>
+
+        <!-- A card, by the same rules as every other card here: BgElevated because it is lifted off
+             the one underneath it, the hairline, RadiusTile. Its padding is nil so the head's rule can
+             run the full width of the popup - an inset separator is a line floating in a box - and
+             each part inside sets its own. -->
+        <Style Selector="FlyoutPresenter.badge-flyout">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusTile}" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <!-- The hairline is what makes this a head rather than a first line of the list. -->
+        <Style Selector="Border.badge-flyout-head">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderBottom}" />
+            <Setter Property="Padding" Value="12,8" />
+        </Style>
+        <Style Selector="TextBlock.badge-flyout-title">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
         </Style>
 
         <!-- ======== Completion criteria ========
@@ -438,6 +529,12 @@
             <Setter Property="Padding" Value="8,5,8,6" />
             <Setter Property="Margin" Value="0,6,0,0" />
         </Style>
+        <!-- The gap belongs between two findings, so the first does not carry it: in the popup it put
+             a band of empty ground under the head's rule. After the base style, or the base's own
+             Margin is the one that lands - matching styles are applied in declaration order. -->
+        <Style Selector="Border.finding:nth-child(1)">
+            <Setter Property="Margin" Value="0" />
+        </Style>
         <Style Selector="Border.finding.f-blocker">
             <Setter Property="BorderBrush" Value="{DynamicResource DangerText}" />
         </Style>
@@ -647,13 +744,53 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="vm:GoalBadge">
-                                <TextBlock Classes="badge"
-                                           Classes.badge-blocker="{Binding IsBlocker}"
-                                           Classes.badge-error="{Binding IsError}"
-                                           Classes.badge-warning="{Binding IsWarning}"
-                                           Classes.badge-suggestion="{Binding IsSuggestion}"
-                                           Text="{Binding Text}"
-                                           ToolTip.Tip="{Binding Tooltip}" />
+                                <!-- The count is a question - which two errors? - and the answer was
+                                     three screens up in a transcript the user had scrolled away from.
+                                     Pressing the badge brings that severity's findings to where the
+                                     count is.
+
+                                     Hit-testing off rather than disabled when there is nothing to open
+                                     (a goal file written before findings were kept): a greyed-out
+                                     badge would look like a count this tile no longer trusts, when the
+                                     count is exactly what it still knows. -->
+                                <Button Classes="badge-button"
+                                        IsHitTestVisible="{Binding HasFindings}"
+                                        ToolTip.Tip="{Binding Tooltip}">
+                                    <TextBlock Classes="badge"
+                                               Classes.badge-blocker="{Binding IsBlocker}"
+                                               Classes.badge-error="{Binding IsError}"
+                                               Classes.badge-warning="{Binding IsWarning}"
+                                               Classes.badge-suggestion="{Binding IsSuggestion}"
+                                               Text="{Binding Text}" />
+                                    <Button.Flyout>
+                                        <Flyout Placement="BottomEdgeAlignedRight"
+                                                FlyoutPresenterClasses="badge-flyout">
+                                            <!-- MinWidth because a one-line finding otherwise opens a
+                                                 sliver of a popup beside a three-glyph badge, which
+                                                 reads as something that failed to load. -->
+                                            <DockPanel MinWidth="300" MaxWidth="460">
+                                                <!-- A popup anchored to a three-glyph label has to
+                                                     name what is in it. Docked outside the scroller,
+                                                     so what the reader opened never scrolls away from
+                                                     the findings it is naming. -->
+                                                <Border DockPanel.Dock="Top" Classes="badge-flyout-head">
+                                                    <TextBlock Classes="badge-flyout-title"
+                                                               Text="{Binding Tooltip}" />
+                                                </Border>
+                                                <!-- Capped and scrolled: a review can find a dozen
+                                                     things of one severity, and a popup taller than
+                                                     the tile has its last finding off screen with no
+                                                     way to reach it. -->
+                                                <ScrollViewer MaxHeight="340"
+                                                              Padding="12,10"
+                                                              HorizontalScrollBarVisibility="Disabled">
+                                                    <ItemsControl ItemsSource="{Binding Findings}"
+                                                                  ItemTemplate="{StaticResource FindingTemplate}" />
+                                                </ScrollViewer>
+                                            </DockPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -983,48 +1120,8 @@
                                                 <DataTemplate DataType="m:GoalMessage">
                                                     <StackPanel>
                                                         <SelectableTextBlock Classes="msg" Text="{Binding Text}" />
-                                                        <ItemsControl ItemsSource="{Binding Findings}">
-                                                            <ItemsControl.ItemTemplate>
-                                                                <DataTemplate DataType="m:GoalFinding">
-                                                                    <Border Classes="finding"
-                                                                            Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
-                                                                            Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
-                                                                            Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
-                                                                            Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}">
-                                                                        <StackPanel>
-                                                                            <DockPanel>
-                                                                                <TextBlock DockPanel.Dock="Left"
-                                                                                           Classes="f-sev"
-                                                                                           Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
-                                                                                           Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
-                                                                                           Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
-                                                                                           Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}"
-                                                                                           Text="{Binding Severity}" />
-                                                                                <!-- One line, three optional parts. Every one of
-                                                                                     them is a thing the tool may not have said,
-                                                                                     and an empty bracket or a bare colon is worse
-                                                                                     than nothing there. -->
-                                                                                <TextBlock Classes="f-where"
-                                                                                           Text="{Binding File}"
-                                                                                           IsVisible="{Binding File, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                                                <TextBlock Classes="f-where"
-                                                                                           Text="{Binding Line, StringFormat=':{0}'}"
-                                                                                           IsVisible="{Binding Line, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                                                                <TextBlock Classes="f-where"
-                                                                                           Margin="6,0,0,0"
-                                                                                           Text="{Binding Category, StringFormat='[{0}]'}"
-                                                                                           IsVisible="{Binding Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                                                <Panel />
-                                                                            </DockPanel>
-                                                                            <SelectableTextBlock Classes="f-title" Text="{Binding Title}" />
-                                                                            <SelectableTextBlock Classes="f-detail"
-                                                                                                 Text="{Binding Detail}"
-                                                                                                 IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                                        </StackPanel>
-                                                                    </Border>
-                                                                </DataTemplate>
-                                                            </ItemsControl.ItemTemplate>
-                                                        </ItemsControl>
+                                                        <ItemsControl ItemsSource="{Binding Findings}"
+                                                                      ItemTemplate="{StaticResource FindingTemplate}" />
                                                     </StackPanel>
                                                 </DataTemplate>
                                             </v:GoalMessageTemplate.Findings>

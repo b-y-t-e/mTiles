@@ -20,6 +20,24 @@ public sealed class GoalBadge
     public required int Count { get; init; }
 
     /// <summary>
+    /// The findings this badge is the count of, so pressing it can show them.
+    /// </summary>
+    /// <remarks>
+    /// <para>Carried on the badge rather than looked up when the popup opens: the count and the list
+    /// then cannot disagree, because they are made from each other at the same moment. A popup that
+    /// went and found its own findings would be a second reading of the same review, and the first
+    /// time the two differed the user would be looking at a strip saying <c>2E</c> over a list of
+    /// three.</para>
+    /// <para>Empty is a legitimate state, not a bug: a goal file written before findings were kept has
+    /// counts and no findings, and the badge is still the truth about that review. What it must not do
+    /// is offer a popup with nothing in it — see <see cref="HasFindings"/>.</para>
+    /// </remarks>
+    public IReadOnlyList<GoalFinding> Findings { get; init; } = [];
+
+    /// <summary>Whether pressing this badge has anything to show.</summary>
+    public bool HasFindings => Findings.Count > 0;
+
+    /// <summary>
     /// The count and the severity's letter: <c>2E</c>, <c>1B</c>.
     /// <para>Spelled out rather than taken from the first character, which is a coincidence and not a
     /// rule: a fifth severity beginning with S would silently share a badge with Suggestion, and the
