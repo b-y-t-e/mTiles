@@ -175,6 +175,13 @@ public partial class GoalTileView : UserControl
             UpdateAskRow(vm.ShowQuestions);
             if (vm.ShowQuestions) FocusFirstAnswer();
         }
+
+        // The waiting row is part of the transcript, so it changes the transcript's height without
+        // adding a message — and the follow-to-the-bottom rule is driven by the message collection.
+        // Without this the dots appear a row below the fold on a full transcript, which is the one
+        // place the user is looking when they are waiting.
+        if (e.PropertyName == nameof(GoalTileViewModel.IsRunning))
+            ScrollTranscriptToEnd();
     }
 
     /// <summary>

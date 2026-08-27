@@ -506,16 +506,9 @@
              has not moved. Three dots at the foot of the conversation, where the next message will
              appear, and nothing else - a progress bar would be a claim about how far along it is,
              which nothing here knows. -->
-        <Style Selector="Border.thinking">
-            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="8,5" />
-        </Style>
         <Style Selector="Ellipse.think">
-            <Setter Property="Width" Value="5" />
-            <Setter Property="Height" Value="5" />
+            <Setter Property="Width" Value="7" />
+            <Setter Property="Height" Value="7" />
             <Setter Property="Fill" Value="{DynamicResource AccentDefault}" />
             <Setter Property="Opacity" Value="0.25" />
         </Style>
@@ -909,7 +902,8 @@
                       MinHeight="48"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl x:Name="Transcript" ItemsSource="{Binding Messages}" Margin="0,4">
+            <StackPanel Margin="0,4">
+            <ItemsControl x:Name="Transcript" ItemsSource="{Binding Messages}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="m:GoalMessage">
                         <Border Classes="row"
@@ -1030,25 +1024,34 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- ======== Waiting for the tool ========
+                 A row in the conversation, in the same shape as the message it is standing in for: the
+                 gutter marker where the marker goes, the dots where the text will be. What you are
+                 waiting for *is* a message, so a placeholder message is what says so.
+
+                 It used to be a pill floating over the transcript, pinned to the bottom-left of the
+                 scroll area. Two things were wrong with that and only one of them was cosmetic: it
+                 overlapped whatever was underneath — at the foot of a full transcript, the composer the
+                 user was typing into — and it said a second time what the status strip at the top of
+                 the tile already says, with the phase and the attempt number, in a bar that cannot be
+                 scrolled away from. In the flow it can collide with nothing, it lands exactly where the
+                 next message will, and the follow-to-the-bottom rule carries it for free. -->
+            <Border Classes="row" IsVisible="{Binding IsRunning}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-system" />
+                    <StackPanel Orientation="Horizontal" Spacing="5"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Left">
+                        <Ellipse Classes="think d1" />
+                        <Ellipse Classes="think d2" />
+                        <Ellipse Classes="think d3" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+            </StackPanel>
         </ScrollViewer>
 
-        <!-- Over the transcript rather than in it: a row inside the list would be one more thing for
-             the follow-to-the-bottom rule to reason about, and it would scroll away the moment the
-             reader looked back. Pinned to the foot of the conversation, where the next message lands,
-             and never in the way of a click. -->
-        <Border Grid.Row="0"
-                Classes="thinking"
-                IsVisible="{Binding IsRunning}"
-                IsHitTestVisible="False"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Bottom"
-                Margin="18,0,0,8">
-            <StackPanel Orientation="Horizontal" Spacing="4">
-                <Ellipse Classes="think d1" />
-                <Ellipse Classes="think d2" />
-                <Ellipse Classes="think d3" />
-            </StackPanel>
-        </Border>
 
         <GridSplitter x:Name="AskSplitter"
                       Grid.Row="1"
