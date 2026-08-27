@@ -1,5 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MsgBox = MsBox.Avalonia.MessageBoxManager;
 using MsBox.Avalonia.Enums;
 using mTiles.ViewModels;
@@ -14,10 +16,17 @@ public partial class SettingsView : UserControl
         DataContextChanged += OnDataContextChanged;
     }
 
+    private SettingsViewModel? _subscribed;
+
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
+        if (_subscribed != null)
+            _subscribed.EditingStarted -= FocusFirstField;
+
         if (DataContext is SettingsViewModel vm)
         {
+            _subscribed = vm;
+            vm.EditingStarted += FocusFirstField;
             // No window means no question, and an unanswered question is not a yes. Every caller of
             // this confirms something destructive — deleting a connection, discarding a downloaded
             // model — so the safe answer when it cannot be asked is no.
@@ -121,6 +130,38 @@ public partial class SettingsView : UserControl
     {
         base.OnDetachedFromVisualTree(e);
         EndRebinding();
+    }
+
+    /// <summary>Puts the caret in the form the moment it opens.</summary>
+    /// <remarks>
+    /// Without this the form arrives with the focus still on the button that opened it, so the first
+    /// thing a user does after asking for a new entry is reach for the mouse to click into a field —
+    /// which is half of the problem the move out of the list was made to solve.
+    /// <para>Posted at <c>Loaded</c> because the overlay is only made visible here: its fields have no
+    /// place in the visual tree to be focused into until the layout that shows them has run.</para>
+    /// </remarks>
+    private void FocusFirstField()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var first = EditOverlay.GetVisualDescendants()
+                .OfType<TextBox>()
+                .FirstOrDefault(t => t.IsEffectivelyVisible && t.IsEffectivelyEnabled);
+            first?.Focus();
+            first?.SelectAll();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Clicking the scrim closes the form the same way Cancel does — it discards.</summary>
+    /// <remarks>
+    /// Only when the press lands on the scrim itself. Without that check a click anywhere inside the
+    /// form bubbles up here and shuts it, which is a form that closes while you are filling it in.
+    /// </remarks>
+    private void EditOverlay_PointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+    {
+        if (!ReferenceEquals(e.Source, sender)) return;
+        (DataContext as SettingsViewModel)?.CancelEditing();
+        e.Handled = true;
     }
 
     /// <summary>

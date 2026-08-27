@@ -232,7 +232,7 @@
                         <DataTemplate DataType="vm:WorkspaceItemViewModel">
                             <Border Width="32" Height="32"
                                     Margin="0,2"
-                                    CornerRadius="6"
+                                    CornerRadius="{DynamicResource RadiusRow}"
                                     HorizontalAlignment="Center"
                                     Cursor="Hand"
                                     Background="Transparent"

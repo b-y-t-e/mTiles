@@ -93,6 +93,12 @@ public static class ThemeBridge
         // marker is still the brighter of the two.
         Set(app, "AccentOutline", Lerp(brightBlue, borderStrong, 0.55));
 
+        // A filled button's label is read against the fill, not against the terminal's background, so it
+        // cannot use the theme's foreground: on a mid-blue that is grey on blue. Picked from the fill's
+        // own luminance so a theme with a pale accent gets dark text instead of white — the one case
+        // where "always white on the accent" fails outright.
+        Set(app, "AccentForeground", OnAccent(blue));
+
         Set(app, "DangerSubtle", dangerSubtle);
         Set(app, "DangerText", dangerText);
         Set(app, "TagColor", green);
@@ -111,6 +117,23 @@ public static class ThemeBridge
         Set(app, "GoalPhaseImplement", Marker(theme.Green, theme.IsDark, fg));
         Set(app, "GoalPhaseReview", Marker(theme.Magenta, theme.IsDark, fg));
         Set(app, "GoalPhaseSummary", Marker(theme.BrightGreen, theme.IsDark, fg));
+    }
+
+    /// <summary>
+    /// Text that can be read on <paramref name="accent"/>: near-white on a dark fill, near-black on a
+    /// light one.
+    /// </summary>
+    /// <remarks>
+    /// Rec. 709 luma rather than a plain average, because green carries most of the perceived
+    /// brightness and an average calls a saturated blue "light". Not pure white or pure black: a filled
+    /// button is a large area, and maximum contrast on one reads as a hole punched in the page.
+    /// </remarks>
+    internal static Color OnAccent(Color accent)
+    {
+        var luma = (0.2126 * accent.R + 0.7152 * accent.G + 0.0722 * accent.B) / 255.0;
+        return luma > 0.55
+            ? Color.FromRgb(0x14, 0x16, 0x1a)
+            : Color.FromRgb(0xf2, 0xf6, 0xfb);
     }
 
     /// <summary>One phase marker, dark enough to be seen on the background it will sit on.</summary>

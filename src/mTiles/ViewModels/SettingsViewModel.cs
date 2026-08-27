@@ -166,7 +166,49 @@ public partial class SettingsViewModel : ObservableObject
     private CancellationTokenSource? _gitDetectCts;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditingAnything))]
     private bool _isEditingProfile;
+
+    /// <summary>Whether one of the three entry forms is open, and the overlay with it.</summary>
+    /// <remarks>
+    /// The three cannot be open at once — each is entered from a different tab — so this is an or, not
+    /// a state machine. It exists so the overlay has one thing to bind to and the forms keep the flags
+    /// they already had: the commands that open and close them are untouched by the move out of the
+    /// list.
+    /// </remarks>
+    public bool IsEditingAnything => IsEditingProfile || IsEditingAiTool || IsEditingManualConnection;
+
+    /// <summary>Raised when a form opens, so the view can put the caret in it.</summary>
+    public event Action? EditingStarted;
+
+    /// <summary>
+    /// Opens one of the three forms, and only one.
+    /// </summary>
+    /// <remarks>
+    /// They cannot be reached at once today — each is entered from a different tab — but they share one
+    /// overlay, and two of them true would draw two forms stacked in it. Cheaper to make the invariant
+    /// true here than to find out from a screenshot that it was not.
+    /// </remarks>
+    private void BeginEditing(ref bool flag)
+    {
+        IsEditingProfile = false;
+        IsEditingAiTool = false;
+        IsEditingManualConnection = false;
+        flag = true;
+        OnPropertyChanged(nameof(IsEditingProfile));
+        OnPropertyChanged(nameof(IsEditingAiTool));
+        OnPropertyChanged(nameof(IsEditingManualConnection));
+        OnPropertyChanged(nameof(IsEditingAnything));
+        EditingStarted?.Invoke();
+    }
+
+    /// <summary>Closes whichever form is open, discarding it — what Escape and the scrim do.</summary>
+    public void CancelEditing()
+    {
+        if (IsEditingProfile) CancelEditProfileCommand.Execute(null);
+        if (IsEditingAiTool) CancelEditAiToolCommand.Execute(null);
+        if (IsEditingManualConnection) CancelEditManualConnectionCommand.Execute(null);
+    }
 
     [ObservableProperty]
     private string _editProfileName = "";
@@ -243,6 +285,7 @@ public partial class SettingsViewModel : ObservableObject
     public Func<Task<string?>>? BrowseAiToolFile { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditingAnything))]
     private bool _isEditingAiTool;
 
     [ObservableProperty]
@@ -387,7 +430,9 @@ public partial class SettingsViewModel : ObservableObject
 
     // Manual connections
     public ObservableCollection<ManualConnectionViewModel> ManualConnections { get; } = [];
-    [ObservableProperty] private bool _isEditingManualConnection;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditingAnything))]
+    private bool _isEditingManualConnection;
     [ObservableProperty] private DbProviderType _editConnProvider = DbProviderType.SqlServer;
     public bool IsInstanceVisible => EditConnProvider == DbProviderType.SqlServer;
     partial void OnEditConnProviderChanged(DbProviderType value) => OnPropertyChanged(nameof(IsInstanceVisible));
@@ -560,7 +605,7 @@ public partial class SettingsViewModel : ObservableObject
         EditProfileScript = "";
         EditProfileFallbackScript = "";
         EditProfileAiTool = FindAiToolOption(null);
-        IsEditingProfile = true;
+        BeginEditing(ref _isEditingProfile);
     }
 
     [RelayCommand]
@@ -572,7 +617,7 @@ public partial class SettingsViewModel : ObservableObject
         EditProfileScript = profile.StartupScript;
         EditProfileFallbackScript = profile.FallbackScript;
         EditProfileAiTool = FindAiToolOption(profile.RequiredAiToolBinaryName);
-        IsEditingProfile = true;
+        BeginEditing(ref _isEditingProfile);
     }
 
     [RelayCommand]
@@ -685,7 +730,7 @@ public partial class SettingsViewModel : ObservableObject
         EditAiToolBinary = "";
         EditAiToolVersionArgs = "--version";
         EditAiToolPath = "";
-        IsEditingAiTool = true;
+        BeginEditing(ref _isEditingAiTool);
     }
 
     [RelayCommand]
@@ -917,7 +962,7 @@ public partial class SettingsViewModel : ObservableObject
         EditConnUsername = "";
         EditConnPassword = "";
         EditConnIntegrated = true;
-        IsEditingManualConnection = true;
+        BeginEditing(ref _isEditingManualConnection);
     }
 
     [RelayCommand]
@@ -937,7 +982,7 @@ public partial class SettingsViewModel : ObservableObject
         EditConnUsername = mc.Username;
         EditConnPassword = mc.Password;
         EditConnIntegrated = mc.UseIntegratedSecurity;
-        IsEditingManualConnection = true;
+        BeginEditing(ref _isEditingManualConnection);
     }
 
     [RelayCommand]

@@ -42,23 +42,24 @@ public partial class LeafTileView : UserControl
         TileToolbar.SizeChanged += (_, e) => ApplyHeaderWidth(e.NewSize.Width);
     }
 
-    /// <summary>
-    /// Below this, the header stops offering to split the tile.
-    /// </summary>
-    /// <remarks>
-    /// Measured against what the header holds: the type glyph, five buttons at 24px, and enough left
-    /// for a name to be worth reading. A tile narrower than this is one of a row of four in a column,
-    /// and splitting it again is not the thing its user is about to do.
-    /// </remarks>
-    private const double SplitButtonsNeedWidth = 190;
+    /// <summary>Below this, the header stops offering to split the tile.</summary>
+    private const double SplitButtonsNeedWidth = 260;
+
+    /// <summary>Below this, restarting and starting a new session are in the menu only.</summary>
+    private const double SessionButtonsNeedWidth = 190;
 
     /// <summary>Which of the header's buttons a tile this wide can afford.</summary>
     /// <remarks>
     /// <para>The name is what identifies the tile, and in a <c>DockPanel</c> it is the one thing that
     /// gets whatever the docked buttons leave — which in a narrow column was nothing at all: four tiles
     /// in a stack showed a row of icons each and not one name between them. The buttons give way
-    /// instead, starting with the two that split, because closing and the overflow have no other route
-    /// while a split is also a drag away.</para>
+    /// instead.</para>
+    /// <para>In the order they are least missed. The splits go first: dragging a tile onto another does
+    /// the same job, so a split is the one action here with a second route. Restart and New session go
+    /// last, and only when there is really no room, because they are among the most pressed things in
+    /// the application.</para>
+    /// <para>Nothing is lost either way — every one of them is in the overflow as well, which is why
+    /// the overflow never stands down. The buttons are the fast path, not the only path.</para>
     /// <para>Driven off the toolbar's own width rather than the tile's: it is the toolbar that runs out
     /// of room, and the two differ by the card's border.</para>
     /// </remarks>
@@ -67,6 +68,13 @@ public partial class LeafTileView : UserControl
         var roomToSplit = width >= SplitButtonsNeedWidth;
         SplitRightButton.IsVisible = roomToSplit;
         SplitDownButton.IsVisible = roomToSplit;
+
+        // Width *and* what the tile is: a Note has no shell to restart. Both conditions in one place,
+        // because this is the only thing that writes these two properties — see the markup for what
+        // happened when a binding wrote them as well.
+        var roomForSession = width >= SessionButtonsNeedWidth;
+        RestartButton.IsVisible = roomForSession && _subscribedLeaf?.ContentType == TileContentType.Terminal;
+        NewSessionButton.IsVisible = roomForSession && _subscribedLeaf?.HasProfile == true;
     }
 
     private void OnTilePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
@@ -114,6 +122,7 @@ public partial class LeafTileView : UserControl
                 return result == ButtonResult.Yes;
             };
             UpdateTypeGlyph(leaf);
+            ApplyHeaderWidth(TileToolbar.Bounds.Width);
             UpdateActiveIndicator(leaf);
             UpdateDictationIndicator(leaf);
             UpdateContentDisplay(leaf);
@@ -128,6 +137,7 @@ public partial class LeafTileView : UserControl
         {
             UpdateTypeGlyph(leaf);
             UpdateContentDisplay(leaf);
+            ApplyHeaderWidth(TileToolbar.Bounds.Width);
         }
         // The property the strip is drawn from, not the two it is computed from. Listening to the inputs
         // meant the strip was repainted while one of them had not been updated yet: on the way in the
@@ -138,6 +148,8 @@ public partial class LeafTileView : UserControl
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.ShowsActiveOutline)
                  or nameof(LeafTileNodeViewModel.IsActive))
             UpdateActiveIndicator(leaf);
+        else if (e.PropertyName == nameof(LeafTileNodeViewModel.HasProfile))
+            ApplyHeaderWidth(TileToolbar.Bounds.Width);
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.IsRecordingDictation)
                  or nameof(LeafTileNodeViewModel.IsTranscribingDictation))
             UpdateDictationIndicator(leaf);

@@ -261,7 +261,7 @@
                                MinWidth="200">
                             <Border Background="{DynamicResource BgElevated}"
                                     BorderBrush="{DynamicResource BorderSubtle}"
-                                    BorderThickness="1"
+                                    BorderThickness="{DynamicResource BorderThin}"
                                     CornerRadius="{DynamicResource RadiusMd}"
                                     BoxShadow="0 4 16 0 #40000000"
                                     Padding="2">

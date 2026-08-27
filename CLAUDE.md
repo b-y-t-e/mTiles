@@ -131,6 +131,32 @@ something that looked wrong on screen.
 
 **Controls and reuse**
 
+- **A button label is primary text.** `TextSecondary` is the shade for a fact *beside* something; used
+  on a control it made every secondary button look disabled — a state those buttons also have and could
+  no longer be told apart from. A label on the accent uses `AccentForeground`, picked from the accent's
+  own luminance in `ThemeBridge`, because the theme's foreground is chosen to be read on the terminal's
+  background and comes out as grey on blue. A control's edge is `BorderStrong`, one step above the card
+  it sits on.
+- **A heading row's actions go above the list and share one class** (`Button.header-action`: Add,
+  Re-detect, Test All, Detect). Below the list, an add button moves every time the list changes length
+  and is off screen exactly when the list is long enough for the user to want another entry. Two styles
+  side by side read as unrelated controls that happen to be adjacent.
+- **An overflow is a second route, not the only one.** What is a button and what is only a menu item
+  follows how often it is pressed — a fact about use, not about the code. Restart shell and New session
+  were put behind the `…` on the reasoning that they are used "once a session"; they are among the most
+  pressed things in the application. Everything in the tile header's button strip is in its menu too, so
+  the buttons can stand down at narrow widths (`LeafTileView.ApplyHeaderWidth`) without anything
+  becoming unreachable — splits first, because dragging one tile onto another does the same job.
+- **One writer per property.** A code-behind rule and an `IsVisible` binding both write at the same
+  priority, so the last one to fire wins and neither reliably: the tile header's Restart button was
+  visible or not depending on whether the tile had been resized or its content had changed more
+  recently. Whichever writes it does so alone, and reads the view model itself
+  (`LeafTileView.ApplyHeaderWidth`).
+- **A modal takes the keyboard when it opens.** Focus the first field, or the first thing a user does
+  after asking for a new entry is reach for the mouse.
+- **Name a class for what it is, not where it sat.** `add-row` described a button's old position; when
+  the position changed the name became a trap for the next reader. It is `choice-row` (a full-width
+  option) and `header-action` (something a heading row does to its list).
 - **Reuse the class, do not restate it.** `TextBlock.section`, `Button.outlined-sm`, `Border.keycap`,
   `StackPanel.workspace-meta` exist so a heading is a heading everywhere. A local set of font properties
   is a second definition that will drift.
@@ -141,7 +167,13 @@ something that looked wrong on screen.
   asserts the negative until the first pass finishes.
 - **Writing to the user's disk asks first**, and an unwired `ConfirmAction` answers **no**.
 
-**Not yet brought over**: the Settings dialog and the phone/QR panel still predate these rules.
+**Adding an entry to a list opens a form, it does not grow the list.** The three that make one — a shell
+profile, a custom AI tool, a manual database connection — share one overlay in `SettingsView`
+(`SettingsViewModel.IsEditingAnything`, `CancelEditing`), on the same `Border.modal-card` a dialog uses.
+As rows they were unusable in a way that only shows at the keyboard: the form is taller than the
+viewport, so opening one pushed the list it came from off screen and put Save below the fold. Escape and
+the scrim close the form, and only then the dialog — the innermost thing first, or the user cannot tell
+which of the two they just cancelled.
 
 ## Split tiles architecture
 
@@ -157,7 +189,7 @@ Recursive binary tree: `LeafTileNodeViewModel` (terminal/editor) or `SplitTileNo
 
 **The header gives up its split buttons before it gives up the tile's name.** In a `DockPanel` the name gets whatever the docked buttons leave, which in a narrow column was nothing: four tiles in a stack showed a row of icons each and not one name between them. `LeafTileView.ApplyHeaderWidth` stands the two split buttons down below `SplitButtonsNeedWidth`, because closing and the overflow have no other route while a split is also a drag away.
 
-Each tile wears its type's icon in the header (`Views/TileTypeIcon.cs` — the same six the empty tile's chooser offers) in its `TileAccent*` colour, set from the code-behind because both follow `ContentType`. Those six accents were raised out of the 40%-lightness band they were picked in: they used to be drawn only as a 3px bar and a 22px chooser icon, and at 13px on `BgElevated` the old values were dark smudges. **Restart shell** and **New session** moved into a `…` overflow — the two buttons here used once a session, and the two that cost something when hit by accident. The microphone stayed out of it: it is a toggle whose state the header has to show, and a light behind a menu is not a light.
+Each tile wears its type's icon in the header (`Views/TileTypeIcon.cs` — the same six the empty tile's chooser offers) in its `TileAccent*` colour, set from the code-behind because both follow `ContentType`. Those six accents were raised out of the 40%-lightness band they were picked in: they used to be drawn only as a 3px bar and a 22px chooser icon, and at 13px on `BgElevated` the old values were dark smudges. The header's actions are **buttons *and* menu items**: the `…` overflow holds Restart shell, New session and both splits and never stands down, while the buttons are the fast path and give way as the tile narrows (`ApplyHeaderWidth` — splits at 260px, restart and new session at 190px). Splits go first because dragging a tile onto another does the same job. The microphone is neither: it is a toggle whose state the header has to show, and a light behind a menu is not a light.
 
 `TileActivationScope.SuppressActivation()` — guard (IDisposable) blocking the GotFocus → Activate cascade during programmatic Focus() and Rebuild. Used in `LeafTileView.FocusContent()` and `TileNodeView.Rebuild()`.
 
@@ -282,7 +314,7 @@ The AI Tools tab in Settings detects installed CLI AI coding tools and allows ma
 - `CustomAiToolPaths` (Dict<string,string>) — overridden paths for built-in tools
 - `CustomAiTools` (List<UserAiTool>) — user-defined tools with CRUD in UI
 
-**Tool card UI:** Left status strip (3px, green/gray), name + version, binary in monospace + path, badge (CUSTOM/NOT FOUND), buttons (delete/browse/folder/url/test). "Add Custom Tool" as `add-row` at the end of the list.
+**Tool card UI:** Left status strip (3px, green/gray — it carries a fact, which is why it survived the sweep that took the decorative rails out), name + version, binary in monospace + path, badge (CUSTOM/NOT FOUND), buttons (delete/browse/folder/url/test). **Add** is a `header-action` on the section's heading row, not a row at the end of the list.
 
 ## Goal tile
 

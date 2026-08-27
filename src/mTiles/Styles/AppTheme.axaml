@@ -40,6 +40,12 @@
          borders the tile's own content already has. Muted far enough to sit in the same family as
          BorderSubtle while still being unmistakably not it. -->
     <SolidColorBrush x:Key="AccentOutline"       Color="#3f5f7d" />
+    <!-- What a label is written in when it sits *on* the accent. Not TextPrimary: that is the theme's
+         foreground, chosen to be read on the terminal's background, and on a mid-blue button it comes
+         out as grey on blue — which is what made the one filled button in the application the hardest
+         thing on it to read. Derived from the accent's own luminance in ThemeBridge, because a theme
+         with a pale accent needs the opposite answer. -->
+    <SolidColorBrush x:Key="AccentForeground"    Color="#f2f6fb" />
 
     <!-- Tile type accents.
          Raised out of the 40%-lightness band they used to sit in. They were picked when the only thing

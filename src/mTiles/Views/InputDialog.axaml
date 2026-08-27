@@ -14,7 +14,7 @@
 
     <Border Padding="16,12"
             BorderBrush="{DynamicResource BorderSubtle}"
-            BorderThickness="1"
+            BorderThickness="{DynamicResource BorderThin}"
             CornerRadius="{DynamicResource RadiusLg}">
         <DockPanel>
             <TextBlock x:Name="TitleText"
@@ -38,21 +38,17 @@
                         Background="{DynamicResource BgSurface}"
                         Foreground="{DynamicResource TextSecondary}"
                         BorderBrush="{DynamicResource BorderSubtle}"
-                        BorderThickness="1"
+                        BorderThickness="{DynamicResource BorderThin}"
                         CornerRadius="{DynamicResource RadiusMd}"
                         FontFamily="{DynamicResource UiFontFamily}"
                         FontSize="{DynamicResource UiFontSizeSm}"
                         Cursor="Hand" />
                 <Button x:Name="OkButton"
+                        Classes="accent"
                         Content="OK"
                         MinWidth="70"
                         Padding="12,5"
                         MinHeight="0"
-                        Background="{DynamicResource AccentDefault}"
-                        Foreground="{DynamicResource TextPrimary}"
-                        BorderThickness="0"
-                        CornerRadius="{DynamicResource RadiusMd}"
-                        FontFamily="{DynamicResource UiFontFamily}"
                         FontSize="{DynamicResource UiFontSizeSm}"
                         Cursor="Hand" />
             </StackPanel>
@@ -75,7 +71,7 @@
 
                 <Border CornerRadius="{DynamicResource RadiusMd}"
                         BorderBrush="{DynamicResource BorderSubtle}"
-                        BorderThickness="1"
+                        BorderThickness="{DynamicResource BorderThin}"
                         Background="{DynamicResource BgSurface}"
                         MaxHeight="200">
                     <ScrollViewer HorizontalScrollBarVisibility="Disabled"

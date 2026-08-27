@@ -254,6 +254,16 @@ public partial class MainWindow : Window
     {
         if (e.Key == Key.Escape && DataContext is MainWindowViewModel { IsSettingsOpen: true } vm)
         {
+            // Innermost first. With an entry form open over the settings dialog, Escape means "not this
+            // entry" — closing the whole dialog would throw away the form *and* the page behind it, and
+            // leave the user wondering which of the two they had just cancelled.
+            if (vm.Settings.IsEditingAnything)
+            {
+                vm.Settings.CancelEditing();
+                e.Handled = true;
+                return;
+            }
+
             // Through the view model, like the close button and the click outside: it may ask about
             // unapplied database settings first, and it may answer no.
             _ = vm.CloseSettingsAsync();

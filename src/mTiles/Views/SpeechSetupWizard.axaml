@@ -15,7 +15,7 @@
 
     <Border Padding="18,16"
             BorderBrush="{DynamicResource BorderSubtle}"
-            BorderThickness="1"
+            BorderThickness="{DynamicResource BorderThin}"
             CornerRadius="{DynamicResource RadiusLg}">
         <DockPanel>
             <!-- Header -->
@@ -58,13 +58,9 @@
                          step, so this button holds the focus there — and a focused button raises Click
                          from the key-up of Space, which is half of the default shortcut. -->
                     <Button x:Name="NextButton"
+                            Classes="accent"
                             Content="{Binding NextCaption}"
                             MinWidth="90" Padding="12,5" MinHeight="0"
-                            Background="{DynamicResource AccentDefault}"
-                            Foreground="{DynamicResource TextPrimary}"
-                            BorderThickness="0"
-                            CornerRadius="{DynamicResource RadiusMd}"
-                            FontFamily="{DynamicResource UiFontFamily}"
                             FontSize="{DynamicResource UiFontSizeSm}"
                             Cursor="Hand"
                             IsEnabled="{Binding CanGoNext}"

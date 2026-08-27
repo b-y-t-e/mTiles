@@ -44,10 +44,22 @@
                         Padding="6,0"
                         Height="27">
                     <DockPanel x:Name="TileHeaderContent">
-                        <!-- Restart and New session moved into an overflow: they are the two buttons
-                             here used once a session, and the two that cost something when hit by
-                             accident. The microphone stayed out of it — it is a toggle whose state the
-                             header has to show, and a light behind a menu is not a light. -->
+                        <!-- Everything here is also in the overflow, and the overflow is the only one
+                             of them that never stands down. That is the whole arrangement: the buttons
+                             are the fast path when the header has room, the menu is the guarantee that
+                             it is reachable when it has not.
+
+                             What is a button and what is only a menu item follows how often it is
+                             pressed, which is a fact about use and not about the code — an earlier
+                             version of this put Restart shell and New session behind the menu on the
+                             reasoning that they are used "once a session", and they are among the most
+                             used things in the application. The splits went the other way for a reason
+                             that survives being wrong about frequency: dragging a tile onto another
+                             does the same job, so a split is the one action here with a second route.
+
+                             The microphone is neither: it is a toggle whose state the header has to
+                             show, and a light behind a menu is not a light. Close is neither: it is the
+                             one action that must never be hunted for. -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1">
                             <Button Classes="tile-btn"
                                     Classes.tile-btn-recording="{Binding IsDictating}"
@@ -55,6 +67,23 @@
                                     ToolTip.Tip="Dictate into this tile"
                                     IsVisible="{Binding CanDictate}">
                                 <mi:MaterialIcon Kind="Microphone" Width="14" Height="14" />
+                            </Button>
+                            <!-- No IsVisible binding on these two: ApplyHeaderWidth is the only writer,
+                                 and it reads the same view-model properties a binding would. Both write
+                                 at the same priority, so with a binding here the last one to fire won —
+                                 the width rule while the tile was resized, the binding the next time the
+                                 tile's content changed, and neither reliably. -->
+                            <Button x:Name="RestartButton"
+                                    Classes="tile-btn"
+                                    Command="{Binding RestartTerminalCommand}"
+                                    ToolTip.Tip="Restart shell (Ctrl+Shift+R)">
+                                <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
+                            </Button>
+                            <Button x:Name="NewSessionButton"
+                                    Classes="tile-btn"
+                                    Command="{Binding ResetTileIdCommand}"
+                                    ToolTip.Tip="New session">
+                                <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
                             </Button>
                             <Button x:Name="TileOverflow"
                                     Classes="tile-btn"
@@ -75,6 +104,19 @@
                                                   IsVisible="{Binding HasProfile}">
                                             <MenuItem.Icon>
                                                 <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                        </MenuItem>
+                                        <Separator />
+                                        <MenuItem Header="Split right"
+                                                  Command="{Binding SplitVerticalCommand}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="DockRight" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                        </MenuItem>
+                                        <MenuItem Header="Split down"
+                                                  Command="{Binding SplitHorizontalCommand}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="DockBottom" Width="14" Height="14" />
                                             </MenuItem.Icon>
                                         </MenuItem>
                                     </MenuFlyout>

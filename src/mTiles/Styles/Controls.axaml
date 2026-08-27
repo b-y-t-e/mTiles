@@ -21,10 +21,10 @@
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
     </Style>
 
-    <!-- ======== BUTTON: accent ======== -->
+    <!-- ======== BUTTON: accent (the one action a screen is for) ======== -->
     <Style Selector="Button.accent">
         <Setter Property="Background" Value="{DynamicResource AccentDefault}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentForeground}" />
         <Setter Property="Padding" Value="12,6" />
         <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
         <Setter Property="FontSize" Value="{DynamicResource FontMd}" />
@@ -41,12 +41,12 @@
     <!-- ======== BUTTON: outlined (Add Workspace style) ======== -->
     <Style Selector="Button.outlined">
         <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         <Setter Property="Padding" Value="8,6" />
         <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
         <Setter Property="FontSize" Value="{DynamicResource FontMd}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />
@@ -70,14 +70,14 @@
          around it grows is the reason that setting exists. -->
     <Style Selector="Button.outlined-sm">
         <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         <Setter Property="Padding" Value="10,5" />
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -99,6 +99,11 @@
     </Style>
     <Style Selector="Button.outlined-sm:pressed">
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+    </Style>
+    <!-- Disabled is a state, and it has to look like one. While every button was drawn in TextSecondary
+         there was nothing below it to fall to; now there is. -->
+    <Style Selector="Button.outlined:disabled, Button.outlined-sm:disabled, Button.accent:disabled">
+        <Setter Property="Opacity" Value="0.45" />
     </Style>
 
     <!-- ======== KEYCAP (one key of a shortcut) ========
@@ -305,6 +310,32 @@
         <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
     </Style>
 
+    <!-- ======== SETTINGS GROUP (one block of related settings) ========
+         A card, like everything else on screen. It replaced three nested Borders and a three-pixel
+         accent rail down the left of every group — eight of them stacked in a 500px dialog, which is
+         the "longer line, quieter accent" rule broken eight times over: an accent that marks one thing
+         marks nothing when it marks all of them. The hairline says where the group starts, which is all
+         a group needs said. -->
+    <Style Selector="Border.settings-group">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusRow}" />
+        <Setter Property="Padding" Value="12,10" />
+    </Style>
+
+    <!-- ======== MODAL CARD (a form that opens over what it belongs to) ========
+         The same card the tiles and the workspaces panel are, one step brighter because it is on top of
+         them: BgElevated rather than BgSurface, and a shadow to say so. RadiusTile, because a card is a
+         card at every size. -->
+    <Style Selector="Border.modal-card">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusTile}" />
+        <Setter Property="BoxShadow" Value="0 8 32 0 #60000000" />
+    </Style>
+
     <!-- ======== WORKSPACE ITEM (sidebar) ========
          Selected and hovered were the same brush, so pointing at a neighbour made it impossible to say
          which workspace was open — the one thing this list exists to tell you. The selected row has a
@@ -367,10 +398,48 @@
         <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
     </Style>
 
-    <!-- ======== BUTTON: add-row (subtle add action at bottom of list) ======== -->
-    <Style Selector="Button.add-row">
+    <!-- ======== BUTTON: header-action (anything a heading row can do to the list under it) ========
+         One class for all of them — Add, Re-detect, Test All, Detect. They sat side by side in two
+         different styles at two different sizes and radii, which reads as three unrelated controls that
+         happen to be adjacent rather than as the row's own set of actions.
+
+         Sized to a heading row rather than to a form. The Add case also replaced a full-width dashed
+         row at the foot of each list, which moved every time the list changed length and was off screen
+         exactly when the list was long enough to want another entry. -->
+    <Style Selector="Button.header-action">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="Padding" Value="8,3" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.header-action:pointerover">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+    </Style>
+    <Style Selector="Button.header-action:pressed">
+        <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+    </Style>
+    <Style Selector="Button.header-action:disabled">
+        <Setter Property="Opacity" Value="0.45" />
+    </Style>
+
+    <!-- ======== BUTTON: choice-row (a full-width option in a list of options) ========
+         Named add-row when the only thing wearing it was an "Add ..." at the foot of a list. Those moved
+         to their heading rows (see header-action) and what is left is the phone panel's list of other
+         addresses to try — which is not an add action and never was one. A class that describes where a
+         button used to sit is a class the next reader will use in the wrong place. -->
+    <Style Selector="Button.choice-row">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
         <Setter Property="Padding" Value="14,9" />
         <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
@@ -379,12 +448,12 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
     </Style>
-    <Style Selector="Button.add-row:pointerover">
+    <Style Selector="Button.choice-row:pointerover">
         <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
         <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
     </Style>
-    <Style Selector="Button.add-row:pressed">
+    <Style Selector="Button.choice-row:pressed">
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
     </Style>
 
