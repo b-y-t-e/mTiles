@@ -6,7 +6,7 @@ using mTiles.Services;
 
 namespace mTiles.ViewModels;
 
-public partial class TerminalTileViewModel : ObservableObject, IDisposable
+public partial class TerminalTileViewModel : ObservableObject, IDisposable, IBusyTile
 {
     public string WorkingDirectory { get; }
     public ShellProfile Shell { get; }
@@ -39,6 +39,14 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
 
     private readonly SettingsService _settingsService;
 
+    /// <summary>The tile's "working" light. Owned here, driven by the terminal's output, and reported
+    /// through <see cref="IsBusy"/> — the tile knows that it has one, not how it decides.</summary>
+    private readonly OutputActivityLight _activityLight = new();
+
+    /// <summary>Whether the shell in this tile is producing output — what the workspace list shows as
+    /// "working".</summary>
+    public bool IsBusy => _activityLight.IsOn;
+
     internal Control? CachedControl { get; private set; }
     internal bool IsLaunched { get; set; }
 
@@ -52,6 +60,7 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
     {
         CachedControl = terminal;
         TerminalClipboardCoordinator.Register(terminal);
+        _activityLight.Attach(terminal);
     }
 
     /// <summary>The launch that currently owns this tile's terminal, when the profile runs a command
@@ -96,6 +105,7 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
         _fontSize = s.TerminalFontSize;
 
         _settingsService.SettingsChanged += OnSettingsChanged;
+        _activityLight.Changed += (_, _) => OnPropertyChanged(nameof(IsBusy));
     }
 
     private void OnSettingsChanged()
@@ -132,6 +142,9 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable
         // would answer that exit by starting a shell nothing can ever show or close again. Guarded like
         // the steps below — a chain that fails to stop must not cost us the terminal's disposal.
         Attempt(() => ReplaceLaunchSession(null), "Stopping the launch chain failed");
+        // Before the terminal is disposed of as well: its own teardown writes, and a handler still
+        // attached would light a tile that is on its way out.
+        Attempt(_activityLight.Dispose, "Detaching the activity watch failed");
 
         if (CachedControl is Terminal.Avalonia.TerminalControl tc)
         {

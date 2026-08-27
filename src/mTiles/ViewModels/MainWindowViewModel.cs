@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
@@ -105,7 +106,10 @@ public partial class MainWindowViewModel : ObservableObject
                 foreach (var id in _workspaceCache.Keys.ToList())
                     OnWorkspaceRemoved(id);
             }
-            else if (e.OldItems != null)
+            // Remove only, and not "anything with OldItems": a Move carries the item it moved in
+            // OldItems too, so re-ordering the list would dispose the workspace's tiles.
+            else if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove
+                     && e.OldItems != null)
             {
                 foreach (WorkspaceItemViewModel item in e.OldItems)
                     OnWorkspaceRemoved(item.Id);
@@ -206,8 +210,44 @@ public partial class MainWindowViewModel : ObservableObject
     private void OnWorkspaceRemoved(string workspaceId)
     {
         if (!_workspaceCache.Remove(workspaceId, out var vm)) return;
+
+        vm.PropertyChanged -= OnWorkspaceActivityChanged;
         vm.Dispose();
         WorkspaceRemoved?.Invoke(workspaceId);
+    }
+
+    /// <summary>Keeps a panel row's "working" light in step with the tiles of its workspace.</summary>
+    /// <remarks>Wired here because this is the one place a workspace's view model comes into existence,
+    /// and the row and the view model are the two halves that never meet anywhere else. Both are
+    /// discarded together when the workspace is removed, so the subscription outlives neither.</remarks>
+    private void ShowActivityInPanel(WorkspaceViewModel workspace)
+    {
+        // The row is looked up for the first reading only, and its absence is not a reason to skip
+        // the subscription: the handler finds the row itself on every event, so a workspace whose row
+        // has not been added yet — or has been replaced since — starts lighting up as soon as it is
+        // there. Returning early left that workspace's light dead for the life of the window.
+        if (_workspacesPanel.Workspaces.FirstOrDefault(w => w.Id == workspace.WorkspaceId) is { } row)
+            row.IsBusy = workspace.IsBusy;
+
+        // A named handler, not a lambda. The two objects are discarded together today, so nothing
+        // leaks — but "nothing leaks" was resting on that being true rather than on anything saying
+        // so, and a lambda cannot be taken off if it stops being true. Detached in
+        // OnWorkspaceRemoved, which is the one place a workspace view model is let go of.
+        workspace.PropertyChanged += OnWorkspaceActivityChanged;
+    }
+
+    /// <summary>Carries a workspace's "working" light to its row in the panel.</summary>
+    /// <remarks>
+    /// The row is looked up per event rather than captured, so this handler belongs to no particular
+    /// pair and can be removed with the sender alone. A row that has gone is simply not found.
+    /// </remarks>
+    private void OnWorkspaceActivityChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(WorkspaceViewModel.IsBusy)) return;
+        if (sender is not WorkspaceViewModel workspace) return;
+
+        if (_workspacesPanel.Workspaces.FirstOrDefault(w => w.Id == workspace.WorkspaceId) is { } row)
+            row.IsBusy = workspace.IsBusy;
     }
 
     private void SwitchToWorkspace(Workspace? workspace)
@@ -222,6 +262,7 @@ public partial class MainWindowViewModel : ObservableObject
         {
             vm = new WorkspaceViewModel(workspace, _persistenceService, _settingsService, _dbManager, Dictation);
             _workspaceCache[workspace.Id] = vm;
+            ShowActivityInPanel(vm);
         }
 
         CurrentWorkspace = vm;

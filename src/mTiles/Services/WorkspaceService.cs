@@ -60,6 +60,20 @@ public sealed class WorkspaceService
         return workspace;
     }
 
+    /// <summary>Pins a workspace to the top of the panel, or unpins it.</summary>
+    /// <remarks>Written through immediately rather than on a debounce: it is one flag the user has just
+    /// clicked, and the thing a pin has to survive is the application being closed straight after.</remarks>
+    public void SetFavorite(string workspaceId, bool isFavorite)
+    {
+        // No "already set, nothing to do" check: the panel's row holds the very same Workspace
+        // instance and sets the flag itself, so the two are equal by the time this is called and the
+        // shortcut would skip the only thing left to do — writing it down.
+        var workspace = _workspaces.FirstOrDefault(w => w.Id == workspaceId);
+        if (workspace == null) return;
+        workspace.IsFavorite = isFavorite;
+        Save();
+    }
+
     public void RemoveWorkspace(string workspaceId)
     {
         _workspaces.RemoveAll(w => w.Id == workspaceId);

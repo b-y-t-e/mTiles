@@ -21,6 +21,13 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private LeafTileNodeViewModel? _lastActiveLeaf;
 
+    /// <summary>Whether anything in this workspace is working — what the panel's row light shows.</summary>
+    /// <remarks>Any tile, because the question the list answers is "is there something going on in
+    /// there", and a workspace with one busy tile out of four is a workspace to go back to.</remarks>
+    public bool IsBusy => EnumerateLeaves(RootTile).Any(leaf => leaf.IsBusy);
+
+    partial void OnRootTileChanged(TileNodeViewModel? value) => OnPropertyChanged(nameof(IsBusy));
+
     public string WorkspaceId { get; }
     public string WorkingDirectory { get; }
     public ObservableCollection<ShellProfile> AvailableShells { get; } = [];
@@ -187,10 +194,19 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         leaf.RootCleared = () => { RootTile = CreateLeaf(TileContentType.Empty, null, ""); ScheduleSave(); };
         leaf.PropertyChanged -= OnLeafPropertyChanged;
         leaf.PropertyChanged += OnLeafPropertyChanged;
+        // A tile arriving is a change to the answer too — splitting anything but the root leaves
+        // RootTile alone, so its own notification never fires.
+        OnPropertyChanged(nameof(IsBusy));
     }
 
     private void OnLeafPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(LeafTileNodeViewModel.IsBusy))
+        {
+            OnPropertyChanged(nameof(IsBusy));
+            return;
+        }
+
         if (e.PropertyName == nameof(LeafTileNodeViewModel.IsActive)
             && sender is LeafTileNodeViewModel leaf && leaf.IsActive)
             _lastActiveLeaf = leaf;

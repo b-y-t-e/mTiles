@@ -144,9 +144,42 @@
                                         ToolTip.Tip="{Binding DirectoryPath}"
                                         PointerPressed="WorkspaceItem_PointerPressed">
                                     <StackPanel Spacing="1">
-                                        <TextBlock Text="{Binding Name}" FontWeight="Medium"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   Foreground="{DynamicResource TextPrimary}" />
+                                        <!-- The star and the working light are both fixed-width and
+                                             docked, so the name still takes everything that is left —
+                                             two glyphs is what a row can spare beside a name; a third
+                                             would start the argument this layout exists to end. -->
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right"
+                                                    Classes="workspace-star"
+                                                    Classes.is-favorite="{Binding IsFavorite}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:WorkspacesPanelViewModel)DataContext).ToggleFavoriteCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Placement="Right"
+                                                    ToolTip.Tip="Favourite">
+                                                <Panel>
+                                                    <mi:MaterialIcon Kind="Star"
+                                                                     IsVisible="{Binding IsFavorite}" />
+                                                    <mi:MaterialIcon Kind="StarOutline"
+                                                                     IsVisible="{Binding !IsFavorite}" />
+                                                </Panel>
+                                            </Button>
+                                            <!-- A light, not a label: it comes and goes many times in a
+                                                 session and a word appearing beside a name would move
+                                                 the name every time something printed. -->
+                                            <mi:MaterialIcon DockPanel.Dock="Right"
+                                                             Kind="Circle"
+                                                             Width="7" Height="7"
+                                                             Margin="4,0"
+                                                             VerticalAlignment="Center"
+                                                             IsVisible="{Binding IsBusy}"
+                                                             Foreground="{DynamicResource AccentDefault}"
+                                                             ToolTip.Placement="Right"
+                                                             ToolTip.Tip="Working" />
+                                            <TextBlock Text="{Binding Name}" FontWeight="Medium"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource TextPrimary}" />
+                                        </DockPanel>
                                         <!-- The meta line is always here and always the same height,
                                              whatever it has to say. Showing it only for repositories
                                              gave the list two row heights interleaved at random, which

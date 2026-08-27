@@ -29,6 +29,33 @@ public partial class WorkspaceItemViewModel : ObservableObject
     /// <summary>The one state the row offers to do something about.</summary>
     public bool HasNoRepository => HasRepository == false;
 
+    /// <summary>Whether something is running in this workspace right now.</summary>
+    /// <remarks>Set from outside — the row is told, it does not look. Only workspaces that have been
+    /// opened have a view model producing tiles to be busy, so an unopened one stays dark, which is the
+    /// truthful answer: nothing of it is running.</remarks>
+    [ObservableProperty]
+    private bool _isBusy;
+
+    /// <summary>Told when the star is pressed, so the row never has to know the service that stores it.
+    /// </summary>
+    public Action<WorkspaceItemViewModel, bool>? FavoriteChanged { get; set; }
+
+    /// <summary>Whether the user pinned this workspace to the top of the list.</summary>
+    public bool IsFavorite
+    {
+        get => Workspace.IsFavorite;
+        set
+        {
+            if (Workspace.IsFavorite == value) return;
+            // The row owns the value and then tells whoever stores it: a callback nobody wired, or a
+            // store that cannot find the workspace, must not leave the star saying one thing and the
+            // sort order another.
+            Workspace.IsFavorite = value;
+            OnPropertyChanged();
+            FavoriteChanged?.Invoke(this, value);
+        }
+    }
+
     public string Id => Workspace.Id;
     public string Name => Workspace.Name;
     public string DirectoryPath => Workspace.DirectoryPath;

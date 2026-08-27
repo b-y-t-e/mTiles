@@ -72,8 +72,10 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
             ApplyFilter();
         };
 
-        foreach (var w in workspaceService.Workspaces.OrderBy(w => w.Name, StringComparer.OrdinalIgnoreCase))
-            Workspaces.Add(new WorkspaceItemViewModel(w));
+        var items = workspaceService.Workspaces.Select(CreateItem).ToList();
+        items.Sort(DisplayOrder);
+        foreach (var item in items)
+            Workspaces.Add(item);
 
         _branchTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _branchTimer.Tick += async (_, _) =>
@@ -87,6 +89,46 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
 
         foreach (var item in Workspaces)
             StartWatchingHead(item);
+    }
+
+    private static readonly Comparison<WorkspaceItemViewModel> DisplayOrder = WorkspaceDisplayOrder.Compare;
+
+    private WorkspaceItemViewModel CreateItem(Workspace workspace) =>
+        new(workspace) { FavoriteChanged = StoreFavorite };
+
+    private void StoreFavorite(WorkspaceItemViewModel item, bool isFavorite) =>
+        _workspaceService.SetFavorite(item.Id, isFavorite);
+
+    /// <summary>Pins a workspace to the top of the list, or unpins it.</summary>
+    [RelayCommand]
+    private void ToggleFavorite(WorkspaceItemViewModel? item)
+    {
+        if (item == null) return;
+        item.IsFavorite = !item.IsFavorite;
+        MoveToDisplayPosition(item);
+    }
+
+    /// <summary>Puts a row where the current order says it belongs.</summary>
+    /// <remarks>A move, never a remove and re-add: a removal from this collection is how the window
+    /// learns a workspace is gone, and it would answer a re-ordering by disposing the workspace's
+    /// tiles.</remarks>
+    private void MoveToDisplayPosition(WorkspaceItemViewModel item)
+    {
+        var from = Workspaces.IndexOf(item);
+        if (from < 0) return;
+
+        var to = Workspaces.Count(other => !ReferenceEquals(other, item) && DisplayOrder(other, item) < 0);
+        if (to != from)
+            Workspaces.Move(from, to);
+    }
+
+    /// <summary>Where a row belongs in a list it is not in yet.</summary>
+    private int FindDisplayIndex(WorkspaceItemViewModel item)
+    {
+        var index = 0;
+        while (index < Workspaces.Count && DisplayOrder(Workspaces[index], item) < 0)
+            index++;
+        return index;
     }
 
     private async Task RefreshAllBranchesAsync()
@@ -247,11 +289,8 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
         if (string.IsNullOrEmpty(path)) return;
 
         var workspace = _workspaceService.AddWorkspace(path);
-        var item = new WorkspaceItemViewModel(workspace);
-        var index = 0;
-        while (index < Workspaces.Count && string.Compare(Workspaces[index].Name, item.Name, StringComparison.OrdinalIgnoreCase) < 0)
-            index++;
-        Workspaces.Insert(index, item);
+        var item = CreateItem(workspace);
+        Workspaces.Insert(FindDisplayIndex(item), item);
         SelectedWorkspace = item;
 
         var gitPath = GitService.ResolveGitPath(_settingsService?.Settings.GitPath);

@@ -28,7 +28,38 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
     public bool HasProfile => Content is TerminalTileViewModel { UserProfileId: not null };
 
-    partial void OnContentChanged(ObservableObject? value) => OnPropertyChanged(nameof(HasProfile));
+    /// <summary>Whether this tile is working right now — false for content that has no notion of it,
+    /// and false once the tile has been disposed of.</summary>
+    /// <remarks>A closed tile is not working, whatever its content was doing a moment ago: closing one
+    /// takes it out of the tree without the workspace's own root changing, so the light it leaves lit is
+    /// one nothing else would ever put out.</remarks>
+    public bool IsBusy => !_disposed && (Content as IBusyTile)?.IsBusy == true;
+
+    partial void OnContentChanged(ObservableObject? oldValue, ObservableObject? newValue)
+    {
+        WatchContentBusy(oldValue, newValue);
+        OnPropertyChanged(nameof(HasProfile));
+        OnPropertyChanged(nameof(IsBusy));
+    }
+
+    /// <summary>Follows the busy state of whatever content the tile holds now.</summary>
+    /// <remarks>The tile watches its own content and the workspace watches its tiles, so neither has to
+    /// walk the other's tree — and content that is not an <see cref="IBusyTile"/> is not subscribed to
+    /// at all.</remarks>
+    private void WatchContentBusy(ObservableObject? oldContent, ObservableObject? newContent)
+    {
+        if (oldContent is IBusyTile previous)
+            previous.PropertyChanged -= OnContentPropertyChanged;
+        if (newContent is IBusyTile current)
+            current.PropertyChanged += OnContentPropertyChanged;
+    }
+
+    private void OnContentPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(IBusyTile.IsBusy))
+            OnPropertyChanged(nameof(IsBusy));
+    }
+
     partial void OnContentTypeChanged(TileContentType value) => OnPropertyChanged(nameof(CanDictate));
     partial void OnTileNameChanged(string value) => NotifyLayoutChanged();
 
@@ -67,7 +98,11 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         Func<UserShellProfile, string, ObservableObject>? profileContentFactory = null)
     {
         _contentType = contentType;
+        // Assigned to the backing field, so the generated OnContentChanged never runs: a tile built
+        // from a saved layout arrives with its content already in hand, and without this it would
+        // never follow it. Every other route in goes through the property and is covered there.
         _content = content;
+        WatchContentBusy(null, content);
         _workingDirectory = workingDirectory;
         _activationScope = activationScope;
         _contentFactory = contentFactory;
@@ -218,6 +253,11 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
             dictation.Cancel();
 
         Dictation = null;
+
+        WatchContentBusy(Content, null);
+        // Said out loud, because the content is no longer there to say it: the workspace is still
+        // listening to this leaf, and this is the last moment at which it hears anything from it.
+        OnPropertyChanged(nameof(IsBusy));
 
         if (Content is IDisposable disposable)
             disposable.Dispose();
