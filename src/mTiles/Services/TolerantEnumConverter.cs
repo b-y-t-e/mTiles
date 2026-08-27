@@ -120,6 +120,14 @@ internal sealed class TolerantAiPermissionModeConverter : TolerantEnumOrDefaultC
     protected override AiPermissionMode Fallback => AiPermissionMode.Auto;
 }
 
+/// <summary>An effort level this build has never heard of reads as <see cref="AiEffort.High"/> — the
+/// default — rather than costing the whole settings file, which also holds the profiles, the tool paths
+/// and the encrypted database passwords.</summary>
+internal sealed class TolerantAiEffortConverter : TolerantEnumOrDefaultConverter<AiEffort>
+{
+    protected override AiEffort Fallback => AiEffort.High;
+}
+
 /// <summary>A role this build does not know reads as <see cref="GoalMessageRole.System"/>: a line in the
 /// transcript attributed to the tile is the least misleading place to put something whose speaker cannot
 /// be identified, and it is never fed back to a tool as the user's words or the tool's own.</summary>

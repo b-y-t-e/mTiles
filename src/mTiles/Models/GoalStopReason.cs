@@ -20,4 +20,17 @@ public enum GoalStopReason
 
     /// <summary>An implementation left the working tree exactly as it found it.</summary>
     NoChange,
+
+    /// <summary>
+    /// A review was asked for on its own, and it has been given. Nothing was implemented and nothing
+    /// was going to be.
+    /// </summary>
+    /// <remarks>
+    /// Its own reason rather than one of the four above, because the summary is the sentence the user
+    /// reads and none of them is true here. <c>BudgetSpent</c> comes closest and says "stopped after 1
+    /// attempt without meeting the completion criteria", which reports a budget running out where no
+    /// budget was ever in play — and offers Continue as though attempts had been lost. Continue is
+    /// offered here too, and means something different: not more attempts, but the first ones.
+    /// </remarks>
+    Reviewed,
 }

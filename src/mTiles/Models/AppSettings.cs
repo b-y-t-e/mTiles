@@ -72,6 +72,18 @@ public sealed class AppSettings
     [JsonConverter(typeof(TolerantAiPermissionModeConverter))]
     public AiPermissionMode GoalPermissionMode { get; set; } = AiPermissionMode.Auto;
 
+    /// <summary>
+    /// How hard the Goal tile's AI runs are asked to think — see <see cref="AiEffort"/>.
+    /// </summary>
+    /// <remarks>
+    /// Read tolerantly, as <see cref="GoalPermissionMode"/> is and for the same reason: a level written
+    /// by a newer build and read after a rollback would otherwise be a JsonException, and this file also
+    /// holds the profiles, the tool paths and the DPAPI-encrypted database passwords. One unknown word
+    /// must not quarantine all of it.
+    /// </remarks>
+    [JsonConverter(typeof(TolerantAiEffortConverter))]
+    public AiEffort GoalEffort { get; set; } = AiEffort.High;
+
     public bool DiffTrimIndent { get; set; } = true;
     /// <summary>
     /// Whether <c>.mtiles/</c> is listed in each workspace's <c>.gitignore</c>.

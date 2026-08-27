@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using mTiles.Models;
@@ -229,6 +230,56 @@ internal static partial class GoalResponseParser
         return new GoalQuestion { Question = text, Why = Text(e, "why"), Options = options };
     }
 
+    // ── Commit plan ─────────────────────────────────────
+
+    /// <summary>
+    /// The commits a run proposed for its own work, or an empty list when nothing usable came back.
+    /// </summary>
+    /// <remarks>
+    /// <para>Empty is a real answer and the caller acts on it: there is no prose fallback here, unlike
+    /// the review's <c>VERDICT: PASS</c>. A review that cannot be parsed still has to be given a
+    /// verdict, because the run cannot continue without one; a commit plan that cannot be parsed can
+    /// simply not be made, and the work stays in the working tree exactly as the user left it. Guessing
+    /// a grouping out of prose would be inventing commit messages for somebody's repository.</para>
+    /// <para>An entry with no files is dropped rather than repaired. It is a commit that would touch
+    /// nothing, and <c>git commit</c> refuses it anyway — dropping it here means the user is told about
+    /// files nothing claimed, instead of about a git error.</para>
+    /// </remarks>
+    public static List<GoalCommit> ParseCommitPlan(string? response)
+    {
+        var commits = new List<GoalCommit>();
+        if (ExtractJson(response) is not { } root) return commits;
+
+        if (Property(root, "commits") is not { ValueKind: JsonValueKind.Array } array) return commits;
+
+        foreach (var entry in array.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object) continue;
+
+            var files = new List<string>();
+            if (Property(entry, "files") is { ValueKind: JsonValueKind.Array } listed)
+                files.AddRange(listed.EnumerateArray()
+                    .Where(f => f.ValueKind == JsonValueKind.String)
+                    .Select(f => (f.GetString() ?? "").Trim())
+                    .Where(f => f.Length > 0));
+
+            if (files.Count == 0) continue;
+
+            var type = Text(entry, "type");
+            commits.Add(new GoalCommit
+            {
+                // Lower-cased because the convention is, and a `Feat:` prefix beside forty `feat:` ones
+                // is the sort of thing a person has to go back and fix by hand. Not otherwise checked —
+                // see GoalCommit.Type for why the set is left open.
+                Type = type.Length == 0 ? "chore" : type.ToLowerInvariant(),
+                Subject = Text(entry, "subject"),
+                Files = files,
+            });
+        }
+
+        return commits;
+    }
+
     // ── Detected goal ───────────────────────────────────
 
     /// <summary>
@@ -251,7 +302,9 @@ internal static partial class GoalResponseParser
         if (ExtractJson(text) is { } root && Text(root, "goal") is { Length: > 0 } fromJson)
             text = fromJson;
 
-        return text;
+        // Also on the path where no JSON was found at all: a tool that answers with a bare sentence can
+        // have escaped it just as readily as one that answers with an object.
+        return Readable(text);
     }
 
     // ── Reading a JSON object without believing anything about it ──
@@ -296,5 +349,43 @@ internal static partial class GoalResponseParser
     }
 
     private static string Text(JsonElement obj, string name) =>
-        Property(obj, name) is { ValueKind: JsonValueKind.String } s ? (s.GetString() ?? "").Trim() : "";
+        Property(obj, name) is { ValueKind: JsonValueKind.String } s
+            ? Readable((s.GetString() ?? "").Trim())
+            : "";
+
+    /// <summary>
+    /// Text a person can read, from a tool that escaped it one time too many.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>What goes wrong.</b> A model asked for JSON often escapes non-ASCII itself, writing
+    /// <c>dzia\u0142</c> inside the string. That is legal and harmless — the parser decodes it — until
+    /// the escaping happens twice, which is what a model does when it composes the JSON as text and
+    /// then quotes it: the wire carries <c>dzia\\u0142</c>, one decode strips one backslash, and the
+    /// goal that reaches the transcript reads
+    /// <c>Esencje dzia\u0142\u00f3w generowane przez ...</c>. Nothing downstream can recover from it,
+    /// because by then it is exactly what the tool said.</para>
+    /// <para><b>The rule is deliberately narrow.</b> Only a string that is <em>entirely ASCII</em> and
+    /// contains at least one well-formed <c>\uXXXX</c> is decoded. A finding about escaping — a code
+    /// review that quotes <c>"\u0142"</c> out of somebody's source — is written in a sentence that has
+    /// its own accented letters, or none at all, and either way is left alone. The alternative rules
+    /// are worse in both directions: decoding always rewrites a review of i18n code, and decoding never
+    /// leaves every Polish goal unreadable.</para>
+    /// <para>Verified against the goal files on this machine before it was written: every stored goal
+    /// decodes cleanly, so the escapes are not the state file's doing — they are what arrived.</para>
+    /// </remarks>
+    internal static string Readable(string text)
+    {
+        if (text.Length == 0 || text.Any(c => c > 127)) return text;
+
+        var match = EscapedChar();
+        if (!match.IsMatch(text)) return text;
+
+        return match.Replace(text,
+            m => ((char)int.Parse(m.Groups["hex"].Value, NumberStyles.HexNumber)).ToString());
+    }
+
+    /// <summary>A JSON unicode escape that survived being parsed, which means it was escaped twice.
+    /// </summary>
+    [GeneratedRegex(@"\\u(?<hex>[0-9a-fA-F]{4})")]
+    private static partial Regex EscapedChar();
 }

@@ -55,6 +55,17 @@ public partial class GoalCriteriaEditor : ObservableObject
     /// <see cref="GoalCompletionCriteria.RequireTestsPass"/>.</summary>
     [ObservableProperty] private bool _requireTestsPass = true;
 
+    /// <summary>
+    /// Whether a finished run commits its own work by itself. See
+    /// <see cref="GoalCompletionCriteria.CommitWhenDone"/>.
+    /// </summary>
+    /// <remarks>
+    /// The only switch here that starts off, and the only one that writes to the user's history. Off
+    /// does not mean the feature is unavailable: the same conditions put a Commit button in the
+    /// summary, and either way the commit is confirmed in a dialog first.
+    /// </remarks>
+    [ObservableProperty] private bool _commitWhenDone;
+
     /// <summary>Empty unless the typed attempt count is outside what will actually be run. See
     /// <see cref="ShowClampNotes"/>.</summary>
     [ObservableProperty] private string _attemptsNote = "";
@@ -82,6 +93,7 @@ public partial class GoalCriteriaEditor : ObservableObject
             RequireGoalMet = c.RequireGoalMet;
             RequireBuild = c.RequireBuild;
             RequireTestsPass = c.RequireTestsPass;
+            CommitWhenDone = c.CommitWhenDone;
             foreach (var chip in Solid) chip.Fill(c.Solid);
         }
         finally { _filling = false; }
@@ -119,6 +131,7 @@ public partial class GoalCriteriaEditor : ObservableObject
     partial void OnRequireGoalMetChanged(bool value) => Changed();
     partial void OnRequireBuildChanged(bool value) => Changed();
     partial void OnRequireTestsPassChanged(bool value) => Changed();
+    partial void OnCommitWhenDoneChanged(bool value) => Changed();
 
     /// <summary>
     /// One edit, written through to wherever the criteria live.
@@ -139,6 +152,7 @@ public partial class GoalCriteriaEditor : ObservableObject
             RequireGoalMet = RequireGoalMet,
             RequireBuild = RequireBuild,
             RequireTestsPass = RequireTestsPass,
+            CommitWhenDone = CommitWhenDone,
             Solid = SolidFromToggles(),
         });
 

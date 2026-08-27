@@ -83,6 +83,40 @@ public class GoalPermissionModeTests
     public void A_rejected_mode_is_recognised(string output) =>
         Assert.True(AiPermissionModes.LooksLikeRejectedMode(output));
 
+    /// <summary>
+    /// A tool that refuses one flag prints the usage for all of them, and only one of them was refused.
+    /// </summary>
+    /// <remarks>
+    /// The whole reason the match is per line. Both matchers used to scan the whole of stdout for
+    /// "this flag appears" and "a word like unknown appears", so a full usage dump — which lists every
+    /// option the tool has — satisfied both, and whichever was asked first took the blame. The advice
+    /// then named a setting that had nothing to do with the failure while the one that did went
+    /// unmentioned.
+    /// </remarks>
+    [Fact]
+    public void A_usage_dump_blames_the_flag_the_error_line_names_and_no_other()
+    {
+        const string refusedEffort = """
+            error: unknown option '--effort'
+            usage: claude [options]
+              --permission-mode <mode>   Permission mode to use for the session
+              --effort <level>           Effort level for the current session
+            """;
+
+        Assert.True(AiEfforts.LooksLikeRejectedEffort(refusedEffort));
+        Assert.False(AiPermissionModes.LooksLikeRejectedMode(refusedEffort));
+
+        const string refusedMode = """
+            error: unknown option '--permission-mode'
+            usage: claude [options]
+              --permission-mode <mode>   Permission mode to use for the session
+              --effort <level>           Effort level for the current session
+            """;
+
+        Assert.True(AiPermissionModes.LooksLikeRejectedMode(refusedMode));
+        Assert.False(AiEfforts.LooksLikeRejectedEffort(refusedMode));
+    }
+
     [Theory]
     // The failure was about the work. Naming the permission mode here would send somebody to a setting
     // that cannot help, which is worse than the generic sentence.

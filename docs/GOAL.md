@@ -6,7 +6,7 @@ the reasoning is the part that stops it being reintroduced.
 
 **Workflow phases** (`GoalPhase` enum): Goal → Clarify → Plan → Implement → Review → Summary. Plan creates a concise implementation plan with clear steps and success criteria. User types "ok" to approve or describes what to change (→ back to Clarify). All prompts enforce Clean Code and whichever SOLID principles the tile's criteria panel has switched on — all five by default; see *SOLID is per goal* below — and **every prompt ends with exactly one worked example of the answer it wants** — three of them ask for JSON, and a model shown a schema in prose invents a neighbouring one. One example, never two: they are fixed overhead in every prompt and the prompt has a command-line budget.
 
-**Two ways in.** Typing a goal describes work that has not started. **Detect goal** reads the uncommitted changes and works out what the user was in the middle of — which is the commoner way somebody arrives at a tile like this, half-finished and wanting it finished. It is offered only where a goal is what is wanted next (Goal or Summary) and only when `git status --porcelain` says there is something to read (`WorktreeReader.HasChangesAsync`, asked at named moments — when the tile is built, when a run ends, when a detection finds nothing, when a fresh goal is started — and **not** continuously): a button that reads the working tree has nothing to say about a clean one. It is deliberately not a watcher: the changes it asks about are made in the terminal tiles next door, so between those moments the answer can be stale in either direction, and both cases cost a click. A filesystem watcher over a whole worktree, per Goal tile, is not a price worth paying for a button's visibility — and the run itself re-reads the tree rather than trusting this. The tree is read **before** the transcript is cleared, and that order is load-bearing: the button is shown on the strength of `git status`, which is a different command from the one that builds the prompt, so a commit made in between — or a repository with no HEAD — ended with nothing to detect from and the user having paid for it with their session. **Detect goal** puts the sentence in the composer as a draft — it is the tool's reading of half-finished work, and the transcript would make it a decision already taken — but **never over something already in the box**, which is the same rule the clarification skeleton follows and is owed here for the same reason: only the Send button is disabled while the tile works, so the composer stays editable for however long the tool takes and the answer arriving must not delete what the user wrote in the meantime. Asked of the box as it is *then*, not against a snapshot taken at the click — text that was already there is theirs too, and both cases deserve the same answer. Where it is kept, the detected goal goes into the transcript instead, because protecting the composer must not turn the click into nothing at all. **Detect & run** goes straight into the loop with `startAtReview: true`, the parameter the interrupted-resume already needed, because the changes are on disk and what is owed first is a judgement of them rather than another implementation.
+**Two ways in.** Typing a goal describes work that has not started. **Detect goal** reads the uncommitted changes and works out what the user was in the middle of — which is the commoner way somebody arrives at a tile like this, half-finished and wanting it finished. It is offered only where a goal is what is wanted next (Goal or Summary) and only when `git status --porcelain` says there is something to read (`WorktreeReader.HasChangesAsync`, asked at named moments — when the tile is built, when a run ends, when a detection finds nothing, when a fresh goal is started — and **not** continuously): a button that reads the working tree has nothing to say about a clean one. It is deliberately not a watcher: the changes it asks about are made in the terminal tiles next door, so between those moments the answer can be stale in either direction, and both cases cost a click. A filesystem watcher over a whole worktree, per Goal tile, is not a price worth paying for a button's visibility — and the run itself re-reads the tree rather than trusting this. The tree is read **before** the transcript is cleared, and that order is load-bearing: the button is shown on the strength of `git status`, which is a different command from the one that builds the prompt, so a commit made in between — or a repository with no HEAD — ended with nothing to detect from and the user having paid for it with their session. **Both detect buttons adopt the goal**; they differ only in what comes next. **Detect goal** works the sentence out, makes it the goal, says it in the transcript as the user's own turn and carries on into **Clarify** — still inside goal-setting, where the tool can ask what it cannot decide and the user can still change what this is about before a line of code is written. It used to park the sentence in the composer and wait for Send, on the argument that a detected goal is the tool's reading of half-finished work and should be edited first. That cost a click and a phase — the tile sat saying it was waiting for a goal it had already written — and it bought editing that Clarify does better. It also carried a set of careful rules about never overwriting what the user had typed, all of which existed to protect a draft nobody had asked to keep. What does **not** move is `OriginalGoal`: it is fixed at that sentence and carried by every later prompt, so a badly detected goal is corrected with **+** rather than talked round. **Detect & run** skips the conversation and enters the loop with `startAtReview: true` — the parameter the interrupted-resume already needed — because the changes are on disk and what is owed first is a judgement of them rather than another implementation.
 
 **Clarify is a loop with a budget, and it can be skipped entirely.** The prompt asks for `{"needsClarification": …, "questions":[{question, why, options}]}`; `needsClarification:false` plans immediately, so a goal that is already precise no longer costs a round trip and a reply. An answer goes back for *another* round rather than straight to the plan, so the tool decides when it has enough — bounded by `GoalWorkflowEngine.MaxClarifyRounds` (3, deliberately not configurable: a model that keeps finding one more thing to ask is not a setting the user should have to discover). **The questions decide whether a round is a question**, and the flag does not get a vote: a tool that says it needs clarification and then asks nothing has asked nothing, and the tile used to print the raw JSON as the question, file it in the clarification history, hand it to the planner and then wait for a reply to it. Questions are rendered numbered and the composer is **prefilled with the numbering and nothing else**, so answering is editing rather than transcribing — the tool's first option used to be filled in beside each number, which turned Enter into "send the tool's own guess back as my answer", from a box the user may not have read; the options are still printed under the question, where they are an offer rather than a default — a blank box under three questions asks the user to reproduce the numbering, and the ones who do not leave answers nothing can be matched to. Both spellings are `1.`, because an answer is matched to its question by eye. **The questions go into `ClarificationHistory` alongside the answers, labelled with who said what**: that list is joined into the next Clarify prompt and into the Plan prompt, and holding answers alone was survivable while both were prose and stopped being so the moment answers became numbered — the next round was handed `1. appsettings.json` with no record of what question 1 had been, which unties the very thing the numbering exists to tie. And an answer that is **only** the numbering is refused rather than sent (`GoalTranscript.IsBlankAnswer`): the composer is prefilled, so Enter alone used to spend one of the three rounds on `1.\n2.`. Prefilling never overwrites something already in the box, either — a round takes as long as the tool takes, and a user who spent it typing had it deleted on arrival. Questions win over a contradicting flag: a tool that says it needs nothing and then asks three questions has asked three questions. Staying in Clarify is also what makes an interrupted answer resumable — the file says Clarify with the user's message last, `WasInterrupted` reads that as a run that was cut off, and re-asking with the answer in hand is exactly what was owed.
 
@@ -58,7 +58,206 @@ separators and would answer a machine with English menus and Polish formats in P
 rest of the prompt is. English and the invariant culture ask for nothing: the prompt is already in one
 and the machine did not answer the question in the other.
 
+**The working tree is not the tool's to undo, and a snapshot is taken in case it does it anyway.** This
+is the one data-loss failure this tile has had, and it was nobody's mistake in particular. The review is
+handed the whole of `git diff HEAD` under the heading *the changes that were just made*, which is a claim
+the tile cannot support: the user works in the terminal tiles next door while a goal runs. A reviewer
+shown somebody else's parallel change reported it — *unrelated changes glued onto this one* — as a
+`warning`; `GoalTranscript.Feedback` passed it back verbatim under *Fix these findings*; and the next
+attempt did the only thing that makes such a finding go away. It reverted the user's files and deleted
+the ones they had not committed. Every link behaved correctly, which is why the answer is three
+sentences and a photograph rather than a condition somewhere.
+
+`GoalPromptBuilder.OtherPeoplesWork`, in the implement prompt, stops the finding being *acted on*, and
+its last clause — *say so in your closing line instead* — is the load-bearing part, by the same argument
+as the pre-existing-failure sentence in `HealthRules`: forbidding the repair without offering a way past
+it leaves the tool holding something it may neither ignore nor fix. It is unconditional, because it
+forbids an action rather than asking for a judgement.
+
+**The better fix was to stop lying to the reviewer, and the sentence that warned it is now a fallback.**
+The block was headed *the changes that were just made* over `git diff HEAD`, which is everything the user
+left uncommitted from any time at all. Where the goal has a baseline it is read as **that baseline's tree
+against a tree written now**, so the block is what happened during the run. That is still not only the
+tool's work — the user goes on working next door — but it is a window of minutes rather than one of
+weeks, and the difference matters because of what it lets us delete. `OtherPeoplesWorkInReview` asks the
+reviewer to make a distinction it has no data for, and the two ways of getting that wrong are **not
+symmetrical**: a finding it invents is in the transcript where somebody sees it, while a finding it
+swallows leaves no trace anywhere. Trading a loud error for a silent one is a bad trade, so the sentence
+survives only where the block really is `git diff HEAD` — a repository whose baseline could not be taken
+— and there it is still owed, since a `scope` warning against a tolerance of zero blocks every remaining
+attempt over files nothing in the run will ever touch. `WorktreeSnapshot.Scoped` is what carries the
+answer from the read to the prompt.
+
+**Tree against tree, never `git diff <baseline>`.** That form looks right and is not: a file untracked
+when the baseline was taken is in the baseline tree but not in the index, so git reports it **deleted** —
+measured — while it sits untouched on disk, and a tool told a file was deleted may go and put it back.
+Two tree objects have no index between them. It also **replaces** the untracked listing rather than
+adding to it: a file with no history is in both trees, so the diff shows one the run created as an
+addition with its contents, which is strictly more than a bare name. Detection is deliberately left on
+`HEAD` — it asks what the user is in the middle of, which *is* their uncommitted work, and it runs before
+a goal exists, so the only baseline in reach belongs to the goal being replaced.
+
+**What none of this closes.** For *the changes that were just made* to be a true label, writes would have
+to be attributed to the tool's process, which this application does not watch. A per-attempt snapshot
+would shorten the window to one iteration, but a per-attempt baseline re-bases onto the previous
+attempt's damage and is useless for the thing the baseline exists for. That needs two refs with two
+different jobs, and it is a decision rather than a correction.
+
+Neither is a guarantee, and that is not pessimism about this particular prompt. The same failure is on
+record against other agents in front of an `AGENTS.md` saying *Do NOT change any files you did not
+touch. NEVER do that!!!* A prompt is a request. So `GoalBaseline` photographs the working tree as the
+goal starts and the ref it writes is named in the transcript, which turns a destroyed afternoon into one
+`git checkout`. It is deliberately neither a stash nor a commit: a stash *takes* the changes out, so the
+tool would arrive to a clean tree and write the work again beside it, and a commit moves `HEAD` and
+leaves something in the user's history to undo. Instead a copy of `.git/index` is pointed at through
+`GIT_INDEX_FILE`, so `git add -A` writes to the copy — measured, `.git/index.lock` is never taken, which
+is what keeps this clear of a rebase in the tile next door — and `commit-tree` makes a commit object
+*beside* the history rather than in it. **Untracked files are the whole point**: `git diff HEAD` cannot
+see one and `git checkout HEAD -- path` cannot bring one back, because it was never in HEAD, and a new
+file is most of what an implementation produces. Four things are load-bearing and each was measured: the
+index is **copied** rather than rebuilt with `read-tree` (which leaves entries without stat information,
+so `add` re-hashes every file in the repository — 0.41s against 0.14s here, and that gap grows with the
+repository rather than with the change); the identity is passed on the command line (`commit-tree` fails
+outright with *Author identity unknown* where git has never been configured, which is the machine whose
+user is least likely to have a second copy of anything); `commit.gpgsign` is turned off explicitly,
+because a headless process waiting for a passphrase is the worst failure available here; and the whole
+thing is bounded by ten seconds, because `add -A` hashes everything not ignored and somebody's
+unignored `node_modules` must not stall the start of a goal. It is also the one place this tile prunes
+anything — twenty snapshots per workspace — and that exception is argued rather than assumed: goal files
+are kilobytes, while each of these holds a blob for every file that differed from HEAD, in a repository
+that belongs to somebody else.
+
+**Where there is no repository the tile says so and points at the fix.** A workspace git knows nothing
+about has no way back from a deleted file at all — not even `git checkout HEAD`, which is what everybody
+reaches for — so that one outcome gets a sentence, and the workspaces panel has offered **Create
+repository** all along. Every other failure of the snapshot is silent and logged: it is a safety net
+that did not open somewhere git still works, and a line of apology about it in a transcript about
+something else helps nobody. The two are told apart by **asking** git — `rev-parse
+--is-inside-work-tree` and `rev-parse --verify HEAD`, both with `throwOnError: false` — rather than by
+matching on the wording of an error, which is git's to change and is translated on a localised install.
+Deliberately **not** a second backup system for those workspaces: a copy-the-files baseline would need a
+built-in list of what not to copy, since there is no `.gitignore` to read, and every guess is wrong in
+one of two directions — the quiet one being a user who thinks they have a backup of the file they did
+not. Nothing here may stop a goal starting, which is the rule `AppPaths` and `WorkspacePaths` already
+follow: a snapshot that cannot be taken is a goal that runs without one.
+
+**A finished run can commit its own work, and only its own.** The switch is on the criteria panel, it
+is the only one there that starts **off**, and it is the only one that writes to the user's history —
+which is the whole argument for the default. Turning it off does not turn the feature off: the same
+conditions put a **Commit** button in the summary, so the ordinary way to use this is to look at what
+the run did and then press it. The switch decides *who starts it*, never whether it is confirmed. It
+always is: a dialog names every commit, the files, what the last review left unfixed, and what is being
+kept back, because a commit is exactly the moment somebody should decide whether shipping three warnings
+is all right — by then the transcript has been scrolled past. An unwired `ConfirmAction` means no
+commit, the rule the rest of the application follows for anything written to somebody's disk.
+
+**The offer needs zero blockers and zero errors, not a met goal.** A run that spent its budget over three
+warnings has still produced work worth keeping, and hiding the button there hides it in exactly the case
+where the user most wants to decide for themselves. A review has to have *run*, though — with no counts
+at all nothing has looked at this work, and "no errors" would be a claim about an examination that never
+happened.
+
+**"Only its own" is a real guarantee rather than an instruction, and it is the baseline that makes it
+one.** `GoalCommitter` takes a second snapshot by the same mechanism and asks git three tree-to-tree
+questions: what changed during the run (`baseline` against now), what the user had already changed before
+it (`baseline^` against `baseline`), and therefore what this run may claim. Tree against tree because the
+index belongs to the user and untracked files are invisible to most of the alternatives. **Without a
+baseline there is no commit at all** — a run that could not be snapshotted cannot tell its own work from
+anybody else's, and "commit whatever is dirty" is the exact mistake this part of the tile exists to stop
+making. Files the user had already touched are **named and left alone**, because `git commit -- path`
+takes the whole file rather than the part this run wrote: committing one would sweep somebody's
+unfinished afternoon into a message about something else.
+
+The tool decides the *grouping*, because that is a judgement about meaning — which change is a feature
+and which is the chore that made room for it — and nothing here can make it; grouping by directory
+produces a history that is technically a series of commits and tells nobody anything. What it may not
+decide is which files: `GoalCommitPlan.Sound` holds every path against the scope and drops the rest, and
+a path nothing claimed goes into a `chore` at the end rather than being lost — the worst available
+outcome is a run whose work is split between the history and the working tree with nothing saying so.
+A file named twice is committed once, since git would put it in the first commit and leave the second
+empty. An answer with no plan in it commits **nothing**, and there is deliberately no prose fallback
+here as there is for the review: a review must be given a verdict or the run cannot continue, while a
+commit that cannot be planned can simply not be made.
+
+`git commit --only -F <file> -- paths` is what runs, once per block. Measured: it commits those paths from
+the working tree and leaves everything else in the index where it was, so a file the user had staged in
+another tile is still staged afterwards — without `--only` the commit would carry it under a message
+about the goal. An untracked path needs `git add -N` first, because `--only` refuses a path git has never
+heard of, and a new file is most of what an implementation produces; a refused commit takes those
+intent-to-add entries back out, or the user is left looking at files git claims are staged and empty.
+The message goes through a file rather than `-m`, and there the difference is correctness: it is
+written by a model from a prompt carrying a working tree, and `GitCommandRunner` builds one
+command-line string, so a subject holding an unbalanced quote or ending in a backslash would be
+mangled or would rewrite the rest of the command. Nothing passes `--no-verify` or `--no-gpg-sign`: a pre-commit hook rejecting this work is the repository
+saying no, and the answer is to report it, which is also why the whole thing is bounded — a signing key
+with a passphrase and no agent would otherwise wait for a prompt nobody can see. The run stops at the
+first refusal rather than pressing on, so what is left is a prefix of the plan with every commit of it
+whole, and the transcript lists what was made along with `git reset --soft HEAD~N`.
+
+**A review on its own is a third way in.** The **Review** button shares the detect buttons' first half —
+work the goal out of the uncommitted changes — and then judges the tree against it **once**, changing
+nothing. It is held to exactly the rules a review inside the loop is, because it is the same prompt: the
+SOLID switches and the two health checks live in `ComposeReview` and are read fresh. `RunReviewOnlyAsync`
+is deliberately **not** the loop with a flag on it — `docs/GOAL.md` records that every flag added to that
+method was added after its own bug, and all of its complexity is about iterating, which a single review
+has none of.
+
+It gets its own stop reason. `GoalStopReason.Reviewed` exists because the summary is the sentence the
+user reads and none of the other four is true: the closest, `BudgetSpent`, reports a budget running out
+where none was ever in play. The run also **records the review's feedback**, though nothing here will
+read it — Continue is offered next, and without it the first implement prompt would start over a tree
+that had just been reviewed knowing nothing of what was found.
+
+Two buttons follow it. **Re-review** judges the tree again against the *same* goal and deliberately does
+not derive a new one: the reason to press it is that something has just been fixed by hand in the
+terminal tile next door, and re-deriving from a changed tree answers a different question each time.
+**Continue** enters the loop, and it needs no arithmetic of its own — `AttemptsContinueWouldAdd` answers
+zero while the budget still has attempts in it, and a review-only run has spent none, so nothing is added,
+the label stays a plain *Continue*, and the loop runs the attempts the panel defines.
+
+**The tree for that review is read against `HEAD`, not against the baseline**, and the same correction
+applies to the first lap of **Detect & run**. Both judge work that *predates* this run — it is why they
+were started — while the baseline was taken moments earlier, so `diff baseline..now` came back empty and
+the reviewer was handed a prompt with no working tree in it at all. Scoping is right for every lap after
+the tool has been working and wrong for the one that opens on somebody else's changes.
+
+**Everything a finished run offers sits in one bar, and the bar says nothing.** Re-review, Commit and
+Continue each appear on their own condition, right-aligned, with no prose beside them. They used to be a
+strip each with a line of explanation — *The attempts ran out.*, *This run's changes are not committed.*
+— and a third would have stacked three sentences over the composer, each restating the summary message
+printed directly above them. That is the same fault the status strip's four idle labels had, and it is
+fixed the same way: the tooltips carry what a button does, which is the part not already on screen.
+
 **A run that ran out of attempts can be given more.** The Summary offers **Continue**, which adds as many attempts as the attempts field currently says, re-enters the loop and keeps the transcript. It is offered for `BudgetSpent` alone — the attempts ran out and more of them is exactly what is missing. The other three stops are not budgets: `Met` has nothing to continue towards, `NoChange` means the tool wrote nothing, and `NoProgress` has just established that two reviews running found exactly the same things. Offering the button there would sell AI runs whose outcome is already known. Continue re-enters at the **implementation**, not the review: the last thing the run did was review, and starting there again spends a run re-judging a working tree nothing has touched since.
+
+**How hard the tool is asked to think is the tile's to say too, and the default is not the tool's.**
+The strip carries an effort level beside the permission mode (`AiEffort`, mapped to `claude --effort`
+by `AiEfforts`), and it defaults to **high** rather than to whatever the tool would choose on its own.
+The argument is the budget: this loop is measured in attempts, and an attempt spent on a shallow answer
+costs exactly as much of it as a careful one — while the tool's own default is tuned for interactive
+use, where a person is watching and can redirect after two sentences. Nobody is watching here.
+It lives in `settings.json` beside the permission mode and for the same reason, and needs no
+confirmation of any kind: unlike `bypass`, the worst it can do is cost time and tokens, both visible
+while they are being spent.
+
+Measured, and the two failure modes are not alike. An unrecognised **value** is forgiving — *Warning:
+Unknown --effort value 'bogus' — ignoring it and using the default effort* — so nothing here has to
+guard the spellings. An unrecognised **flag** is fatal: a Claude Code from before `--effort` existed
+answers *error: unknown option* and runs nothing, so every goal on that machine fails, on the default
+setting, over a flag the user never typed and cannot see. That is the trap `AiPermissionModes` was
+already built around, which is why `ToolDefault` exists here as well and why
+`AiEfforts.LooksLikeRejectedEffort` matches the flag's own name **plus** a word saying it was rejected
+— never either alone.
+
+**The status strip says nothing about the states something else already explains.** Four sentences came
+off it — *Waiting for goal…* over a composer whose placeholder says exactly that, *Waiting for your
+answers.* over a panel of question boxes, *Waiting for your approval.* over a button labelled Approve
+plan, and a summary line over a summary. Each could only repeat the control beneath it, on a strip that
+also carries the tool, the permission mode, the effort and the finding badges — and the phase itself,
+which the dot says in colour. What a run is *doing* is said by the waiting row at the foot of the
+transcript, where it lands beside the dots that say something is happening at all, and disappears with
+them. The **paused** labels stay, and they are the exception that shows the rule: that is the one state
+nothing else on screen accounts for, and Resume is an icon, so this is the only place the word appears.
 
 **How much the tool may do without asking is the tile's to say.** The strip carries a permission mode
 beside the tool name (`AiPermissionMode`, mapped to `claude --permission-mode` by `AiPermissionModes`),

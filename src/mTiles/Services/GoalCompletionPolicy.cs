@@ -136,6 +136,13 @@ internal static class GoalCompletionPolicy
             $"Stopped after {Count(attempts, "attempt")}: the last attempt changed no files, so the " +
             "same prompt would change none again" + Outstanding(outstanding),
 
+        // No attempt count: none were spent and none were meant to be. Saying "after 0 attempts" would
+        // describe a run that failed to start rather than one that did exactly what was asked.
+        GoalStopReason.Reviewed when outstanding is { Length: > 0 } =>
+            $"Reviewed the working tree against the goal: {outstanding}.",
+
+        GoalStopReason.Reviewed => "Reviewed the working tree against the goal: nothing outstanding.",
+
         _ => $"Stopped after {Count(attempts, "attempt")}.",
     };
 

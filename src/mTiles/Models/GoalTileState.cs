@@ -101,6 +101,29 @@ public sealed class GoalTileState
     [JsonConverter(typeof(TolerantEnumConverter<GoalStopReason>))]
     public GoalStopReason? LastStopReason { get; set; }
 
+    /// <summary>
+    /// The git ref holding the working tree as it was when this goal started, or null when no snapshot
+    /// was taken — see <see cref="mTiles.Services.GoalBaseline"/>.
+    /// </summary>
+    /// <remarks>
+    /// Nullable on purpose, and left nullable rather than guarded into an empty string: null is the
+    /// answer for every workspace this could not snapshot, and both readers ask whether there is a ref
+    /// at all before doing anything. Every check is a pattern match on a non-empty string, so a
+    /// converter that turns a null into an empty one costs nothing here.
+    /// </remarks>
+    public string? BaselineRef { get; set; }
+
+    /// <summary>
+    /// True when the work under review is what the user already had, rather than what the tool wrote.
+    /// </summary>
+    /// <remarks>
+    /// Set by <em>Detect &amp; run</em>, and saved because a Resume has to go on judging the same
+    /// thing. Without it a tile reopened mid-run reverted to reading the tree against its own baseline
+    /// — which on that path is a photograph of the very changes being judged, so the review was handed
+    /// an empty diff.
+    /// </remarks>
+    public bool ReviewsExistingWork { get; set; }
+
     /// <summary>What the attempts field said before Continue raised it. Null until it does. Saved,
     /// because a tile reopened halfway through a continued run has nothing else to restore the user's
     /// own number from.</summary>

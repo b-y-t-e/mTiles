@@ -12,6 +12,95 @@ namespace mTiles.Tests;
 /// </summary>
 public class AiProcessRunnerTests
 {
+    /// <summary>
+    /// A runner that records what it was configured with and then stops the run.
+    /// </summary>
+    /// <remarks>
+    /// It throws on purpose. <see cref="AiProcessRunner.RunPlainAsync"/> configures the process and
+    /// then starts it, and this test is about the first half only — a real launch would need a real
+    /// executable and would make the assertion depend on somebody's PATH. Throwing from
+    /// <c>ConfigureProcess</c> ends the call before <c>Process.Start</c> with the values already
+    /// captured, which is the whole of what is being asked.
+    /// </remarks>
+    private sealed class RecordingRunner : IAiToolRunner
+    {
+        public AiPermissionMode Permission { get; private set; } = (AiPermissionMode)(-1);
+        public AiEffort Effort { get; private set; } = (AiEffort)(-1);
+
+        public sealed class Stop : Exception;
+
+        public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+            AiPermissionMode permission = AiPermissionMode.Auto,
+            AiEffort effort = AiEffort.High)
+        {
+            Permission = permission;
+            Effort = effort;
+            throw new Stop();
+        }
+
+        public IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
+    }
+
+    /// <summary>
+    /// What the caller chose reaches the tool — both of it.
+    /// </summary>
+    /// <remarks>
+    /// The one failure the flag-spelling tests below cannot see, and the one that happened: the effort
+    /// was accepted by <c>RunPlainAsync</c> and left out of the call to <c>ConfigureProcess</c>, so the
+    /// runner used its own default of <see cref="AiEffort.High"/>. Every run went out at high effort
+    /// whatever the strip said, and — because "tool default" is the setting that passes no flag at all
+    /// — a Claude Code too old for <c>--effort</c> failed every goal with no way to turn it off. Both
+    /// parameters are asserted together because both are optional at every hop between here and the
+    /// command line, and an optional parameter that nobody passes is invisible in every other test.
+    /// </remarks>
+    [Fact]
+    public async Task The_permission_mode_and_the_effort_both_reach_the_runner()
+    {
+        var runner = new RecordingRunner();
+
+        await Assert.ThrowsAsync<RecordingRunner.Stop>(() => AiProcessRunner.RunPlainAsync(
+            "some-tool", "the prompt", Path.GetTempPath(), runner,
+            permission: AiPermissionMode.AcceptEdits,
+            effort: AiEffort.Low));
+
+        Assert.Equal(AiPermissionMode.AcceptEdits, runner.Permission);
+        Assert.Equal(AiEffort.Low, runner.Effort);
+    }
+
+    /// <summary>Each level is spelled the way the CLI spells it, and one of them passes no flag.
+    /// </summary>
+    /// <remarks>
+    /// Measured against Claude Code 2.1.247, which has both <c>--effort &lt;level&gt;</c> and
+    /// <c>--permission-mode &lt;mode&gt;</c>. This is somebody else's contract and it has moved once
+    /// already; a test that states it is what turns the next move into a red build rather than a tile
+    /// that fails every run over a flag the user never typed.
+    /// </remarks>
+    [Theory]
+    [InlineData(AiEffort.Low, "low")]
+    [InlineData(AiEffort.Medium, "medium")]
+    [InlineData(AiEffort.High, "high")]
+    [InlineData(AiEffort.XHigh, "xhigh")]
+    [InlineData(AiEffort.Max, "max")]
+    public void The_effort_goes_out_as_the_flag_the_tool_knows(AiEffort effort, string expected)
+    {
+        var psi = new ProcessStartInfo();
+        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true, effort: effort);
+
+        var at = psi.ArgumentList.IndexOf("--effort");
+        Assert.True(at >= 0, "the effort flag is not on the command line");
+        Assert.Equal(expected, psi.ArgumentList[at + 1]);
+    }
+
+    [Fact]
+    public void The_tools_own_effort_is_asked_for_by_passing_no_flag()
+    {
+        var psi = new ProcessStartInfo();
+        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: false,
+            effort: AiEffort.ToolDefault);
+
+        Assert.DoesNotContain("--effort", psi.ArgumentList);
+    }
+
     [Fact]
     public void An_unknown_tool_gets_its_prompt_as_an_argument_and_claims_nothing_about_stdin()
     {

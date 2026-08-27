@@ -160,6 +160,75 @@ public class GoalPromptBuilderTests
     }
 
     /// <summary>
+    /// The reviewer is warned that the working tree is not all one change — but only where that block
+    /// really is everything uncommitted.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the guard below, and the half that is about the run finishing rather than
+    /// about files surviving. A <c>[scope]</c> finding lands as a warning against a tolerance of zero,
+    /// and the user's own files stay where they are — so every remaining attempt reviews the same tree,
+    /// finds the same thing, and a goal that was reached is reported as not reached.
+    /// </remarks>
+    [Fact]
+    public void The_reviewer_is_told_not_to_report_the_users_own_parallel_work()
+    {
+        foreach (var budget in (int?[])[null, 400])
+        {
+            var fallback = new GoalPromptBuilder()
+                .BuildReview("add cart discounts", new string('x', 20_000), budget: budget);
+
+            Assert.Contains("unrelated work by the user", fallback);
+            Assert.Contains("do not report their unrelated changes as a finding", fallback);
+
+            // And gone the moment the block is only what this run changed. The sentence asks the
+            // reviewer for a distinction it has no data for, and a finding it swallows over that leaves
+            // no trace anywhere — where an invented one is at least in the transcript. It is kept for
+            // the fallback and nowhere else.
+            var scoped = new GoalPromptBuilder()
+                .BuildReview("add cart discounts", new string('x', 20_000), scoped: true, budget);
+
+            Assert.DoesNotContain("unrelated work by the user", scoped);
+        }
+    }
+
+    /// <summary>
+    /// The implementation is forbidden to undo work it did not do, and is given somewhere else to put
+    /// a finding about it.
+    /// </summary>
+    /// <remarks>
+    /// <para>A data-loss guard. The review is handed the whole working tree as "the changes that were
+    /// just made", so a user working in the terminal tile next door has their own change reported as a
+    /// finding — and <c>GoalTranscript.Feedback</c> passes it back under "Fix these findings". The next
+    /// attempt reverted the user's files and deleted the ones they had not committed, which is the only
+    /// thing that makes such a finding go away.</para>
+    /// <para>The last clause is asserted separately because it is the one that makes the rest
+    /// survivable: a warning counts against a tolerance of zero, so a run cannot finish while the
+    /// finding stands. Forbidding the repair with no way past it leaves the tool holding something it
+    /// may neither ignore nor fix.</para>
+    /// <para>Never trimmed, for the reason the answer-language line is not: the prompts that reach the
+    /// last rung are the large ones, and a large prompt means a busy working tree — which is exactly
+    /// the run with somebody else's work in it.</para>
+    /// </remarks>
+    [Fact]
+    public void The_implementation_is_told_not_to_undo_work_that_is_not_its_own()
+    {
+        var builder = new GoalPromptBuilder();
+
+        foreach (var budget in (int?[])[null, 400])
+        {
+            var prompt = builder.BuildImplement(
+                new GoalPromptBuilder.ImplementContext(
+                    "add cart discounts",
+                    GitDiff: new string('x', 20_000),
+                    ReviewFeedback: "Warning: unrelated changes glued onto this one"),
+                budget);
+
+            Assert.Contains("Never revert, delete or restore a file", prompt);
+            Assert.Contains("say so in your closing line instead", prompt);
+        }
+    }
+
+    /// <summary>
     /// The plan is asked to stay minimal, in the words that stop it inflating.
     /// </summary>
     /// <remarks>

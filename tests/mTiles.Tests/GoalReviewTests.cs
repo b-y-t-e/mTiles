@@ -944,7 +944,7 @@ public class GoalPromptFittingTests
         var huge = new string('g', 50_000);
 
         foreach (var prompt in (string[])[
-            builder.BuildReview(huge, tree, budget),
+            builder.BuildReview(huge, tree, budget: budget),
             builder.BuildImplement(
                 new GoalPromptBuilder.ImplementContext(
                     huge, huge, huge, GitDiff: tree,
@@ -964,7 +964,7 @@ public class GoalPromptFittingTests
         Assert.True(CommandLineLength.Quoted(unfitted) > budget,
             "this proves nothing unless the unfitted prompt really is too long");
 
-        var fitted = builder.BuildReview(new string('g', 5_000), new string('d', 20_000), budget);
+        var fitted = builder.BuildReview(new string('g', 5_000), new string('d', 20_000), budget: budget);
 
         Assert.True(CommandLineLength.Quoted(fitted) <= budget);
         Assert.Contains("goalMet", fitted);

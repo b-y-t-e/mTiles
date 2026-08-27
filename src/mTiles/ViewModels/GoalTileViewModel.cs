@@ -29,7 +29,7 @@ namespace mTiles.ViewModels;
 /// workflow can be driven from anywhere, which is exactly the belief that makes a race look acceptable.
 /// </para>
 /// </remarks>
-public partial class GoalTileViewModel : ObservableObject, IDisposable
+public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTile
 {
     private readonly string _workingDirectory;
     private readonly SettingsService _settingsService;
@@ -61,8 +61,17 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     [ObservableProperty] private GoalPhase _currentPhase = GoalPhase.Goal;
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private string _selectedToolName = "Claude Code";
-    [ObservableProperty] private string _phaseLabel = "Waiting for goal...";
+    /// <summary>What the strip says, which for every idle state is nothing — see
+    /// <c>GoalWorkflowEngine.GetPhaseLabel</c>. Empty is the correct initial value for the same reason
+    /// it is the correct steady one: a tile that has just been built is waiting for a goal, and the
+    /// composer under it says so.</summary>
+    [ObservableProperty] private string _phaseLabel = "";
     [ObservableProperty] private bool _isPaused;
+
+    /// <summary>The tile is working exactly while a run is in flight — no window and no smoothing,
+    /// because unlike a terminal's output this is already the fact itself rather than a symptom of it.
+    /// </summary>
+    public bool IsBusy => IsRunning;
 
     /// <summary>Whether the completion-criteria panel is open. View state only — a panel left open is
     /// not something a restart should have to remember.</summary>
@@ -105,6 +114,14 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         {
             GoalStopReason.BudgetSpent => true,
 
+            // A review asked for on its own has done what it was asked and stopped; carrying on into
+            // the loop is the obvious next thing to want, and it is what the button already does. The
+            // arithmetic needs no case of its own: AttemptsContinueWouldAdd answers 0 while the budget
+            // still has attempts in it, and after a review-only run none have been spent — so nothing
+            // is added, the label stays a plain "Continue", and the loop runs the attempts the panel
+            // defines.
+            GoalStopReason.Reviewed => true,
+
             // Met has nothing to continue towards, NoChange means the tool wrote nothing, and
             // NoProgress has just established that two reviews running found exactly the same things.
             _ => false,
@@ -137,8 +154,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
     partial void OnIsRunningChanged(bool value)
     {
+        OnPropertyChanged(nameof(IsBusy));
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
+        RefreshFinishedRunActions();
         RefreshAsk();
     }
 
@@ -147,6 +166,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(RunStage));
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
+        RefreshFinishedRunActions();
         RefreshAsk();
     }
 
@@ -408,6 +428,32 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// <summary>The permission modes the strip offers, as words.</summary>
     public IReadOnlyList<string> AvailablePermissionModes { get; } = AiPermissionModes.Labels;
 
+    /// <summary>The effort levels the strip offers.</summary>
+    public IReadOnlyList<string> AvailableEfforts => AiEfforts.Labels;
+
+    /// <summary>
+    /// How hard the tool is asked to think, as the strip shows it.
+    /// </summary>
+    /// <remarks>
+    /// A setting rather than a per-goal criterion, beside the permission mode and for the same reasons:
+    /// it is about this machine and this tool rather than about the branch, and a goal file travels with
+    /// a branch. No confirmation of any kind — unlike <c>bypass</c>, the worst this can do is cost time
+    /// and tokens, both of which are visible while they are being spent.
+    /// </remarks>
+    public string EffortLabel
+    {
+        get => AiEfforts.Label(_settingsService.Settings.GoalEffort);
+        set
+        {
+            var effort = AiEfforts.FromLabel(value);
+            if (effort == _settingsService.Settings.GoalEffort) return;
+
+            _settingsService.Settings.GoalEffort = effort;
+            _settingsService.DebouncedSave();
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>
     /// How much the tool may do without asking, read from and written straight back to settings.
     /// </summary>
@@ -662,6 +708,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             // The Continue button names the number it will add, and that number is this field.
             OnPropertyChanged(nameof(ContinueLabel));
             OnPropertyChanged(nameof(CanContinue));
+            OnPropertyChanged(nameof(HasFinishedRunActions));
 
             // Messages alone, and no File.Exists: this runs on every keystroke in a text box, and a
             // tile with no messages is one with no goal in it — which is exactly the tile that must not
@@ -708,6 +755,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // between here and the next summary must not leave a Summary offering Continue over a goal that
         // is mid-implementation.
         _engine.LastStopReason = null;
+
+        // This run is not over, so what it has committed so far is not the whole of it. The scope is
+        // worked out from the goal's baseline and filtered by what still differs from HEAD, so the
+        // batch already committed drops out of it on its own — but the offer has to come back, or a
+        // continued run's second half is never offered at all.
+        _committed = false;
+
         _engine.CurrentPhase = GoalPhase.Implement;
         SyncFromEngine();
         OnPropertyChanged(nameof(CanContinue));
@@ -785,7 +839,55 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private Task DetectGoalAndRunAsync() => DetectAsync(andRun: true);
 
-    private async Task DetectAsync(bool andRun)
+    /// <summary>Work the goal out and judge the working tree against it, once, changing nothing.</summary>
+    [RelayCommand]
+    private Task DetectGoalAndReviewAsync() => DetectAsync(andRun: false, andReview: true);
+
+    /// <summary>
+    /// Judge the working tree again against the goal already set — the second button a review-only run
+    /// leaves behind.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does <b>not</b> detect the goal again. The reason to press this is that something
+    /// has just been fixed by hand in the terminal tile next door, and re-deriving the goal from a tree
+    /// that has changed would answer a different question every time. The goal stands; only the verdict
+    /// moves.
+    /// </remarks>
+    /// <remarks>
+    /// Named for what it returns, like every other command here that returns a <c>Task</c>. The
+    /// generator strips the suffix, so the binding stays <c>ReReviewCommand</c> and the markup does not
+    /// move. <c>CommitWork</c> is the one that cannot follow: <c>CommitWorkAsync</c> is already the
+    /// method it calls, and the two would collide.
+    /// </remarks>
+    [RelayCommand]
+    private Task ReReviewAsync() =>
+        CanReReview ? WorkingAsync(RunReviewOnlyAsync) : Task.CompletedTask;
+
+    /// <summary>
+    /// Whether the bar of finished-run actions has anything in it.
+    /// </summary>
+    /// <remarks>
+    /// One bar rather than one per action: three strips of prose stacked over the composer is what this
+    /// replaced, and each of them restated the summary printed directly above. The bar itself has to
+    /// disappear when empty, or an idle tile carries a band of padding under its transcript for no
+    /// reason.
+    /// </remarks>
+    public bool HasFinishedRunActions => CanReReview || CanCommit || CanContinue;
+
+    /// <summary>Whether there is a goal to judge the tree against again.</summary>
+    /// <remarks>
+    /// <c>Met</c> as well as <c>Reviewed</c>. The reason to press this is that something has been
+    /// changed by hand since the verdict — and a goal that was met is the state a user is *most* likely
+    /// to go on editing, with nothing else on the bar to ask for a fresh opinion. The other endings
+    /// offer Continue, which is the loop and does more than look.
+    /// </remarks>
+    public bool CanReReview =>
+        !IsRunning
+        && CurrentPhase == GoalPhase.Summary
+        && _engine.LastStopReason is GoalStopReason.Reviewed or GoalStopReason.Met
+        && _engine.OriginalGoal.Length > 0;
+
+    private async Task DetectAsync(bool andRun, bool andReview = false)
     {
         // Deliberately *not* guarded on CanDetectGoal, which ContinueRun does guard on itself. The
         // difference is HasUncommittedChanges: it is a cached answer from a git call that ran at one of
@@ -809,7 +911,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // do nothing at all, which is the one outcome a button must never have.
         try
         {
-            await WorkingAsync(() => RunDetectAsync(andRun));
+            await WorkingAsync(() => RunDetectAsync(andRun, andReview));
         }
         catch (Exception ex)
         {
@@ -820,7 +922,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         RefreshDetectAvailability();
     }
 
-    private async Task RunDetectAsync(bool andRun)
+    private async Task RunDetectAsync(bool andRun, bool andReview = false)
     {
         // The tree is read *before* the transcript is cleared, and that order is the whole of it. The
         // button is shown on the strength of `git status`, which is a different command from the one
@@ -888,43 +990,49 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Started once, with what it is actually starting. The detect-and-run path used to call this
-        // with "" and then again with the goal a few lines later.
-        StartFreshGoal(andRun ? goal : "");
+        // Adopted, not offered. Both buttons now do the same first thing — work the goal out and make
+        // it the goal — and differ only in what comes next: a conversation, or the loop.
+        //
+        // This replaces a draft parked in the composer, waiting for Send. The argument for that was
+        // that a detected goal is the tool's reading of half-finished work and the user should edit it
+        // before anything acts on it. What it cost was a click and a phase: the sentence sat in a box
+        // doing nothing while the tile said it was waiting for a goal it had already written, and the
+        // careful rules around never overwriting what the user had typed existed only to protect a
+        // draft nobody had asked to keep.
+        //
+        // Editing has not gone away, it has moved to where it works better. Clarify is a conversation:
+        // the tool asks what it cannot decide, the user answers, and an answer that says "no, what I am
+        // really doing is X" is folded into the plan. The one thing that does *not* move is
+        // OriginalGoal, which is fixed here and carried by every later prompt — so a badly detected
+        // goal is corrected by starting over with +, not by talking it round.
+        StartFreshGoal(goal);
         SyncFromEngine(save: File.Exists(_filePath));
+        await AddMessageAsync(GoalMessageRole.User, goal, GoalPhase.Goal);
+        await CaptureBaselineAsync();
+
+        if (andReview)
+        {
+            // The same fact the run path records, and for the same reason: what is being judged here
+            // is the work that was already in the tree, so every diff from now on measures from HEAD.
+            // Without it the review itself came out right — it reads the tree unscoped — and Continue
+            // afterwards did not: the loop scoped to a baseline taken over those very changes, judged a
+            // fraction of them, and could report the goal met over work it had never seen.
+            _engine.ReviewsExistingWork = true;
+
+            // The tree has just been read to work the goal out, and nothing has touched it since — so
+            // it is read again rather than kept, for one reason: that read was capped for the *detect*
+            // prompt, and this one is capped for the review's.
+            await RunReviewOnlyAsync();
+            return;
+        }
 
         if (!andRun)
         {
-            // Into the composer, not into the transcript. A detected goal is a draft — it is the tool's
-            // reading of half-finished work, and the user is the only one who knows what the other half
-            // was meant to be. Putting it in the transcript would make it a decision already taken.
-            //
-            // Never over something already in the box, which is the same rule the clarification skeleton
-            // follows in RunClarifyAsync and it is owed here for the same reason: the composer stays
-            // editable throughout — only the Send button is disabled while the tile works — so a
-            // detection that takes as long as the tool takes is a window in which the user can type, and
-            // the answer arriving must not delete what they wrote. Asked of the box as it is *now*
-            // rather than against a snapshot taken at the click: text that was already there when they
-            // clicked is theirs too, and the two cases deserve the same answer.
-            if (string.IsNullOrWhiteSpace(InputText))
-            {
-                InputText = goal;
-                await AddMessageAsync(GoalMessageRole.System,
-                    "Detected this goal from your uncommitted changes. Edit it if you like, then press " +
-                    "Send.", GoalPhase.Goal);
-            }
-            else
-            {
-                // It still has to land somewhere it can be read and copied from. Keeping the user's text
-                // must not turn the click into nothing at all — that is the outcome a button must
-                // never have, and the reason DetectAsync has a catch of last resort in the first place.
-                await AddMessageAsync(GoalMessageRole.System,
-                    $"Detected this goal from your uncommitted changes:\n\n{goal}\n\n" +
-                    "Your own text is still in the composer. Send it, or clear the box and detect again " +
-                    "to have this put there.", GoalPhase.Goal);
-            }
-
-            PhaseLabel = _engine.GetPhaseLabel();
+            // Still inside goal-setting: the tool may have questions, and the user can still change
+            // what this is about before a line of code is written. RunClarifyAsync rather than a
+            // WorkingAsync around it — DetectAsync already holds one, and nesting a second would
+            // dispose this run's own CancellationTokenSource underneath it.
+            await RunClarifyAsync();
             return;
         }
 
@@ -937,7 +1045,12 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         // "Approved implementation plan" — where the second copy is worse than redundant: it claims
         // the user approved a plan they were never shown, and it spends prompt budget saying so. No
         // plan phase ran on this path, so there is no plan, and the prompt is right to say nothing.
-        await AddMessageAsync(GoalMessageRole.User, goal, GoalPhase.Goal);
+        // The changes to judge are the ones already on disk, so this run measures from HEAD rather
+        // than from the baseline taken over them a moment ago — see DiffBase. The baseline itself is
+        // kept: the tool is about to edit the user's uncommitted work, which is exactly when a way back
+        // is worth having.
+        _engine.ReviewsExistingWork = true;
+
         _engine.CurrentPhase = GoalPhase.Review;
         SyncFromEngine();
 
@@ -1000,7 +1113,16 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     StartFreshGoal(text);
                     SyncFromEngine();
                     await AddMessageAsync(GoalMessageRole.User, text, GoalPhase.Goal);
-                    await WorkingAsync(RunClarifyAsync);
+
+                    // Inside WorkingAsync, not before it. That is what holds IsRunning and the run's
+                    // one CancellationTokenSource: outside it the tile showed the composer while git
+                    // worked, and the snapshot's own timeout had no token to be cancelled through, so
+                    // Pause during it did nothing.
+                    await WorkingAsync(async () =>
+                    {
+                        await CaptureBaselineAsync();
+                        await RunClarifyAsync();
+                    });
                     break;
 
                 case GoalPhase.Clarify:
@@ -1318,7 +1440,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     var impl = await RunLoopPhaseAsync(
                         GoalPhase.Implement,
                         $"AI is implementing (attempt {attempt}/{_engine.MaxIter})...",
-                        tree => _engine.BuildImplementPrompt(tree, PromptBudget()));
+                        (tree, _) => _engine.BuildImplementPrompt(tree, PromptBudget()));
 
                     if (impl is not { } done) return;
                     treeBeforeImplement = done.Tree;
@@ -1357,7 +1479,18 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 var reviewRun = await RunLoopPhaseAsync(
                     GoalPhase.Review,
                     "AI is reviewing changes...",
-                    tree => _engine.BuildReviewPrompt(tree, PromptBudget()),
+                    // `isScoped` rather than `scoped`: the latter is a C# modifier keyword in a lambda
+                    // parameter list and will not compile there.
+                    (tree, isScoped) => _engine.BuildReviewPrompt(tree, isScoped, PromptBudget()),
+                    // What the tree is measured from decides what the prompt may call it, so both come
+                    // from DiffBase and neither is tracked separately. A local flag set from
+                    // startAtReview said the same thing for one lap of one call: it was right on the
+                    // first review of a detect-and-run and wrong on every review after a Resume, where
+                    // the loop is entered afresh with startAtReview false while the goal is still about
+                    // work that predates the baseline. The prompt would then have headed a HEAD-wide
+                    // diff "the changes that were just made", which is the lie this pair exists to
+                    // prevent.
+                    scoped: DiffBase != null,
                     // The raw answer is not what goes in the transcript. It is read first and written
                     // back as a list of findings, because the prose around a JSON block says the same
                     // things at greater length and printing both means reading every review twice.
@@ -1477,6 +1610,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         Messages.Clear();
         _clarifyBudgetReported = false;
 
+        // The flag belongs to the goal that has just been replaced. Left standing, a tile that committed
+        // once never offered again for the rest of its life.
+        _committed = false;
+
         // StartNewGoal empties the counts; this only has to take the badges down afterwards. Clearing
         // them here as well was the same reset written twice, in two files, with nothing keeping the
         // pair in step.
@@ -1513,9 +1650,9 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
     /// <param name="findings">
     /// The review the counts came from, when there is one in hand. There is not on a restore or after
-    /// a new goal, and the review still standing in the transcript is then the one they belong to -
-    /// which is also why this cannot simply always read the transcript: the strip is set before the
-    /// review is added to it, so doing that would show every badge over the findings of the review
+    /// a new goal, and the review that is still standing in the transcript is then the one they belong
+    /// to — which is also why this cannot simply always read the transcript: the strip is set before
+    /// the review is added to it, so doing that would show every badge over the findings of the review
     /// before.
     /// </param>
     private void ShowBadges(IReadOnlyList<GoalFinding>? findings = null)
@@ -1550,7 +1687,16 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 });
     }
 
-    private async Task ShowSummaryAsync(GoalStopReason reason, string? outstanding = null)
+    /// <param name="autoCommit">
+    /// Whether the "commit the work when done" switch applies to this ending.
+    /// <para>False for a review on its own. That button says it judges the tree and changes nothing,
+    /// and a promise like that cannot have commits behind it — least of all on the detect paths, where
+    /// what would be committed is the whole of the uncommitted tree. The switch means "when the run is
+    /// done", and an inspection is not a run. The Commit button is still in the summary, where pressing
+    /// it is the consent this path does not have.</para>
+    /// </param>
+    private async Task ShowSummaryAsync(GoalStopReason reason, string? outstanding = null,
+        bool autoCommit = true)
     {
         // Kept with the goal, not merely said in the transcript: the Summary offers Continue for one of
         // the four reasons only, and a tile reopened tomorrow has nothing to read that back out of.
@@ -1580,6 +1726,305 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                       + "\nType a new goal, or start a fresh one with +.";
 
         await AddMessageAsync(GoalMessageRole.System, summary, GoalPhase.Summary);
+
+        RefreshFinishedRunActions();
+
+        // Only where the user has said so. Otherwise CanCommit puts the button in the summary and the
+        // same path runs when it is pressed — the switch decides who starts this, never whether the
+        // commit is confirmed, which it always is.
+        if (autoCommit && _engine.Criteria.CommitWhenDone && MayCommit)
+            await CommitWorkAsync();
+    }
+
+    // ── One review, on its own ──────────────────────────
+
+    /// <summary>
+    /// Judges the working tree against the goal, once, and changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Deliberately not the loop with a flag on it.</b>
+    /// <see cref="RunImplementReviewLoopAsync"/> is the most bug-dense thing in this tile and every
+    /// flag added to it has been added after its own failure; all of its complexity — the attempt
+    /// budget, the two mechanical stops, the attempt log, resuming — is about <em>iterating</em>, and a
+    /// single review has none of it. What it does share is the prompt, which is where the SOLID
+    /// switches and the health checks live, so this is held to exactly the rules a review inside the
+    /// loop is.</para>
+    /// <para>The tree is read <b>unscoped</b>. The work being judged predates this run — that is the
+    /// whole point — so scoping it to a baseline taken moments ago would answer with an empty diff.
+    /// </para>
+    /// <para>The feedback is recorded even though nothing will read it here. Continue is offered
+    /// afterwards, and without this its first implement prompt would start over a tree that had just
+    /// been reviewed with no idea what the review said.</para>
+    /// </remarks>
+    private async Task RunReviewOnlyAsync()
+    {
+        var criteria = _engine.Criteria;
+
+        // What was committed was committed against the tree as it was then. This is a new look at a
+        // tree that has changed since — that is the whole reason the button exists — so the offer is
+        // open again. If there is genuinely nothing left, the scope comes back empty and says so.
+        _committed = false;
+
+        _engine.CurrentPhase = GoalPhase.Review;
+        SyncFromEngine();
+
+        var run = await RunLoopPhaseAsync(
+            GoalPhase.Review,
+            "AI is reviewing the working tree...",
+            (tree, isScoped) => _engine.BuildReviewPrompt(tree, isScoped, PromptBudget()),
+            addMessage: false,
+            scoped: false);
+
+        if (run is not { } reviewed) return;
+
+        var review = GoalResponseParser.ParseReview(reviewed.Text);
+        ShowFindings(review);
+        await AddMessageAsync(GoalMessageRole.Assistant,
+            GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
+            findings: GoalTranscript.InOrder(review.Findings));
+
+        var met = GoalCompletionPolicy.IsMet(review, criteria);
+        if (met)
+        {
+            _engine.ClearReviewFeedback();
+        }
+        else
+        {
+            // Carried for Continue, which is offered next: without it the first implementation would
+            // start over a tree that has just been reviewed, knowing nothing of what was found.
+            _engine.RecordReviewFeedback(GoalTranscript.Feedback(review));
+            _engine.LastReviewFingerprint = review.WasStructured ? review.Fingerprint() : null;
+        }
+
+        await ShowSummaryAsync(
+            met ? GoalStopReason.Met : GoalStopReason.Reviewed,
+            met ? null : GoalCompletionPolicy.WhyNotMet(review, criteria),
+            autoCommit: false);
+
+        RefreshFinishedRunActions();
+    }
+
+    /// <summary>
+    /// Tells the summary's bar of actions to look again.
+    /// </summary>
+    /// <remarks>
+    /// The three move together — every one of them is derived from the same phase, the same review
+    /// counts and the same baseline — and they were raised as a block in five places, in two different
+    /// orders and, in one of them, at two different indentations. A fourth action added to that bar
+    /// would have had to find all five.
+    /// </remarks>
+    private void RefreshFinishedRunActions()
+    {
+        OnPropertyChanged(nameof(CanCommit));
+        OnPropertyChanged(nameof(CanReReview));
+        OnPropertyChanged(nameof(HasFinishedRunActions));
+    }
+
+    // ── Committing the run's own work ───────────────────
+
+    /// <summary>Set once the commits are made, so the offer does not stand over a repository that has
+    /// already taken them. Not persisted: a reopened tile reads it from the tree, where a run whose
+    /// work is committed has nothing left to commit and the scope comes back empty.</summary>
+    private bool _committed;
+
+    /// <summary>
+    /// Whether there is anything to offer committing.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Zero blockers and zero errors</b>, rather than the goal being met. A run can stop with
+    /// the budget spent over three warnings and still have produced work worth keeping, and the
+    /// alternative — offering this only for a clean finish — hides the button in exactly the case where
+    /// the user most wants to look at what happened and decide for themselves. Warnings and suggestions
+    /// do not stand in the way; they are named in the dialog instead, which is where a judgement about
+    /// them belongs.</para>
+    /// <para>A review has to have <em>run</em>. With no counts at all nothing has looked at this work,
+    /// and "no errors" would be a statement about an examination that never happened.</para>
+    /// <para>A baseline is required, and that is not a technicality: without one there is no way to
+    /// tell this run's changes from the user's, and committing on a guess is the failure the whole of
+    /// <see cref="GoalBaseline"/> exists to make impossible.</para>
+    /// </remarks>
+    public bool CanCommit => MayCommit && !IsRunning;
+
+    /// <summary>
+    /// The conditions themselves, without asking whether the tile is busy.
+    /// </summary>
+    /// <remarks>
+    /// Split from <see cref="CanCommit"/> because the two callers ask different questions and one of
+    /// them cannot use the other's answer. The automatic path runs from inside
+    /// <see cref="ShowSummaryAsync"/>, which is itself inside the loop's <c>WorkingAsync</c> — so
+    /// <c>IsRunning</c> is true there by construction, and gating on it made the whole feature
+    /// unreachable: the switch never fired, and the button was evaluated once at that same moment and
+    /// never asked again. The button keeps the busy check, because a control offered mid-run is one that
+    /// starts a second AI call over a working tree the first is still writing to.
+    /// </remarks>
+    private bool MayCommit =>
+        CurrentPhase == GoalPhase.Summary
+        && !_committed
+        && _engine.BaselineRef is { Length: > 0 }
+        && _engine.LastReviewCounts.Length == GoalSeverities.Length
+        && Count(GoalSeverity.Blocker) == 0
+        && Count(GoalSeverity.Error) == 0;
+
+    private int Count(GoalSeverity severity) =>
+        _engine.LastReviewCounts.Length == GoalSeverities.Length
+            ? _engine.LastReviewCounts[Array.IndexOf(GoalSeverities, severity)]
+            : 0;
+
+    /// <summary>
+    /// The button's way in, which is the only one that has to start a run of its own.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="CommitWorkAsync"/> deliberately does <b>not</b> wrap itself in <c>WorkingAsync</c>:
+    /// the automatic path is already inside the loop's, and nesting one would dispose the outer run's
+    /// <c>CancellationTokenSource</c> and clear <c>IsRunning</c> underneath it — leaving the loop that
+    /// called it running with a dead token and a tile claiming to be idle.
+    /// </remarks>
+    [RelayCommand]
+    private Task CommitWork() => CanCommit ? WorkingAsync(CommitWorkAsync) : Task.CompletedTask;
+
+    /// <summary>
+    /// Asks the tool how to divide this run's work into commits, asks the user whether to make them,
+    /// and makes them.
+    /// </summary>
+    /// <remarks>
+    /// <b>Wrapped to the end.</b> The inner catches cover the commits themselves; this one covers
+    /// everything around them — the scope, the AI call, the dialog, a message that could not be
+    /// written. Reached from two places, and neither has anything behind it: the button's
+    /// <c>WorkingAsync</c> has a <c>finally</c> and no <c>catch</c>, and the automatic path runs inside
+    /// the loop, where an escaping exception ends a run that had already finished its work. Both then
+    /// arrive at the dispatcher's unhandled hook, which is a crash rather than a sentence — over an
+    /// offer to commit.
+    /// </remarks>
+    private async Task CommitWorkAsync()
+    {
+        if (_engine.BaselineRef is not { Length: > 0 } baseline) return;
+
+        try
+        {
+            Working("Working out what this run changed...");
+
+            var committer = new GoalCommitter(_workingDirectory, GitPath());
+            var scope = await committer.ScopeAsync(baseline, _cts?.Token ?? CancellationToken.None,
+                _engine.ReviewsExistingWork);
+
+            if (!scope.Readable)
+            {
+                // Not the same as an empty scope, and said differently: this is git failing to answer,
+                // which the user can look into. Reported as "nothing to commit" it would read as a
+                // statement about their work.
+                await AddMessageAsync(GoalMessageRole.System,
+                    "Git could not say what this run changed, so nothing was committed. The log has "
+                    + "what it printed.", GoalPhase.Summary);
+                return;
+            }
+
+            if (!scope.HasWork)
+            {
+                await AddMessageAsync(GoalMessageRole.System,
+                    "There is nothing here this run can claim as its own to commit.", GoalPhase.Summary);
+                return;
+            }
+
+            Working("Working out how to divide the changes into commits...");
+
+            var run = await RunAiAsync(_engine.BuildCommitPlanPrompt(scope.Files, PromptBudget()));
+
+            // A tool that could not answer does not end this. The work has just been reviewed and is
+            // sitting in the tree; one honest commit of all of it is worth more than silence, and it is
+            // the outcome the sweep in GoalCommitPlan already produces for the files a plan forgot.
+            // Not on a cancellation, which is the user saying stop — the one verdict that must not be
+            // answered by doing something they did not ask for.
+            if (run.Verdict == GoalRunVerdict.Cancelled) return;
+
+            // Held against the scope rather than trusted. A path the tool invented — or one it copied
+            // out of the diff from the user's own parallel work — would put somebody else's change
+            // into a commit claiming to be about this goal.
+            var planned = run.Verdict == GoalRunVerdict.Answered
+                ? GoalResponseParser.ParseCommitPlan(run.Text)
+                : [];
+            var commits = GoalCommitPlan.Sound(planned, scope);
+
+            // The plan was unusable — no answer, or nothing in it this run may touch. Everything in
+            // scope, in one commit, rather than nothing: this is also the way out of a file list too
+            // long for the tool's command line, which no amount of asking again will shorten.
+            if (commits.Count == 0)
+                commits = GoalCommitPlan.SweepAll(scope);
+
+            if (commits.Count == 0)
+            {
+                await AddMessageAsync(GoalMessageRole.System,
+                    "The tool did not come back with a usable set of commits, so nothing was committed.",
+                    GoalPhase.Summary);
+                return;
+            }
+
+            // Always, and never skipped by the switch on the panel. The switch says who starts this;
+            // this is the last point at which a person sees what is about to enter their history, and
+            // it is where the warnings nobody fixed get said out loud — the run stopped with them
+            // outstanding, and a commit is exactly the moment to decide whether that is all right.
+            var confirm = ConfirmAction;
+            if (confirm == null)
+            {
+                await SayOnceAsync("This tile cannot ask whether to commit, so it has not.");
+                return;
+            }
+
+            if (!await confirm(GoalCommitPlan.Describe(commits, scope, Count(GoalSeverity.Warning),
+                    Count(GoalSeverity.Suggestion), _engine.ReviewsExistingWork)))
+                return;
+
+            Working("Committing...");
+
+            try
+            {
+                var made = await committer.CommitAsync(commits, _cts?.Token ?? CancellationToken.None);
+                _committed = made > 0;
+                await AddMessageAsync(GoalMessageRole.System,
+                    GoalCommitPlan.Made(commits, made, scope), GoalPhase.Summary);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (GoalCommitFailure stopped)
+            {
+                // Half of the plan is in the history and half is not, which is the one commit outcome
+                // the user has to be able to see in full: what went in, what to undo it with, and why
+                // it stopped. Said in that order, because the first two are about their repository and
+                // the third is about this run.
+                _committed = stopped.Made > 0;
+                await AddMessageAsync(GoalMessageRole.System,
+                    $"{GoalCommitPlan.Made(commits, stopped.Made, scope)}\n\n{stopped.Message}",
+                    GoalPhase.Summary);
+            }
+            catch (Exception ex)
+            {
+                // Said, not logged. A pre-commit hook that rejected this work is the repository saying
+                // no, and the user is the only one who can answer it.
+                _committed = false;
+                await AddMessageAsync(GoalMessageRole.System, ex.Message, GoalPhase.Summary);
+            }
+            finally
+            {
+                RefreshDetectAvailability();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The user pausing, or the tile closing. The loop's own handler says what happened.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Committing this run's work failed: {ex}");
+            await AddMessageAsync(GoalMessageRole.System,
+                $"Nothing was committed: {ex.Message}", GoalPhase.Summary);
+        }
+        finally
+        {
+            RefreshFinishedRunActions();
+            PhaseLabel = _engine.GetPhaseLabel();
+        }
     }
 
     // ── AI process execution ────────────────────────────
@@ -1634,6 +2079,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     // Read at the moment of the run, not when the tile was built: a user who changes
                     // the mode because a run was refused expects the next attempt to use the new one.
                     _settingsService.Settings.GoalPermissionMode,
+                    // Read at the moment of the run for the same reason the mode is.
+                    _settingsService.Settings.GoalEffort,
                     // Refused once the tile is disposed, and that guard is here rather than implied:
                     // PostFireAndForget does not drop anything — it posts, and a post that lands after
                     // Dispose sets a property on a view model nobody is looking at. Harmless, and the
@@ -1667,9 +2114,14 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 // the default setting while saying nothing about itself: a tool too old for the mode
                 // this tile asked for rejects the flag, and "the AI tool reported a failure" over a
                 // usage message about a flag the user never typed sends nobody anywhere.
+                // Two flags, two ways out, asked in the order they were added to the command line.
+                // Either one is a tool too old for something this tile asks for by default, and both
+                // fail *every* run on that machine while saying nothing a user can act on.
                 var cause = AiPermissionModes.LooksLikeRejectedMode(result.Text)
                     ? $"{AiPermissionModes.RejectedModeAdvice} "
-                    : "";
+                    : AiEfforts.LooksLikeRejectedEffort(result.Text)
+                        ? $"{AiEfforts.RejectedEffortAdvice} "
+                        : "";
 
                 await AddMessageAsync(GoalMessageRole.System,
                     $"The AI tool reported a failure. {cause}{Capitalised(TryAgain())}\n\n{result.Text}",
@@ -1713,7 +2165,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// cancelled case was fixed in one of them first.</para>
     /// </summary>
     private async Task<LoopAnswer?> RunLoopPhaseAsync(
-        GoalPhase phase, string runningLabel, Func<string?, string> buildPrompt, bool addMessage = true)
+        GoalPhase phase, string runningLabel, Func<string?, bool, string> buildPrompt,
+        bool addMessage = true, bool scoped = true)
     {
         if (PauseRequested) return Stopped();
 
@@ -1727,7 +2180,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         WorktreeSnapshot tree;
         try
         {
-            tree = await ReadWorktreeAsync();
+            tree = await ReadWorktreeAsync(scoped);
         }
         catch (OperationCanceledException)
         {
@@ -1740,7 +2193,11 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
         if (PauseRequested) return Stopped();
 
-        var run = await RunAiAsync(buildPrompt(tree.Text));
+        // The prompt is told *how* the tree was read, not only what it says. A block read against the
+        // goal's baseline is what happened during the run and needs no warning about the user's older
+        // work; one read against HEAD does, and that warning has a cost of its own — see
+        // GoalPromptBuilder.OtherPeoplesWorkInReview.
+        var run = await RunAiAsync(buildPrompt(tree.Text, tree.Scoped));
 
         // The verdict, not the text. A tool that answers with whitespace returns a string that is not
         // null, so asking about the string put an empty assistant bubble in the transcript and then
@@ -1846,14 +2303,14 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// <remarks>
     /// Derived rather than assigned beside the strip's own sentence at each phase's call site: the two
     /// would then be two answers to one question, and the one that goes stale is always the one nobody
-    /// is looking at when it does. Raised from the two things it reads - the phase, and the attempt as
+    /// is looking at when it does. Raised from the two things it reads — the phase, and the attempt as
     /// the loop moves it on.
     /// </remarks>
     public string RunStage => GoalStageDisplay.Short(CurrentPhase, _engine.IterationCount, _engine.MaxIter);
 
     /// <summary>How long the current run has been going, as the waiting row writes it.</summary>
     /// <remarks>
-    /// Empty between runs, which is also when the row that shows it is hidden - one property saying one
+    /// Empty between runs, which is also when the row that shows it is hidden — one property saying one
     /// thing, rather than a stale "4:07" kept alive underneath an invisible control waiting to be shown
     /// again at the start of the next run.
     /// </remarks>
@@ -1866,7 +2323,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// Built on first use rather than in a constructor because there are two constructors and a timer
     /// created in one of them is a timer the other tile does not have. Kept afterwards: a tile runs many
     /// times and a new timer per run is a subscription per run to get wrong.
-    /// <para><see cref="DispatcherPriority.Background"/> deliberately - this is a label, and a second's
+    /// <para><see cref="DispatcherPriority.Background"/> deliberately — this is a label, and a second's
     /// lateness in it costs nothing, while a timer at input priority competes once a second with the
     /// transcript that is being appended to.</para>
     /// </remarks>
@@ -1874,7 +2331,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Measures the run. A <see cref="Stopwatch"/> and not two <see cref="DateTime"/>s: the wall clock
-    /// moves - daylight saving, an NTP correction, a laptop waking up - and a label that answers
+    /// moves — daylight saving, an NTP correction, a laptop waking up — and a label that answers
     /// "-1:00" or jumps an hour is worse than no label.
     /// </summary>
     private readonly Stopwatch _runClock = new();
@@ -1957,9 +2414,35 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// where nothing is allowed less than everything. Charging the command line's limit on a channel
     /// without one showed the tool four per cent of a real working tree.
     /// </remarks>
-    private Task<WorktreeSnapshot> ReadWorktreeAsync() =>
+    /// <param name="scoped">
+    /// Whether to read the tree as what has changed <em>since this goal started</em>, from its baseline
+    /// snapshot. True for the implement/review loop, where the block is headed "the changes that were
+    /// just made" and that had better be near enough true.
+    /// <para>False for detection, and not as a default that happens to suit it: detection asks what the
+    /// user is in the middle of, which is precisely their uncommitted work against HEAD, and it runs
+    /// before a goal exists — so the only baseline in reach belongs to the goal being replaced.</para>
+    /// </param>
+    private Task<WorktreeSnapshot> ReadWorktreeAsync(bool scoped = false) =>
         NewWorktreeReader().ReadAsync(
-            _cts?.Token ?? CancellationToken.None, GoalDiffContext.CapsFor(PromptBudget()));
+            _cts?.Token ?? CancellationToken.None, GoalDiffContext.CapsFor(PromptBudget()),
+            scoped ? DiffBase : null);
+
+    /// <summary>
+    /// What a scoped read measures from — the goal's baseline, or <c>HEAD</c> where the work being
+    /// judged is the work the baseline photographed.
+    /// </summary>
+    /// <remarks>
+    /// <para>Null means <c>HEAD</c>, which is what the reader falls back to. That is the right answer
+    /// on the <em>Detect &amp; run</em> path and only there: the goal was written from the uncommitted
+    /// work, the baseline was taken over that same work a moment later, and the first thing the loop
+    /// does is review it. Measured from the baseline, "the changes that were just made" was empty — the
+    /// path whose entire purpose is to judge existing changes could not see them, and the no-change
+    /// stop ended the run on the first lap.</para>
+    /// <para>One property rather than the same condition at two call sites: the loop's reader and the
+    /// no-change check must agree about the base or the check compares digests of two different
+    /// questions, which is a bug this tile has already had once.</para>
+    /// </remarks>
+    private string? DiffBase => _engine.ReviewsExistingWork ? null : _engine.BaselineRef;
 
     /// <summary>
     /// The working tree read for its <see cref="WorktreeSnapshot.Fingerprint"/> alone — the no-change
@@ -1974,11 +2457,70 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     private Task<WorktreeSnapshot> ReadWorktreeForComparisonAsync() =>
         NewWorktreeReader().ReadAsync(
             _cts?.Token ?? CancellationToken.None,
-            GoalDiffContext.CapsFor(PromptBudget()) with { Summary = 0 });
+            GoalDiffContext.CapsFor(PromptBudget()) with { Summary = 0 },
+            // Scoped, because the tree it is compared against was. A digest of `diff baseline..now` and
+            // a digest of `diff HEAD` are answers to two different questions and can never be equal, so
+            // reading only one of them this way silently retired the no-change stop — the run carried
+            // on spending attempts on a tool that had written nothing.
+            DiffBase);
 
     private WorktreeReader NewWorktreeReader() =>
-        new(_workingDirectory,
-            _settingsService.Settings.GitPath is { Length: > 0 } p ? p : "git");
+        new(_workingDirectory, GitPath());
+
+    private string GitPath() =>
+        _settingsService.Settings.GitPath is { Length: > 0 } p ? p : "git";
+
+    /// <summary>
+    /// Photographs the working tree before the tool is let near it, and says what came of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Taken as the goal starts rather than before each attempt: what the user wants back is what
+    /// they had before any of this ran, and a per-attempt snapshot would quietly re-baseline over the
+    /// damage the attempt before it did.</para>
+    /// <para>The only outcome worth a sentence is the one the user can act on. A workspace with no
+    /// repository has <b>no</b> way back from a deleted file — not even <c>git checkout HEAD</c>, which
+    /// is what everyone reaches for — and the workspaces panel already offers to create one. Every other
+    /// failure is a snapshot that did not happen where git still works; saying so would be a line of
+    /// apology about a safety net nobody asked for, in a transcript about something else. It is logged.
+    /// </para>
+    /// <para>Nothing here can stop the goal. The whole call is wrapped, because a backup that prevents
+    /// the work is worse than no backup: this is the one place in the run where a failure would be
+    /// costing the user the very session it exists to protect.</para>
+    /// </remarks>
+    private async Task CaptureBaselineAsync()
+    {
+        GoalBaselineResult result;
+        try
+        {
+            result = await new GoalBaseline(_workingDirectory, GitPath())
+                .CaptureAsync($"{Path.GetFileNameWithoutExtension(_filePath)}-{DateTime.UtcNow:yyyyMMddHHmmss}",
+                    _cts?.Token ?? CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Taking the goal baseline failed: {ex.Message}");
+            return;
+        }
+
+        _engine.BaselineRef = result.Ref;
+
+        if (result.Ref is { } saved)
+        {
+            await AddMessageAsync(GoalMessageRole.System,
+                "Saved the working tree as it is now, in case something here has to be undone:\n" +
+                $"git checkout {saved} -- <path>", GoalPhase.Goal);
+            return;
+        }
+
+        if (result.NoRepository)
+            await AddMessageAsync(GoalMessageRole.System,
+                "This workspace is not a git repository, so nothing can undo what the tool changes or " +
+                "deletes here. Create one from the workspaces panel to get that back.", GoalPhase.Goal);
+    }
 
     // ── Commands ────────────────────────────────────────
 

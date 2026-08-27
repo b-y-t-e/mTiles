@@ -31,6 +31,12 @@ public class GoalWorkflowLoopTests : IDisposable
         var reads = 0;
         WorktreeReader.Factory = (_, _) =>
             Task.FromResult<string?>($"diff --git a/x b/x\n+ line {Interlocked.Increment(ref reads)}");
+
+        // These run against a scratch directory that is not a repository, so the real thing would spawn
+        // git on every goal only to be told so. Stubbed to the answer that says nothing and changes
+        // nothing — the same reason WorktreeReader is stubbed above. The baseline itself is pinned in
+        // GoalBaselineTests, against a repository that exists.
+        GoalBaseline.Factory = (_, _) => Task.FromResult(GoalBaselineResult.None);
     }
 
     /// <summary>
@@ -49,6 +55,7 @@ public class GoalWorkflowLoopTests : IDisposable
     {
         GoalTileViewModel.AiRunnerFactory = null;
         WorktreeReader.Factory = null;
+        GoalBaseline.Factory = null;
         try { Directory.Delete(_dir, recursive: true); } catch { /* not a test failure */ }
     }
 
@@ -59,6 +66,15 @@ public class GoalWorkflowLoopTests : IDisposable
     /// therefore has one more step in it than it used to — which is the change, written down.</para>
     /// </summary>
     private const string NoMoreQuestions = "```json\n{\"needsClarification\":false}\n```";
+
+    /// <summary>A structured review that found nothing and says the goal is met.</summary>
+    private const string CleanReview =
+        "```json\n{\"goalMet\":true,\"findings\":[]}\n```";
+
+    /// <summary>A structured review carrying one error, which is what closes the commit offer.</summary>
+    private const string ErrorReview =
+        "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"error\"," +
+        "\"title\":\"null deref\",\"file\":\"a.cs\"}]}\n```";
 
     /// <summary>Answers each prompt in turn, and records how many times it was asked.</summary>
     private void AnswerWith(params string[] answers)
@@ -131,6 +147,139 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.DoesNotContain("Resume", vm.PhaseLabel);
             Assert.False(vm.IsRunning);
         });
+    }
+
+    /// <summary>
+    /// A clean run offers to commit its work, and an unclean one does not.
+    /// </summary>
+    /// <remarks>
+    /// <para>The absence of this test is what let the whole feature ship dead. <c>CanCommit</c> asked
+    /// <c>!IsRunning</c>, and the automatic path runs from inside the loop's own <c>WorkingAsync</c>
+    /// where that is true by construction — so the switch never fired, and the button was evaluated at
+    /// the same moment and never asked again.</para>
+    /// <para>The condition is <b>no blockers and no errors</b>, not a met goal: a run that spent its
+    /// budget over warnings has still produced work worth keeping, and hiding the offer there hides it
+    /// where the user most wants to decide for themselves.</para>
+    /// </remarks>
+    [Fact]
+    public void A_run_that_ends_clean_offers_to_commit_what_it_did()
+    {
+        OnUiThread(async () =>
+        {
+            const string clean = CleanReview;
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", clean);
+
+            // A baseline is required — without one nothing can tell this run's changes from the user's,
+            // and committing on a guess is the failure the whole of GoalBaseline exists to prevent.
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            await RunToSummary(vm);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.False(vm.IsRunning);
+            Assert.True(vm.CanCommit);
+        });
+    }
+
+    [Fact]
+    public void A_run_with_no_baseline_never_offers_to_commit()
+    {
+        OnUiThread(async () =>
+        {
+            const string clean = CleanReview;
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", clean);
+
+            // The default stub for these tests: no snapshot was taken.
+            using var vm = NewTile();
+            await RunToSummary(vm);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.False(vm.CanCommit);
+        });
+    }
+
+    [Fact]
+    public void A_run_that_ends_with_errors_does_not_offer_to_commit()
+    {
+        OnUiThread(async () =>
+        {
+            const string broken = ErrorReview;
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", broken);
+
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            await RunToSummary(vm);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.False(vm.CanCommit);
+        });
+    }
+
+    /// <summary>
+    /// The Review button judges the tree once and stops, and leaves the two buttons that follow from
+    /// that.
+    /// </summary>
+    /// <remarks>
+    /// <para>One AI run for the goal and one for the review — never an implementation. The whole point
+    /// is a verdict on work that already exists, so a path that could write to the tree would be a
+    /// different feature.</para>
+    /// <para><c>Reviewed</c> is its own stop reason because none of the other four is true: the closest,
+    /// <c>BudgetSpent</c>, reports a budget running out where none was ever in play.</para>
+    /// </remarks>
+    [Fact]
+    public void Reviewing_judges_the_tree_once_and_offers_the_two_things_that_follow()
+    {
+        OnUiThread(async () =>
+        {
+            const string findsSomething =
+                "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"warning\"," +
+                "\"title\":\"long method\",\"file\":\"a.cs\"}]}\n```";
+
+            var runs = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+            {
+                runs++;
+                return Task.FromResult<AiOutput>(
+                    runs == 1 ? "Finish the pairing flow." : findsSomething);
+            };
+
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+
+            // The goal, then the review. Nothing implemented anything.
+            Assert.Equal(2, runs);
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Reviewed the working tree"));
+
+            // Re-review, because the obvious next move is to fix something by hand and ask again.
+            Assert.True(vm.CanReReview);
+
+            // And Continue, which here means the first attempts rather than extra ones: none have been
+            // spent, so nothing is added and the label says so.
+            Assert.True(vm.CanContinue);
+            Assert.Equal("Continue", vm.ContinueLabel);
+
+            Assert.True(vm.HasFinishedRunActions);
+        });
+    }
+
+    /// <summary>Goal → Clarify → Plan → implement/review, the four sends every loop test opens with.
+    /// </summary>
+    private static async Task RunToSummary(GoalTileViewModel vm)
+    {
+        vm.InputText = "make the tile resumable";
+        await vm.SubmitCommand.ExecuteAsync(null);
+        vm.InputText = "all of them";
+        await vm.SubmitCommand.ExecuteAsync(null);
+        vm.InputText = "ok";
+        await vm.SubmitCommand.ExecuteAsync(null);
     }
 
     [Fact]
@@ -1060,6 +1209,131 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// The "commit when done" switch actually reaches the commit path, and only when it is on.
+    /// </summary>
+    /// <remarks>
+    /// <para>This path has already shipped dead once: the automatic call sat behind a check that was
+    /// false by construction wherever it ran, so the switch did nothing and nothing said so. The
+    /// observable fact a test can hold on to is not a commit — the scratch directory is no repository
+    /// — but whether the tile <em>went there at all</em>, which it says in the transcript.</para>
+    /// <para>A baseline is stubbed to a ref because the offer requires one: without a snapshot there is
+    /// no way to tell this run's work from the user's, and the tile refuses rather than guessing.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_commit_switch_decides_whether_the_run_goes_looking_for_something_to_commit(bool on)
+    {
+        OnUiThread(async () =>
+        {
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            settings.Settings.CustomAiTools.Add(FakeTool());
+
+            using var vm = new GoalTileViewModel(_dir, settings)
+            {
+                ConfirmAction = _ => Task.FromResult(true),
+            };
+            vm.SelectedToolName = "Fake Tool";
+            vm.Criteria.MaxIterations = 1;
+            vm.Criteria.CommitWhenDone = on;
+
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // What a scratch directory answers when it is asked what this run changed: it is no
+            // repository, so git cannot say — which the tile now reports as its own outcome rather than
+            // as "nothing to commit". Reaching that sentence is the proof the switch was read; not
+            // reaching it is the proof it was obeyed.
+            var wentLooking = vm.Messages.Any(m => m.Text.Contains("Git could not say what this run"));
+            Assert.Equal(on, wentLooking);
+        });
+    }
+
+    /// <summary>
+    /// A review on its own never commits, whatever the switch says.
+    /// </summary>
+    /// <remarks>
+    /// That button's whole promise is that it judges the tree and changes nothing. "Commit the work
+    /// when done" means when the <em>run</em> is done, and an inspection is not a run — least of all on
+    /// the detect paths, where what would go in is the entire uncommitted tree. The Commit button stays
+    /// in the summary, where pressing it is the consent this path does not have.
+    /// </remarks>
+    [Fact]
+    public void A_review_on_its_own_does_not_commit_even_with_the_switch_on()
+    {
+        OnUiThread(async () =>
+        {
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            settings.Settings.CustomAiTools.Add(FakeTool());
+
+            using var vm = new GoalTileViewModel(_dir, settings)
+            {
+                ConfirmAction = _ => Task.FromResult(true),
+            };
+            vm.SelectedToolName = "Fake Tool";
+            vm.Criteria.CommitWhenDone = true;
+
+            // Detect & review: work out the goal from the tree, judge it, stop.
+            AnswerWith("Finish the cart", "VERDICT: PASS");
+            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+
+            // The sentence the commit path prints in a directory that is no repository. Reaching it
+            // would mean the tile had gone looking for something to commit.
+            Assert.DoesNotContain(vm.Messages,
+                m => m.Text.Contains("Git could not say what this run"));
+        });
+    }
+
+    /// <summary>
+    /// Detect &amp; run judges the work that is already there, and remembers that it is doing so.
+    /// </summary>
+    /// <remarks>
+    /// The baseline is taken over those very changes a moment before the review starts — it has to be,
+    /// because the tool is about to edit them and the snapshot is the only way back — so measuring the
+    /// diff from it answers "what has changed since we started", which on this path is nothing. The
+    /// tile therefore records that this goal measures from HEAD, and records it in the saved state:
+    /// a Resume after a pause has to go on judging the same thing, and without the flag a reopened tile
+    /// quietly went back to reviewing an empty diff.
+    /// </remarks>
+    [Fact]
+    public void Detect_and_run_measures_its_diffs_from_head_and_says_so_in_the_saved_state()
+    {
+        OnUiThread(async () =>
+        {
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            settings.Settings.CustomAiTools.Add(FakeTool());
+
+            var vm = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+            vm.SelectedToolName = "Fake Tool";
+            vm.Criteria.MaxIterations = 1;
+            var path = vm.FilePath;
+
+            // The detected goal, then a review of what was already on disk.
+            AnswerWith("Finish the cart", "VERDICT: PASS");
+
+            await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
+            vm.Dispose();
+
+            var state = new GoalStatePersistence().Load(path);
+            Assert.NotNull(state);
+            Assert.True(state!.ReviewsExistingWork,
+                "the tile forgot that this goal is about work that was already in the tree");
+        });
+    }
+
     [Fact]
     public void Approving_a_new_plan_forgets_the_old_plans_reviews()
     {
@@ -1110,8 +1384,17 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// Detecting a goal adopts it and carries straight on into the conversation about it.
+    /// </summary>
+    /// <remarks>
+    /// It used to park the sentence in the composer and wait for Send. That cost a click and a phase —
+    /// the tile sat saying it was waiting for a goal it had already written — and it bought editing
+    /// that Clarify does better: the tool asks what it cannot decide and the answer is folded into the
+    /// plan. Both detect buttons now do the same first thing and differ only in what follows.
+    /// </remarks>
     [Fact]
-    public void Detecting_a_goal_puts_it_in_the_composer_for_the_user_to_edit()
+    public void Detecting_a_goal_adopts_it_and_goes_on_to_clarify()
     {
         OnUiThread(async () =>
         {
@@ -1121,11 +1404,12 @@ public class GoalWorkflowLoopTests : IDisposable
 
             await vm.DetectGoalCommand.ExecuteAsync(null);
 
-            // A draft, not a decision. It is the tool's reading of half-finished work, and the user is
-            // the only one who knows what the other half was meant to be.
-            Assert.Contains("survives a restart", vm.InputText);
-            Assert.Equal(GoalPhase.Goal, vm.CurrentPhase);
-            Assert.DoesNotContain(vm.Messages, m => m.Role == GoalMessageRole.User);
+            // The goal itself, said in the transcript as the user's own turn — not a draft in a box.
+            Assert.Contains(vm.Messages,
+                m => m.Role == GoalMessageRole.User && m.Text.Contains("survives a restart"));
+
+            // And still inside goal-setting: no code has been written, and the tool may have questions.
+            Assert.Equal(GoalPhase.Clarify, vm.CurrentPhase);
         });
     }
 
@@ -1137,8 +1421,10 @@ public class GoalWorkflowLoopTests : IDisposable
             using var vm = NewTile();
 
             // The composer stays editable while the tile works — only Send is disabled — so the
-            // window between the click and the answer is one the user can type into. Typed from inside
-            // the runner, which is exactly where it happens in the application.
+            // window between the click and the answer is one the user can type into. It used to be
+            // written over by the detected draft landing in the box; nothing writes the box any more,
+            // and this is what keeps that true. Typed from inside the runner, which is exactly where
+            // it happens in the application.
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
             {
                 vm.InputText = "what I was writing";
@@ -1149,7 +1435,7 @@ public class GoalWorkflowLoopTests : IDisposable
 
             Assert.Equal("what I was writing", vm.InputText);
 
-            // Kept, but not swallowed: the click has to produce something readable, or it did nothing.
+            // And the click still produced something readable, or it did nothing at all.
             Assert.Contains(vm.Messages, m => m.Text.Contains("Finish the pairing flow."));
         });
     }

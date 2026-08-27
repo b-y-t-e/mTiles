@@ -67,18 +67,8 @@ public static class AiPermissionModes
     /// cost of a miss is the old, unhelpful sentence; the cost of a false positive is telling somebody
     /// their settings are wrong when the failure was something else.</para>
     /// </remarks>
-    public static bool LooksLikeRejectedMode(string? toolOutput)
-    {
-        var text = toolOutput ?? "";
-        if (!text.Contains("--permission-mode", StringComparison.OrdinalIgnoreCase)) return false;
-
-        return text.Contains("invalid", StringComparison.OrdinalIgnoreCase)
-               || text.Contains("unknown", StringComparison.OrdinalIgnoreCase)
-               || text.Contains("unrecognized", StringComparison.OrdinalIgnoreCase)
-               || text.Contains("unrecognised", StringComparison.OrdinalIgnoreCase)
-               || text.Contains("usage:", StringComparison.OrdinalIgnoreCase)
-               || text.Contains("allowed choices", StringComparison.OrdinalIgnoreCase);
-    }
+    public static bool LooksLikeRejectedMode(string? toolOutput) =>
+        RejectedFlag.Named(toolOutput, "--permission-mode", valueRejectionCounts: true, "--effort");
 
     /// <summary>What to tell the user when it was. Names the control and the value that always works.
     /// </summary>

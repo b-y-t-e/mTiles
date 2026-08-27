@@ -51,6 +51,25 @@ public sealed class GoalCompletionCriteria
     public bool RequireTestsPass { get; set; } = true;
 
     /// <summary>
+    /// Whether a finished run commits its own work, rather than offering a button and waiting.
+    /// <b>Off unless the user turns it on</b>, alone among the criteria here.
+    /// </summary>
+    /// <remarks>
+    /// <para>Off by default because it is the only setting on this panel that writes to the user's
+    /// history. Everything else here decides when a run may stop; this decides what happens to their
+    /// repository afterwards, and a default that commits would mean somebody who never opened the panel
+    /// finds commits they did not ask for.</para>
+    /// <para>Turning it off does not turn the feature off — it turns the <em>automatic</em> part off.
+    /// The same conditions still put a Commit button in the summary, so the ordinary way to use this is
+    /// to look at what the run did and then press it. The switch is for the case where a user has
+    /// decided they trust the arrangement and would rather not press anything.</para>
+    /// <para>What is committed is never "the working tree": it is worked out from the goal's own
+    /// baseline snapshot, and files the user had already changed before the goal started are left
+    /// alone. See <c>GoalCommitter</c>.</para>
+    /// </remarks>
+    public bool CommitWhenDone { get; set; }
+
+    /// <summary>
     /// Which SOLID principles the work is held to. All five unless the user says otherwise.
     /// </summary>
     /// <remarks>

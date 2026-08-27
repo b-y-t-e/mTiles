@@ -78,8 +78,15 @@ public interface IAiToolRunner
     /// <see cref="AiPermissionMode.Auto"/> rather than to "pass nothing", because "pass nothing" is
     /// the behaviour that made a headless run refuse every edit on a machine whose Claude Code is at
     /// its factory ask-first default. A tool with no such flag ignores it.</param>
+    /// <param name="effort">How hard the tool is asked to think. Defaulted to
+    /// <see cref="AiEffort.High"/> rather than to the tool's own, because a goal run is left alone and
+    /// an attempt spent on a shallow answer costs as much of the budget as a careful one. A second
+    /// parameter every runner but one ignores, spelled the same way <paramref name="permission"/> is:
+    /// one flag for one CLI does not earn an options object, and two shapes for the same idea would.
+    /// </param>
     void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto);
+        AiPermissionMode permission = AiPermissionMode.Auto,
+        AiEffort effort = AiEffort.High);
 
     /// <summary>
     /// Whether this tool can report what it is doing as it does it.
@@ -139,7 +146,8 @@ public sealed class ClaudeToolRunner : IAiToolRunner
     /// without it.</para>
     /// </remarks>
     public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto)
+        AiPermissionMode permission = AiPermissionMode.Auto,
+        AiEffort effort = AiEffort.High)
     {
         // No prompt argument: `claude -p` with nothing after it reads it from standard input, which
         // AiProcessRunner writes. `prompt` is unused here for exactly that reason.
@@ -153,6 +161,16 @@ public sealed class ClaudeToolRunner : IAiToolRunner
         {
             psi.ArgumentList.Add("--permission-mode");
             psi.ArgumentList.Add(mode);
+        }
+
+        // Measured: an unrecognised *value* is forgiving here — the tool warns and uses its own
+        // default — but an unrecognised *flag* is not, and a Claude Code from before --effort existed
+        // runs nothing at all. AiEfforts.LooksLikeRejectedEffort is what turns that into a sentence
+        // naming the way out rather than "the AI tool reported a failure".
+        if (AiEfforts.Flag(effort) is { } level)
+        {
+            psi.ArgumentList.Add("--effort");
+            psi.ArgumentList.Add(level);
         }
 
         psi.ArgumentList.Add("--output-format");
@@ -374,7 +392,8 @@ public sealed class ClaudeToolRunner : IAiToolRunner
 public sealed class CodexToolRunner : IAiToolRunner
 {
     public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto)
+        AiPermissionMode permission = AiPermissionMode.Auto,
+        AiEffort effort = AiEffort.High)
     {
         psi.ArgumentList.Add("exec");
         psi.ArgumentList.Add(prompt);
@@ -387,7 +406,8 @@ public sealed class CodexToolRunner : IAiToolRunner
 public sealed class OpenCodeToolRunner : IAiToolRunner
 {
     public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto)
+        AiPermissionMode permission = AiPermissionMode.Auto,
+        AiEffort effort = AiEffort.High)
     {
         psi.ArgumentList.Add("run");
         psi.ArgumentList.Add(prompt);
@@ -400,7 +420,8 @@ public sealed class OpenCodeToolRunner : IAiToolRunner
 public sealed class PiToolRunner : IAiToolRunner
 {
     public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto)
+        AiPermissionMode permission = AiPermissionMode.Auto,
+        AiEffort effort = AiEffort.High)
     {
         psi.ArgumentList.Add("-p");
         psi.ArgumentList.Add(prompt);
@@ -422,7 +443,8 @@ public sealed class PiToolRunner : IAiToolRunner
 public sealed class GenericToolRunner : IAiToolRunner
 {
     public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto) =>
+        AiPermissionMode permission = AiPermissionMode.Auto,
+        AiEffort effort = AiEffort.High) =>
         psi.ArgumentList.Add(prompt);
 
     public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
@@ -516,6 +538,7 @@ public static class AiProcessRunner
         string workingDirectory,
         IAiToolRunner runner,
         AiPermissionMode permission = AiPermissionMode.Auto,
+        AiEffort effort = AiEffort.High,
         Action<string>? onActivity = null,
         CancellationToken ct = default)
     {
@@ -526,7 +549,12 @@ public static class AiProcessRunner
 
         var psi = CreateProcessStartInfo(executablePath, workingDirectory);
         psi.RedirectStandardInput = runner.AcceptsPromptOnStdin;
-        runner.ConfigureProcess(psi, prompt, streaming, permission);
+        // Both, and this is the whole of what makes either setting real. `effort` was accepted here
+        // and dropped on this line, so ConfigureProcess took its own default of High: every run went
+        // out with `--effort high` whatever the strip said, the combo box was decoration, and — worse —
+        // a Claude Code from before that flag existed rejected it on every goal with no way for the
+        // user to turn it off, because choosing "tool default" changed nothing that got this far.
+        runner.ConfigureProcess(psi, prompt, streaming, permission, effort);
 
         using var process = new Process { StartInfo = psi };
         process.Start();

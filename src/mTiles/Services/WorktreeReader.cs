@@ -31,7 +31,17 @@ namespace mTiles.Services;
 /// <para>A digest rather than the text: two snapshots are held at once and a diff is measured in
 /// megabytes.</para>
 /// </param>
-internal readonly record struct WorktreeSnapshot(string? Text, bool Readable, string? Fingerprint = null)
+/// <param name="Scoped">
+/// Whether this is <b>what changed since the goal started</b> rather than everything uncommitted.
+/// <para>Carried out of here because the review prompt has to say different things about the two. Read
+/// against the baseline, the block is what happened during the run, and the reviewer can be left alone
+/// to judge all of it. Read against <c>HEAD</c>, it also holds whatever the user had lying around from
+/// last week, and the prompt has to warn about that — a sentence that is a liability in its own right,
+/// since it invites a reviewer to stay quiet about something in scope, and a silenced finding leaves no
+/// trace at all while a false one is there in the transcript to be seen.</para>
+/// </param>
+internal readonly record struct WorktreeSnapshot(
+    string? Text, bool Readable, string? Fingerprint = null, bool Scoped = false)
 {
     public static readonly WorktreeSnapshot Unreadable = new(null, false);
 
@@ -79,7 +89,7 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// own transcript, rewritten after every message, handed to the agent as "recent changes" and left
     /// there to be tidied up or edited.
     /// </remarks>
-    private const string Excluded =
+    internal const string Excluded =
         "\":(exclude)" + WorkspacePaths.DirName + "\" \":(exclude)" + WorkspacePaths.LegacyDirName + "\"";
 
     /// <summary>
@@ -118,9 +128,19 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// <see cref="GoalDiffContext.CapsFor"/>. Null means the command-line figures: a caller that does
     /// not know which tool will receive the prompt gets the safe answer rather than the generous one.
     /// </param>
+    /// <param name="baselineRef">
+    /// The goal's baseline snapshot, when it has one. Given, the tree is read as <b>what this run
+    /// changed</b> rather than as everything uncommitted — see <see cref="ReadAgainstAsync"/>.
+    /// </param>
     public async Task<WorktreeSnapshot> ReadAsync(
-        CancellationToken ct, GoalDiffContext.WorktreeCaps? caps = null)
+        CancellationToken ct, GoalDiffContext.WorktreeCaps? caps = null, string? baselineRef = null)
     {
+        if (baselineRef is { Length: > 0 } baseline && Factory is null)
+        {
+            var scoped = await ReadAgainstAsync(baseline, ct, caps);
+            if (scoped is { } answered) return answered;
+        }
+
         var limits = caps ?? GoalDiffContext.OnCommandLine;
 
         // A stub is a fixture, not git: whatever it says, it said it successfully. Its text is not
@@ -214,6 +234,78 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
         {
             Trace.TraceWarning($"Reading the working tree failed: {ex.Message}");
             return WorktreeSnapshot.Unreadable;
+        }
+    }
+
+    /// <summary>
+    /// The tree as <b>what has changed since the goal started</b>, from the baseline snapshot.
+    /// </summary>
+    /// <remarks>
+    /// <para>The heading over this block says "the changes that were just made", and against
+    /// <c>HEAD</c> that was a claim this tile could not support: everything the user had left
+    /// uncommitted, from any time, was in it. From the baseline it is at worst everything that happened
+    /// <em>during the run</em> — still not only the tool's work, since the user goes on working next
+    /// door, but a window of minutes instead of one of weeks.</para>
+    /// <para><b>Tree against tree, never <c>git diff &lt;baseline&gt;</c>.</b> That form looks right and
+    /// is not: a file untracked when the baseline was taken is in the baseline tree but not in the
+    /// index, so git reports it <b>deleted</b> — measured — while it sits untouched on disk, and a tool
+    /// told a file was deleted may go and put it back. Two tree objects have no index between them.
+    /// </para>
+    /// <para>It also replaces the untracked listing, rather than adding to it: files with no history are
+    /// in both trees already, so a diff of the two shows a file the run created as an addition, with its
+    /// contents — which is strictly more than a bare name.</para>
+    /// <para>Answers null when it cannot be done — a baseline that has been pruned, a tree that could
+    /// not be written. The caller falls back to reading against <c>HEAD</c>, which is worse and is not
+    /// nothing.</para>
+    /// </remarks>
+    private async Task<WorktreeSnapshot?> ReadAgainstAsync(
+        string baselineRef, CancellationToken ct, GoalDiffContext.WorktreeCaps? caps)
+    {
+        var limits = caps ?? GoalDiffContext.OnCommandLine;
+
+        try
+        {
+            var now = await new GoalBaseline(workingDirectory, gitPath).TreeNowAsync(ct);
+            if (now is null) return null;
+
+            var git = new GitCommandRunner(workingDirectory, gitPath);
+
+            // `<ref>^{tree}` rather than the ref itself, so both sides of the comparison are trees and
+            // git has no reason to consult the index for either.
+            var range = $"{baselineRef}^{{tree}} {now}";
+
+            var (diff, problem) = await RunAsync(
+                git, $"--no-optional-locks diff {range} -- {Excluded}", ct);
+
+            // A baseline that no longer resolves is not a failure to report in the prompt: the caller
+            // has a perfectly good HEAD to fall back to, and a note saying a ref is missing would tell
+            // the tool something about this application rather than about the code.
+            if (problem != null) return null;
+
+            var (summary, _) = limits.Summary <= 0
+                ? ("", (string?)null)
+                : await RunAsync(
+                    git,
+                    $"--no-optional-locks diff {range} --stat=1000,1000 --stat-graph-width=10 " +
+                    $"-- {Excluded}",
+                    ct);
+
+            return new WorktreeSnapshot(
+                // No untracked list: everything with no history is in both trees, so the diff carries
+                // it in full.
+                GoalDiffContext.Compose(diff, null, null, summary, limits),
+                Readable: true,
+                WorktreeSnapshot.Digest(diff),
+                Scoped: true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Reading the working tree against the baseline failed: {ex.Message}");
+            return null;
         }
     }
 

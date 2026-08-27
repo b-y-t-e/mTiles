@@ -136,6 +136,36 @@ public sealed partial class GoalWorkflowEngine
     public GoalStopReason? LastStopReason { get; set; }
 
     /// <summary>
+    /// The ref holding the working tree as it was when this goal started, or null when no snapshot was
+    /// taken — see <see cref="GoalBaseline"/>.
+    /// </summary>
+    /// <remarks>
+    /// Persisted because both things that read it outlive the process it was taken in. It is named in
+    /// the transcript when it is taken, so a user who comes back tomorrow and finds a file missing has
+    /// the command in front of them; and it is the boundary <see cref="GoalCommitter"/> works out this
+    /// run's own changes from, which is what stops the commit offer sweeping up somebody's parallel
+    /// work. A tile reopened without it can recover nothing and may not commit — see
+    /// <c>GoalTileViewModel.CanCommit</c>.
+    /// </remarks>
+    public string? BaselineRef { get; set; }
+
+    /// <summary>
+    /// Whether this goal is about work that was already in the tree when it started.
+    /// </summary>
+    /// <remarks>
+    /// <para><em>Detect &amp; run</em> reads the uncommitted work, writes a goal from it and goes
+    /// straight to a review of it. The baseline is taken at that moment — it has to be, because the
+    /// tool is about to edit those files and the snapshot is the only way back — and it therefore holds
+    /// the changes themselves. Diffing against it answers "what has changed since we started", which on
+    /// this path is nothing at all.</para>
+    /// <para>So the snapshot and the thing diffs are measured from stop being the same object here.
+    /// The snapshot stays (it is what <c>git checkout &lt;ref&gt; -- path</c> needs); the measuring
+    /// point becomes <c>HEAD</c>, which is what "the changes in this working tree" means when the
+    /// changes are the user's own.</para>
+    /// </remarks>
+    public bool ReviewsExistingWork { get; set; }
+
+    /// <summary>
     /// What the attempts field said before Continue raised it, or null where Continue has not been used
     /// on this goal.
     /// </summary>
@@ -206,8 +236,13 @@ public sealed partial class GoalWorkflowEngine
             budget);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
-    public string BuildReviewPrompt(string? gitDiff, int? budget = null) =>
-        _promptBuilder.BuildReview(OriginalGoal, gitDiff, budget);
+    public string BuildReviewPrompt(string? gitDiff, bool scoped = false, int? budget = null) =>
+        _promptBuilder.BuildReview(OriginalGoal, gitDiff, scoped, budget);
+
+    /// <summary>How this run's own work should be divided into commits. The file list is the scope
+    /// worked out from the goal's baseline, not anything the tool is asked to discover.</summary>
+    public string BuildCommitPlanPrompt(IReadOnlyList<string> files, int? budget = null) =>
+        _promptBuilder.BuildCommitPlan(OriginalGoal, files, budget);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
     public string BuildDetectGoalPrompt(string gitDiff, int? budget = null) =>
@@ -225,6 +260,13 @@ public sealed partial class GoalWorkflowEngine
         AttemptLog.Clear();
         IterationCount = 0;
         LastStopReason = null;
+        // The old goal's snapshot belongs to the old goal. A new one is taken as this one starts, and
+        // until it is there is nothing to point the user at.
+        BaselineRef = null;
+
+        // Belongs to the goal being replaced, exactly as the snapshot does. A new goal typed into a
+        // tile that had detected one would otherwise go on measuring its diffs from HEAD.
+        ReviewsExistingWork = false;
         ClarifyRounds = 0;
         PendingQuestions = [];
         IsPaused = false;
@@ -471,19 +513,20 @@ public sealed partial class GoalWorkflowEngine
         ? IsMidRun(CurrentPhase)
             ? $"Stopped during {CurrentPhase.ToString().ToLowerInvariant()}. Click Resume to continue."
             : "Paused. Click Resume to continue."
-        : CurrentPhase switch
-        {
-            GoalPhase.Goal => "Waiting for goal...",
-            // Status, not instruction. Both of these used to spell out what to do, and both are now
-            // said better a few pixels away by a button with a word on it and a placeholder in the box
-            // above it — three copies of one sentence, of which this was the one that could not change
-            // when the box did. The paused labels below still name Resume, and deliberately: that
-            // button is an icon, so nothing else on screen says the word.
-            GoalPhase.Clarify => "Waiting for your answers.",
-            GoalPhase.Plan => "Waiting for your approval.",
-            GoalPhase.Summary => "Done. Type a new goal, or start a fresh one with +.",
-            _ => $"Resumed at {CurrentPhase} phase."
-        };
+        // Nothing at all for the states something else on screen already explains, which is all of the
+        // idle ones. "Waiting for goal..." sat above a composer whose placeholder says the same thing;
+        // "Waiting for your answers." sat above a panel of question boxes; "Waiting for your approval."
+        // above a button labelled Approve plan; the summary above a summary. Four sentences that could
+        // only ever repeat what the control under them was already saying, on a strip that also has to
+        // carry the tool, the mode, the effort and the badges — and the phase itself, which the dot
+        // says in colour.
+        //
+        // The paused labels above are the exception and are kept: that is the one state nothing else
+        // accounts for, and Resume is an icon, so this is the only place the word appears. What a run
+        // is *doing* is said by the waiting row at the foot of the transcript, where it lands beside
+        // the dots that say something is happening at all.
+        : IsMidRun(CurrentPhase) ? GoalStageDisplay.Short(CurrentPhase, IterationCount, MaxIter)
+        : "";
 
     public GoalTileState ToState(List<GoalMessage> messages, string toolName) => new()
     {
@@ -495,6 +538,8 @@ public sealed partial class GoalWorkflowEngine
         SelectedToolName = toolName,
         IterationCount = IterationCount,
         LastStopReason = LastStopReason,
+        BaselineRef = BaselineRef,
+        ReviewsExistingWork = ReviewsExistingWork,
         AttemptsBeforeExtension = AttemptsBeforeExtension,
         ClarifyRounds = ClarifyRounds,
         PendingQuestions = [..PendingQuestions],
@@ -526,6 +571,8 @@ public sealed partial class GoalWorkflowEngine
         CurrentPhase = state.CurrentPhase;
         IterationCount = state.IterationCount;
         LastStopReason = state.LastStopReason;
+        BaselineRef = state.BaselineRef;
+        ReviewsExistingWork = state.ReviewsExistingWork;
         AttemptsBeforeExtension = state.AttemptsBeforeExtension;
         ClarifyRounds = state.ClarifyRounds;
         PendingQuestions = [..state.PendingQuestions];

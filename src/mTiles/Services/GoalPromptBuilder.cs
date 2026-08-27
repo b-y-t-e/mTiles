@@ -442,6 +442,7 @@ public sealed class GoalPromptBuilder
             prompt += $"This is attempt {c.Attempt} of {c.Attempts}.\n\n";
 
         prompt += "Follow the approved plan. Make the necessary code changes. Be precise and minimal.\n" +
+                  OtherPeoplesWork +
                   "Finish with one line saying what you changed, then one line starting \"Rejected:\" " +
                   "naming anything you tried or considered and did not do, and why.\n\n" +
                   AnswerLanguage +
@@ -450,10 +451,61 @@ public sealed class GoalPromptBuilder
         return prompt;
     }
 
-    public string BuildReview(string goal, string? gitDiff, int? budget = null) =>
-        Fit(cap => ComposeReview(goal, gitDiff, cap), budget);
+    /// <summary>
+    /// The working tree is not the tool's to undo, and a review finding is never an instruction to
+    /// delete something.
+    /// </summary>
+    /// <remarks>
+    /// <para>This is a data-loss guard, and it was paid for. The review is handed the whole of
+    /// <c>git diff HEAD</c> under the heading "the code changes that were just made", which is a claim
+    /// this tile cannot support: the user works in the terminal tiles next door while a goal runs, so
+    /// the tree routinely holds their own parallel change as well. The reviewer read that honestly and
+    /// reported it — <em>unrelated changes glued onto this one</em> — as a warning, which
+    /// <see cref="GoalTranscript.Feedback"/> then passed back verbatim under "Fix these findings". The
+    /// next attempt did the only thing that makes such a finding go away: it reverted the user's files
+    /// and deleted the ones they had not committed.</para>
+    /// <para>Every link in that chain was behaving correctly, which is why the fix is a sentence rather
+    /// than a condition. And the last clause is the load-bearing one, for the same reason it is in
+    /// <see cref="HealthRules"/>: a warning counts against a tolerance of zero, so the run cannot
+    /// finish while the finding stands. Forbidding the repair without offering a way past it leaves the
+    /// tool holding something it may neither ignore nor fix. Saying so in its closing line is the way
+    /// past — it reaches the user, and it costs no files.</para>
+    /// </remarks>
+    private const string OtherPeoplesWork =
+        "The working tree may also contain the user's own parallel work. Change only what the goal and " +
+        "the plan ask for. Never revert, delete or restore a file to make a review finding go away — " +
+        "if a finding is about changes that are not yours, say so in your closing line instead.\n";
 
-    private string ComposeReview(string goal, string? gitDiff, int cap)
+    /// <param name="scoped">Whether the working tree block is only what changed since the goal
+    /// started. See <see cref="OtherPeoplesWorkInReview"/> for what turns on it.</param>
+    public string BuildReview(string goal, string? gitDiff, bool scoped = false, int? budget = null) =>
+        Fit(cap => ComposeReview(goal, gitDiff, scoped, cap), budget);
+
+    /// <summary>
+    /// The warning that the working tree is not all one change — said only where it is true.
+    /// </summary>
+    /// <remarks>
+    /// <para>This sentence is a liability, and it is kept only for the case where nothing better is
+    /// available. It asks the reviewer for a distinction it has no data to make, and the two ways of
+    /// getting that wrong are not symmetrical: a finding it invents is in the transcript where somebody
+    /// sees it, while a finding it swallows leaves no trace anywhere. Trading a loud error for a silent
+    /// one is a bad trade.</para>
+    /// <para>So where the block is read against the goal's baseline it is dropped outright —
+    /// everything in it happened during the run, and the reviewer can be left alone to judge all of it.
+    /// It survives for the fallback: a repository whose baseline could not be taken, where the block is
+    /// <c>git diff HEAD</c> and does hold whatever the user had lying around from last week. Without it
+    /// there, a scope warning against a tolerance of zero blocks every remaining attempt over files
+    /// nothing in the run will ever touch.</para>
+    /// <para>It closes only half of the problem either way, and the implement prompt's
+    /// <see cref="OtherPeoplesWork"/> closes the other and is <b>not</b> conditional: that one forbids
+    /// an action rather than asking for a judgement, so it has none of this one's downside — and no
+    /// baseline narrows the window to nothing.</para>
+    /// </remarks>
+    private const string OtherPeoplesWorkInReview =
+        "The working tree may also contain unrelated work by the user. Judge only what serves the " +
+        "goal; do not report their unrelated changes as a finding.\n\n";
+
+    private string ComposeReview(string goal, string? gitDiff, bool scoped, int cap)
     {
         var prompt = "Review the code changes that were just made in this project.\n\n"
                      + Block("The original goal was", goal, GoalCap(cap));
@@ -479,6 +531,8 @@ public sealed class GoalPromptBuilder
         // The user's thresholds are deliberately not in here. A reviewer told that one warning is
         // allowed has been told how to pass, and the severities are the one thing in its answer nothing
         // else can check.
+        if (!scoped) prompt += OtherPeoplesWorkInReview;
+
         prompt += "Judge two things separately:\n" +
                   "- goalMet: whether the changes actually do what the goal asked for. Clean code that " +
                   "does the wrong thing is not the goal met.\n" +
@@ -504,6 +558,67 @@ public sealed class GoalPromptBuilder
                   // fallback.
                   "\n\nIf you cannot produce the json block, end your reply with the line " +
                   "VERDICT: PASS or VERDICT: FAIL instead.";
+        return prompt;
+    }
+
+    /// <summary>
+    /// Asks how the run's own work should be divided into commits.
+    /// </summary>
+    /// <remarks>
+    /// <para>The one judgement here that nothing in this application can make: which of these changes
+    /// is a feature and which is the chore that made it possible. Grouping by directory, or by the
+    /// order files were touched, produces a history that is technically a series of commits and tells
+    /// nobody anything.</para>
+    /// <para><b>The file list is given, not asked for.</b> It is worked out from the goal's own
+    /// baseline — the tree as it stood when the goal started — with the files the user had already
+    /// changed before that removed. The tool is told to place these paths and no others, and
+    /// <c>GoalCommitter</c> holds the answer against the same list rather than trusting it: a path
+    /// invented here would put somebody's parallel work into a commit claiming to be about something
+    /// else, which is the failure <see cref="OtherPeoplesWork"/> exists to prevent one layer down.</para>
+    /// <para><b>The file list and no diff.</b> A <c>gitDiff</c> parameter used to be threaded through
+    /// here and was never once given anything but null — a block of prompt-building that could not be
+    /// reached, describing context nothing supplied. Grouping by meaning does want the diff, and adding
+    /// it back is a real change rather than a restoration: it would be the largest borrowed block in
+    /// any of these prompts, it arrives after the run has already spent its budget, and it would have
+    /// to be trimmed against a list of paths that is never trimmed.</para>
+    /// <para><b>So this prompt barely compresses, and that is its shape rather than an oversight.</b>
+    /// What is left to shrink is the goal sentence; the paths are the answer the tool is being asked to
+    /// group, and dropping one is a change nobody commits. A list too long for the command line
+    /// therefore cannot be fitted — which the caller does not treat as the end of the matter: it offers
+    /// the single sweeping commit rather than asking again and failing the same way.</para>
+    /// </remarks>
+    public string BuildCommitPlan(string goal, IReadOnlyList<string> files, int? budget = null) =>
+        Fit(cap => ComposeCommitPlan(goal, files, cap), budget);
+
+    private static string ComposeCommitPlan(string goal, IReadOnlyList<string> files, int cap)
+    {
+        var prompt = "The work below has just been done in this project and is not committed yet.\n\n"
+                     + Block("The goal was", goal, GoalCap(cap));
+
+        // Never trimmed, and this is the one block in any of these prompts with no cap at all. Every
+        // other borrowed thing here degrades — a shorter diff is less context, a shorter plan is less
+        // detail — while a path cut out of this list is a change that silently never gets committed.
+        // It is one line per file and bounded by how much a single run touched, which is the same
+        // argument that keeps `--stat` above the diff in GoalDiffContext.
+        prompt += Block("Commit exactly these files, and no others", string.Join("\n", files));
+
+        prompt += "Divide them into commits by what they mean, not by where they live. One commit per " +
+                  "coherent change: a feature and the refactoring that made room for it are two " +
+                  "commits, and the same feature spread over four directories is one.\n" +
+                  "Use a conventional-commit type — feat, fix, chore, refactor, test, docs — and a " +
+                  "subject in the imperative, under 72 characters.\n" +
+                  "Every file above must appear in exactly one commit. Do not name a file that is not " +
+                  "listed. One commit is a correct answer when the work is one thing.\n\n" +
+                  AnswerLanguage +
+                  "Answer with one fenced json block and nothing else.\n\n" +
+                  "Example:\n" +
+                  "```json\n" +
+                  "{\"commits\":[" +
+                  "{\"type\":\"feat\",\"subject\":\"apply discounts before totalling\"," +
+                  "\"files\":[\"src/Cart.cs\",\"tests/CartTests.cs\"]}," +
+                  "{\"type\":\"chore\",\"subject\":\"drop the unused price formatter\"," +
+                  "\"files\":[\"src/PriceFormat.cs\"]}]}\n" +
+                  "```";
         return prompt;
     }
 
