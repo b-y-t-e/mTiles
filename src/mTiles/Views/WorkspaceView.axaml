@@ -4,8 +4,13 @@
              xmlns:views="using:mTiles.Views"
              x:Class="mTiles.Views.WorkspaceView"
              x:DataType="vm:WorkspaceViewModel"
-             Background="{DynamicResource BgBase}">
+             Background="{DynamicResource BgCanvas}"
+             Padding="0,8,8,8">
 
+    <!-- The gutter the splitters leave between tiles, put back around the outside as well. Without it
+         the outermost ring of cards is cut off by the window frame, which is where the whole idea is
+         most visible: a card clipped by the title bar is not a card. No padding on the left — the
+         panel's own column already leaves the same gap there. -->
     <views:TileNodeView x:Name="RootTileView"
                         DataContext="{Binding RootTile}" />
 </UserControl>

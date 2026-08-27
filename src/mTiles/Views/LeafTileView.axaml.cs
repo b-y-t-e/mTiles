@@ -39,6 +39,34 @@ public partial class LeafTileView : UserControl
         AddHandler(DragDrop.DropEvent, OnDrop);
 
         DropOverlay.BorderThickness = new Thickness(2);
+        TileToolbar.SizeChanged += (_, e) => ApplyHeaderWidth(e.NewSize.Width);
+    }
+
+    /// <summary>
+    /// Below this, the header stops offering to split the tile.
+    /// </summary>
+    /// <remarks>
+    /// Measured against what the header holds: the type glyph, five buttons at 24px, and enough left
+    /// for a name to be worth reading. A tile narrower than this is one of a row of four in a column,
+    /// and splitting it again is not the thing its user is about to do.
+    /// </remarks>
+    private const double SplitButtonsNeedWidth = 190;
+
+    /// <summary>Which of the header's buttons a tile this wide can afford.</summary>
+    /// <remarks>
+    /// <para>The name is what identifies the tile, and in a <c>DockPanel</c> it is the one thing that
+    /// gets whatever the docked buttons leave — which in a narrow column was nothing at all: four tiles
+    /// in a stack showed a row of icons each and not one name between them. The buttons give way
+    /// instead, starting with the two that split, because closing and the overflow have no other route
+    /// while a split is also a drag away.</para>
+    /// <para>Driven off the toolbar's own width rather than the tile's: it is the toolbar that runs out
+    /// of room, and the two differ by the card's border.</para>
+    /// </remarks>
+    private void ApplyHeaderWidth(double width)
+    {
+        var roomToSplit = width >= SplitButtonsNeedWidth;
+        SplitRightButton.IsVisible = roomToSplit;
+        SplitDownButton.IsVisible = roomToSplit;
     }
 
     private void OnTilePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
@@ -85,6 +113,7 @@ public partial class LeafTileView : UserControl
                 var result = await box.ShowWindowDialogAsync(window);
                 return result == ButtonResult.Yes;
             };
+            UpdateTypeGlyph(leaf);
             UpdateActiveIndicator(leaf);
             UpdateDictationIndicator(leaf);
             UpdateContentDisplay(leaf);
@@ -96,14 +125,17 @@ public partial class LeafTileView : UserControl
         if (sender is not LeafTileNodeViewModel leaf) return;
 
         if (e.PropertyName is nameof(LeafTileNodeViewModel.Content) or nameof(LeafTileNodeViewModel.ContentType))
+        {
+            UpdateTypeGlyph(leaf);
             UpdateContentDisplay(leaf);
+        }
         // The property the strip is drawn from, not the two it is computed from. Listening to the inputs
         // meant the strip was repainted while one of them had not been updated yet: on the way in the
         // recording flag arrived before IsDictating, so the strip was still lit and showed through the
         // half-transparent border; on the way out IsDictating went false *last*, and since nothing was
         // listening for it the strip never came back at all. Rendering a derived value means subscribing
         // to the derived value.
-        else if (e.PropertyName is nameof(LeafTileNodeViewModel.ShowsActiveStrip)
+        else if (e.PropertyName is nameof(LeafTileNodeViewModel.ShowsActiveOutline)
                  or nameof(LeafTileNodeViewModel.IsActive))
             UpdateActiveIndicator(leaf);
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.IsRecordingDictation)
@@ -127,23 +159,43 @@ public partial class LeafTileView : UserControl
         DictationBorder.IsVisible = leaf.IsRecordingDictation || leaf.IsTranscribingDictation;
     }
 
+    /// <summary>The icon and colour this tile's type wears in its header.</summary>
+    /// <remarks>
+    /// The colour is bound to the resource rather than resolved to a brush, so a theme switch reaches
+    /// it — the same reason <see cref="UpdateActiveIndicator"/> binds instead of assigning. Both of
+    /// them then have to be re-run whenever the value they read changes, which is what the two callers
+    /// above are.
+    /// </remarks>
+    private void UpdateTypeGlyph(LeafTileNodeViewModel leaf)
+    {
+        TileTypeGlyph.Kind = TileTypeIcon.Kind(leaf.ContentType);
+        TileTypeGlyph.Bind(MaterialIcon.ForegroundProperty,
+            TileTypeGlyph.GetResourceObservable(TileTypeIcon.AccentKey(leaf.ContentType)));
+    }
+
     /// <summary>
-    /// The active markers: the strip at the top and the toolbar's lift.
+    /// The active markers: the card's outline and the toolbar's lift.
     /// </summary>
     /// <remarks>
-    /// The strip follows <see cref="LeafTileNodeViewModel.ShowsActiveStrip"/> rather than
-    /// <c>IsActive</c>, so it goes dark while this tile is being dictated into — the dictation border
-    /// frames the same tile and says the same thing more loudly. The toolbar keeps its lift throughout:
-    /// it is the quiet half of the signal, it is not at the tile's edge, and flickering it as the
-    /// microphone opens and closes would be a change of background under the buttons the user is about
-    /// to click.
+    /// The outline follows <see cref="LeafTileNodeViewModel.ShowsActiveOutline"/> rather than
+    /// <c>IsActive</c>, so it goes back to the ordinary card edge while this tile is being dictated
+    /// into — the dictation border frames the same rectangle and says the same thing more loudly. The
+    /// toolbar keeps its lift throughout: it is the quiet half of the signal, it is not at the tile's
+    /// edge, and flickering it as the microphone opens and closes would be a change of background under
+    /// the buttons the user is about to click.
     /// </remarks>
     private void UpdateActiveIndicator(LeafTileNodeViewModel leaf)
     {
-        ActiveStrip.Bind(Border.BackgroundProperty,
-            ActiveStrip.GetResourceObservable(leaf.ShowsActiveStrip ? "AccentHover" : "BgSurface"));
+        TileCard.Bind(Border.BorderBrushProperty,
+            TileCard.GetResourceObservable(leaf.ShowsActiveOutline ? "AccentOutline" : "BorderSubtle"));
         TileToolbar.Bind(Border.BackgroundProperty,
             TileToolbar.GetResourceObservable(leaf.IsActive ? "BgElevated" : "BgSurface"));
+
+        // The other half of the same signal, and the half that survives a colour-blind eye and a
+        // washed-out screen: an inactive tile's header recedes rather than only changing shade. On the
+        // header alone — the content of an inactive tile is still being read, and dimming a running
+        // terminal because the focus is elsewhere would make every split worse than no split.
+        TileHeaderContent.Opacity = leaf.IsActive ? 1.0 : 0.55;
     }
 
     private void UpdateContentDisplay(LeafTileNodeViewModel leaf)
@@ -270,8 +322,24 @@ public partial class LeafTileView : UserControl
             UpdateContentBackground(sender);
     }
 
+    /// <summary>
+    /// How far a tile's content sits inside its card.
+    /// </summary>
+    /// <remarks>
+    /// <para>A terminal is text against an edge and wants the gap; every other tile's content is its
+    /// own chrome — bars, lists, a composer — and drawing that inside an inset leaves a square-cornered
+    /// rectangle floating in a rounded card, with a sliver of card colour showing round the bottom
+    /// corners where the two shapes disagree. Those tiles run to the card's edge instead, and the
+    /// card's <c>ClipToBounds</c> gives them its corners.</para>
+    /// <para>No inset at the top either way: the header is already there.</para>
+    /// </remarks>
+    private static Thickness ContentInset(object? contentVm) =>
+        contentVm is TerminalTileViewModel ? new Thickness(6, 0, 6, 6) : default;
+
     private void UpdateContentBackground(object? contentVm)
     {
+        ContentHost.Margin = ContentInset(contentVm);
+
         if (contentVm is TerminalTileViewModel t)
             ContentHost.Background = new SolidColorBrush(Color.Parse(t.Theme.Background));
         else

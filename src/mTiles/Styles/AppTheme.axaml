@@ -6,7 +6,12 @@
          Terminal ANSI colors live in TerminalTheme (separate system).
          ============================================================ -->
 
-    <!-- Backgrounds (3 tiers) -->
+    <!-- Backgrounds (4 tiers).
+         BgCanvas is what the tiles are laid on and nothing else uses: it is the only colour here that
+         is *not* meant to be looked at, which is why it is darker than BgBase rather than a shade of
+         it. A tile is a card of BgBase floating on it, so the gaps between tiles read as a gap and not
+         as a seam — the same reason the splitters are wide enough to see. -->
+    <SolidColorBrush x:Key="BgCanvas"    Color="#121220" />
     <SolidColorBrush x:Key="BgBase"      Color="#1a1a2e" />
     <SolidColorBrush x:Key="BgSurface"   Color="#16162a" />
     <SolidColorBrush x:Key="BgElevated"  Color="#1e1e3a" />
@@ -27,14 +32,27 @@
     <SolidColorBrush x:Key="InteractivePressed"  Color="#3a3a5a" />
     <SolidColorBrush x:Key="AccentDefault"       Color="#2d5a8a" />
     <SolidColorBrush x:Key="AccentHover"         Color="#3a6fa0" />
+    <!-- The accent for a line that goes all the way round something.
+         The longer the line, the quieter it has to be to carry the same weight: the active tile's
+         marker used to be a 2px strip across the top of its header and is now the card's whole
+         perimeter, which is an order of magnitude more of it. In AccentHover that stopped reading as
+         "this tile" and started reading as a blue frame drawn round it — loud, and competing with the
+         borders the tile's own content already has. Muted far enough to sit in the same family as
+         BorderSubtle while still being unmistakably not it. -->
+    <SolidColorBrush x:Key="AccentOutline"       Color="#3f5f7d" />
 
-    <!-- Tile type accents -->
-    <SolidColorBrush x:Key="TileAccentTerminal" Color="#2d5a8a" />
-    <SolidColorBrush x:Key="TileAccentNote"     Color="#8a6d2d" />
-    <SolidColorBrush x:Key="TileAccentTodo"     Color="#2d8a5a" />
-    <SolidColorBrush x:Key="TileAccentGit"      Color="#7a3d8a" />
-    <SolidColorBrush x:Key="TileAccentDatabase" Color="#2d7a8a" />
-    <SolidColorBrush x:Key="TileAccentGoal"     Color="#8a5a2d" />
+    <!-- Tile type accents.
+         Raised out of the 40%-lightness band they used to sit in. They were picked when the only thing
+         drawn in them was a three-pixel bar on a chooser card and a 22px icon, both against BgSurface;
+         a tile header now wears the same colour as a 13px glyph against BgElevated, where the old
+         values came out as dark smudges. Bright enough to read at that size, and desaturated enough
+         that six of them along a column of headers do not turn it into a paint chart. -->
+    <SolidColorBrush x:Key="TileAccentTerminal" Color="#5b9bd5" />
+    <SolidColorBrush x:Key="TileAccentNote"     Color="#d4a24c" />
+    <SolidColorBrush x:Key="TileAccentTodo"     Color="#57b880" />
+    <SolidColorBrush x:Key="TileAccentGit"      Color="#b07ac4" />
+    <SolidColorBrush x:Key="TileAccentDatabase" Color="#4fb0c4" />
+    <SolidColorBrush x:Key="TileAccentGoal"     Color="#d98a4f" />
 
     <!-- Goal phase colors -->
     <SolidColorBrush x:Key="GoalPhaseClarify"   Color="#5a7a8a" />
@@ -67,6 +85,17 @@
 
     <!-- Spacing -->
     <CornerRadius x:Key="RadiusSm">3</CornerRadius>
+    <CornerRadius x:Key="RadiusTile">8</CornerRadius>
+    <!-- One radius for every row in a list, at either level of the workspaces panel. It used to be
+         RadiusLg for a workspace and RadiusMd for a tile under it, which put three different radii in a
+         column 240px wide and made the nesting look like a rendering accident rather than a hierarchy.
+         Nesting is said by the indent and the guide beside it; the corners say nothing and should
+         therefore say the same thing. -->
+    <CornerRadius x:Key="RadiusRow">5</CornerRadius>
+    <!-- The radius one border-width inside RadiusTile, for the element that clips a card's content.
+         Two concentric rounded rectangles only look concentric when the inner one's radius is the
+         outer's less the gap between them; at the same radius the corners visibly diverge. -->
+    <CornerRadius x:Key="RadiusTileInner">7</CornerRadius>
     <CornerRadius x:Key="RadiusMd">4</CornerRadius>
     <CornerRadius x:Key="RadiusLg">6</CornerRadius>
     <CornerRadius x:Key="RadiusXl">10</CornerRadius>

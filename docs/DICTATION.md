@@ -615,9 +615,10 @@ would move the content under the cursor, and a colour interpolation could not co
 `DynamicResource`, which is how both brushes follow the terminal-derived theme. It is an overlay, so it
 costs no layout.
 
-**One marker at a time.** The active strip goes dark while its tile is being dictated into
-(`LeafTileNodeViewModel.ShowsActiveStrip`, which is `IsActive && !IsDictating`; the view subscribes to
-**that** property, not to the two it is computed from — listening to the inputs repainted the strip
+**One marker at a time.** The active tile's outline goes back to the ordinary card edge while its tile
+is being dictated into
+(`LeafTileNodeViewModel.ShowsActiveOutline`, which is `IsActive && !IsDictating`; the view subscribes to
+**that** property, not to the two it is computed from — listening to the inputs repainted the marker
 while one of them was still stale, which left it lit through the whole recording and then dark for good
 once the last change was to a property nothing was watching): the border frames the
 same tile, so it already answers "which one", and the dictated tile is nearly always the active one, so

@@ -13,6 +13,22 @@ public partial class WorkspaceItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSelected;
 
+    /// <summary>
+    /// Whether this directory is a git repository — <c>null</c> until anything has looked.
+    /// </summary>
+    /// <remarks>
+    /// Three states, not two, and the third is the one that matters: the check is asynchronous, and a
+    /// plain <c>bool</c> would have every repository in the list announce it had none for as long as the
+    /// first pass takes. While it is null the row shows neither a branch nor an offer to create one, and
+    /// keeps its height either way.
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNoRepository))]
+    private bool? _hasRepository;
+
+    /// <summary>The one state the row offers to do something about.</summary>
+    public bool HasNoRepository => HasRepository == false;
+
     public string Id => Workspace.Id;
     public string Name => Workspace.Name;
     public string DirectoryPath => Workspace.DirectoryPath;

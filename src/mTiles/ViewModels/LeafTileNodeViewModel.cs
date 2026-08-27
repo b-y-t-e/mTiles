@@ -113,13 +113,13 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// <remarks>
     /// Not while dictating. The strip and the dictation border say overlapping things — the border
     /// frames this tile, so it already answers "which one" — and two markers competing at the top edge
-    /// of the same tile is noise rather than information. The strip comes back the moment the transcript
-    /// lands, which is also the moment it starts meaning something again.
+    /// of the same tile is noise rather than information. The outline comes back the moment the
+    /// transcript lands, which is also the moment it starts meaning something again.
     /// </remarks>
-    public bool ShowsActiveStrip => IsActive && !IsDictating;
+    public bool ShowsActiveOutline => IsActive && !IsDictating;
 
-    partial void OnIsActiveChanged(bool value) => OnPropertyChanged(nameof(ShowsActiveStrip));
-    partial void OnIsDictatingChanged(bool value) => OnPropertyChanged(nameof(ShowsActiveStrip));
+    partial void OnIsActiveChanged(bool value) => OnPropertyChanged(nameof(ShowsActiveOutline));
+    partial void OnIsDictatingChanged(bool value) => OnPropertyChanged(nameof(ShowsActiveOutline));
 
     /// <summary>
     /// The two halves of that, kept apart because they are shown differently: the tile's border breathes
@@ -146,7 +146,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         var mine = _dictation is { State: not DictationState.Idle } d && ReferenceEquals(d.Owner, this);
 
         // The umbrella state first, so no observer sees "recording" alongside "not dictating". Nothing
-        // depends on the order any more — ShowsActiveStrip raises its own notification either way — but
+        // depends on the order any more — ShowsActiveOutline raises its own notification either way — but
         // a moment of self-contradiction is not something to leave lying around for the next reader.
         IsDictating = mine;
         IsRecordingDictation = mine && _dictation!.State == DictationState.Recording;

@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mi="using:Material.Icons.Avalonia"
         xmlns:ae="using:AvaloniaEdit">
 
     <!-- ======== BUTTON: toolbar ======== -->
@@ -164,13 +165,14 @@
          The brushes are DynamicResource for that reason: red for recording follows the same token as
          every other warning in the application, and the accent follows whatever the user's terminal
          theme made it. -->
-    <!-- Square, like the tile it outlines. A tile is a rectangle in a grid of splitters with no corner
-         radius of its own, so a rounded frame pulls away from the tile's own corners and leaves a notch
-         at each one - the border stops looking like the tile's edge and starts looking like a sticker
-         on top of it. -->
+    <!-- Rounded, and for the same reason it used to be square: the frame has to sit on the tile's edge.
+         A tile is a card now, so a square frame is what would pull away and leave a notch at each
+         corner. RadiusTileInner rather than RadiusTile because it is drawn inside the card's clipping
+         border, whose corners are one border-width tighter - and a token rather than a number, so the
+         three move together. -->
     <Style Selector="Border.dictation">
         <Setter Property="BorderThickness" Value="2" />
-        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusTileInner}" />
     </Style>
 
     <Style Selector="Border.dictation.recording">
@@ -303,34 +305,66 @@
         <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
     </Style>
 
-    <!-- ======== WORKSPACE ITEM (sidebar) ======== -->
+    <!-- ======== WORKSPACE ITEM (sidebar) ========
+         Selected and hovered were the same brush, so pointing at a neighbour made it impossible to say
+         which workspace was open — the one thing this list exists to tell you. The selected row has a
+         ground of its own and an accent down its leading edge, which is the marker the tiles already use
+         for the same idea; hover stays the lighter wash it was. -->
     <Style Selector="Border.workspace-item">
         <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="2,0,0,0" />
+        <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
     <Style Selector="Border.workspace-item:pointerover">
         <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
     </Style>
     <Style Selector="Border.workspace-item.workspace-item-selected">
-        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
     </Style>
 
-    <!-- ======== BUTTON: add-workspace (subtle, matches sidebar item height) ======== -->
-    <Style Selector="Button.add-workspace">
-        <Setter Property="Background" Value="Transparent" />
+    <!-- ======== WORKSPACE META (the branch, under the name) ========
+         Plain text, not a chip. A chip is the language this application uses for the rare exception —
+         the AI tool that is NOT FOUND, the database tile's Error — and it works because you see one at
+         a time. A value that is present on every row is not an exception, it is metadata: twenty boxed
+         outlines down the column gave the list a zigzag right edge and no rhythm to read it by, and put
+         a third frame inside a card inside a canvas. Small, muted, on the same left margin as the name
+         it belongs to, which is the whole of it. -->
+    <Style Selector="StackPanel.workspace-meta">
+        <Setter Property="Orientation" Value="Horizontal" />
+        <Setter Property="Spacing" Value="4" />
+    </Style>
+    <Style Selector="StackPanel.workspace-meta > TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FontXs}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="StackPanel.workspace-meta > mi|MaterialIcon">
+        <Setter Property="Width" Value="10" />
+        <Setter Property="Height" Value="10" />
+        <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-        <Setter Property="Padding" Value="10,6" />
-        <Setter Property="MinHeight" Value="30" />
-        <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
+    </Style>
+
+    <!-- The same line, when it is something you can press. It reads as the branch does until the pointer
+         reaches it, because it occupies the branch's place and a row that shouts about a missing
+         repository would be louder than the rows that have one. -->
+    <Style Selector="Button.workspace-meta-action">
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="HorizontalContentAlignment" Value="Center" />
-        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
     </Style>
-    <Style Selector="Button.add-workspace:pointerover">
-        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+    <Style Selector="Button.workspace-meta-action:pointerover TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
     </Style>
-    <Style Selector="Button.add-workspace:pressed">
-        <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+    <Style Selector="Button.workspace-meta-action:pointerover mi|MaterialIcon">
+        <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
     </Style>
 
     <!-- ======== BUTTON: add-row (subtle add action at bottom of list) ======== -->
@@ -548,7 +582,16 @@
         <Setter Property="Foreground" Value="{DynamicResource AccentDefault}" />
     </Style>
 
-    <!-- ======== GRID SPLITTER ======== -->
+    <!-- ======== GRID SPLITTER ========
+         A visible two-pixel bar, which is what a splitter *inside* a tile needs: the git tile's file
+         list against its diff, the diff view's two editors. Those sit in Auto columns, so this style is
+         also what gives them a width at all.
+
+         It was briefly transparent and width-less for the benefit of the one splitter that does not
+         want either — the one between two tile cards, where the canvas showing through the gutter is
+         already the divider. That was a global answer to a local question, and it collapsed every
+         in-tile splitter to zero width: not merely invisible but impossible to grab. The tile splitter
+         asks for it itself instead (TileNodeView.ShowSplit). -->
     <Style Selector="GridSplitter">
         <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="Width" Value="2" />
@@ -559,6 +602,18 @@
         <Setter Property="MinWidth" Value="0" />
         <Setter Property="Height" Value="2" />
         <Setter Property="MinHeight" Value="2" />
+    </Style>
+    <!-- The splitter in the gutter between two tile cards: no bar of its own, and filling the gutter so
+         all eight pixels of it can be grabbed. Transparent rather than unset — an unset background is
+         not hit-testable, and it would stop being draggable, which is the one thing it is there for. -->
+    <Style Selector="GridSplitter.tile-gutter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Width" Value="NaN" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Height" Value="NaN" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
     </Style>
 
 </Styles>

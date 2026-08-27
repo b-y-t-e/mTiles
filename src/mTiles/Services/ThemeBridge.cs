@@ -46,6 +46,13 @@ public static class ThemeBridge
         var brightRed = Color.Parse(theme.BrightRed);
         var selection = Color.Parse(theme.Selection);
 
+        // The canvas the tiles are laid on. Below the terminal's own background rather than a tint of
+        // it, because it is only ever seen in the gaps: a card lifts off it, and the alternative — a
+        // canvas lighter than the tile — reads as a border the user cannot get rid of. On a light theme
+        // the same move goes the other way, or the "shadow" between tiles would be the brightest thing
+        // on screen.
+        var bgCanvas = Shift(bg, theme.IsDark ? -22 : 12);
+
         var bgSurface = Shift(bg, -12);
         var bgElevated = Shift(bg, 14);
         var borderSubtle = Shift(bg, 28);
@@ -60,6 +67,7 @@ public static class ThemeBridge
         var dangerSubtle = WithAlpha(red, 0.12, bg);
         var dangerText = brightRed;
 
+        Set(app, "BgCanvas", bgCanvas);
         Set(app, "BgBase", bg);
         Set(app, "BgSurface", bgSurface);
         Set(app, "BgElevated", bgElevated);
@@ -77,6 +85,13 @@ public static class ThemeBridge
         Set(app, "InteractivePressed", borderStrong);
         Set(app, "AccentDefault", blue);
         Set(app, "AccentHover", brightBlue);
+
+        // Pulled most of the way back toward the ordinary card edge — see AccentOutline in
+        // AppTheme.axaml for why a perimeter needs a quieter accent than a short bar does. Toward
+        // borderStrong rather than toward the background, so the result stays a border colour: on a
+        // light theme the same blend lands above the card's own edge instead of below it, and the
+        // marker is still the brighter of the two.
+        Set(app, "AccentOutline", Lerp(brightBlue, borderStrong, 0.55));
 
         Set(app, "DangerSubtle", dangerSubtle);
         Set(app, "DangerText", dangerText);

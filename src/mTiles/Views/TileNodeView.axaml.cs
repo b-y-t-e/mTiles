@@ -103,6 +103,15 @@ public partial class TileNodeView : UserControl
         Content = new LeafTileView { DataContext = leaf };
     }
 
+    /// <summary>
+    /// How much canvas shows between two tiles.
+    /// <para>Wide enough to read as a gap rather than a seam — the tiles are cards on
+    /// <c>BgCanvas</c>, and at the old three pixels the rounded corners of two neighbours touched and
+    /// the gap looked like a rendering fault. It is also the splitter's whole hit area, so this is the
+    /// grab handle's width as much as it is the gutter's.</para>
+    /// </summary>
+    private const int TileGap = 8;
+
     private void ShowSplit(SplitTileNodeViewModel split)
     {
         if (_firstChild == null) _firstChild = new TileNodeView();
@@ -119,6 +128,7 @@ public partial class TileNodeView : UserControl
         var grid = new Grid();
         var splitter = new GridSplitter
         {
+            Classes = { "tile-gutter" },
             ResizeDirection = split.Orientation == Orientation.Vertical
                 ? GridResizeDirection.Columns
                 : GridResizeDirection.Rows
@@ -128,7 +138,7 @@ public partial class TileNodeView : UserControl
         if (split.Orientation == Orientation.Vertical)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(split.SplitRatio, GridUnitType.Star)));
-            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(3, GridUnitType.Pixel)));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(TileGap, GridUnitType.Pixel)));
             grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1 - split.SplitRatio, GridUnitType.Star)));
 
             Grid.SetColumn(_firstChild, 0);
@@ -138,7 +148,7 @@ public partial class TileNodeView : UserControl
         else
         {
             grid.RowDefinitions.Add(new RowDefinition(new GridLength(split.SplitRatio, GridUnitType.Star)));
-            grid.RowDefinitions.Add(new RowDefinition(new GridLength(3, GridUnitType.Pixel)));
+            grid.RowDefinitions.Add(new RowDefinition(new GridLength(TileGap, GridUnitType.Pixel)));
             grid.RowDefinitions.Add(new RowDefinition(new GridLength(1 - split.SplitRatio, GridUnitType.Star)));
 
             Grid.SetRow(_firstChild, 0);

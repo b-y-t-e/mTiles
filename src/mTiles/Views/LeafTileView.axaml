@@ -7,25 +7,47 @@
              x:DataType="vm:LeafTileNodeViewModel"
              DragDrop.AllowDrop="True">
 
-    <!-- Two rows: the active strip owns the top two pixels, everything else lives below it. The strip
-         stands down while this tile is being dictated into, so the dictation border spans both rows and
-         closes around the whole tile — one marker at a time, and a complete rectangle rather than a
-         frame with a two-pixel notch out of its top edge. -->
-    <Grid RowDefinitions="2,*">
-        <!-- Active indicator strip -->
-        <Border x:Name="ActiveStrip"
-                Grid.Row="0"
-                Background="{DynamicResource BgSurface}" />
+    <!-- The tile is a card: rounded, on its own background, with the canvas showing in the gaps that
+         the splitters leave. ClipToBounds on the card is what rounds everything inside it — the
+         terminal's own background included — so nothing below has to know the radius.
 
-        <Border Grid.Row="1" ClipToBounds="True">
+         **The card's own edge is the active marker.** It used to be a two-pixel strip along the top of
+         the toolbar, which was the right marker for a square tile in a grid of splitters and the wrong
+         one the moment the tile became a rounded card: the radius eats the strip's ends, and what is
+         left is a short line floating inside a corner rather than an edge. An outline is the shape the
+         tile already has. It stands down to BorderSubtle while this tile is being dictated into, so the
+         dictation border frames the same rectangle without two markers arguing over it. -->
+    <Border x:Name="TileCard"
+            Background="{DynamicResource BgBase}"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="{DynamicResource BorderThin}"
+            CornerRadius="{DynamicResource RadiusTile}">
+    <!-- The clip is on an element of its own, and that is not a nicety. ClipToBounds on the border
+         that also *draws* the outline clips to the rounded-down bounds rectangle, so at a fractional
+         desktop scale (125%, 150%) the right and bottom edges fall outside their own clip and the
+         outline comes out as an L along the top and left. Clipping the content instead leaves the
+         outline free to render on all four sides. -->
+    <Border CornerRadius="{DynamicResource RadiusTileInner}" ClipToBounds="True">
+    <Grid>
+        <Border ClipToBounds="True">
             <DockPanel>
                 <!-- Tile toolbar -->
+                <!-- The hairline is what makes the header the card's header rather than a lighter
+                     slab stacked on a darker one. It carries no state: the header's own tone and the
+                     strip above it already say which tile is active, and a third thing changing at the
+                     same moment says it no louder. -->
                 <Border x:Name="TileToolbar"
                         DockPanel.Dock="Top"
                         Background="{DynamicResource BgSurface}"
+                        BorderBrush="{DynamicResource BorderSubtle}"
+                        BorderThickness="{DynamicResource BorderBottom}"
                         Padding="6,0"
-                        Height="26">
-                    <DockPanel>
+                        Height="27">
+                    <DockPanel x:Name="TileHeaderContent">
+                        <!-- Restart and New session moved into an overflow: they are the two buttons
+                             here used once a session, and the two that cost something when hit by
+                             accident. The microphone stayed out of it — it is a toggle whose state the
+                             header has to show, and a light behind a menu is not a light. -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1">
                             <Button Classes="tile-btn"
                                     Classes.tile-btn-recording="{Binding IsDictating}"
@@ -34,24 +56,38 @@
                                     IsVisible="{Binding CanDictate}">
                                 <mi:MaterialIcon Kind="Microphone" Width="14" Height="14" />
                             </Button>
-                            <Button Classes="tile-btn"
-                                    Command="{Binding RestartTerminalCommand}"
-                                    ToolTip.Tip="Restart shell (Ctrl+Shift+R)"
-                                    IsVisible="{Binding ContentType, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:TileContentType.Terminal}}">
-                                <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
+                            <Button x:Name="TileOverflow"
+                                    Classes="tile-btn"
+                                    ToolTip.Tip="More">
+                                <mi:MaterialIcon Kind="DotsHorizontal" Width="14" Height="14" />
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuItem Header="Restart shell"
+                                                  InputGesture="Ctrl+Shift+R"
+                                                  Command="{Binding RestartTerminalCommand}"
+                                                  IsVisible="{Binding ContentType, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:TileContentType.Terminal}}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                        </MenuItem>
+                                        <MenuItem Header="New session"
+                                                  Command="{Binding ResetTileIdCommand}"
+                                                  IsVisible="{Binding HasProfile}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                        </MenuItem>
+                                    </MenuFlyout>
+                                </Button.Flyout>
                             </Button>
-                            <Button Classes="tile-btn"
-                                    Command="{Binding ResetTileIdCommand}"
-                                    ToolTip.Tip="New session"
-                                    IsVisible="{Binding HasProfile}">
-                                <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
-                            </Button>
-                            <Button Classes="tile-btn"
+                            <Button x:Name="SplitRightButton"
+                                    Classes="tile-btn"
                                     Command="{Binding SplitVerticalCommand}"
                                     ToolTip.Tip="Split Right">
                                 <mi:MaterialIcon Kind="DockRight" Width="14" Height="14" />
                             </Button>
-                            <Button Classes="tile-btn"
+                            <Button x:Name="SplitDownButton"
+                                    Classes="tile-btn"
                                     Command="{Binding SplitHorizontalCommand}"
                                     ToolTip.Tip="Split Down">
                                 <mi:MaterialIcon Kind="DockBottom" Width="14" Height="14" />
@@ -63,6 +99,15 @@
                             </Button>
                         </StackPanel>
 
+                        <!-- The tile wears the icon it was created with. Kind and colour are set from
+                             the code-behind rather than bound, because both follow ContentType, which is
+                             already the one thing this view redraws itself on. -->
+                        <mi:MaterialIcon x:Name="TileTypeGlyph"
+                                         DockPanel.Dock="Left"
+                                         Width="13" Height="13"
+                                         VerticalAlignment="Center"
+                                         Margin="2,0,6,0" />
+
                         <TextBlock x:Name="TileNameLabel"
                                    Text="{Binding TileName}"
                                    VerticalAlignment="Center"
@@ -70,7 +115,9 @@
                                    FontSize="{DynamicResource UiFontSize}"
                                    FontWeight="Medium"
                                    Foreground="{DynamicResource TextPrimary}"
-                                   Margin="2,0"
+                                   Margin="0"
+                                   MinWidth="28"
+                                   TextTrimming="CharacterEllipsis"
                                    Cursor="Hand"
                                    DoubleTapped="TileNameLabel_DoubleTapped" />
                         <TextBox x:Name="TileNameEditor"
@@ -82,8 +129,10 @@
                     </DockPanel>
                 </Border>
 
-                <!-- Content area + chooser overlay -->
-                <Panel Margin="6,0">
+                <!-- Content area + chooser overlay. The inset is applied per content type in the
+                     code-behind (see ContentInset), not here: a terminal wants one and a tile whose
+                     content is its own chrome does not. -->
+                <Panel>
                     <WrapPanel x:Name="ContentChooser"
                                IsVisible="False"
                                HorizontalAlignment="Center"
@@ -242,20 +291,23 @@
 
         <!-- Dictation: a breathing border while the microphone is open, a quicker pulse while the
              words are being worked out. An overlay rather than a border on the tile itself, so it
-             costs no layout and cannot move the content under the user's cursor; square-cornered,
-             because the tile is a rectangle in a grid of splitters and a rounded frame over square
-             corners leaves a notch at each one. It covers the strip's band deliberately — while this
-             is showing, the strip is dark, and two pixels of surface colour above the frame would read
-             as a gap in it. -->
+             costs no layout and cannot move the content under the user's cursor. It frames the whole
+             card, header included, and is safe to do so because the active outline stands down while
+             it is showing — two markers on one edge is what that avoids.
+
+             Its radius, and the drop overlay's, is RadiusTileInner rather than RadiusTile: both are
+             drawn *inside* the clipping border, whose corners are one border-width tighter than the
+             card's. At the card's own radius the corners are shaved off by the clip they sit in. -->
         <Border x:Name="DictationBorder"
-                Grid.RowSpan="2"
                 Classes="dictation"
                 IsVisible="False"
                 IsHitTestVisible="False"
                 ZIndex="90" />
 
         <!-- Drop zone overlay -->
-        <Border x:Name="DropOverlay" Grid.RowSpan="2" IsVisible="False" IsHitTestVisible="False"
-                CornerRadius="4" ZIndex="100" />
+        <Border x:Name="DropOverlay" IsVisible="False" IsHitTestVisible="False"
+                CornerRadius="{DynamicResource RadiusTileInner}" ZIndex="100" />
     </Grid>
+    </Border>
+    </Border>
 </UserControl>

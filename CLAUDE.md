@@ -17,8 +17,8 @@ dotnet test                     # tests/mTiles.Tests
 - `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, AppSettings, AppDefaults, ShellProfile, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, AiToolInfo, UserAiTool, GoalTileState, GoalFinding, GoalReviewResult, GoalClarifyResult, GoalCompletionCriteria, GoalStopReason, SolidPrinciples, AiPermissionMode, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, SpeechSettings, PhoneSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
-- `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`
-- `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), shell detection (ShellDetector), AI tools detection (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/GitIgnoreFile, DiffFormatter, FileHelper, ProtectedStringConverter, TolerantEnumConverter, TileFactory, TileTreeSerializer, TileNameGenerator, the Goal tile's engine (AiProcessRunner, AiPermissionModes, GoalWorkflowEngine, GoalPromptBuilder, GoalStatePersistence, GoalLoopPolicy, GoalTilePolicy, GoalCompletionPolicy, GoalDiffContext, CommandDisplay, CommandLineLength, GoalResponseParser, GoalStateStore, GoalTranscript, SolidPrincipleCatalog, VerifyCommandRunner, WorktreeReader), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
+- `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`. `BgCanvas` is the odd one out: it is what the tiles are laid on and the only colour here not meant to be looked at (see Split tiles architecture)
+- `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), shell detection (ShellDetector), AI tools detection (AiToolDetector), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/GitIgnoreFile, DiffFormatter, FileHelper, ProtectedStringConverter, TolerantEnumConverter, TileFactory, TileTreeSerializer, TileNameGenerator, the Goal tile's engine (AiProcessRunner, AiPermissionModes, GoalWorkflowEngine, GoalPromptBuilder, GoalStatePersistence, GoalLoopPolicy, GoalTilePolicy, GoalCompletionPolicy, GoalDiffContext, CommandDisplay, CommandLineLength, GoalResponseParser, GoalStateStore, GoalTranscript, SolidPrincipleCatalog, WorktreeReader), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
 - `Services/Database/` — DatabaseServiceManager, DbHttpServer, DiscoveryService, DbRegistry, DbLogger, QueryHandler, SqlGuard, SqlGuardProfile, SqlServerProvider, PostgreSqlProvider, SubnetScanner, IDbProvider, ClaudeLocalMdWriter
 - `Services/ShellStarter.cs` — one call that replaces whatever session a `TerminalControl` holds and hands the shell its startup script (`${tileId}` substituted, one line per `\r`). The control owns the rest: killing the old session, waiting for it, and gating the script on `ShellReady` for *that* session
 - `Services/TileLauncher.cs` — launching a terminal tile: disposes the previous launch, picks the profile's current scripts, then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it
@@ -76,11 +76,88 @@ dotnet test                     # tests/mTiles.Tests
 - **AvaloniaEdit** — text editor. Requires `StyleInclude` in App.axaml. Text sync via `Document.Changed`.
 - **Material.Icons.Avalonia** — Material Design icons. Requires `<MaterialIconStyles />` in `App.axaml` Styles. Usage: `<mi:MaterialIcon Kind="Close" />`.
 
+## Design rules
+
+The look the UI was brought to, as rules rather than history. **New UI follows these; changing one is a
+decision about the whole application, not about the screen being worked on.** Each was paid for by
+something that looked wrong on screen.
+
+**Ground and shape**
+
+- The window is **one canvas** (`BgCanvas`) with **cards** on it. A card is `BgBase`/`BgSurface`,
+  `RadiusTile`, a 1px `BorderSubtle` hairline. The workspaces panel and every tile are cards.
+- **One gutter width**, and it goes round the outside too (8px: the panel/content column, `TileNodeView.TileGap`,
+  `WorkspaceView`'s padding). A card clipped by the window frame is not a card.
+- **A card that draws an outline must not also clip.** `ClipToBounds` on the drawing `Border` clips to
+  the rounded-down bounds, so at 125%/150% desktop scale the right and bottom edges vanish and the
+  outline comes out as an L. Put the clip on an inner `Border` at `RadiusTileInner` (= outer radius less
+  the border width, or the two rounded rectangles are not concentric).
+- **One radius per role**: `RadiusTile` cards, `RadiusRow` list rows, `RadiusSm`/`RadiusMd` controls.
+  Three radii in one 240px column read as a rendering accident.
+- **Full-bleed by default.** Only a terminal's content is inset from its card (`LeafTileView.ContentInset`);
+  a tile whose content is its own chrome runs to the edge and takes the card's corners from the clip.
+  An inset leaves a square-cornered rectangle floating in a rounded card.
+
+**Colour**
+
+- Every UI colour is a **role token** via `DynamicResource`, derived from the terminal theme in
+  `ThemeBridge`. No literal hex in a view.
+- **The longer the line, the quieter the accent.** A short bar (a selected row's leading edge) takes
+  `AccentHover`; a whole perimeter takes `AccentOutline`. The same colour on ten times the length stops
+  being a marker and becomes a frame.
+- **A colour has to work at the size it is drawn.** The `TileAccent*` values were raised out of their
+  40%-lightness band when they went from a 3px bar to a 13px glyph. **Known gap:** they were chosen
+  against a dark `BgElevated` and `ThemeBridge` does not derive them, so on a light theme a header glyph
+  is a pale colour on a pale ground. The fix is the one the phase markers already use
+  (`ThemeBridge.Marker`, which pulls a colour toward the foreground when `IsDark` is false); it has not
+  been applied here yet.
+- **Selected is not hover.** Two states, two treatments — selected gets its own ground plus an accent
+  leading edge. The same brush for both makes the selection unfindable while the pointer is in the list.
+
+**Rows and lists**
+
+- **One left edge per panel.** Filter, heading and rows share a margin; scrollbars go on the right.
+- **One row height in a list.** Reserve the secondary line even when it is empty. Two heights
+  interleaved leave nothing to line up and no rhythm to scan by.
+- **The name never gives way.** In a `DockPanel` the docked child takes what it wants and the fill child
+  gets what is left, which is how a row ends up as `B…` beside a fully spelled-out branch, or a tile
+  header shows five buttons and no title. Either give the secondary thing its **own line**, or stand
+  *it* down below a width (`LeafTileView.SplitButtonsNeedWidth`).
+- **Chips are for the rare exception** — `Error`, `NOT FOUND`, `CUSTOM` — and work because you see one
+  at a time. A value present on **every** row is metadata: plain text, small, muted, on the name's own
+  left margin. Twenty boxed outlines give a column a zigzag edge and no rhythm.
+- **Say what it is, or offer to fix it.** A row that can be acted on carries the action (Create
+  repository), not a label describing the lack.
+
+**Controls and reuse**
+
+- **Reuse the class, do not restate it.** `TextBlock.section`, `Button.outlined-sm`, `Border.keycap`,
+  `StackPanel.workspace-meta` exist so a heading is a heading everywhere. A local set of font properties
+  is a second definition that will drift.
+- **Keep the state-carrying control visible; hide the rest.** An overflow `…` takes the once-a-session
+  actions; a toggle whose state the header must show (the microphone) stays out of it, because a light
+  behind a menu is not a light.
+- **A tri-state answer needs three states.** `bool?` where the check is asynchronous, or every item
+  asserts the negative until the first pass finishes.
+- **Writing to the user's disk asks first**, and an unwired `ConfirmAction` answers **no**.
+
+**Not yet brought over**: the Settings dialog and the phone/QR panel still predate these rules.
+
 ## Split tiles architecture
 
 Recursive binary tree: `LeafTileNodeViewModel` (terminal/editor) or `SplitTileNodeViewModel` (H/V + two children). `TileNodeView` manages views manually (not DataTemplate); rebuilding the tree re-parents live terminals with no bracketing, because detaching one does not end its session.
 
-`LeafTileNodeViewModel.IsActive` — `TileActivationScope` (per-workspace instance) guarantees that only one tile is active. `LeafTileView` reacts to `IsActive` — colored strip (`ActiveStrip`, 2px) at the top of the toolbar + brighter background (`BgElevated`).
+`LeafTileNodeViewModel.IsActive` — `TileActivationScope` (per-workspace instance) guarantees that only one tile is active. `LeafTileView` reacts to `IsActive` — the card's own outline turns `AccentOutline` (`TileCard`) — a muted accent, because the longer the line the quieter it has to be to carry the same weight, and the full accent that suited a 2px strip read as a blue frame once it went all the way round, the toolbar lifts to `BgElevated`, and an inactive tile's header recedes to 0.55 opacity. The outline replaced a 2px strip along the top of the toolbar, which was the right marker for a square tile in a grid of splitters and the wrong one the moment the tile became a rounded card: the radius eats the strip's ends, and what is left is a short line floating inside a corner rather than an edge. The header only — the content of an inactive tile is still being read, and dimming a running terminal because the focus is elsewhere makes every split worse than no split.
+
+**The window is one canvas with cards on it.** `MainWindow` is painted `BgCanvas`; the workspaces panel and every tile are cards on it — same ground, same `RadiusTile`, same `BorderSubtle` hairline — separated by one gutter width, which is the 8px splitter column between panel and content, `TileNodeView.TileGap` between tiles, and the padding `WorkspaceView` puts around the outside. That last one is the whole point: without it the outermost ring of cards is cut off by the window frame, and a card clipped by the title bar is not a card.
+
+**A tile is a card.** `WorkspaceView` is painted `BgCanvas` (below `BgBase`, derived in `ThemeBridge` and going the other way on a light theme, because the canvas is only ever seen in the gaps); `LeafTileView`'s outermost element is a `Border` with `RadiusTile` and a `BorderSubtle` outline, wrapping a second `Border` at `RadiusTileInner` that does the `ClipToBounds`, so nothing inside — a terminal's own background included — has to know the radius. **The two borders are not one border.** `ClipToBounds` on the border that also draws the outline clips to the rounded-down bounds rectangle, so at a fractional desktop scale (125%, 150%) the right and bottom edges fall outside their own clip and the outline renders as an L along the top and left. The panel's card has the same pair for the same reason. `TileNodeView.TileGap` is the canvas showing between two tiles and is the splitter's whole hit area, which is why that splitter carries `GridSplitter.tile-gutter`: transparent and stretched, because the gap *is* the divider and a drawn bar on top of it would be a second one (transparent rather than unset — an unset background is not hit-testable and it would stop being draggable). **A class, not the base `GridSplitter` style**, which stays a visible 2px bar: the splitters *inside* tiles — the git tile's list against its diff, the diff view's two editors — sit in `Auto` columns and take their width from it, so making the base style width-less collapsed them to zero and made them impossible to grab.
+
+**Only a terminal's content is inset from the card** (`LeafTileView.ContentInset`). A terminal is text against an edge and wants the gap; every other tile's content is its own chrome — bars, lists, a composer — and drawing that inside an inset left a square-cornered rectangle floating in a rounded card, with a sliver of card colour round the bottom corners where the two shapes disagreed. Those tiles run to the card's edge and take its corners from `ClipToBounds`.
+
+**The header gives up its split buttons before it gives up the tile's name.** In a `DockPanel` the name gets whatever the docked buttons leave, which in a narrow column was nothing: four tiles in a stack showed a row of icons each and not one name between them. `LeafTileView.ApplyHeaderWidth` stands the two split buttons down below `SplitButtonsNeedWidth`, because closing and the overflow have no other route while a split is also a drag away.
+
+Each tile wears its type's icon in the header (`Views/TileTypeIcon.cs` — the same six the empty tile's chooser offers) in its `TileAccent*` colour, set from the code-behind because both follow `ContentType`. Those six accents were raised out of the 40%-lightness band they were picked in: they used to be drawn only as a 3px bar and a 22px chooser icon, and at 13px on `BgElevated` the old values were dark smudges. **Restart shell** and **New session** moved into a `…` overflow — the two buttons here used once a session, and the two that cost something when hit by accident. The microphone stayed out of it: it is a toggle whose state the header has to show, and a light behind a menu is not a light.
 
 `TileActivationScope.SuppressActivation()` — guard (IDisposable) blocking the GotFocus → Activate cascade during programmatic Focus() and Rebuild. Used in `LeafTileView.FocusContent()` and `TileNodeView.Rebuild()`.
 
@@ -217,10 +294,10 @@ typed.
 
 **Everything else is in [`docs/GOAL.md`](docs/GOAL.md)** — the phase machine, the prompts and how they
 are fitted to a command line, the structured review and its severities, the completion criteria, the
-verify command and the per-goal SOLID switches, what a run remembers between attempts, Continue, the persistence rules, and the
-reasoning behind each. The section grew to a third of this file, which is the same argument that moved
+per-goal SOLID switches and the two health checks, what a run remembers between attempts, Continue,
+the persistence rules, and the reasoning behind each. The section grew to a third of this file, which is the same argument that moved
 dictation out: read it before touching `Services/Goal*`, `Services/WorktreeReader.cs`,
-`Services/VerifyCommandRunner.cs`, `Services/CommandDisplay.cs` or `ViewModels/Goal*` — the last of
+`Services/CommandDisplay.cs` or `ViewModels/Goal*` — the last of
 which is a wider glob than it looks: `GoalCriteriaEditor`, `GoalBadge`, `GoalSolidToggle` and
 `GoalQuestionAnswer` are view models of their own, not part of the tile's.
 
@@ -396,9 +473,27 @@ Consequences worth knowing: **the app edits a file in the user's repository, and
 
 `MainWindow` caches `WorkspaceView` instances in `Dictionary<string, WorkspaceView>`. Switching workspaces via `IsVisible` toggle instead of DataTemplate — terminals are not killed/recreated. `WorkspaceRemoved` event clears the cache and removes the view from the visual tree.
 
-## Workspace panel — branch names
+## Workspace panel
 
-`WorkspaceItemViewModel` — wrapper for `Workspace` with `ObservableProperty BranchName`. The workspace panel displays the branch name next to the path (SourceBranch icon + name). `DispatcherTimer` polls `GitService.GetBranchNameAsync` every 30s (static method, creates a temporary `GitCommandRunner`). Dispose in `MainWindowViewModel.OnClosing`.
+`WorkspaceItemViewModel` — wrapper for `Workspace` with `ObservableProperty BranchName`. `DispatcherTimer` polls `GitService.GetBranchNameAsync` every 30s (static method, creates a temporary `GitCommandRunner`). Dispose in `MainWindowViewModel.OnClosing`.
+
+**The panel has one left edge**: the scrollbar is on the right, where it does not push the list out of line with the filter box above it.
+
+**The panel is a card**, laid on the same canvas as the tiles and with the same margin, radius and hairline. It used to be the one flat slab in the application, running from the title bar to the taskbar beside a column of cards, which read as two applications sharing a window. The bottom actions (Settings, phone bridge, update) are the application's rather than the list's, so a hairline separates them; the heading uses the application's own `TextBlock.section` class rather than a local set of font properties; and both levels of row share one `RadiusRow`, because nesting is said by the indent and the guide beside it and three radii in a 240px column say nothing at all.
+
+**Selected is not hover.** Both were `InteractiveHover`, so pointing at a neighbour made it impossible to say which workspace was open — the one thing the list exists to tell you. Selected now gets `BgElevated` and an accent down its leading edge, the marker the tiles already use for the same idea.
+
+A workspace is **one row: its name, and its branch on a second line under it** — and deliberately nothing else. What has stood there and been taken back out — the directory, an open/closed marker, a disclosure chevron and a count of the tiles under it, with the list of those tiles under that — was in every case either already on screen somewhere better or competing with the name for a row 240px wide, and the row ended up showing a count and an ellipsis where the name should have been. The directory is in the tooltip, which is where a path that long belongs.
+
+**The second line is what settles the competition.** Side by side, the name and the branch bid for the same 240px and the name kept losing — it was the one that had to give way, so a row came out as "B…" beside a fully spelled-out `feature/ui-redesign`. A line each costs a few pixels of height and ends the argument, which is why there is no longer any width below which the branch is hidden.
+
+**The meta line is always there and always the same height** (a fixed-height `Panel` holding it), whatever it has to say. Showing it only for repositories gave the list two row heights interleaved at random, which is the one thing a column of twenty names cannot afford — nothing lines up and the eye has no rhythm to scan by. Reserving the line also covers the moment before the check has answered.
+
+A workspace that is **not** a repository gets an offer in that line rather than a label: **Create repository** runs `git init` after a confirmation (`WorkspacesPanelViewModel.CreateRepositoryCommand`). Saying only "no repository" would leave the user to go and find a terminal to type the answer into; asking first is because `git init` writes into somebody's folder from a row they are otherwise clicking to switch workspaces, and an unwired `ConfirmAction` answers **no**. `WorkspaceItemViewModel.HasRepository` is `bool?` and the third state is the one that matters: the check is asynchronous, and a plain `bool` would have every repository in the list announce it had none until the first pass finished.
+
+**Plain text, not a chip** (`StackPanel.workspace-meta`). A chip is the language this application uses for the rare exception — the AI tool that is NOT FOUND, the database tile's Error — and it works because you see one at a time. A value present on every row is not an exception, it is metadata: twenty boxed outlines down the column gave the list a zigzag right edge and no rhythm to read it by, and put a third frame inside a card inside a canvas. It sits on **the same left margin as the name**, which is what leaves the panel one left edge to read down; right-aligned it had the same disconnected look the chip did.
+
+**Selected is not hover.** Both were `InteractiveHover`, so pointing at a neighbour made it impossible to say which workspace was open — the one thing the list exists to tell you. Selected gets `BgElevated` and an accent down its leading edge, the marker the tiles already use for the same idea.
 
 ## InputDialog
 

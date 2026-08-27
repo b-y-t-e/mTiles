@@ -330,10 +330,19 @@ public sealed partial class GitService(string workingDirectory, string gitPath =
                      .ToList();
     }
 
+    /// <summary>The branch this directory is on, or empty if there is none to name.</summary>
+    /// <remarks>
+    /// <c>branch --show-current</c> rather than <c>rev-parse --abbrev-ref HEAD</c>, which cannot answer
+    /// for a repository that has no commits yet: HEAD points at a branch that does not exist, rev-parse
+    /// exits non-zero and prints nothing to stdout. That is exactly the state a repository is in the
+    /// moment the panel creates one, so the row that had just offered to create it came back blank.
+    /// <c>--show-current</c> reads the ref HEAD names and prints it whether or not anything is on it;
+    /// it is also empty on a detached HEAD, which is correct — there is no branch to show.
+    /// </remarks>
     public static async Task<string> GetBranchNameAsync(string directory, string gitPath = "git")
     {
         var runner = new GitCommandRunner(directory, gitPath);
-        var result = await runner.RunAsync("rev-parse --abbrev-ref HEAD", throwOnError: false);
+        var result = await runner.RunAsync("branch --show-current", throwOnError: false);
         var branch = result.Trim();
         return string.IsNullOrEmpty(branch) || branch.Contains(' ') ? "" : branch;
     }

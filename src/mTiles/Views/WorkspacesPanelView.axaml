@@ -3,9 +3,10 @@
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
              xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:views="using:mTiles.Views"
              x:Class="mTiles.Views.WorkspacesPanelView"
              x:DataType="vm:WorkspacesPanelViewModel"
-             Background="{DynamicResource BgSurface}">
+             Margin="8,8,0,8">
 
     <UserControl.Styles>
         <Style Selector="ScrollViewer.scroll-left">
@@ -29,10 +30,18 @@
         </Style>
     </UserControl.Styles>
 
+    <!-- A card, like the tiles: same ground, same radius, same hairline. The panel used to be the one
+         flat slab in the application, running from the title bar to the taskbar beside a column of
+         cards — which read as two applications sharing a window rather than as one. -->
+    <Border Background="{DynamicResource BgSurface}"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="{DynamicResource BorderThin}"
+            CornerRadius="{DynamicResource RadiusTile}">
+    <Border CornerRadius="{DynamicResource RadiusTileInner}" ClipToBounds="True">
     <Panel>
         <!-- ═══ EXPANDED MODE ═══ -->
         <DockPanel x:Name="ExpandedPanel">
-            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="2" Margin="8,4,8,6">
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="2" Margin="8,6,8,6">
                 <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleSettingsCommand}"
                         ToolTip.Placement="Right"
@@ -56,11 +65,16 @@
                 </Button>
             </StackPanel>
 
+            <Border DockPanel.Dock="Bottom"
+                    Height="1"
+                    Margin="8,0"
+                    Background="{DynamicResource BorderSubtle}" />
+
             <TextBox DockPanel.Dock="Top"
                      Text="{Binding FilterText, Mode=TwoWay}"
                      PlaceholderText="Filter..."
                      IsVisible="{Binding ShowFilter}"
-                     Margin="5,7,5,0"
+                     Margin="10,10,10,0"
                      Padding="9,6"
                      FontSize="{DynamicResource FontSm}">
                 <TextBox.InnerRightContent>
@@ -74,60 +88,99 @@
                 </TextBox.InnerRightContent>
             </TextBox>
 
-            <ScrollViewer Classes="scroll-left"
-                          HorizontalScrollBarVisibility="Disabled"
+            <!-- The scrollbar is on the right, where it does not share an axis with the status markers
+                 and does not push the list out of line with the filter box above it. The panel has one
+                 left edge now; everything in it starts there. -->
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto"
-                          Margin="1, 7, 0, 0">
+                          Margin="0,8,0,0">
                 <StackPanel Margin="0">
+                    <!-- The section's own heading, with the add button on it. "Workspace" used to be a
+                         full-width row at the foot of the list, which put it below the last workspace
+                         and made a long list end in something that was not one. A heading also gives
+                         the list an edge to start at. -->
+                    <DockPanel Margin="19,0,10,4">
+                        <Button DockPanel.Dock="Right"
+                                Classes="ghost"
+                                Command="{Binding AddWorkspaceCommand}"
+                                Padding="3" MinWidth="18" MinHeight="18"
+                                Cursor="Hand"
+                                ToolTip.Placement="Right"
+                                ToolTip.Tip="Add Workspace">
+                            <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
+                        </Button>
+                        <TextBlock Text="Workspaces"
+                                   Classes="section"
+                                   Margin="0"
+                                   VerticalAlignment="Center" />
+                    </DockPanel>
+
                     <ItemsControl x:Name="WorkspaceList"
                                   ItemsSource="{Binding FilteredWorkspaces}"
-                                  Margin="3, 0 , 4 , 4">
+                                  Margin="8,0,8,4">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="vm:WorkspaceItemViewModel">
+                                <!-- Two things, and they are the two a workspace is chosen by: its
+                                     name and the branch it is on. Everything else that has stood here —
+                                     the directory, an open/closed marker, a disclosure and a count of
+                                     the tiles under it — was either already on screen somewhere better
+                                     or competing with the name for a row 240px wide. The directory is
+                                     in the tooltip, which is where a path that long belongs.
+
+                                     **A line each, both on the same left margin.** Side by side, the
+                                     name and the branch bid for the same 240px and the name kept losing
+                                     — it was the one that had to give way, so a row came out as "B…"
+                                     beside a fully spelled-out `feature/ui-redesign`. A second line
+                                     ends the argument for a few pixels of height; putting it on the
+                                     same margin is what leaves the panel one left edge to read down,
+                                     which is the only thing that makes a list this long scannable. -->
                                 <Border Classes="workspace-item"
                                         Classes.workspace-item-selected="{Binding IsSelected}"
-                                        Padding="10,6"
-                                        Margin="2,0 , 2 , 4"
-                                        CornerRadius="{DynamicResource RadiusLg}"
+                                        Padding="9,5"
+                                        Margin="0,0,0,1"
+                                        CornerRadius="{DynamicResource RadiusRow}"
                                         Cursor="Hand"
+                                        ToolTip.Placement="Right"
+                                        ToolTip.Tip="{Binding DirectoryPath}"
                                         PointerPressed="WorkspaceItem_PointerPressed">
                                     <StackPanel Spacing="1">
                                         <TextBlock Text="{Binding Name}" FontWeight="Medium"
+                                                   TextTrimming="CharacterEllipsis"
                                                    Foreground="{DynamicResource TextPrimary}" />
-                                        <DockPanel>
-                                            <StackPanel DockPanel.Dock="Right"
-                                                        Orientation="Horizontal" Spacing="3"
-                                                        IsVisible="{Binding BranchName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                                        VerticalAlignment="Center"
-                                                        Margin="6,0,0,0">
-                                                <mi:MaterialIcon Kind="SourceBranch" Width="10" Height="10"
-                                                                 Foreground="{DynamicResource AccentDefault}" />
-                                                <TextBlock Text="{Binding BranchName}"
-                                                           FontSize="{DynamicResource FontXs}"
-                                                           Foreground="{DynamicResource AccentDefault}" />
+                                        <!-- The meta line is always here and always the same height,
+                                             whatever it has to say. Showing it only for repositories
+                                             gave the list two row heights interleaved at random, which
+                                             is the one thing a column of twenty names cannot afford:
+                                             nothing lines up and the eye has no rhythm to scan by.
+                                             Reserving the line also covers the moment before the check
+                                             has answered, when there is nothing truthful to put in it. -->
+                                        <Panel Height="15">
+                                            <StackPanel Classes="workspace-meta"
+                                                        IsVisible="{Binding BranchName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                <mi:MaterialIcon Kind="SourceBranch" />
+                                                <TextBlock Text="{Binding BranchName}" />
                                             </StackPanel>
-                                            <TextBlock Text="{Binding DirectoryPath}"
-                                                       Foreground="{DynamicResource TextMuted}"
-                                                       FontSize="{DynamicResource UiFontSizeSm}"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Opacity="0.8" />
-                                        </DockPanel>
+                                            <!-- An offer, not a label. A workspace without a repository
+                                                 is the one row here that can be acted on from the panel,
+                                                 and saying only "no repository" would leave the user to
+                                                 go and find a terminal to type the answer into. -->
+                                            <Button Classes="workspace-meta-action"
+                                                    IsVisible="{Binding HasNoRepository}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:WorkspacesPanelViewModel)DataContext).CreateRepositoryCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Placement="Right"
+                                                    ToolTip.Tip="Run git init here">
+                                                <StackPanel Classes="workspace-meta">
+                                                    <mi:MaterialIcon Kind="SourceBranchPlus" />
+                                                    <TextBlock Text="Create repository" />
+                                                </StackPanel>
+                                            </Button>
+                                        </Panel>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-
-                    <Button Classes="add-workspace"
-                            Command="{Binding AddWorkspaceCommand}"
-                            Margin="8,0, 8, 2"
-                            HorizontalAlignment="Stretch"
-                            Cursor="Hand">
-                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                            <mi:MaterialIcon Kind="Plus" Width="16" Height="16" />
-                            <TextBlock Text="Workspace" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
                 </StackPanel>
             </ScrollViewer>
         </DockPanel>
@@ -199,4 +252,6 @@
             </ScrollViewer>
         </DockPanel>
     </Panel>
+    </Border>
+    </Border>
 </UserControl>

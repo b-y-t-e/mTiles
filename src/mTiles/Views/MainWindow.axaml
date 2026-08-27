@@ -7,13 +7,18 @@
         x:DataType="vm:MainWindowViewModel"
         Title="mTiles"
         Icon="/Assets/mtiles-icon.png"
-        Background="{DynamicResource BgBase}">
+        Background="{DynamicResource BgCanvas}">
 
     <Panel>
         <Grid x:Name="MainGrid">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="240" MinWidth="40" MaxWidth="500" />
-                <ColumnDefinition Width="3" />
+                <!-- MinWidth leaves the collapsed strip a card 40px wide, which is what its 32px icon buttons
+                     need once the panel's own 8px gutter and the card's hairline are taken off. At the
+                     old 40 the buttons were being clipped by the card they had just been put inside. -->
+                <ColumnDefinition Width="240" MinWidth="56" MaxWidth="500" />
+                <!-- The same gutter the tiles have between them, for the same reason: the window is one
+                     canvas with cards on it, and the panel is one of the cards. -->
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
@@ -23,6 +28,7 @@
 
             <!-- Resizer -->
             <GridSplitter x:Name="PanelSplitter" Grid.Column="1"
+                          Classes="tile-gutter"
                           ResizeDirection="Columns" />
 
             <!-- Workspace content -->

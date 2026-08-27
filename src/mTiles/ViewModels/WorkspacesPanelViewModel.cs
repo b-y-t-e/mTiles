@@ -50,6 +50,7 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
 
     public Func<Task<string?>>? FolderPicker { get; set; }
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
+    public Func<string, string, Task>? ShowError { get; set; }
     public Action? FocusWorkspaceRequested { get; set; }
 
     public WorkspacesPanelViewModel(WorkspaceService workspaceService, SettingsService? settingsService = null)
@@ -95,12 +96,51 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
         {
             try
             {
+                // Answered from the directory rather than from the branch name, because an empty branch
+                // has two causes that must not look alike: a directory with no repository in it, and a
+                // repository whose git call failed or has not returned yet.
+                item.HasRepository = ResolveGitDir(item.DirectoryPath) != null;
+
                 var branch = await GitService.GetBranchNameAsync(item.DirectoryPath, gitPath);
                 if (branch != item.BranchName)
                     item.BranchName = branch;
             }
             catch (Exception ex) { Trace.TraceWarning("Branch lookup failed for {0}: {1}", item.DirectoryPath, ex.Message); }
         }
+    }
+
+    /// <summary>Creates a repository in a workspace that has none.</summary>
+    /// <remarks>
+    /// <para>Asks first. <c>git init</c> writes a directory into somebody's folder, and the offer sits
+    /// on a row the user is otherwise clicking to switch workspaces — a mis-click must not leave a
+    /// repository behind. An unwired <see cref="ConfirmAction"/> answers no, because writing to a
+    /// user's directory is not something to do on the strength of a question nobody was asked.</para>
+    /// <para>The refresh afterwards is what replaces the offer with the new branch; without it the row
+    /// keeps offering to create the repository that now exists.</para>
+    /// </remarks>
+    [RelayCommand]
+    private async Task CreateRepositoryAsync(WorkspaceItemViewModel? item)
+    {
+        if (item is not { HasNoRepository: true }) return;
+        if (ConfirmAction == null) return;
+        if (!await ConfirmAction($"Create a git repository in \"{item.Name}\"?\n\n{item.DirectoryPath}"))
+            return;
+
+        try
+        {
+            var gitPath = GitService.ResolveGitPath(_settingsService?.Settings.GitPath);
+            await new GitCommandRunner(item.DirectoryPath, gitPath).RunAsync("init", throwOnError: true);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("git init failed for {0}: {1}", item.DirectoryPath, ex.Message);
+            if (ShowError != null)
+                await ShowError("Create repository", ex.Message);
+            return;
+        }
+
+        StartWatchingHead(item);
+        await RefreshAllBranchesAsync();
     }
 
     private static string? ResolveGitDir(string workingDirectory)
@@ -215,6 +255,10 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
         SelectedWorkspace = item;
 
         var gitPath = GitService.ResolveGitPath(_settingsService?.Settings.GitPath);
+        // Answered here and not left to the thirty-second refresh: adding a folder that is not a
+        // repository is exactly when the offer to create one is worth having, and until this is set the
+        // row shows an empty meta line instead — a workspace the user just picked, saying nothing.
+        item.HasRepository = ResolveGitDir(item.DirectoryPath) != null;
         try { item.BranchName = await GitService.GetBranchNameAsync(item.DirectoryPath, gitPath); }
         catch (Exception ex) { Trace.TraceWarning("Branch lookup failed: {0}", ex.Message); }
 

@@ -113,6 +113,13 @@ public partial class WorkspacesPanelView : UserControl
                 return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
             };
 
+            vm.ShowError = async (title, message) =>
+            {
+                if (TopLevel.GetTopLevel(this) is not Window window) return;
+                await MessageBoxManager
+                    .GetMessageBoxStandard(title, message, ButtonEnum.Ok, Icon.Error)
+                    .ShowWindowDialogAsync(window);
+            };
             vm.ConfirmAction = async message =>
             {
                 var window = TopLevel.GetTopLevel(this) as Window;
