@@ -374,6 +374,35 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// shows nothing at all after a clean review, and a severity added later needs no work here.
     /// </summary>
     public ObservableCollection<GoalBadge> Badges { get; } = [];
+
+    /// <summary>
+    /// The badge whose findings are being shown, or null when nothing is open.
+    /// </summary>
+    /// <remarks>
+    /// One property rather than a flag beside a list: what is on screen and whether anything is on
+    /// screen are the same question, and two properties answering it is one of them going stale.
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsShowingFindings))]
+    private GoalBadge? _openBadge;
+
+    /// <summary>Whether the findings dialog is up.</summary>
+    public bool IsShowingFindings => OpenBadge is not null;
+
+    /// <summary>Opens a badge's findings.</summary>
+    /// <remarks>
+    /// Refuses a badge with nothing in it rather than opening an empty dialog. That badge is also not
+    /// hit-testable, so this is the second of two answers to the same question - deliberately, because
+    /// the first lives in markup and the one that matters is the one a command cannot be talked out of.
+    /// </remarks>
+    [RelayCommand]
+    private void OpenFindings(GoalBadge? badge)
+    {
+        if (badge?.HasFindings == true) OpenBadge = badge;
+    }
+
+    [RelayCommand]
+    private void CloseFindings() => OpenBadge = null;
     public ObservableCollection<string> AvailableTools { get; } = [];
 
     /// <summary>The permission modes the strip offers, as words.</summary>
@@ -1491,6 +1520,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// </param>
     private void ShowBadges(IReadOnlyList<GoalFinding>? findings = null)
     {
+        // Whatever was open belonged to the review being replaced. Leaving it up would have the dialog
+        // outlive its own badge: the strip would say 2E from the new review and the dialog would still
+        // be listing the errors of the one before it, with no way for the reader to tell.
+        CloseFindings();
         Badges.Clear();
 
         // Positional, and only trusted at exactly the right length. The array is saved to disk, so a

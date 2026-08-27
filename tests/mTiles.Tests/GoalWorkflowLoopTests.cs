@@ -968,6 +968,14 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Equal(["Rename"], Titles(first, GoalSeverity.Suggestion));
             Assert.All(first.Badges, b => Assert.True(b.HasFindings));
 
+            // And pressing one opens the dialog on that badge, not on the strip as a whole.
+            Assert.False(first.IsShowingFindings);
+            first.OpenFindingsCommand.Execute(first.Badges.Single(b => b.IsBlocker));
+            Assert.True(first.IsShowingFindings);
+            Assert.Equal(["Unacceptable"], first.OpenBadge!.Findings.Select(f => f.Title));
+            first.CloseFindingsCommand.Execute(null);
+            Assert.False(first.IsShowingFindings);
+
             first.Dispose();
 
             using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
@@ -990,7 +998,7 @@ public class GoalWorkflowLoopTests : IDisposable
         vm.Badges.Single(b => b.Severity == severity).Findings.Select(f => f.Title);
 
     [Fact]
-    public void A_badge_from_a_transcript_without_findings_has_nothing_to_open()
+    public void A_badge_with_nothing_behind_it_does_not_open()
     {
         OnUiThread(async () =>
         {
@@ -1013,8 +1021,18 @@ public class GoalWorkflowLoopTests : IDisposable
             vm.InputText = "ok";
             await vm.SubmitCommand.ExecuteAsync(null);
 
-            // The badge still says what it counted; it just does not offer a popup with nothing in it.
-            Assert.All(vm.Badges, b => Assert.False(b.HasFindings));
+            // An unstructured review is counted as nothing, so there is no badge to press at all.
+            Assert.Empty(vm.Badges);
+
+            // And the badge that can exist without findings — one restored from a goal file written
+            // before they were kept — refuses to open rather than showing an empty dialog. The markup
+            // also makes it unpressable; this is the half a command cannot be talked out of.
+            vm.OpenFindingsCommand.Execute(
+                new GoalBadge { Severity = GoalSeverity.Error, Count = 2 });
+            Assert.False(vm.IsShowingFindings);
+
+            vm.OpenFindingsCommand.Execute(null);
+            Assert.False(vm.IsShowingFindings);
             vm.Dispose();
         });
     }

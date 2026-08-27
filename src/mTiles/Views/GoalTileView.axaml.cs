@@ -24,6 +24,38 @@ public partial class GoalTileView : UserControl
     public GoalTileView()
     {
         InitializeComponent();
+
+        // Tunnelling, because the dialog is up over a tile whose composer and answer boxes have their
+        // own Escape handling and would otherwise take the key first. The bubble phase would reach
+        // this only if nothing below it wanted the key, which is exactly backwards: while a modal is
+        // open it is the modal that Escape belongs to.
+        AddHandler(KeyDownEvent, OnTileKeyDown, RoutingStrategies.Tunnel);
+    }
+
+    /// <summary>Escape closes the findings dialog, and only when one is open.</summary>
+    /// <remarks>
+    /// Marked handled only when it actually closed something. A tile that swallowed Escape whether or
+    /// not it had a use for it would take it from the composer, where it clears the box.
+    /// </remarks>
+    private void OnTileKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape) return;
+        if (DataContext is not GoalTileViewModel { IsShowingFindings: true } vm) return;
+
+        vm.CloseFindingsCommand.Execute(null);
+        e.Handled = true;
+    }
+
+    /// <summary>Clicking the scrim closes the dialog, as it does on every other modal here.</summary>
+    /// <remarks>
+    /// The scrim is its own element covering the tile, so a press that reaches it is a press outside
+    /// the card - no need to ask whether the source is inside, the way a dialog that draws its own
+    /// backdrop has to.
+    /// </remarks>
+    private void FindingsScrim_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is GoalTileViewModel vm) vm.CloseFindingsCommand.Execute(null);
+        e.Handled = true;
     }
 
     protected override void OnDataContextChanged(EventArgs e)

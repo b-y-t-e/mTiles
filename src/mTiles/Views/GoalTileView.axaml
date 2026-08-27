@@ -253,24 +253,15 @@
             <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
         </Style>
 
-        <!-- A card, by the same rules as every other card here: BgElevated because it is lifted off
-             the one underneath it, the hairline, RadiusTile. Its padding is nil so the head's rule can
-             run the full width of the popup - an inset separator is a line floating in a box - and
-             each part inside sets its own. -->
-        <Style Selector="FlyoutPresenter.badge-flyout">
-            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusTile}" />
-            <Setter Property="Padding" Value="0" />
-        </Style>
-        <!-- The hairline is what makes this a head rather than a first line of the list. -->
-        <Style Selector="Border.badge-flyout-head">
+        <!-- The head names what was opened and carries the way out of it. A hairline rather than a
+             gap, so the title cannot be read as the first line of the list under it; the card's own
+             padding is nil so that rule runs the full width, and each part inside sets its own. -->
+        <Style Selector="Border.findings-head">
             <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
             <Setter Property="BorderThickness" Value="{DynamicResource BorderBottom}" />
-            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="Padding" Value="14,8,8,8" />
         </Style>
-        <Style Selector="TextBlock.badge-flyout-title">
+        <Style Selector="TextBlock.findings-title">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
             <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
             <Setter Property="FontWeight" Value="SemiBold" />
@@ -670,6 +661,7 @@
         </Style>
     </UserControl.Styles>
 
+    <Panel>
     <DockPanel Background="{DynamicResource BgBase}">
 
         <!-- ======== Status strip: which tool, which phase, and the three things you can do ======== -->
@@ -755,41 +747,15 @@
                                      count is exactly what it still knows. -->
                                 <Button Classes="badge-button"
                                         IsHitTestVisible="{Binding HasFindings}"
-                                        ToolTip.Tip="{Binding Tooltip}">
+                                        ToolTip.Tip="{Binding Tooltip}"
+                                        Command="{Binding $parent[UserControl].((vm:GoalTileViewModel)DataContext).OpenFindingsCommand}"
+                                        CommandParameter="{Binding}">
                                     <TextBlock Classes="badge"
                                                Classes.badge-blocker="{Binding IsBlocker}"
                                                Classes.badge-error="{Binding IsError}"
                                                Classes.badge-warning="{Binding IsWarning}"
                                                Classes.badge-suggestion="{Binding IsSuggestion}"
                                                Text="{Binding Text}" />
-                                    <Button.Flyout>
-                                        <Flyout Placement="BottomEdgeAlignedRight"
-                                                FlyoutPresenterClasses="badge-flyout">
-                                            <!-- MinWidth because a one-line finding otherwise opens a
-                                                 sliver of a popup beside a three-glyph badge, which
-                                                 reads as something that failed to load. -->
-                                            <DockPanel MinWidth="300" MaxWidth="460">
-                                                <!-- A popup anchored to a three-glyph label has to
-                                                     name what is in it. Docked outside the scroller,
-                                                     so what the reader opened never scrolls away from
-                                                     the findings it is naming. -->
-                                                <Border DockPanel.Dock="Top" Classes="badge-flyout-head">
-                                                    <TextBlock Classes="badge-flyout-title"
-                                                               Text="{Binding Tooltip}" />
-                                                </Border>
-                                                <!-- Capped and scrolled: a review can find a dozen
-                                                     things of one severity, and a popup taller than
-                                                     the tile has its last finding off screen with no
-                                                     way to reach it. -->
-                                                <ScrollViewer MaxHeight="340"
-                                                              Padding="12,10"
-                                                              HorizontalScrollBarVisibility="Disabled">
-                                                    <ItemsControl ItemsSource="{Binding Findings}"
-                                                                  ItemTemplate="{StaticResource FindingTemplate}" />
-                                                </ScrollViewer>
-                                            </DockPanel>
-                                        </Flyout>
-                                    </Button.Flyout>
                                 </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -1279,4 +1245,51 @@
         </Border>
         </Grid>
     </DockPanel>
+
+    <!-- ======== A badge's findings ========
+         A dialog over the tile, in the language the rest of the application uses for one: a scrim, a
+         modal-card, a head naming what was opened and a close button, Escape and a click outside to
+         dismiss. It began as a flyout hanging off the badge, which is the wrong control for this - a
+         flyout is for a menu or a hint, it opens at the size of its content beside a three-glyph label
+         near the tile's top edge, and a review with a dozen errors in it is a document to read, not a
+         hint to glance at.
+
+         Over the tile rather than over the window, which is the one thing it does differently from
+         Settings: these findings are one tile's, and in a split a window-wide dialog would dim three
+         other tiles to answer a question asked in the fourth.
+
+         Centred with a margin rather than stretched: with an alignment of Center the card is measured
+         against the tile less that margin, so a short list is a small dialog and a long one fills the
+         tile and scrolls inside itself. -->
+    <Panel IsVisible="{Binding IsShowingFindings}" ZIndex="100">
+        <Border Background="{DynamicResource OverlayModal}"
+                PointerPressed="FindingsScrim_PointerPressed" />
+        <Border Classes="modal-card"
+                Margin="18"
+                MinWidth="300"
+                MaxWidth="620"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" Classes="findings-head">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right"
+                                Classes="tile-btn"
+                                Command="{Binding CloseFindingsCommand}"
+                                ToolTip.Tip="Close">
+                            <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
+                        </Button>
+                        <TextBlock Classes="findings-title"
+                                   VerticalAlignment="Center"
+                                   Text="{Binding OpenBadge.Tooltip}" />
+                    </DockPanel>
+                </Border>
+                <ScrollViewer Padding="14,12" HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{Binding OpenBadge.Findings}"
+                                  ItemTemplate="{StaticResource FindingTemplate}" />
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Panel>
+    </Panel>
 </UserControl>
