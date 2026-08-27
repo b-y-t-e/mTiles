@@ -43,6 +43,17 @@
             </Panel>
         </Grid>
 
+        <!-- ======== The ground under a dialog window ========
+             The QR panel is a Window rather than an overlay in this one, because it has to be readable
+             from arm's length while somebody holds a phone up to it. That costs it the one thing the
+             overlay dialogs get for free: the application behind them going quiet. Two modals in one
+             application, one over a dimmed window and one over a live one, read as two applications.
+
+             Scrim only, no card - the dialog draws itself, in its own window, on top of this. -->
+        <Border x:Name="DialogScrim"
+                IsVisible="False"
+                Background="{DynamicResource OverlayModal}" />
+
         <!-- Settings overlay -->
         <Panel IsVisible="{Binding IsSettingsOpen}">
             <Border Background="{DynamicResource OverlayModal}"

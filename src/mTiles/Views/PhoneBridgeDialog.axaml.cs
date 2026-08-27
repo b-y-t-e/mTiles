@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -57,8 +58,71 @@ public partial class PhoneBridgeDialog : Window
             }
         };
 
+        // CenterOwner places the window once, at the height it opens with. This one grows: a
+        // firewall verdict, a Tailscale hint or a startup failure each add a block to it, and
+        // SizeToContent grows a window downwards from where it already is - so the bottom of the panel,
+        // which is where those messages arrive, went off the bottom of the screen exactly when there
+        // was something new to read there. Re-centred on every size change, and capped to the screen
+        // it is on, so it cannot grow past what the screen can show in the first place.
+        window.Opened += (_, _) => KeepOnScreen(window);
+        window.SizeChanged += (_, _) => KeepOnScreen(window);
+
         await window.ShowDialog(owner);
     }
+
+    /// <summary>Caps the window to its screen and centres it there.</summary>
+    /// <remarks>
+    /// <para>Centred on the screen's working area rather than on the owner: the owner can be
+    /// half off screen, maximised across two monitors, or smaller than this panel, and centring on it
+    /// then puts a window the user has to read at arm's length half under a taskbar. The screen it is
+    /// already on is the one the user is looking at.</para>
+    /// <para>The cap is applied before the position is worked out, because a window taller than the
+    /// screen has no position that shows all of it - and <see cref="Window.MaxHeight"/> in DIPs against
+    /// a working area in device pixels is the one conversion here that has to be right on a scaled
+    /// display.</para>
+    /// </remarks>
+    private static void KeepOnScreen(Window window)
+    {
+        if (window.Screens.ScreenFromWindow(window) is not { } screen) return;
+
+        var area = screen.WorkingArea;
+        var scaling = screen.Scaling <= 0 ? 1 : screen.Scaling;
+
+        // Room for the frame the window manager draws around this, which is not in Bounds.
+        var cap = area.Height / scaling - 48;
+        if (cap > 0) window.MaxHeight = Math.Min(TallestUseful, cap);
+
+        var size = PixelSize.FromSize(window.FrameSize ?? window.Bounds.Size, scaling);
+        var at = window.Position;
+
+        // Only when it has to. This runs on every size change, and a panel that grew by one firewall
+        // message while the user had dragged it somewhere they wanted it would otherwise jump back to
+        // the middle — a window moving under the pointer for a reason nobody can see. Fits where it is:
+        // leave it. Hangs off an edge: put it back in the middle, which is the one position that is
+        // right whatever the size.
+        var fits = at.X >= area.X && at.Y >= area.Y
+                   && at.X + size.Width <= area.X + area.Width
+                   && at.Y + size.Height <= area.Y + area.Height;
+
+        if (fits) return;
+
+        window.Position = new PixelPoint(
+            area.X + Math.Max(0, (area.Width - size.Width) / 2),
+            area.Y + Math.Max(0, (area.Height - size.Height) / 2));
+    }
+
+    /// <summary>
+    /// Beyond this the panel is not easier to read, only longer to scan - the codes are at the top and
+    /// the troubleshooting below them scrolls.
+    /// </summary>
+    /// <remarks>
+    /// The same number is in the markup, and deliberately: this method returns early when the window
+    /// manager will not say which screen the window is on, and without a cap in the XAML a panel that
+    /// grew — a firewall verdict, a Tailscale hint — would then have nothing at all to stop it. Two
+    /// copies of a constant is the smaller fault; the other one is a window taller than the desktop
+    /// with its own close button below the edge of it.
+    /// </remarks>
+    private const double TallestUseful = 880;
 
     protected override void OnKeyDown(KeyEventArgs e)
     {

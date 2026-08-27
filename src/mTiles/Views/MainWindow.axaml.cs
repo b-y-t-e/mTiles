@@ -69,7 +69,14 @@ public partial class MainWindow : Window
                 vm.CurrentWorkspace?.FocusActiveTile();
             if (vm.PhoneBridge is { } phoneBridge)
             {
-                vm.ShowPhoneBridge = () => PhoneBridgeDialog.ShowAsync(this, phoneBridge);
+                // The scrim goes up with the window and down in a finally: a dialog that failed to
+                // open must not leave the application behind a dark sheet it cannot dismiss.
+                vm.ShowPhoneBridge = async () =>
+                {
+                    DialogScrim.IsVisible = true;
+                    try { await PhoneBridgeDialog.ShowAsync(this, phoneBridge); }
+                    finally { DialogScrim.IsVisible = false; }
+                };
 
                 // The same thing DictationHotkeys resolves, so a transcript arriving from a phone lands
                 // where one arriving from Alt+Space would: the focused text box first, the tile after.
