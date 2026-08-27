@@ -266,30 +266,15 @@ public partial class LeafTileView : UserControl
             };
             label.Bind(TextBlock.FontSizeProperty, label.GetResourceObservable("FontSm"));
 
-            var accent = new Border
-            {
-                Width = 3, CornerRadius = new CornerRadius(2),
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
-                Margin = new Thickness(-16, 0, 0, 0),
-            };
-            accent.Bind(Border.BackgroundProperty, accent.GetResourceObservable("TileAccentTerminal"));
-
+            // No accent rail: the glyph carries the colour, here as on the six cards in the markup.
             var btn = new Button { Classes = { "chooser-card" } };
             btn.Command = leaf.SelectProfileCommand;
             btn.CommandParameter = profile;
-            btn.Content = new Grid
+            btn.Content = new StackPanel
             {
-                Children =
-                {
-                    accent,
-                    new StackPanel
-                    {
-                        Spacing = 4,
-                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                        Children = { icon, label }
-                    }
-                }
+                Spacing = 7,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Children = { icon, label }
             };
             ProfileChooser.Children.Add(btn);
         }

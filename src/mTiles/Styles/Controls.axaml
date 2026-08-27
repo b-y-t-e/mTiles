@@ -218,18 +218,32 @@
         </Style.Animations>
     </Style>
 
-    <!-- ======== BUTTON: chooser-card (tile type picker) ======== -->
+    <!-- ======== BUTTON: chooser-card (tile type picker) ========
+         A card, so it takes the card radius the rest of the application uses. It was RadiusLg, which
+         is a radius nothing else here wears: six of them in a row read as controls borrowed from
+         somewhere else and dropped into the tile.
+
+         The colour is on the icon and nowhere else. Each card used to carry a 3px accent rail pulled
+         outside its own padding as well - the same hue, said twice, and the second one a full-height
+         line down the left edge of every card in the row. The longer the line the quieter the accent
+         has to be, and six of them side by side gave the row a striped edge with no rhythm to read it
+         by. The glyph is the marker; that is what it is for.
+
+         The label is primary text. TextSecondary is the shade for a fact beside something, and on a
+         control it made every one of these look disabled. -->
     <Style Selector="Button.chooser-card">
         <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
-        <Setter Property="Padding" Value="20,14" />
-        <Setter Property="MinWidth" Value="88" />
-        <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="Padding" Value="22,18" />
+        <Setter Property="MinWidth" Value="104" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusTile}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
-        <Setter Property="Margin" Value="5" />
+        <!-- Half the gutter each, so two neighbours make one: the same 8px that separates two tiles
+             on the canvas behind them. -->
+        <Setter Property="Margin" Value="4" />
     </Style>
     <Style Selector="Button.chooser-card:pointerover">
         <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
@@ -240,18 +254,20 @@
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
     </Style>
 
-    <!-- ======== BUTTON: chooser-back (ghost-like back button) ======== -->
+    <!-- ======== BUTTON: chooser-back (ghost-like back button) ========
+         The same card with its ground taken away: it is a way out of the list rather than an item in
+         it, and a seventh filled card would read as a seventh thing to pick. -->
     <Style Selector="Button.chooser-back">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-        <Setter Property="Padding" Value="20,14" />
-        <Setter Property="MinWidth" Value="88" />
-        <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
+        <Setter Property="Padding" Value="22,18" />
+        <Setter Property="MinWidth" Value="104" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusTile}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
-        <Setter Property="Margin" Value="5" />
+        <Setter Property="Margin" Value="4" />
         <Setter Property="Opacity" Value="0.6" />
     </Style>
     <Style Selector="Button.chooser-back:pointerover">
@@ -352,6 +368,32 @@
     <Style Selector="Border.workspace-item.workspace-item-selected">
         <Setter Property="Background" Value="{DynamicResource BgElevated}" />
         <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
+    </Style>
+
+    <!-- ======== WORKSPACE STAR (pin to the top of the list) ========
+         Always visible, never revealed on hover: it carries state the list is sorted by, and a marker
+         you have to point at to see is not a marker. Unpinned it is an outline in the same muted shade
+         the meta line uses, so twenty rows do not read as twenty buttons; pinned it takes the accent,
+         which is the one thing on the row that has to be findable from across the column. -->
+    <Style Selector="Button.workspace-star">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="2" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+    </Style>
+    <Style Selector="Button.workspace-star mi|MaterialIcon">
+        <Setter Property="Width" Value="13" />
+        <Setter Property="Height" Value="13" />
+    </Style>
+    <Style Selector="Button.workspace-star:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+    </Style>
+    <Style Selector="Button.workspace-star.is-favorite">
+        <Setter Property="Foreground" Value="{DynamicResource AccentDefault}" />
     </Style>
 
     <!-- ======== WORKSPACE META (the branch, under the name) ========
