@@ -4,7 +4,7 @@ namespace mTiles.Tests;
 
 /// <summary>
 /// The test classes that replace the Goal tile's static seams — <c>WorktreeReader.Factory</c>,
-/// <c>GoalTileViewModel.AiRunnerFactory</c>, <c>VerifyCommandRunner.Factory</c>.
+/// <c>GoalTileViewModel.AiRunnerFactory</c>.
 /// <para>xUnit runs collections in parallel, and those three fields are process-wide: two classes both
 /// setting <c>WorktreeReader.Factory</c> in their constructors and clearing it in <c>Dispose</c> will
 /// eventually clear each other's, and the failure looks like a bug in the code under test rather than

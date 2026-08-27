@@ -72,78 +72,32 @@ public class GoalCriteriaEditorTests
         Assert.True(notified > 0);
         Assert.Equal(7, criteria.MaxIterations);
     }
-    /// <summary>
-    /// Emptying the box is a refusal, not a choice — so it must not count as one.
-    /// </summary>
-    /// <remarks>
-    /// The row disappears with the command, so the panel then has no field to type into; and
-    /// <c>AdoptVerifyCommandAsync</c> stands down in front of a command the user typed, so no later
-    /// clarification round would offer one either. Latching the flag on an empty string therefore
-    /// disabled verification for the rest of the session, for every goal after it, under a message
-    /// telling the user to say what has to pass in the goal instead. There is no command here to have
-    /// been chosen.
-    /// </remarks>
-    [Fact]
-    public void Clearing_the_command_is_not_the_user_choosing_one()
-    {
-        var criteria = new GoalCompletionCriteria { VerifyCommand = "npm test" };
-        var editor = new GoalCriteriaEditor(() => criteria, c => criteria = c);
-
-        // Arrived from outside, so it needs consent and was not typed.
-        Assert.False(editor.VerifyCommandWasTyped);
-
-        editor.VerifyCommand = "dotnet test";
-        Assert.True(editor.VerifyCommandWasTyped);
-
-        editor.VerifyCommand = "";
-        Assert.False(editor.VerifyCommandWasTyped);
-        Assert.False(editor.HasVerifyCommand);
-    }
-    /// <summary>
-    /// A box being emptied on the way to a new value is not a box being refused.
-    /// </summary>
-    /// <remarks>
-    /// Bound to whether the box has anything in it, the row vanished under the cursor the moment
-    /// somebody held backspace to retype a command, taking the focus with it. Nothing here can tell
-    /// "clearing to retype" from "clearing to drop" while the user is still typing, so the row stays
-    /// until the panel is filled from the goal again.
-    /// </remarks>
-    [Fact]
-    public void Clearing_the_box_to_retype_does_not_take_the_field_away()
-    {
-        var criteria = new GoalCompletionCriteria { VerifyCommand = "npm test" };
-        var editor = new GoalCriteriaEditor(() => criteria, c => criteria = c);
-
-        Assert.True(editor.ShowVerifyRow);
-
-        editor.VerifyCommand = "";
-
-        Assert.False(editor.HasVerifyCommand);
-        Assert.True(editor.ShowVerifyRow);
-        Assert.False(editor.CanAddVerifyCommand);
-
-        editor.VerifyCommand = "dotnet test";
-        Assert.Equal("dotnet test", criteria.VerifyCommand);
-    }
 
     /// <summary>
-    /// A goal with no command gets no row, and a click that was never typed into does not outlive the
-    /// goal it was made for.
+    /// The two health checks are on unless the user says otherwise, and each one writes through on its
+    /// own. They are prompt text rather than a gate, so nothing else in this panel can catch a switch
+    /// that reads or writes the wrong one.
     /// </summary>
     [Fact]
-    public void Reloading_from_a_goal_without_a_command_closes_the_row()
+    public void The_health_checks_default_to_on_and_write_through_one_at_a_time()
     {
         var criteria = new GoalCompletionCriteria();
         var editor = new GoalCriteriaEditor(() => criteria, c => criteria = c);
 
-        Assert.False(editor.ShowVerifyRow);
-        Assert.True(editor.CanAddVerifyCommand);
+        Assert.True(editor.RequireBuild);
+        Assert.True(editor.RequireTestsPass);
 
-        editor.AddVerifyCommandCommand.Execute(null);
-        Assert.True(editor.ShowVerifyRow);
+        editor.RequireTestsPass = false;
+        Assert.False(criteria.RequireTestsPass);
+        Assert.True(criteria.RequireBuild);
 
+        editor.RequireBuild = false;
+        Assert.False(criteria.RequireBuild);
+
+        // And back from the criteria, on the same objects the row is bound to.
+        criteria.RequireBuild = true;
         editor.Reload();
-        Assert.False(editor.ShowVerifyRow);
-        Assert.True(editor.CanAddVerifyCommand);
+        Assert.True(editor.RequireBuild);
+        Assert.False(editor.RequireTestsPass);
     }
 }

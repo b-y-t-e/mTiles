@@ -26,17 +26,29 @@ public sealed class GoalCompletionCriteria
     public int MaxIterations { get; set; } = 5;
 
     /// <summary>
-    /// A command the tile runs itself after each implementation — <c>dotnet build</c>, <c>npm test</c>.
-    /// <para>The one completion criterion that is not the tool's opinion of its own work. Its exit code
-    /// is a hard gate and its output goes into the review prompt, so the review argues with a compiler
-    /// rather than with the diff alone. Empty means the step is skipped entirely.</para>
+    /// Whether the work has to leave the project compiling. On unless the user says otherwise.
     /// </summary>
-    public string VerifyCommand
-    {
-        get => _verifyCommand;
-        set => _verifyCommand = value ?? "";
-    }
-    private string _verifyCommand = "";
+    /// <remarks>
+    /// <para>An instruction in the prompt, not a command this tile runs. What it replaces was a verify
+    /// command: the tile asked the tool for a shell line, asked the user to approve it, ran it, and
+    /// gated completion on its exit code. That worked only in a repository that was already green —
+    /// and a project whose build or tests are not is the ordinary case, so the gate spent every attempt
+    /// on failures the goal had not caused and then reported the goal as not reached.</para>
+    /// <para>The tool is standing in the repository and knows how this project is built, so it is told
+    /// what has to be true and left to work out how to check it. That also puts the result where it is
+    /// useful — in the tool's own review of its work — instead of in an exit code the user had to
+    /// underwrite first.</para>
+    /// </remarks>
+    public bool RequireBuild { get; set; } = true;
+
+    /// <summary>
+    /// Whether the work has to leave the project's tests passing. On unless the user says otherwise —
+    /// see <see cref="RequireBuild"/> for why this is a sentence in a prompt rather than a gate.
+    /// </summary>
+    /// <remarks>Separate from <see cref="RequireBuild"/> because the answers differ: a repository with
+    /// a red suite nobody has got to yet still has to compile, and asking for green tests there is
+    /// asking for work the user did not want.</remarks>
+    public bool RequireTestsPass { get; set; } = true;
 
     /// <summary>
     /// Which SOLID principles the work is held to. All five unless the user says otherwise.
@@ -75,13 +87,20 @@ public sealed class GoalCompletionCriteria
     // ignores what it does not recognise, so they are read as absent and that is correct — the
     // behaviour they used to switch off is no longer switchable.
 
+    // VerifyCommand is gone the same way, and for a reason the switches above never had: it was a
+    // criterion that could not be met. A repository whose tests are not all green is the ordinary case
+    // rather than a broken one, and a command whose exit code gates completion turned every goal in
+    // such a repository into a run that spent all its attempts on failures it did not cause and then
+    // reported the goal as not reached. Old goal files carry the key; it is read as absent.
+
     public GoalCompletionCriteria Copy() => new()
     {
         MaxErrors = MaxErrors,
         MaxWarnings = MaxWarnings,
         RequireGoalMet = RequireGoalMet,
         MaxIterations = MaxIterations,
-        VerifyCommand = VerifyCommand,
+        RequireBuild = RequireBuild,
+        RequireTestsPass = RequireTestsPass,
         // Copied, not shared. Copy() exists so a caller can hold the criteria as they were; handing it
         // the same instance would let a later edit reach back into the snapshot.
         Solid = Solid.Copy(),

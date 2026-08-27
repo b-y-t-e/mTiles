@@ -63,11 +63,11 @@ public sealed class GoalMessage
     /// <summary>
     /// A note about <em>this</em> opening of the tile rather than part of the conversation, and so never
     /// written to the file.
-    /// <para>Two of them exist — the tool this goal used is not installed, and this goal carries a
-    /// verify command — and both are said while loading. Saved with everything else, they came back
-    /// from the file on the next load and had a fresh copy appended beside them: open a goal with a
-    /// verify command ten times and the transcript carries ten identical warnings, each one having been
-    /// true once.</para>
+    /// <para>One exists today — the tool this goal was using is not installed — and it is said while
+    /// loading. Saved with everything else, it came back from the file on the next load and had a fresh
+    /// copy appended beside it: open such a goal ten times and the transcript carries ten identical
+    /// warnings, each one having been true once. Filtered in <c>GoalWorkflowEngine.ToState</c> rather
+    /// than at the call site, so a second note of this kind cannot reintroduce the bug.</para>
     /// <para>The damaged-file note is deliberately <em>not</em> one of them, though it is also said
     /// while loading. It records something that happened once and cannot happen again for this file:
     /// the session was set aside as <c>.bad-…</c> and this transcript started empty over it. That is a

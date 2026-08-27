@@ -91,34 +91,6 @@ public sealed class GoalClarifyResult
     /// falls back to the behaviour this tile had before.</summary>
     public bool WasStructured { get; set; }
 
-    /// <summary>
-    /// The command this project checks itself with, worked out by the tool from the repository — and
-    /// from the goal, where the goal names a check of its own.
-    /// </summary>
-    /// <remarks>
-    /// <para>This is where a verify command comes from now. It used to be a text box on the criteria
-    /// panel, which asked the user to translate their own goal into a shell command and then to know
-    /// which one this project uses — a fair question in a C# repository and a worse one in every
-    /// other, since the panel had no idea whether it was looking at <c>dotnet test</c>, <c>npm test</c>
-    /// or <c>cargo test</c>. The tool is standing in the repository and can see.</para>
-    /// <para>Asked for on every goal rather than only one that mentions running something. Most goals
-    /// are business goals — "add cart discounts" — and they still have to compile; a command
-    /// conditional on the user saying so would almost never arm the gate, in front of the failure it
-    /// exists for. Empty in three cases, all of them ordinary: a repository with nothing to run, a
-    /// goal whose work is not code that runs (a document, a README — no exit code says whether that
-    /// was written well), and a project whose command the tool cannot identify, which it asks about
-    /// instead of guessing.</para>
-    /// <para>It is a <em>proposal</em>, not a setting: nothing here reaches a shell without the same
-    /// approval a command out of a saved file needs. See
-    /// <c>GoalTileViewModel.ConsentToVerifyCommandAsync</c>.</para>
-    /// </remarks>
-    public string Verify
-    {
-        get => _verify;
-        set => _verify = value ?? "";
-    }
-    private string _verify = "";
-
     public string RawText
     {
         get => _rawText;

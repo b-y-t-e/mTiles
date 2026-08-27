@@ -11,7 +11,7 @@ namespace mTiles.Models;
 /// <em>settings</em> rather than in the goal file on purpose: goal files live in
 /// <c>.mtiles/goals/</c> inside the user's repository and travel with a branch, so a stored
 /// <see cref="BypassPermissions"/> would be a checked-in instruction to run somebody else's agent
-/// unattended — the same hazard the verify command's consent already refuses to persist.</para>
+/// unattended.</para>
 /// </summary>
 public enum AiPermissionMode
 {

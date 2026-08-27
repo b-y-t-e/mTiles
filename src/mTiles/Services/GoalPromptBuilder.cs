@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using mTiles.Models;
 
@@ -5,16 +6,16 @@ namespace mTiles.Services;
 
 public sealed class GoalPromptBuilder
 {
-    private readonly Func<SolidPrinciples> _solid;
+    private readonly Func<GoalCompletionCriteria> _criteria;
 
-    /// <param name="solid">Which SOLID principles this goal is held to, read fresh on every prompt.
-    /// A function rather than a value because the criteria are edited while a run is paused, and the
-    /// builder outlives the object they were read from — <c>GoalWorkflowEngine.Criteria</c> is replaced
-    /// wholesale on every keystroke in the panel. Captured by value, the switches would take effect on
-    /// the next tile rather than the next attempt. Defaults to all five, which is what a builder made
-    /// without an opinion should ask for.</param>
-    public GoalPromptBuilder(Func<SolidPrinciples>? solid = null) =>
-        _solid = solid ?? (static () => new SolidPrinciples());
+    /// <param name="criteria">The goal's criteria, read fresh on every prompt. A function rather than a
+    /// value because they are edited while a run is paused, and the builder outlives the object they
+    /// were read from — <c>GoalWorkflowEngine.Criteria</c> is replaced wholesale on every keystroke in
+    /// the panel. Captured by value, a switch flipped in the panel would take effect on the next tile
+    /// rather than the next attempt. Defaults to the defaults, which is what a builder made without an
+    /// opinion should ask for.</param>
+    public GoalPromptBuilder(Func<GoalCompletionCriteria>? criteria = null) =>
+        _criteria = criteria ?? (static () => new GoalCompletionCriteria());
 
     /// <summary>
     /// The rules every change here is held to: Clean Code always, and the SOLID principles the user
@@ -33,7 +34,7 @@ public sealed class GoalPromptBuilder
     /// </remarks>
     private string QualityRules()
     {
-        var solid = _solid();
+        var solid = _criteria().Solid;
         var text = new StringBuilder(
             "All changes MUST follow Clean Code principles (descriptive naming, small single-purpose " +
             "functions, no duplication, self-documenting code).\n");
@@ -59,14 +60,58 @@ public sealed class GoalPromptBuilder
         return text.Append('\n').ToString();
     }
 
+    /// <summary>
+    /// The two things the finished work has to leave true — that the project builds, and that its tests
+    /// pass — as an instruction to the tool rather than a command this tile runs.
+    /// </summary>
+    /// <remarks>
+    /// <para>What this replaces was a verify command: the clarification round proposed a shell line,
+    /// the user approved it, the tile ran it, and a non-zero exit was a hard gate on completion. It
+    /// only ever worked in a repository that was already green. A project whose suite has failures
+    /// nobody has got to yet is the ordinary case, and there the gate spent every attempt of every goal
+    /// on failures the work had not caused, then reported the goal as not reached.</para>
+    /// <para>So the checking moves to the tool, which is standing in the repository and knows how this
+    /// project is built — no shell line to propose, approve or maintain, and no exit code the user had
+    /// to underwrite before anything could run. The tile states what has to be true and leaves the how
+    /// alone.</para>
+    /// <para>The sentence about pre-existing failures is the load-bearing one, and it is the same
+    /// argument as the out-of-scope sentence in <see cref="QualityRules"/>: a tool told the tests must
+    /// pass, in front of a suite that was already red, goes and fixes somebody else's tests with the
+    /// attempts meant for the goal. It is told to report them instead.</para>
+    /// </remarks>
+    /// <param name="review">Whether this is the reviewer being asked to establish it, rather than the
+    /// implementer being asked to leave it true.</param>
+    private string HealthRules(bool review)
+    {
+        var criteria = _criteria();
+        if (!criteria.RequireBuild && !criteria.RequireTestsPass) return "";
+
+        var text = new StringBuilder(review
+            ? "Establish these yourself, by running this project's own commands rather than by reading " +
+              "the diff:\n"
+            : "When you are finished these MUST be true, and checking them is part of the work — use " +
+              "this project's own commands, worked out from the repository:\n");
+
+        if (criteria.RequireBuild) text.Append("- the project builds\n");
+        if (criteria.RequireTestsPass) text.Append("- the project's tests pass\n");
+
+        text.Append(review
+            ? "A failure these changes caused is an error finding. One that was already failing before " +
+              "them is not: say so in your reasoning and leave it out of the findings.\n"
+            : "A failure that was already there before you started is not yours to fix: say so in your " +
+              "closing line rather than working around it.\n");
+
+        return text.Append('\n').ToString();
+    }
+
     /// <summary>How a violation of these rules is described where the review is told what a warning is.
     /// SOLID is left out of that sentence when none of it applies, so the one place the reviewer is
     /// given a reason to reach for the severity does not contradict the scope it was just given.</summary>
-    private string WarningSubjects() => _solid().Any ? "a Clean Code / SOLID violation" : "a Clean Code violation";
+    private string WarningSubjects() => _criteria().Solid.Any ? "a Clean Code / SOLID violation" : "a Clean Code violation";
 
     /// <summary>
     /// Every prompt here ends with one worked example of the answer it wants, and never more than one.
-    /// <para>Not decoration: three of these prompts now ask for a JSON object, and a model shown a
+    /// <para>Not decoration: two of these prompts ask for a JSON object, and a model shown a
     /// schema in prose invents a neighbouring one — <c>issues</c> for <c>findings</c>, a severity scale
     /// of five, the object wrapped in an array. One concrete example fixes all of that, and
     /// <see cref="GoalResponseParser"/> exists for the times it does not.</para>
@@ -78,7 +123,7 @@ public sealed class GoalPromptBuilder
         "Answer with one fenced json block and nothing else.\n\n" +
         "Example:\n" +
         "```json\n" +
-        "{\"needsClarification\":true,\"verify\":\"npm test\",\"questions\":[" +
+        "{\"needsClarification\":true,\"questions\":[" +
         "{\"question\":\"Which file holds the port?\",\"why\":\"There are two candidates.\"," +
         "\"options\":[\"appsettings.json\",\"launchSettings.json\"]}]}\n" +
         "```";
@@ -142,30 +187,6 @@ public sealed class GoalPromptBuilder
                   "no questions. Do not invent questions to be thorough — an unnecessary round costs " +
                   "the user a reply.\n" +
                   "- Offer options when the sensible answers are few and knowable.\n" +
-                  // The one instruction here that is not about questions, and it replaces a text box.
-                  // The criteria panel used to ask the user to turn "the tests must pass" into a shell
-                  // command themselves and to know which command this project uses — a fair question
-                  // in a C# repository and a worse one in every other, since the panel had no idea
-                  // whether it was looking at dotnet, npm or cargo. The tool is standing in the
-                  // repository, so it is asked to look; and where it cannot tell, to ask, which is the
-                  // one thing this round already exists to do.
-                  //
-                  // Asked for on *every* goal, not only one that mentions a command. Most goals are
-                  // business goals — "add cart discounts" — and they still have to compile; making the
-                  // command conditional on the user saying so meant the gate almost never armed, in
-                  // front of the failure it exists for. A review written by the same family of model
-                  // that wrote the code will call a build broken or working with equal confidence, and
-                  // an exit code will not.
-                  "- Set verify to the command this project uses to check itself, found by looking at " +
-                  "the repository rather than assumed: its test runner where it has one, and otherwise " +
-                  "its build. Prefer tests — compiling is a precondition of running them, so tests " +
-                  "cover both — but a project with no tests is the ordinary case, not a problem: use " +
-                  "the build. One line, no shell operators. If the goal names a check of its own, that " +
-                  "one wins. Leave verify out when the repository offers nothing to run at all, and " +
-                  "when the goal's work is not code that runs — writing documentation, prose, a " +
-                  "README — since no exit code says anything about whether that was done well. When " +
-                  "you cannot tell which command the project uses, ask about that instead: never " +
-                  "guess, and never propose a command this repository gives no evidence for.\n" +
                   "Do not implement anything yet.\n\n" +
                   AnswerLanguage +
                   ClarifyExample;
@@ -183,7 +204,31 @@ public sealed class GoalPromptBuilder
             prompt += Block("User clarifications", Recent(clarificationHistory, Cap(cap)), int.MaxValue);
         prompt += QualityRules();
         prompt += AnswerLanguage;
-        prompt += "Create a concise implementation plan. Do not implement anything yet.\n\n" +
+        // Said three ways, because a plan that inflates is this phase's characteristic failure and one
+        // sentence of "be concise" does not stop it. What comes back otherwise is the user's goal
+        // rewritten at four times the length, steps grouped under invented headings, and each one
+        // annotated with the principle it serves — the principles being in this prompt at all is what
+        // invites the last of those, which is why they are named as rules to follow rather than
+        // material to write about.
+        //
+        // It matters more here than it reads. This plan is what the user approves, and it becomes the
+        // ApprovedPlan every implement prompt carries: scope invented at this step is scope the run
+        // then spends its attempts building, and a goal restated more grandly than it was written is
+        // the tile agreeing to something nobody asked for.
+        //
+        // HealthRules is deliberately not here. Whether the build and the tests are left standing is
+        // something the implementation and the review are held to; in a plan it only ever came back as
+        // two more steps saying "run the tests".
+        prompt += "Write the plan. Keep it minimal:\n" +
+                  "- Goal: one sentence. Restate the goal above as the user wrote it, only tighter. Do " +
+                  "not add scope, requirements or detail they did not give you.\n" +
+                  "- Steps: one line each — the file, then what changes in it. As few steps as the work " +
+                  "needs.\n" +
+                  "- Success criteria: one line each, each one checkable.\n" +
+                  "Plan only what the goal asks for. Do not invent files, requirements or constraints, " +
+                  "do not name the principles above or justify the steps, and do not describe anything " +
+                  "you are not changing.\n" +
+                  "Do not implement anything yet.\n\n" +
                   "Example shape:\n" +
                   "Goal: one sentence restating what will be true when this is done.\n" +
                   "Steps:\n" +
@@ -234,12 +279,12 @@ public sealed class GoalPromptBuilder
     /// <summary>
     /// Builds the prompt, and keeps rebuilding it smaller until the command line can carry it.
     /// <para>The caps above bound the prompt and never promised a size, and the arithmetic is not
-    /// close: a review carrying the goal, the quality rules, a verify command's output, seven thousand
+    /// close: a review carrying the goal, the quality rules, seven thousand
     /// characters of working tree, the severity rules and an example runs to about twelve thousand —
     /// against the <b>8 191</b> a <c>.cmd</c> shim allows, which is what npm installs and what
     /// <c>AiToolDetector</c> looks for first. Three of the four supported tools go that way, and the
     /// case that overflows is the one the whole feature exists for: a resume after a large
-    /// implementation, in a workspace with a verify command configured.</para>
+    /// implementation in a busy working tree.</para>
     /// <para>Refusing was the old answer and a poor one — the run is judged failed, the tile pauses,
     /// and Resume reproduces the identical failure for ever. Trimming costs the tool some context and
     /// costs the user nothing, so the borrowed blocks give way in order of size until the thing fits.
@@ -340,14 +385,13 @@ public sealed class GoalPromptBuilder
     /// Everything one implementation attempt is told, as one object.
     /// </summary>
     /// <remarks>
-    /// A record rather than eight positional parameters, which is what this had grown to. Six of them
-    /// were nullable strings, and a call site that swapped two of them would compile.
+    /// A record rather than seven positional parameters, which is what this had grown to. Several of
+    /// them are nullable strings, and a call site that swapped two of them would compile.
     /// </remarks>
     public sealed record ImplementContext(
         string Goal,
         string? ApprovedPlan = null,
         string? ReviewFeedback = null,
-        string? VerifyOutput = null,
         string? GitDiff = null,
         IReadOnlyList<string>? AttemptLog = null,
         int Attempt = 0,
@@ -362,6 +406,7 @@ public sealed class GoalPromptBuilder
         if (!string.IsNullOrEmpty(c.ApprovedPlan))
             prompt += Block("Approved implementation plan", c.ApprovedPlan, Cap(cap));
         prompt += QualityRules();
+        prompt += HealthRules(review: false);
         // The first thing dropped when the prompt will not fit, and this is a reversal of what was
         // written here before. The old rule kept the diff to the last rung and dropped the attempt notes
         // first, on the grounds that the diff is the state of the work. It is — and the tool can read
@@ -382,13 +427,6 @@ public sealed class GoalPromptBuilder
         // is why GoalDiffContext orders the parts with the least replaceable first.
         if (c.GitDiff != null && cap >= Tight)
             prompt += Block("Current state of the working tree", c.GitDiff, cap);
-
-        // The build's own words, ahead of the reviewer's account of them. Without this the one being
-        // asked to fix a broken build was shown a review *about* the compiler error rather than the
-        // error: a line number turned into "there is a type mismatch somewhere in the cart code". It is
-        // already clipped to 2 000 characters by VerifyCommandRunner before it gets here.
-        if (c.VerifyOutput is { Length: > 0 } && cap > 0)
-            prompt += Block("The project's verify command failed with this output", c.VerifyOutput, Cap(cap));
 
         if (c.ReviewFeedback != null && cap > 0)
             prompt += Block("Fix these findings from the previous review", c.ReviewFeedback, Cap(cap));
@@ -412,19 +450,15 @@ public sealed class GoalPromptBuilder
         return prompt;
     }
 
-    /// <param name="verifyOutput">What the user's verify command printed, when there is one. It goes in
-    /// ahead of the diff on purpose: a compiler's opinion of the change outranks the reviewer's, and a
-    /// review written without it argues about style over code that does not build.</param>
-    public string BuildReview(string goal, string? gitDiff, string? verifyOutput = null, int? budget = null) =>
-        Fit(cap => ComposeReview(goal, gitDiff, verifyOutput, cap), budget);
+    public string BuildReview(string goal, string? gitDiff, int? budget = null) =>
+        Fit(cap => ComposeReview(goal, gitDiff, cap), budget);
 
-    private string ComposeReview(string goal, string? gitDiff, string? verifyOutput, int cap)
+    private string ComposeReview(string goal, string? gitDiff, int cap)
     {
         var prompt = "Review the code changes that were just made in this project.\n\n"
                      + Block("The original goal was", goal, GoalCap(cap));
         prompt += QualityRules();
-        if (verifyOutput is { Length: > 0 } && cap > 0)
-            prompt += Block("Output of the project's verify command", verifyOutput, Cap(cap));
+        prompt += HealthRules(review: true);
         // The fitting step itself, with no ceiling over it — see the note in ComposeImplement —
         // and with a floor under it, for the same reason the goal has one.
         //
@@ -484,6 +518,33 @@ public sealed class GoalPromptBuilder
     public string BuildDetectGoal(string gitDiff, int? budget = null) =>
         Fit(cap => ComposeDetectGoal(gitDiff, cap), budget);
 
+    /// <summary>
+    /// The language this machine is set up in, as an instruction — for the one prompt that cannot ask
+    /// for "the language of the goal above" because working out the goal is what it is for.
+    /// </summary>
+    /// <remarks>
+    /// <para>Every other prompt anchors on the user's own words (see <see cref="AnswerLanguage"/>),
+    /// which is both free and impossible to get wrong. This one is reached from the + button over an
+    /// uncommitted working tree: nothing has been typed, so the only thing in the prompt is a diff —
+    /// and a diff is written in English whoever wrote it. The answer came back in English and went
+    /// straight into the composer as the user's own goal, where every later prompt then anchored on
+    /// it: one phase with nothing to read from set the language of the whole run.</para>
+    /// <para>The display language rather than the formats: <c>CurrentUICulture</c> is what Windows
+    /// shows its own menus in and what <c>LANG</c> says on Linux, while <c>CurrentCulture</c> is dates
+    /// and decimal separators — a machine set to English with Polish formats would have been answered
+    /// in Polish. Named in English (<c>EnglishName</c> of the neutral culture, so "Polish" rather than
+    /// "Polish (Poland)"), because the rest of the prompt is English and a model reads a language's
+    /// English name more reliably than a tag. The invariant culture asks for nothing: it means the
+    /// machine did not say, and English is what the prompt is already in.</para>
+    /// </remarks>
+    internal static string AnswerInSystemLanguage(CultureInfo culture)
+    {
+        var neutral = culture.IsNeutralCulture ? culture : culture.Parent;
+        return neutral.Equals(CultureInfo.InvariantCulture) || neutral.TwoLetterISOLanguageName == "en"
+            ? ""
+            : $"Answer in {neutral.EnglishName}. Keep code and identifiers as they are.\n\n";
+    }
+
     private static string ComposeDetectGoal(string gitDiff, int cap)
     {
         // A floor, as the goal has in the other prompts and for the same reason: this one asks what the
@@ -505,6 +566,7 @@ public sealed class GoalPromptBuilder
                  "name the largest.\n" +
                  "Answer with that one sentence and nothing else: no preamble, no bullet points, no " +
                  "code block.\n\n" +
+                 AnswerInSystemLanguage(CultureInfo.CurrentUICulture) +
                  "Example: Phone pairings survive a restart, so a paired device does not have to scan " +
                  "the QR code again.";
     }

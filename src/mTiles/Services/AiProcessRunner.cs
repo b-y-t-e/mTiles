@@ -493,9 +493,8 @@ public static class AiProcessRunner
     /// Runs the tool once and returns everything it printed.
     /// </summary>
     /// <remarks>
-    /// <b>Deliberately without an overall timeout</b>, unlike <see cref="VerifyCommandRunner"/>, and the
-    /// asymmetry is the decision rather than an oversight. A verify command that never ends has produced
-    /// nothing anybody wants and killing it costs nothing; an agent that has been running for forty
+    /// <b>Deliberately without an overall timeout</b>, and that is the decision rather than an
+    /// oversight. An agent that has been running for forty
     /// minutes is doing the thing it was asked to do, and it writes as it goes — so a timeout would
     /// kill it mid-edit and leave the worktree half-changed, which is worse than waiting. Any number
     /// picked here would be a guess about how long somebody's task takes, applied to work that is

@@ -13,21 +13,10 @@ namespace mTiles.Services;
 internal static class GoalCompletionPolicy
 {
     /// <summary>
-    /// Whether this review, and the verification that ran before it, satisfy the criteria.
+    /// Whether this review satisfies the criteria.
     /// </summary>
-    /// <param name="verify">The result of the user's verify command, or null when there is none. A
-    /// non-zero exit is a hard gate ahead of everything else: it is the only fact here that is not the
-    /// tool's opinion of its own work, and a review declaring success over a build that does not
-    /// compile is exactly the outcome this exists to catch.</param>
-    public static bool IsMet(GoalReviewResult review, VerifyOutcome? verify, GoalCompletionCriteria criteria)
+    public static bool IsMet(GoalReviewResult review, GoalCompletionCriteria criteria)
     {
-        if (verify is { Ran: true, Succeeded: false }) return false;
-
-        // A verification that never finished has not passed. It is not the same as one that could not be
-        // started — that is the machine's fault and is deliberately forgiven — and treating them alike
-        // meant a hung build was no obstacle to "goal completed".
-        if (verify is { TimedOut: true }) return false;
-
         // The verdict is not optional for a review that came back as prose, whatever the criteria say.
         // Findings only exist for a structured one, so with them empty every count below passes on any
         // answer at all: turning the requirement off in front of a tool that ignores the schema removed
@@ -53,14 +42,10 @@ internal static class GoalCompletionPolicy
     /// The one line that says why the criteria were not met — the thing the user has to read when a
     /// run stops short, and the thing the transcript is missing when it says only "review found issues".
     /// </summary>
-    public static string WhyNotMet(GoalReviewResult review, VerifyOutcome? verify, GoalCompletionCriteria criteria)
+    public static string WhyNotMet(GoalReviewResult review, GoalCompletionCriteria criteria)
     {
         var reasons = new List<string>(4);
 
-        if (verify is { Ran: true, Succeeded: false } v)
-            reasons.Add($"the verify command exited {v.ExitCode}");
-        if (verify is { TimedOut: true })
-            reasons.Add("the verify command never finished");
         if (!review.GoalMet && (criteria.RequireGoalMet || !review.WasStructured))
             // Told apart, because they call for different things from the user: a tool that answers the
             // question and answers no, and a tool that never addressed it.
@@ -68,11 +53,7 @@ internal static class GoalCompletionPolicy
                 ? "the review did not say whether the goal is met"
                 : "the review says the goal is not met");
 
-        // The verify blocker is excluded, because the two sentences above already name it precisely —
-        // with its exit code, which "1 blocker" does not have. Counted as well, one failing build would
-        // be reported as two separate problems: "the verify command exited 1, 1 blocker".
-        var blockers = review.Findings.Count(
-            f => f.Severity == GoalSeverity.Blocker && f.Category != GoalFinding.VerifyCategory);
+        var blockers = review.Findings.Count(f => f.Severity == GoalSeverity.Blocker);
         if (blockers > 0)
             reasons.Add(Count(blockers, "blocker"));
 
@@ -154,14 +135,6 @@ internal static class GoalCompletionPolicy
         GoalStopReason.NoChange =>
             $"Stopped after {Count(attempts, "attempt")}: the last attempt changed no files, so the " +
             "same prompt would change none again" + Outstanding(outstanding),
-
-        // Stopped rather than tried again. The timeout is already half an hour, so the attempts left
-        // are hours of waiting for the same answer — and the answer is unusable either way, because a
-        // verification that never finished says nothing about whether the goal is met.
-        GoalStopReason.VerifyTimedOut =>
-            $"Stopped after {Count(attempts, "attempt")}: the verify command never finished and had to " +
-            "be stopped. Check that it does not wait for input, or clear it under the tune button — " +
-            "clearing it offers Continue, so this goal can carry on without being retyped.",
 
         _ => $"Stopped after {Count(attempts, "attempt")}.",
     };

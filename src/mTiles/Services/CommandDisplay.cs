@@ -48,19 +48,6 @@ internal static partial class CommandDisplay
     public static bool CanBeConsentedTo(string command) => ForDialog(command).Length <= MaxConsentable;
 
     /// <summary>
-    /// Whether a text box showing this command raw is showing the truth.
-    /// </summary>
-    /// <remarks>
-    /// The dialog neutralises what lies about itself; an editable field cannot, because rewriting what
-    /// somebody is editing is its own kind of lie. So the field says so instead. It matters because
-    /// editing that field is what grants consent: a command out of a goal file gets its dialog once,
-    /// and the user who decides by reading the box is reading the unsanitised version of exactly the
-    /// string the dialog exists to protect them from.
-    /// </remarks>
-    public static bool RendersHonestly(string command) =>
-        string.Equals(command, ForDialog(command), StringComparison.Ordinal);
-
-    /// <summary>
     /// The same text with the characters that display as something other than themselves replaced by a
     /// visible mark.
     /// <para>Replaced rather than deleted, and with a glyph: a command that had something in it must not

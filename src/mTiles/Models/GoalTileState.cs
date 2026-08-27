@@ -150,9 +150,6 @@ public sealed class GoalTileState
     /// null check rather than taken apart, so this one is left nullable on purpose.</summary>
     public string? LastReviewFeedback { get; set; }
 
-    /// <summary>What the verify command printed the last time it failed. Null once it passes.</summary>
-    public string? LastVerifyOutput { get; set; }
-
     /// <summary>
     /// Questions the tool has asked and the user has not answered yet.
     /// </summary>

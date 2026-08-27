@@ -341,7 +341,7 @@ public class AiProcessRunnerTests
     {
         Assert.Null(AiProcessRunner.PromptBudget("claude.cmd", new ClaudeToolRunner()));
 
-        var whole = new GoalPromptBuilder().BuildReview("the goal", new string('d', 20_000), null, budget: null);
+        var whole = new GoalPromptBuilder().BuildReview("the goal", new string('d', 20_000), budget: null);
         Assert.Contains("dddd", whole);
     }
 

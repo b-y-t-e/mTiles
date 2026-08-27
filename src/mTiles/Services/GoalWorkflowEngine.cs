@@ -10,7 +10,7 @@ public sealed partial class GoalWorkflowEngine
     // tile.
     private readonly GoalPromptBuilder _promptBuilder;
 
-    public GoalWorkflowEngine() => _promptBuilder = new GoalPromptBuilder(() => Criteria.Solid);
+    public GoalWorkflowEngine() => _promptBuilder = new GoalPromptBuilder(() => Criteria);
 
     /// <summary>
     /// How many times the tool may be asked to clarify before the tile plans anyway.
@@ -34,17 +34,6 @@ public sealed partial class GoalWorkflowEngine
     public List<string> ClarificationHistory { get; } = [];
     public string ApprovedPlan { get; set; } = "";
     public string? LastReviewFeedback { get; set; }
-
-    /// <summary>
-    /// What the verify command printed the last time it failed, or null.
-    /// </summary>
-    /// <remarks>
-    /// It used to go to the review alone. The reviewer then wrote its opinion of the failure into the
-    /// findings, and that opinion — not the compiler's line and column — was all the next
-    /// implementation ever saw. Cleared as soon as the command passes, so a fixed build does not haunt
-    /// the attempts after it.
-    /// </remarks>
-    public string? LastVerifyOutput { get; set; }
 
     /// <summary>
     /// One line per earlier attempt: what it changed and what it decided against.
@@ -210,7 +199,6 @@ public sealed partial class GoalWorkflowEngine
                 OriginalGoal,
                 ApprovedPlan,
                 LastReviewFeedback,
-                LastVerifyOutput,
                 gitDiff,
                 AttemptLog,
                 IterationCount,
@@ -218,8 +206,8 @@ public sealed partial class GoalWorkflowEngine
             budget);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
-    public string BuildReviewPrompt(string? gitDiff, string? verifyOutput = null, int? budget = null) =>
-        _promptBuilder.BuildReview(OriginalGoal, gitDiff, verifyOutput, budget);
+    public string BuildReviewPrompt(string? gitDiff, int? budget = null) =>
+        _promptBuilder.BuildReview(OriginalGoal, gitDiff, budget);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
     public string BuildDetectGoalPrompt(string gitDiff, int? budget = null) =>
@@ -232,7 +220,6 @@ public sealed partial class GoalWorkflowEngine
         ApprovedPlan = "";
         ProposedPlan = null;
         LastReviewFeedback = null;
-        LastVerifyOutput = null;
         LastReviewFingerprint = null;
         LastReviewCounts = [];
         AttemptLog.Clear();
@@ -244,8 +231,8 @@ public sealed partial class GoalWorkflowEngine
         CurrentPhase = GoalPhase.Goal;
 
         // Criteria are deliberately not reset: they are how this tile works, not part of the goal
-        // being worked on, and a user who set a verify command once should not have to set it again
-        // for the next goal in the same tile.
+        // being worked on, and a user who turned a criterion off once should not have to turn it off
+        // again for the next goal in the same tile.
         //
         // With one exception, and it is the exception that proves the rule: the attempts Continue added
         // were not chosen by hand. Left in place they were inherited by the next goal in this tile — and
@@ -449,7 +436,7 @@ public sealed partial class GoalWorkflowEngine
     /// interrupted, and Resume would ask the same questions again.</para>
     /// <para>The <b>conversation</b> tells them apart — and only the conversation. The tile's own notes
     /// are skipped, because they are asides about the tile rather than turns in the exchange: a note
-    /// saying the answer was blank, or that the saved tool is gone, or what the verify command is, can
+    /// saying the answer was blank, or that the saved tool is gone, can
     /// land last at any moment and says nothing about whose turn it is. Counting them was worse than it
     /// sounds, because <c>LoadState</c> writes some of them on every load: each restart appended
     /// another, each appended one made the next restart read an interrupted Clarify, and Resume spent a
@@ -513,7 +500,6 @@ public sealed partial class GoalWorkflowEngine
         PendingQuestions = [..PendingQuestions],
         IsPaused = IsPaused,
         LastReviewFeedback = LastReviewFeedback,
-        LastVerifyOutput = LastVerifyOutput,
         AttemptLog = [..AttemptLog],
         LastReviewFingerprint = LastReviewFingerprint,
         LastReviewCounts = [..LastReviewCounts],
@@ -544,7 +530,6 @@ public sealed partial class GoalWorkflowEngine
         ClarifyRounds = state.ClarifyRounds;
         PendingQuestions = [..state.PendingQuestions];
         LastReviewFeedback = state.LastReviewFeedback;
-        LastVerifyOutput = state.LastVerifyOutput;
         AttemptLog.Clear();
         AttemptLog.AddRange(state.AttemptLog);
         LastReviewFingerprint = state.LastReviewFingerprint;

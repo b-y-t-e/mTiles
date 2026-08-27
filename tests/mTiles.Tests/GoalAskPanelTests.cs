@@ -402,7 +402,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void A_link_too_long_to_read_is_refused_rather_than_shortened()
     {
-        // The same rule a verify command gets, and for the same reason: truncating into the dialog moves
+        // Truncating into the dialog moves
         // the payload past the ellipsis rather than removing it.
         var huge = "https://example.com/" + new string('a', CommandDisplay.MaxConsentable);
 

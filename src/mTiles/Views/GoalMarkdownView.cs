@@ -151,9 +151,8 @@ public sealed class GoalMarkdownView : MarkdownViewer
     /// <para><b>Two schemes.</b> Anything else — <c>file:</c>, and every scheme some other application
     /// on this machine has registered for itself — is not something to hand a shell on the strength of
     /// one click on text a model wrote.</para>
-    /// <para><b>And a length.</b> The same refusal a verify command gets: a thing too long to be read
-    /// cannot be consented to, and truncating it into the dialog moves the payload past the ellipsis
-    /// rather than removing it.</para>
+    /// <para><b>And a length.</b> A thing too long to be read cannot be consented to, and truncating
+    /// it into the dialog moves the payload past the ellipsis rather than removing it.</para>
     /// </remarks>
     internal static string? LinkToOpen(string? url)
     {

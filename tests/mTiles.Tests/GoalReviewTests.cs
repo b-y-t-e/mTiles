@@ -16,10 +16,9 @@ namespace mTiles.Tests;
 /// </remarks>
 internal static class Rendered
 {
-    public static string Review(GoalReviewResult review, VerifyOutcome? verify = null,
-        bool goalMetMatters = true)
+    public static string Review(GoalReviewResult review, bool goalMetMatters = true)
     {
-        var head = GoalTranscript.ReviewHead(review, verify, goalMetMatters);
+        var head = GoalTranscript.ReviewHead(review, goalMetMatters);
         if (!review.WasStructured || review.Findings.Count == 0) return head;
 
         var sb = new System.Text.StringBuilder(head);
@@ -151,8 +150,8 @@ public class GoalReviewParsingTests
 
         // No threshold reaches it — not even one raised as far as it will go.
         var permissive = new GoalCompletionCriteria { MaxErrors = 99, MaxWarnings = 99, RequireGoalMet = false };
-        Assert.False(GoalCompletionPolicy.IsMet(review, null, permissive));
-        Assert.Contains("1 blocker", GoalCompletionPolicy.WhyNotMet(review, null, permissive));
+        Assert.False(GoalCompletionPolicy.IsMet(review, permissive));
+        Assert.Contains("1 blocker", GoalCompletionPolicy.WhyNotMet(review, permissive));
     }
 
     [Fact]
@@ -174,10 +173,10 @@ public class GoalReviewParsingTests
         // And the note is advice about a criterion, so it is not given where that criterion is off: it
         // told the user their goal had failed a check nothing was making.
         Assert.DoesNotContain("did not say whether the goal is met",
-            Rendered.Review(review, verify: null, goalMetMatters: false));
+            Rendered.Review(review, goalMetMatters: false));
 
         // And with the requirement off, a clean review finishes.
-        Assert.True(GoalCompletionPolicy.IsMet(review, null,
+        Assert.True(GoalCompletionPolicy.IsMet(review,
             new GoalCompletionCriteria { RequireGoalMet = false }));
     }
 
@@ -336,17 +335,40 @@ public class GoalReviewParsingTests
         Assert.Contains("Finally I edited Cart.cs", Assert.Single(engine.AttemptLog));
     }
 
+    /// <summary>
+    /// A note about this session never reaches the goal file.
+    /// </summary>
+    /// <remarks>
+    /// It is true of the tile in front of the user, not of the goal — "the tool this goal was saved
+    /// with is not installed" is worth saying at each opening and worth saying once. Written down, every
+    /// opening would inherit all the earlier copies, and the transcript would fill with the same
+    /// sentence. Filtered in <c>ToState</c> rather than at the call sites, so no caller can forget.
+    /// </remarks>
+    [Fact]
+    public void A_note_about_this_session_is_not_written_into_the_goal_file()
+    {
+        var engine = new GoalWorkflowEngine();
+
+        var state = engine.ToState([
+            new GoalMessage { Role = GoalMessageRole.User, Text = "a goal" },
+            new GoalMessage
+            {
+                Role = GoalMessageRole.System, Text = "that tool is gone", AboutThisSession = true,
+            },
+        ], "Fake Tool");
+
+        Assert.Equal("a goal", Assert.Single(state.Messages).Text);
+    }
+
     [Fact]
     public void A_new_goal_forgets_what_the_last_one_tried()
     {
         var engine = new GoalWorkflowEngine();
         engine.RecordAttempt(1, "did a thing");
-        engine.LastVerifyOutput = "error CS1503";
 
         engine.StartNewGoal("something else");
 
         Assert.Empty(engine.AttemptLog);
-        Assert.Null(engine.LastVerifyOutput);
     }
 
     [Fact]
@@ -364,23 +386,6 @@ public class GoalReviewParsingTests
         // ordered by cast in GoalTranscript.Ordered, and the two agree only while both are untouched.
         Assert.Equal(0, (int)GoalSeverity.Blocker);
         Assert.Equal(3, (int)GoalSeverity.Suggestion);
-    }
-
-    [Fact]
-    public void A_verification_that_never_finished_is_not_a_verification_that_passed()
-    {
-        var clean = GoalResponseParser.ParseReview("```json\n{\"goalMet\":true,\"findings\":[]}\n```");
-        var criteria = new GoalCompletionCriteria();
-
-        // A command that could not be *started* is forgiven on purpose — that is the machine's fault,
-        // and failing a goal over a missing shell blames the work for the tooling.
-        Assert.True(GoalCompletionPolicy.IsMet(clean, VerifyOutcome.NotRun("no shell"), criteria));
-
-        // One that was killed for running too long is not the same thing: it is very often the change
-        // that was just made, and it produced no answer at all about whether the goal is met.
-        var killed = VerifyOutcome.Timeout("it was still running after 30 minutes and was stopped");
-        Assert.False(GoalCompletionPolicy.IsMet(clean, killed, criteria));
-        Assert.Contains("never finished", GoalCompletionPolicy.WhyNotMet(clean, killed, criteria));
     }
 
     [Fact]
@@ -528,37 +533,6 @@ public class GoalClarifyParsingTests
 
         Assert.True(clarify.NeedsClarification);
         Assert.Single(clarify.Questions);
-    }
-
-    [Fact]
-    public void The_command_that_checks_the_goal_is_read_from_the_round_that_asks_nothing()
-    {
-        // The round that decides the goal is clear plans immediately and never comes back, so a
-        // command read only from a questioning round would be missing from every goal precise enough
-        // to need no questions — which is most of the goals that state a checkable condition at all.
-        var clarify = GoalResponseParser.ParseClarify(
-            "```json\n{\"needsClarification\":false,\"verify\":\"npm test\"}\n```");
-
-        Assert.Equal("npm test", clarify.Verify);
-    }
-
-    [Fact]
-    public void A_command_written_across_two_lines_arrives_as_one()
-    {
-        // It is bound for a command line. A shell handed two lines runs the first and calls that the
-        // verification, so a goal would be gated on half a command with nothing saying so.
-        var clarify = GoalResponseParser.ParseClarify(
-            "```json\n{\"needsClarification\":false,\"verify\":\"npm run build\\nnpm test\"}\n```");
-
-        Assert.Equal("npm run build npm test", clarify.Verify);
-    }
-
-    [Fact]
-    public void A_round_that_names_no_command_leaves_it_empty()
-    {
-        var clarify = GoalResponseParser.ParseClarify("```json\n{\"needsClarification\":false}\n```");
-
-        Assert.Equal("", clarify.Verify);
     }
 
     [Fact]
@@ -758,7 +732,7 @@ public class GoalCompletionPolicyTests
         var review = Review(true,
             (GoalSeverity.Suggestion, "a"), (GoalSeverity.Suggestion, "b"), (GoalSeverity.Suggestion, "c"));
 
-        Assert.True(GoalCompletionPolicy.IsMet(review, null, criteria));
+        Assert.True(GoalCompletionPolicy.IsMet(review, criteria));
     }
 
     [Fact]
@@ -766,8 +740,8 @@ public class GoalCompletionPolicyTests
     {
         var review = Review(true, (GoalSeverity.Warning, "a"));
 
-        Assert.False(GoalCompletionPolicy.IsMet(review, null, new GoalCompletionCriteria()));
-        Assert.True(GoalCompletionPolicy.IsMet(review, null, new GoalCompletionCriteria { MaxWarnings = 1 }));
+        Assert.False(GoalCompletionPolicy.IsMet(review, new GoalCompletionCriteria()));
+        Assert.True(GoalCompletionPolicy.IsMet(review, new GoalCompletionCriteria { MaxWarnings = 1 }));
     }
 
     [Fact]
@@ -776,8 +750,8 @@ public class GoalCompletionPolicyTests
         // The whole argument for goalMet being its own field rather than a fourth severity.
         var review = Review(met: false);
 
-        Assert.False(GoalCompletionPolicy.IsMet(review, null, new GoalCompletionCriteria()));
-        Assert.True(GoalCompletionPolicy.IsMet(review, null,
+        Assert.False(GoalCompletionPolicy.IsMet(review, new GoalCompletionCriteria()));
+        Assert.True(GoalCompletionPolicy.IsMet(review,
             new GoalCompletionCriteria { RequireGoalMet = false }));
     }
 
@@ -790,13 +764,13 @@ public class GoalCompletionPolicyTests
         var prose = GoalResponseParser.ParseReview("Two things are broken. VERDICT: FAIL");
         var relaxed = new GoalCompletionCriteria { RequireGoalMet = false };
 
-        Assert.False(GoalCompletionPolicy.IsMet(prose, null, relaxed));
-        Assert.Contains("goal is not met", GoalCompletionPolicy.WhyNotMet(prose, null, relaxed));
+        Assert.False(GoalCompletionPolicy.IsMet(prose, relaxed));
+        Assert.Contains("goal is not met", GoalCompletionPolicy.WhyNotMet(prose, relaxed));
 
         // It still relaxes what it says it relaxes, where there is something else left to judge by.
         var structured = GoalResponseParser.ParseReview(
             "```json\n{\"goalMet\":false,\"findings\":[]}\n```");
-        Assert.True(GoalCompletionPolicy.IsMet(structured, null, relaxed));
+        Assert.True(GoalCompletionPolicy.IsMet(structured, relaxed));
     }
 
     [Fact]
@@ -807,61 +781,7 @@ public class GoalCompletionPolicyTests
         var silent = GoalResponseParser.ParseReview("```json\n{\"findings\":[]}\n```");
 
         Assert.Contains("did not say whether",
-            GoalCompletionPolicy.WhyNotMet(silent, null, new GoalCompletionCriteria()));
-    }
-
-    [Fact]
-    public void A_failing_verify_command_outranks_a_review_that_says_everything_is_fine()
-    {
-        var review = Review(met: true);
-        var failed = new VerifyOutcome(Ran: true, ExitCode: 1, Output: "error CS0103");
-
-        Assert.False(GoalCompletionPolicy.IsMet(review, failed, new GoalCompletionCriteria()));
-        Assert.Contains("exited 1",
-            GoalCompletionPolicy.WhyNotMet(review, failed, new GoalCompletionCriteria()));
-    }
-
-    [Fact]
-    public void A_failing_verify_command_is_one_problem_and_is_reported_once()
-    {
-        // It is a blocker in the findings now, so it is counted where everything else that stops a
-        // goal is counted. Counted here as well, one failing build was two separate problems in the
-        // summary — "the verify command exited 1, 1 blocker" — and the vaguer of the two tellings was
-        // the one that sounded like a second defect.
-        var review = Review(met: true);
-        review.Findings.Add(new GoalFinding
-        {
-            Severity = GoalSeverity.Blocker,
-            Category = GoalFinding.VerifyCategory,
-            Title = "The verify command exited 1",
-        });
-        var failed = new VerifyOutcome(Ran: true, ExitCode: 1, Output: "error CS0103");
-
-        var why = GoalCompletionPolicy.WhyNotMet(review, failed, new GoalCompletionCriteria());
-
-        Assert.Equal("the verify command exited 1", why);
-    }
-
-    [Fact]
-    public void A_blocker_the_review_found_is_still_counted_beside_a_failing_verify_command()
-    {
-        var review = Review(met: true);
-        review.Findings.Add(new GoalFinding
-        {
-            Severity = GoalSeverity.Blocker,
-            Category = GoalFinding.VerifyCategory,
-            Title = "The verify command exited 1",
-        });
-        review.Findings.Add(new GoalFinding
-        {
-            Severity = GoalSeverity.Blocker, Category = "security", Title = "Token in the log",
-        });
-        var failed = new VerifyOutcome(Ran: true, ExitCode: 1, Output: "error CS0103");
-
-        var why = GoalCompletionPolicy.WhyNotMet(review, failed, new GoalCompletionCriteria());
-
-        Assert.Contains("the verify command exited 1", why);
-        Assert.Contains("1 blocker", why);
+            GoalCompletionPolicy.WhyNotMet(silent, new GoalCompletionCriteria()));
     }
 
     [Fact]
@@ -974,62 +894,13 @@ public class GoalTranscriptTests
         Assert.Equal("It all looks fine to me. VERDICT: PASS", Rendered.Review(review));
     }
 
-    [Fact]
-    public void A_verify_run_that_passed_is_reported_beside_the_counts()
-    {
-        var review = GoalResponseParser.ParseReview("```json\n{\"goalMet\":true,\"findings\":[]}\n```");
-
-        Assert.Contains("verify passed",
-            Rendered.Review(review, new VerifyOutcome(true, 0, "")));
-    }
-
-    [Fact]
-    public void A_verify_run_that_failed_is_said_once_and_as_a_blocker()
-    {
-        // It used to be a suffix on the header line — "· verify exited 2" — and nothing else, so a run
-        // that could not finish showed "nothing found" beside it and no blocker anywhere. The failure
-        // is a finding now, which is where the tile counts everything else that stops a goal; saying it
-        // in the header as well would report one event twice on one line.
-        var review = GoalResponseParser.ParseReview("```json\n{\"goalMet\":true,\"findings\":[]}\n```");
-        review.Findings.Add(new GoalFinding
-        {
-            Severity = GoalSeverity.Blocker,
-            Category = GoalFinding.VerifyCategory,
-            Title = "The verify command exited 2",
-            Detail = "boom",
-        });
-
-        var text = Rendered.Review(review, new VerifyOutcome(true, 2, "boom"));
-
-        Assert.Contains("The verify command exited 2", text);
-        Assert.Contains("boom", text);
-        Assert.DoesNotContain("verify exited 2", text);
-    }
-
-    [Fact]
-    public void The_verify_blocker_is_not_sent_back_as_feedback()
-    {
-        // The command's own output already reaches the next implement prompt under its own heading, in
-        // the compiler's words. This finding is an account of the same thing, and the prompt has a size
-        // budget it would be spending twice.
-        var review = GoalResponseParser.ParseReview("```json\n{\"goalMet\":false,\"findings\":[]}\n```");
-        review.Findings.Add(new GoalFinding
-        {
-            Severity = GoalSeverity.Blocker,
-            Category = GoalFinding.VerifyCategory,
-            Title = "The verify command exited 2",
-            Detail = "boom",
-        });
-
-        Assert.DoesNotContain("verify command exited", GoalTranscript.Feedback(review));
-    }
 }
 
 /// <summary>What survives when a prompt has to be made smaller than it wants to be.</summary>
 public class GoalPromptFittingTests
 {
     private static string Fitted(string tree, int budget) =>
-        new GoalPromptBuilder().BuildReview("the goal", tree, verifyOutput: null, budget: budget);
+        new GoalPromptBuilder().BuildReview("the goal", tree, budget: budget);
 
     [Fact]
     public void The_untracked_file_names_survive_every_cut_the_diff_does_not()
@@ -1073,10 +944,10 @@ public class GoalPromptFittingTests
         var huge = new string('g', 50_000);
 
         foreach (var prompt in (string[])[
-            builder.BuildReview(huge, tree, new string('v', 50_000), budget),
+            builder.BuildReview(huge, tree, budget),
             builder.BuildImplement(
                 new GoalPromptBuilder.ImplementContext(
-                    huge, huge, huge, VerifyOutput: huge, GitDiff: tree,
+                    huge, huge, huge, GitDiff: tree,
                     AttemptLog: [huge, huge], Attempt: 3, Attempts: 5),
                 budget),
             builder.BuildDetectGoal(tree!, budget),
@@ -1084,18 +955,16 @@ public class GoalPromptFittingTests
             Assert.True(CommandLineLength.Quoted(prompt) <= budget,
                 $"a prompt of {CommandLineLength.Quoted(prompt)} would be refused by the guard");
 
-        // Trimmed, not gutted, at the size this tile really builds: the goal, the quality rules, a
-        // verify command's output, seven thousand characters of working tree, the severity rules and an
-        // example come to around twelve thousand characters against the 8 191 a .cmd shim allows. The
-        // run that overflows is the one the fitting exists for — a resume after a large implementation
-        // in a workspace with a verify command — and what comes out still has to say what it is asking
-        // for and still has to carry the goal.
-        var unfitted = builder.BuildReview(new string('g', 5_000), new string('d', 20_000), new string('v', 5_000));
+        // Trimmed, not gutted, at the size this tile really builds: the goal, the quality rules,
+        // twenty thousand characters of working tree, the severity rules and an example go well past
+        // the 8 191 a .cmd shim allows. The run that overflows is the one the fitting exists for — a
+        // resume in a large working tree — and what comes out still has to say what it is asking for
+        // and still has to carry the goal.
+        var unfitted = builder.BuildReview(new string('g', 5_000), new string('d', 20_000));
         Assert.True(CommandLineLength.Quoted(unfitted) > budget,
             "this proves nothing unless the unfitted prompt really is too long");
 
-        var fitted = builder.BuildReview(
-            new string('g', 5_000), new string('d', 20_000), new string('v', 5_000), budget);
+        var fitted = builder.BuildReview(new string('g', 5_000), new string('d', 20_000), budget);
 
         Assert.True(CommandLineLength.Quoted(fitted) <= budget);
         Assert.Contains("goalMet", fitted);
@@ -1141,8 +1010,9 @@ public class GoalPromptFittingTests
     }
 }
 
-/// <summary>The one dialog in this feature that is a security barrier rather than a convenience.</summary>
-public class VerifyCommandDialogTests
+/// <summary>The one dialog in this feature that is a security barrier rather than a convenience: the
+/// link a review's markdown offers to open. See <c>GoalMarkdownView</c>.</summary>
+public class ConsentDialogTests
 {
     [Fact]
     public void A_command_nobody_could_read_in_full_is_refused_rather_than_shortened()
@@ -1152,9 +1022,9 @@ public class VerifyCommandDialogTests
         Assert.True(CommandDisplay.ForDialog(new string('x', 10_000)).Length
                     > CommandDisplay.MaxConsentable);
 
-        Assert.True(CommandDisplay.ForDialog("dotnet build; dotnet test --filter Goal").Length
+        Assert.True(CommandDisplay.ForDialog("https://example.com/a/reasonably/long/path?q=1").Length
                     <= CommandDisplay.MaxConsentable,
-            "a real verify command has to fit comfortably, or the limit is the wrong limit");
+            "a real address has to fit comfortably, or the limit is the wrong limit");
     }
 
     [Fact]
@@ -1217,20 +1087,6 @@ public class VerifyCommandDialogTests
         Assert.Contains("rm -rf /", shown);
         Assert.True(shown.Length > CommandDisplay.MaxConsentable / 2,
             "the point of this test is a command long enough to have been truncated before");
-    }
-
-    [Fact]
-    public void A_field_showing_a_command_raw_says_so_when_that_is_not_what_will_run()
-    {
-        // A text box cannot sanitise what it is editing, and editing that box is what makes a command
-        // "chosen" — so the panel says what the dialog would have shown instead of leaving the reader
-        // to decide from the deceptive version.
-        Assert.True(CommandDisplay.RendersHonestly("dotnet build"));
-        Assert.True(CommandDisplay.RendersHonestly("dotnet build; dotnet test"));
-
-        Assert.False(CommandDisplay.RendersHonestly("echo safe\u202Erm -rf /"));
-        Assert.False(CommandDisplay.RendersHonestly("echo safe\nrm -rf /"));
-        Assert.False(CommandDisplay.RendersHonestly("echo safe" + new string('\u00A0', 40) + "rm -rf /"));
     }
 
     [Fact]
@@ -1314,42 +1170,4 @@ public class GoalCompletionCriteriaTests
         : throw new NotSupportedException(
             $"GoalCompletionCriteria grew a {type.Name} property; teach this test what an unusual one " +
             "looks like.");
-}
-
-/// <summary>The verify command's output, cut to something a prompt can carry.</summary>
-public class VerifyCommandRunnerTests
-{
-    [Fact]
-    public void Both_ends_of_a_long_output_survive_and_the_middle_does_not()
-    {
-        // A failing build prints its first error near the top and repeats itself; a test runner puts
-        // its summary at the bottom. Keeping only the head would lose half of what matters.
-        var output = "FIRST LINE\n" + string.Join("\n", Enumerable.Repeat("noise", 2_000)) + "\nLAST LINE";
-
-        var clipped = VerifyCommandRunner.Clip(output);
-
-        Assert.Contains("FIRST LINE", clipped);
-        Assert.Contains("LAST LINE", clipped);
-        Assert.Contains("truncated", clipped);
-        Assert.True(clipped.Length < output.Length);
-    }
-
-    [Fact]
-    public void The_clip_fits_the_budget_it_claims_so_nothing_cuts_it_again()
-    {
-        // The marker used to be added on top of the budget, putting the result some twenty characters
-        // over — and the prompt block that carries it is capped at exactly that number, so those
-        // characters came off the end. The end is the tail, which is the half this keeps a tail for.
-        var clipped = VerifyCommandRunner.Clip(
-            "FIRST\n" + string.Join("\n", Enumerable.Repeat("noise", 2_000)) + "\nLAST LINE");
-
-        Assert.True(clipped.Length <= VerifyCommandRunner.MaxOutputChars);
-        Assert.Contains("LAST LINE", clipped);
-    }
-
-    [Fact]
-    public void A_short_output_is_left_alone()
-    {
-        Assert.Equal("Build succeeded.", VerifyCommandRunner.Clip("Build succeeded."));
-    }
 }

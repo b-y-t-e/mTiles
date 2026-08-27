@@ -1,3 +1,5 @@
+using System.Globalization;
+using mTiles.Models;
 using mTiles.Services;
 using Xunit;
 
@@ -22,22 +24,6 @@ public class GoalPromptBuilderTests
         Assert.Contains("truncated at", prompt);
         Assert.True(prompt.Length < GoalPromptBuilder.MaxBorrowedChars * 4,
             $"prompt was {prompt.Length} characters, which is not a budget");
-    }
-
-    [Fact]
-    public void The_implementer_is_shown_the_build_error_rather_than_a_review_of_it()
-    {
-        // The verify output used to go to the review alone, so what reached whoever had to fix a broken
-        // build was the reviewer's account of the compiler — a line and column turned into "there is a
-        // type mismatch somewhere in the cart code".
-        var prompt = new GoalPromptBuilder().BuildImplement(
-            new GoalPromptBuilder.ImplementContext(
-                "a goal",
-                VerifyOutput: "src/Cart.cs(42,17): error CS1503: cannot convert int to string",
-                ReviewFeedback: "error: the cart does not build"));
-
-        Assert.Contains("CS1503", prompt);
-        Assert.Contains("src/Cart.cs(42,17)", prompt);
     }
 
     [Fact]
@@ -134,30 +120,94 @@ public class GoalPromptBuilderTests
     }
 
     /// <summary>
-    /// The clarification round is asked how this project checks itself on every goal, not only on one
-    /// that mentions running something.
+    /// The two health checks reach the prompts as instructions, and switching one off takes its
+    /// sentence with it.
     /// </summary>
     /// <remarks>
-    /// Most goals are business goals — "add cart discounts" — and they still have to compile. Asking
-    /// only when the user spelled out a command left the one gate that is not the tool's opinion of its
-    /// own work disarmed in front of the exact failure it exists for.
+    /// What this replaces was a verify command the tile ran itself, gating completion on an exit code —
+    /// which only worked in a repository that was already green. The sentence about pre-existing
+    /// failures is the load-bearing one: without it a tool told the tests must pass, in front of a
+    /// suite that was already red, spends the goal's attempts fixing somebody else's tests.
     /// </remarks>
     [Fact]
-    public void The_clarify_round_is_asked_what_this_project_checks_itself_with()
+    public void The_health_checks_are_asked_for_in_the_prompts_the_work_is_done_from()
     {
-        var prompt = new GoalPromptBuilder().BuildClarify("add cart discounts", []);
+        var all = new GoalPromptBuilder(() => new GoalCompletionCriteria());
 
-        Assert.Contains("Set verify to the command this project uses to check itself", prompt);
+        foreach (var prompt in (string[])[
+            all.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal")),
+            all.BuildReview("a goal", null),
+        ])
+        {
+            Assert.Contains("the project builds", prompt);
+            Assert.Contains("the project's tests pass", prompt);
+            Assert.Contains("already", prompt);
+        }
 
-        // Looked up, never invented: a command this repository gives no evidence for is one that fails
-        // on every attempt for a reason that has nothing to do with the goal.
-        Assert.Contains("rather than assumed", prompt);
-        Assert.Contains("never propose a command this repository gives no evidence for", prompt);
+        // The reviewer is told to go and find out, rather than to read it off the diff.
+        Assert.Contains("Establish these yourself", all.BuildReview("a goal", null));
 
-        // And the carve-outs, which are the ordinary cases rather than the exotic ones: a project with
-        // no tests, and a goal whose work no exit code can judge.
-        Assert.Contains("a project with no tests is the ordinary case", prompt);
-        Assert.Contains("not code that runs", prompt);
+        var buildOnly = new GoalPromptBuilder(
+            () => new GoalCompletionCriteria { RequireTestsPass = false });
+        var implement = buildOnly.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal"));
+        Assert.Contains("the project builds", implement);
+        Assert.DoesNotContain("tests pass", implement);
+
+        var neither = new GoalPromptBuilder(
+            () => new GoalCompletionCriteria { RequireBuild = false, RequireTestsPass = false });
+        Assert.DoesNotContain("the project builds",
+            neither.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal")));
+    }
+
+    /// <summary>
+    /// The plan is asked to stay minimal, in the words that stop it inflating.
+    /// </summary>
+    /// <remarks>
+    /// This phase's characteristic failure is an essay: the user's goal restated at four times the
+    /// length, steps grouped under invented headings, each one annotated with the principle it serves.
+    /// It matters because the plan is what the user approves and what every implement prompt then
+    /// carries — scope invented here is scope the run spends its attempts building.
+    /// </remarks>
+    [Fact]
+    public void The_plan_is_asked_for_the_users_goal_tightened_rather_than_expanded()
+    {
+        var prompt = new GoalPromptBuilder().BuildPlan("add cart discounts", []);
+
+        Assert.Contains("only tighter", prompt);
+        Assert.Contains("not add scope, requirements or detail they did not give you", prompt);
+        Assert.Contains("Do not invent files, requirements or constraints", prompt);
+        Assert.Contains("do not name the principles above", prompt);
+
+        // The build and the tests are the implementation's business and the review's. In a plan they
+        // only ever came back as two more steps saying "run the tests".
+        Assert.DoesNotContain("the project builds", prompt);
+    }
+
+    /// <summary>
+    /// The one prompt with no goal to take a language from asks for the machine's own.
+    /// </summary>
+    /// <remarks>
+    /// Every other prompt says "answer in the language of the goal above". This one is reached from the
+    /// + button over an uncommitted working tree — nothing has been typed, and a diff is written in
+    /// English whoever wrote it. The answer went into the composer as the user's own goal, so one
+    /// phase with nothing to read from set the language of the entire run.
+    /// </remarks>
+    [Fact]
+    public void Detecting_a_goal_answers_in_the_language_this_machine_is_set_up_in()
+    {
+        Assert.Contains("Answer in Polish",
+            GoalPromptBuilder.AnswerInSystemLanguage(new CultureInfo("pl-PL")));
+        Assert.Contains("Answer in German",
+            GoalPromptBuilder.AnswerInSystemLanguage(new CultureInfo("de")));
+
+        // Nothing to say where the prompt is already in that language, and nothing to say where the
+        // machine did not answer the question.
+        Assert.Equal("", GoalPromptBuilder.AnswerInSystemLanguage(new CultureInfo("en-GB")));
+        Assert.Equal("", GoalPromptBuilder.AnswerInSystemLanguage(CultureInfo.InvariantCulture));
+
+        // And it is really in the prompt, whatever this machine happens to be set to.
+        Assert.Contains(GoalPromptBuilder.AnswerInSystemLanguage(CultureInfo.CurrentUICulture),
+            new GoalPromptBuilder().BuildDetectGoal("a diff"));
     }
 
     /// <summary>

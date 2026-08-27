@@ -199,7 +199,6 @@ internal static partial class GoalResponseParser
             // can plan the goal as it stands is exactly the one that already knows how to check it.
             // Newlines out here rather than at the far end — this string is bound for a command line,
             // and a shell handed two lines runs the first one and calls that the verification.
-            Verify = Text(root, "verify").ReplaceLineEndings(" ").Trim(),
             WasStructured = true,
             RawText = raw,
         };

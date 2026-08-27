@@ -86,10 +86,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// Whether the finished run can be carried on.
     /// </summary>
     /// <remarks>
-    /// <para>Two of the five stops, for two different reasons. <b>BudgetSpent</b> is the plain one: the
-    /// attempts ran out and more of them is exactly what is missing. <b>VerifyTimedOut</b> is the one
-    /// the user can <em>fix</em> — and once they have cleared the command that hung, carrying on is
-    /// what they want; the alternative was retyping the goal into an empty tile.</para>
+    /// <para>One of the four stops. <b>BudgetSpent</b> is the plain one: the attempts ran out and more
+    /// of them is exactly what is missing.</para>
     /// <para>The other three are not budgets and never will be: a met goal has nothing to continue
     /// towards, a no-progress stop has just established that two reviews in a row found exactly the
     /// same things, and a no-change stop means the tool wrote nothing. Offering Continue there would
@@ -107,14 +105,6 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         {
             GoalStopReason.BudgetSpent => true,
 
-            // A timed-out verify command is not a budget, so Continue would normally have nothing to
-            // offer — pressing it would buy another half hour of the same wait. But it is also the one
-            // stop the user can *fix*, and the summary tells them how: clear the command under the tune
-            // button. Once they have, carrying on is exactly what they want, and the alternative is
-            // retyping the goal into an empty tile and paying for the clarification round again. So the
-            // button appears when the command that hung is no longer there to hang again.
-            GoalStopReason.VerifyTimedOut => _engine.Criteria.VerifyCommand.Length == 0,
-
             // Met has nothing to continue towards, NoChange means the tool wrote nothing, and
             // NoProgress has just established that two reviews running found exactly the same things.
             _ => false,
@@ -127,20 +117,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     public string ContinueLabel =>
         AttemptsContinueWouldAdd() is var added && added > 0 ? $"Continue · +{added}" : "Continue";
 
-    /// <summary>Why this run stopped, in the words the bar above the button uses. It said "The attempts
-    /// ran out" for both stops, which is untrue of the one where they did not.</summary>
-    public string ContinueReason => _engine.LastStopReason == GoalStopReason.VerifyTimedOut
-        ? "The verify command was cleared."
-        : "The attempts ran out.";
-
     /// <summary>
     /// What Continue would really add.
     /// </summary>
     /// <remarks>
-    /// <para>Nothing at all where the budget still has attempts in it. That is the VerifyTimedOut case:
-    /// the run stopped on attempt 2 of 5, so there are three left and Continue only has to let them
-    /// happen — adding the field on top raised a ceiling the user had set to 5 up to 7, which is not
-    /// something they asked for and not something the button said it would do.</para>
+    /// <para>Nothing at all where the budget still has attempts in it: there are attempts left and
+    /// Continue only has to let them happen, so adding the field on top would raise a ceiling the user
+    /// set without the button ever saying it would.</para>
     /// <para>Otherwise the attempts field, unless the ceiling is nearer than that. The label used to
     /// read the field alone, so a goal 48 attempts in offered "+5" and added two.</para>
     /// </remarks>
@@ -443,8 +426,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// Asks before turning every safeguard off, and writes the setting only on a yes.
     /// </summary>
     /// <remarks>
-    /// <para>No dialog means <b>no</b>, as on the Settings dialog and in front of a verify command out
-    /// of a goal file. An unanswered question is not a yes, and this is the largest single grant this
+    /// <para>No dialog means <b>no</b>, as on the Settings dialog and for the same reason.
+    /// An unanswered question is not a yes, and this is the largest single grant this
     /// application makes: it applies to every Goal tile, and the first place it is noticed is an
     /// unattended run that has already happened.</para>
     /// <para>The other three modes are not asked about. They are preferences with a floor under them;
@@ -625,37 +608,6 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
     // ── Completion criteria ─────────────────────────────
 
-    /// <summary>
-    /// A verify command that came out of the goal file and has not yet been agreed to in this session.
-    /// <para>Deliberately <b>not persisted</b>, and that is the whole design. Goal files live in
-    /// <c>.mtiles/goals/</c> inside the user's own repository; nothing gitignores that directory
-    /// unless the Git tile is used, so a committed one travels with a branch — and it carries a shell
-    /// command that this tile runs after every attempt. A stored "the user agreed" flag would travel
-    /// with it and agree on their behalf.</para>
-    /// </summary>
-    private bool _verifyCommandNeedsConsent;
-
-    /// <summary>
-    /// Whether the command awaiting consent was worked out from the goal in this session, rather than
-    /// read out of the goal file.
-    /// <para>Only the wording of the question depends on it, and the wording is the question: "this
-    /// goal was saved with a verify command" said over one the tool proposed a second ago describes
-    /// the wrong event, and the user is being asked to approve a shell command on the strength of that
-    /// description. Not persisted, for the reason <see cref="_verifyCommandNeedsConsent"/> is not.</para>
-    /// </summary>
-    private bool _verifyCommandFromGoal;
-
-    /// <summary>
-    /// Set once the tile has explained that it cannot ask about the verify command.
-    /// <para>The loop asks on every attempt and other messages land in between, so <c>SayOnceAsync</c>
-    /// — which only skips a note that is still the <em>last</em> thing in the transcript — printed it
-    /// up to five times a run.</para>
-    /// <para>Per tile, and deliberately <b>not</b> reset by <c>StartFreshGoal</c> beside
-    /// <c>_clarifyBudgetReported</c>: this one is about the tile having nowhere to ask, which a new goal
-    /// does not change.</para>
-    /// </summary>
-    private bool _verifyConsentUnavailableReported;
-
     /// <summary>Whether this goal has already been told why it is not getting more questions. Reset
     /// with the goal, not with the tile.</summary>
     private bool _clarifyBudgetReported;
@@ -664,9 +616,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         () => _engine.Criteria,
         criteria =>
         {
-            // Read before the assignment: what they say about the state the engine is still holding.
-            var commandChanged = !string.Equals(
-                _engine.Criteria.VerifyCommand, criteria.VerifyCommand, StringComparison.Ordinal);
+            // Read before the assignment: what it says about the state the engine is still holding.
             var attemptsChanged = _engine.Criteria.MaxIterations != criteria.MaxIterations;
 
             _engine.Criteria = criteria;
@@ -679,18 +629,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             if (attemptsChanged)
                 _engine.AttemptsBeforeExtension = null;
 
-            // The output belonged to the command that printed it. Left in place across an edit, a build
-            // error from `dotnet build` was handed to the next implementation under the heading "the
-            // project's verify command failed with this output" while the command was now `npm test` —
-            // or had been removed entirely, in which case nothing would ever have printed it again.
-            if (commandChanged)
-                _engine.LastVerifyOutput = null;
-
-            // The Continue button names the number it will add, and that number is this field. The
-            // reason with it: clearing the verify command is what makes the button appear after a
-            // timeout, so the bar above it has to be there to be read.
+            // The Continue button names the number it will add, and that number is this field.
             OnPropertyChanged(nameof(ContinueLabel));
-            OnPropertyChanged(nameof(ContinueReason));
             OnPropertyChanged(nameof(CanContinue));
 
             // Messages alone, and no File.Exists: this runs on every keystroke in a text box, and a
@@ -866,8 +806,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException)
         {
-            // As in RunVerifyAsync: the label has to come back, or the strip keeps saying the tile is
-            // reading a working tree it stopped reading.
+            // The label has to come back, or the strip keeps saying the tile is reading a working
+            // tree it stopped reading.
             PhaseLabel = _engine.GetPhaseLabel();
             return;
         }
@@ -1158,13 +1098,6 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         var clarify = GoalResponseParser.ParseClarify(answer);
         _engine.ClarifyRounds++;
 
-        // Before either branch below, because both of them lead somewhere: the round that asks
-        // questions is followed by another one, and the round that asks none plans immediately and
-        // never comes back here. A command adopted only on the second path would be missing from every
-        // goal clear enough to need no questions — which is most of the goals that state a condition
-        // precisely enough to have one.
-        await AdoptVerifyCommandAsync(clarify.Verify);
-
         // Prose is a legitimate answer: a tool that ignored the schema still asked something, and the
         // old behaviour — show it, wait for a reply — is exactly right for it.
         if (clarify.WasStructured && !clarify.NeedsClarification)
@@ -1368,8 +1301,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
                     // The implementation is done and only the review is owed, so the phase moves —
                     // unconditionally, and here rather than inside the pause below. Everything from
-                    // this point on can be interrupted, the verify command most of all: it is minutes
-                    // of build, it is cancelled by Pause, and leaving Implement standing through it
+                    // this point on can be interrupted, and leaving Implement standing through it
                     // meant Resume ran the whole implementation again over a worktree that already had
                     // its changes.
                     _engine.CurrentPhase = GoalPhase.Review;
@@ -1381,15 +1313,9 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                         return;
                     }
 
-                    // Asked here, before the verify command and before the review, and that ordering is
-                    // the whole point of the extra read. The tree the review is handed is read *after*
-                    // the verify command has run, so a command that regenerates a tracked file — a
-                    // build, a formatter, a snapshot test — made the two trees differ and quietly
-                    // disarmed this stop in exactly the workspaces most likely to have one configured.
-                    //
                     // Two short git processes against a lap that costs minutes of AI, and they pay for
-                    // themselves the moment this fires: there is no sense building and reviewing a
-                    // change that was never made.
+                    // themselves the moment this fires: there is no sense reviewing a change that was
+                    // never made.
                     if (await ImplementationChangedNothingAsync(treeBeforeImplement))
                     {
                         stopReason = GoalStopReason.NoChange;
@@ -1397,34 +1323,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     }
                 }
 
-                var verify = await RunVerifyAsync(criteria.VerifyCommand);
-                if (verify == null) return;
-
-                // A verification that had to be killed ends the run rather than being tried again. The
-                // timeout is already half an hour, so the attempts still on the budget are hours of
-                // waiting for the same answer — and the answer is unusable either way: a command that
-                // never finished says nothing about whether the goal is met, so every one of those
-                // attempts would end at the same gate. Reviewing this attempt first would spend a run
-                // arguing about a build nobody has seen the result of.
-                // Kept for the next implementation, not only for the review. The reviewer used to be the
-                // only one shown the compiler's own words, and what reached whoever had to fix the build
-                // was the reviewer's account of them: a line and column turned into "there is a type
-                // mismatch somewhere in the cart code". Cleared on a pass, so a build fixed on attempt 2
-                // is not still being explained on attempt 5.
-                _engine.LastVerifyOutput = verify is { Ran: true, Succeeded: false, Output.Length: > 0 }
-                    ? verify.Value.Output
-                    : null;
-
-                if (verify is { TimedOut: true })
-                {
-                    stopReason = GoalStopReason.VerifyTimedOut;
-                    break;
-                }
-
                 var reviewRun = await RunLoopPhaseAsync(
                     GoalPhase.Review,
                     "AI is reviewing changes...",
-                    tree => _engine.BuildReviewPrompt(tree, verify.Value.Output, PromptBudget()),
+                    tree => _engine.BuildReviewPrompt(tree, PromptBudget()),
                     // The raw answer is not what goes in the transcript. It is read first and written
                     // back as a list of findings, because the prose around a JSON block says the same
                     // things at greater length and printing both means reading every review twice.
@@ -1433,16 +1335,15 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 if (reviewRun is not { } reviewed) return;
 
                 var review = GoalResponseParser.ParseReview(reviewed.Text);
-                AddVerifyFinding(review, verify);
                 ShowFindings(review);
                 // The head as text, the findings as findings. They used to be one string, so the one
                 // part of the transcript arranged to be scanned was also the one part with no colour
                 // in it: a blocker and a suggestion were the same grey, three lines apart.
                 await AddMessageAsync(GoalMessageRole.Assistant,
-                    GoalTranscript.ReviewHead(review, verify, criteria.RequireGoalMet), GoalPhase.Review,
+                    GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
                     findings: GoalTranscript.InOrder(review.Findings));
 
-                if (GoalCompletionPolicy.IsMet(review, verify, criteria))
+                if (GoalCompletionPolicy.IsMet(review, criteria))
                 {
                     _engine.ClearReviewFeedback();
                     stopReason = GoalStopReason.Met;
@@ -1453,7 +1354,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                 // nits and prose included, so an attempt could be spent renaming a variable while the
                 // null dereference above it stayed exactly where it was.
                 _engine.RecordReviewFeedback(GoalTranscript.Feedback(review));
-                outstanding = GoalCompletionPolicy.WhyNotMet(review, verify, criteria);
+                outstanding = GoalCompletionPolicy.WhyNotMet(review, criteria);
 
                 var repeatedItself = GoalCompletionPolicy.RepeatsPrevious(
                     review, _engine.LastReviewFingerprint);
@@ -1514,10 +1415,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// <summary>
     /// Whether the implementation left the working tree exactly as it found it — the tool did nothing,
     /// and the same prompt against the same tree gets the same nothing.
-    /// <para>Reads the tree again rather than reusing the review's copy, which is read after the verify
-    /// command and so carries whatever that changed. A cancellation answers <c>false</c>: a pause is
-    /// not evidence about the implementation, and the pause is handled at the next hand-over anyway.
-    /// </para>
+    /// <para>A cancellation answers <c>false</c>: a pause is not evidence about the implementation,
+    /// and the pause is handled at the next hand-over anyway.</para>
     /// </summary>
     private async Task<bool> ImplementationChangedNothingAsync(WorktreeSnapshot treeBeforeImplement)
     {
@@ -1533,71 +1432,6 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         {
             return false;
         }
-    }
-
-    /// <summary>
-    /// Runs the tile's verify command, or answers "not run" when there is not one. Null means the user
-    /// paused during it.
-    /// </summary>
-    private async Task<VerifyOutcome?> RunVerifyAsync(string command)
-    {
-        if (string.IsNullOrWhiteSpace(command)) return VerifyOutcome.NotRun();
-
-        if (PauseRequested)
-        {
-            PhaseLabel = _engine.GetPhaseLabel();
-            return null;
-        }
-
-        // No reason attached: ConsentToVerifyCommandAsync has already written the explanation into the
-        // transcript, and a Problem here would have the caller print a second one underneath it.
-        if (!await ConsentToVerifyCommandAsync(command))
-            return VerifyOutcome.NotRun();
-
-        // Asked again on the way out of the dialog. The check above happened before it, and the dialog
-        // is awaited: the panel stays usable while it is on screen, so Pause can be pressed between the
-        // question and the answer — and the build started anyway, which is the one thing Pause exists
-        // to stop.
-        if (PauseRequested)
-        {
-            PhaseLabel = _engine.GetPhaseLabel();
-            return null;
-        }
-
-        Working("Running the verify command...");
-
-        VerifyOutcome outcome;
-        try
-        {
-            outcome = await new VerifyCommandRunner(_workingDirectory, _settingsService.Settings)
-                .RunAsync(command, _cts?.Token ?? CancellationToken.None);
-        }
-        catch (OperationCanceledException)
-        {
-            // Or the strip is left saying "Running the verify command..." over a tile with nothing
-            // running in it — which is what the user sees for as long as the tile stays open.
-            PhaseLabel = _engine.GetPhaseLabel();
-            return null;
-        }
-
-        // Said only when there is something to say. A command that passed is reported by the review
-        // line that follows it, and repeating it here would put a line in the transcript after every
-        // successful build for the life of the goal.
-        if (outcome is { TimedOut: true, Problem: { Length: > 0 } killed })
-            // Not "the review will go ahead without it": it will not. A verification that never finished
-            // is about the work, unlike a missing shell, and the loop stops on it.
-            await AddMessageAsync(GoalMessageRole.System,
-                $"The verify command never finished ({killed}).", GoalPhase.Review);
-        else if (outcome.Problem is { Length: > 0 } problem)
-            await AddMessageAsync(GoalMessageRole.System,
-                $"The verify command could not be run ({problem}). The review will go ahead without it.",
-                GoalPhase.Review);
-        else if (outcome is { Ran: true, Succeeded: false })
-            await AddMessageAsync(GoalMessageRole.System,
-                $"Verify command exited {outcome.ExitCode}. Its output goes to the review.",
-                GoalPhase.Review);
-
-        return outcome;
     }
 
     /// <summary>
@@ -1631,201 +1465,6 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// <summary>The severities in declaration order, which is the order the saved counts are stored in.
     /// Read once: <c>Enum.GetValues</c> allocates.</summary>
     private static readonly GoalSeverity[] GoalSeverities = Enum.GetValues<GoalSeverity>();
-
-    /// <summary>
-    /// Takes the command the clarification round worked out from the goal, if it named one.
-    /// </summary>
-    /// <remarks>
-    /// <para>This is how a goal comes to be verified now. Saying "and the tests must pass" in the goal
-    /// is the whole of it: the tool is standing in the repository, so it knows whether that means
-    /// <c>dotnet test</c>, <c>npm test</c> or <c>cargo test</c>, and if it cannot tell it asks in the
-    /// same round. What this replaces is a text box that asked the user to do that translation.</para>
-    /// <para>Adopting is not running. The command goes in still needing consent, so the dialog in
-    /// <see cref="ConsentToVerifyCommandAsync"/> is asked before the first attempt is verified — an AI
-    /// tool proposing a shell command is exactly the case that gate exists for, and it is a weaker
-    /// claim on the shell than a file the user's own repository carried.</para>
-    /// </remarks>
-    private async Task AdoptVerifyCommandAsync(string proposed)
-    {
-        var command = proposed.Trim();
-        if (command.Length == 0) return;
-
-        // Nothing to do when it is already the command in hand — every round proposes one, and a
-        // three-round clarification would otherwise reset the consent flag twice and ask twice.
-        if (string.Equals(_engine.Criteria.VerifyCommand, command, StringComparison.Ordinal)) return;
-
-        // A command the user typed in this session outranks one the tool worked out. They are looking
-        // at the panel, they put it there, and having a clarification round overwrite it would be the
-        // tile arguing with the person using it.
-        if (Criteria.VerifyCommandWasTyped) return;
-
-        // Refused before it is stored, not at the gate. The gate's version of this deletes the command
-        // and explains that it was too long to show — which is the right answer for a file that already
-        // had one, and the wrong one for a proposal nobody has seen: it would report the removal of
-        // something that was never there.
-        if (!CommandDisplay.CanBeConsentedTo(command))
-        {
-            await AddMessageAsync(GoalMessageRole.System,
-                $"The tool proposed a verify command of {CommandDisplay.ForDialog(command).Length} " +
-                "characters — too long to show you in full, so it has been ignored.", CurrentPhase);
-            return;
-        }
-
-        _engine.Criteria.VerifyCommand = command;
-
-        // The old command's output goes with the old command. Kept, it would be handed to the next
-        // implement prompt as "the project's verify command failed with this output" over a command
-        // that has since been replaced.
-        _engine.LastVerifyOutput = null;
-
-        _verifyCommandNeedsConsent = true;
-        _verifyCommandFromGoal = true;
-        Criteria.Reload();
-        SaveStateNow();
-
-        await AddMessageAsync(GoalMessageRole.System,
-            "This is how the project checks itself, so it will run after every attempt:\n\n" +
-            $"{CommandDisplay.ForDialog(command)}\n\n" +
-            "You will be asked before it runs the first time. While it fails, the goal is not met. " +
-            "Empty the field under the tune button to drop it for this goal.",
-            CurrentPhase);
-    }
-
-    /// <summary>
-    /// Asks once, per session, before running a verify command this tile did not watch the user type —
-    /// see <see cref="_verifyCommandNeedsConsent"/> for why it is asked at all.
-    /// <para>No dialog means <b>no</b>, as on the Settings dialog and for the same reason: an
-    /// unanswered question is not a yes. Declining clears the command rather than skipping it once —
-    /// otherwise the question returns on every attempt, and a question asked five times is one answered
-    /// wrongly on the fifth.</para>
-    /// </summary>
-    private async Task<bool> ConsentToVerifyCommandAsync(string command)
-    {
-        // A command the user typed in this session is a command they chose.
-        if (!_verifyCommandNeedsConsent || Criteria.VerifyCommandWasTyped) return true;
-
-        // Too long to show is too long to approve. Asking about a command while hiding part of it is
-        // worse than not asking: it collects a yes for something nobody saw. There is no elision
-        // anywhere in this path — a command that will not fit in the question is refused, and the user
-        // is told to shorten it in a panel where they can see the whole thing.
-        if (!CommandDisplay.CanBeConsentedTo(command))
-        {
-            _verifyCommandNeedsConsent = false;
-            _engine.Criteria.VerifyCommand = "";
-            _engine.LastVerifyOutput = null;
-            Criteria.Reload();
-            SaveStateNow();
-
-            await AddMessageAsync(GoalMessageRole.System,
-                $"This goal's verify command is {CommandDisplay.ForDialog(command).Length} characters " +
-                "long — too long " +
-                "to show you in full, and this tile will not ask you to approve something it has to " +
-                "hide half of. It has been removed. Shorten it under the tune button.",
-                CurrentPhase);
-
-            return false;
-        }
-
-        // Nowhere to ask. The command is not run — an unanswered question is not a yes — but neither is
-        // it thrown away: "I could not ask" and "they said no" are the same answer about *running* it
-        // and opposite answers about *keeping* it, and deleting somebody's setting because a dialog was
-        // not wired is a decision nobody made. The flag stays up, so a later run with a window in front
-        // of it asks properly.
-        if (ConfirmAction == null)
-        {
-            if (!_verifyConsentUnavailableReported)
-            {
-                _verifyConsentUnavailableReported = true;
-                await AddMessageAsync(GoalMessageRole.System,
-                    $"This goal carries a verify command (`{CommandDisplay.ForDialog(command)}`) that has not been " +
-                    "approved, and this tile cannot ask. It will be skipped.", CurrentPhase);
-            }
-
-            return false;
-        }
-
-        // Two questions, because they are two different events and the user is deciding on the strength
-        // of which one this is. "Saved with" said over a command the tool proposed a minute ago is a
-        // description of something that did not happen, collected as a yes for a shell command.
-        var agreed = await ConfirmAction(
-            (_verifyCommandFromGoal
-                ? "The tool proposes checking every attempt with this project's own command:\n\n"
-                : "This goal was saved with a verify command:\n\n") +
-            $"{CommandDisplay.ForDialog(command)}\n\n" +
-            "Run it in this workspace after every attempt?");
-
-        _verifyCommandNeedsConsent = false;
-
-        if (agreed) return true;
-
-        // Only if it is still the command that was asked about. The dialog is awaited, and the panel is
-        // usable while it is on screen: somebody who answers "no" to the command out of the file and
-        // then types their own would have had the new one deleted by this line, in the name of a
-        // refusal that was never about it. A command they have just typed is one they chose, so there
-        // is nothing left to refuse either.
-        if (!string.Equals(_engine.Criteria.VerifyCommand, command, StringComparison.Ordinal))
-            return false;
-
-        // An actual refusal removes it, rather than skipping it once: otherwise the question returns on
-        // every attempt, and a question asked five times is one answered wrongly on the fifth.
-        _engine.Criteria.VerifyCommand = "";
-        _engine.LastVerifyOutput = null;
-        Criteria.Reload();
-        SaveStateNow();
-
-        await AddMessageAsync(GoalMessageRole.System,
-            "The verify command was not approved and has been removed from this goal. Say what has to " +
-            "pass in the goal itself if you want one — the tool works out the command from there.",
-            CurrentPhase);
-
-        return false;
-    }
-
-    /// <summary>
-    /// Puts a failed verification into the review as a blocker, so it is counted where every other
-    /// reason a goal cannot finish is counted.
-    /// </summary>
-    /// <remarks>
-    /// <para>It was already a hard gate — <see cref="GoalCompletionPolicy.IsMet"/> refuses on it before
-    /// it looks at anything else — but it was invisible: the strip showed "0 findings" over a run that
-    /// could not finish, the badges said the review was clean, and the one line naming the exit code
-    /// scrolled away with the attempt. A blocker is precisely what this is, in the word the tile
-    /// already uses for it: not merely wrong, unacceptable, and with no tolerance anybody can raise.
-    /// </para>
-    /// <para>Added to the parsed review rather than counted separately, which is what makes it appear
-    /// in the badges, in the findings the transcript renders, and in the fingerprint two reviews are
-    /// compared by — a build failing identically twice, over a review that found the same things, is a
-    /// run going round in a circle and should end as one.</para>
-    /// <para>Deliberately <b>not</b> fed back into the next implement prompt by this route: the
-    /// command's own output is already carried there by <c>LastVerifyOutput</c>, in the compiler's
-    /// words rather than in a summary of them.</para>
-    /// </remarks>
-    private static void AddVerifyFinding(GoalReviewResult review, VerifyOutcome? verify)
-    {
-        if (verify is not { } outcome) return;
-
-        // One case only, and deliberately not two. A verification that timed out never reaches here:
-        // the loop breaks on it and summarises as VerifyTimedOut before a review is run, so there is
-        // no review for a finding to go into — a branch for it would be a line nothing can execute,
-        // claiming to handle something that is handled by ending the run instead.
-        //
-        // A command that could not be *started* is not a failure either. That is the machine's fault,
-        // it is forgiven everywhere else, and blaming the work for the tooling is the one thing this
-        // whole mechanism is careful not to do.
-        if (outcome is not { Ran: true, Succeeded: false }) return;
-
-        var title = $"The verify command exited {outcome.ExitCode}";
-
-        // First, because it is the one finding here that is not an opinion. The transcript renders them
-        // in order, and a compiler's verdict belongs above a model's reading of the same code.
-        review.Findings.Insert(0, new GoalFinding
-        {
-            Severity = GoalSeverity.Blocker,
-            Category = GoalFinding.VerifyCategory,
-            Title = title,
-            Detail = outcome.Output,
-        });
-    }
 
     /// <summary>The badges in the status strip. Set on every review, including one that found nothing,
     /// so a clean attempt does not keep showing the counts from the one before it.</summary>
@@ -1872,12 +1511,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         _engine.CurrentPhase = GoalPhase.Summary;
         SyncFromEngine();
 
-        // The label and the reason too, not only whether the button is there. Both are read from state
-        // that has just moved: the label is the ceiling less the attempts already spent, and the reason
-        // is the stop this method has just recorded.
+        // The label too, not only whether the button is there: it is the ceiling less the attempts
+        // already spent, and both have just moved.
         OnPropertyChanged(nameof(CanContinue));
         OnPropertyChanged(nameof(ContinueLabel));
-        OnPropertyChanged(nameof(ContinueReason));
 
         PhaseLabel = _engine.GetPhaseLabel();
 
@@ -2343,8 +1980,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     /// </param>
     /// <summary>The label a phase runs under, and the end of whatever the last phase was doing. The
     /// clear belongs with the label because they change together: without it the strip named a file
-    /// from the implementation for the whole of a verify command, which can run for half an hour —
-    /// a tile looking busy about something that finished.</summary>
+    /// from the implementation for the whole of the review that followed it — a tile looking busy
+    /// about something that finished.</summary>
     private void Working(string label)
     {
         PhaseLabel = label;
@@ -2480,36 +2117,6 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
                     : $"The tool this goal was using ({savedTool}) is not installed, and " +
                       "no other AI tool was found. Install one and click Resume.",
                     aboutThisSession: true);
-
-            // Said out loud, because it is a shell command that arrived in a file and will be run
-            // without the user typing it again. Goal files live in `.mtiles/goals/` inside the
-            // user's own repository, nothing gitignores that directory unless the Git tile is used, and
-            // a committed one travels with the branch. Naming it is the difference between a command
-            // the user chose and one they merely inherited. This line is a notice, not a barrier: the
-            // barrier is the dialog, and it comes before the command is ever run.
-            if (_engine.Criteria.VerifyCommand is { Length: > 0 } verify)
-            {
-                _verifyCommandNeedsConsent = true;
-
-                // Set together with the flag it qualifies, always, rather than only where it is true.
-                // A provenance flag that is only ever raised is the shape of bug the note on
-                // VerifyCommandWasTyped is about: it describes the last thing that happened rather than
-                // the thing being asked about. Unreachable today, since nothing adopts before this
-                // runs — and "unreachable today" is what the loop's own latching bugs all were.
-                _verifyCommandFromGoal = false;
-
-                // One that cannot be shown is named by its length instead. The transcript may elide
-                // where the dialog may not — but the transcript is reserialised into the goal file on
-                // every save, so a command of a hundred kilobytes would be carried there twice over.
-                // The consent gate refuses it anyway; this only has to say what is in the file.
-                Say(CommandDisplay.CanBeConsentedTo(verify)
-                    ? $"This goal carries a verify command: `{CommandDisplay.ForDialog(verify)}`. You will be " +
-                      "asked before it runs."
-                    : $"This goal carries a verify command of {CommandDisplay.ForDialog(verify).Length} " +
-                      "characters — too long to show you in full, so it will not be run. Set a shorter " +
-                      "one under the tune button.",
-                    aboutThisSession: true);
-            }
 
             PhaseLabel = _engine.GetPhaseLabel();
         }

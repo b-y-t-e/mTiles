@@ -14,10 +14,13 @@ namespace mTiles.Tests;
 public class SolidPrinciplesTests
 {
     private static string Rules(SolidPrinciples solid) =>
-        new GoalPromptBuilder(() => solid).BuildPlan("a goal", []);
+        Builder(solid).BuildPlan("a goal", []);
 
     private static string Review(SolidPrinciples solid) =>
-        new GoalPromptBuilder(() => solid).BuildReview("a goal", null);
+        Builder(solid).BuildReview("a goal", null);
+
+    private static GoalPromptBuilder Builder(SolidPrinciples solid) =>
+        new(() => new GoalCompletionCriteria { Solid = solid });
 
     /// <summary>
     /// Nobody who never opens the panel loses a rule. The switches exist to take something away, so
@@ -124,7 +127,7 @@ public class SolidPrinciplesTests
     public void A_switch_flipped_after_the_builder_was_made_reaches_the_next_prompt()
     {
         var criteria = new GoalCompletionCriteria();
-        var builder = new GoalPromptBuilder(() => criteria.Solid);
+        var builder = new GoalPromptBuilder(() => criteria);
 
         Assert.Contains("Liskov Substitution:", builder.BuildPlan("a goal", []));
 

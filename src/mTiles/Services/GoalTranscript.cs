@@ -23,8 +23,7 @@ internal static class GoalTranscript
     /// search for. <see cref="Review"/> still glues the two back together, because the clipboard and
     /// every goal file written before the rows existed want one string.
     /// </remarks>
-    public static string ReviewHead(GoalReviewResult review, VerifyOutcome? verify = null,
-        bool goalMetMatters = true)
+    public static string ReviewHead(GoalReviewResult review, bool goalMetMatters = true)
     {
         if (!review.WasStructured)
             return review.RawText.Trim();
@@ -42,12 +41,6 @@ internal static class GoalTranscript
             .ToList();
 
         sb.Append(counts.Count > 0 ? $" · {string.Join(" · ", counts)}" : " · nothing found");
-
-        // Only the pass. A failure is now a blocker in the list below, carrying its exit code and the
-        // command's own output — naming it here as well reported one event twice on one line, and the
-        // shorter of the two tellings was the one at the top.
-        if (verify is { Ran: true, Succeeded: true })
-            sb.Append(" · verify passed");
 
         // Not when the goal is being counted as met anyway. A structured review that omits goalMet
         // still falls back to the prose verdict, so it can perfectly well end up met — and the note
@@ -168,12 +161,8 @@ internal static class GoalTranscript
         if (!review.WasStructured)
             return review.RawText.Trim();
 
-        // The verify blocker is left out as well, and for a different reason from the suggestions: it
-        // is not dropped, it is already there. The next implement prompt carries the command's own
-        // output under its own heading — the compiler's words rather than an account of them — so
-        // including this finding too would spend the prompt's budget saying the same thing twice.
         var blocking = Ordered(review.Findings.Where(f =>
-            f.Severity != GoalSeverity.Suggestion && f.Category != GoalFinding.VerifyCategory)).ToList();
+            f.Severity != GoalSeverity.Suggestion)).ToList();
         if (blocking.Count == 0)
             return review.GoalMet
                 ? "The review found nothing blocking."

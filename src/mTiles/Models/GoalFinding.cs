@@ -40,18 +40,6 @@ public enum GoalSeverity
 /// free text from the tool, so all of it refuses a null the way the rest of the saved state does.</summary>
 public sealed class GoalFinding
 {
-    /// <summary>
-    /// The category of the one finding no AI tool writes: the tile's own, standing for a verify command
-    /// that failed or never finished.
-    /// </summary>
-    /// <remarks>
-    /// Named rather than left as free text because two places have to agree about it —
-    /// <c>GoalTileViewModel.AddVerifyFinding</c> makes it and <c>GoalCompletionPolicy.WhyNotMet</c>
-    /// declines to count it a second time — and a string spelled twice is a string that will be
-    /// spelled differently once.
-    /// </remarks>
-    public const string VerifyCategory = "verify";
-
     public GoalSeverity Severity { get; set; }
 
     /// <summary>What kind of problem it is — correctness, goal, solid, tests, security, performance.

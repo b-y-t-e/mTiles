@@ -20,7 +20,4 @@ public enum GoalStopReason
 
     /// <summary>An implementation left the working tree exactly as it found it.</summary>
     NoChange,
-
-    /// <summary>The verify command had to be killed for running too long.</summary>
-    VerifyTimedOut,
 }

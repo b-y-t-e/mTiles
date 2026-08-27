@@ -204,24 +204,6 @@
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Margin" Value="0,0,10,0" />
         </Style>
-        <!-- The one control on this panel that is an offer rather than a setting: it reads as a line of
-             the panel's own text until the pointer is over it. A framed button would announce a field
-             the panel deliberately stopped asking for. -->
-        <Style Selector="Button.crit-add">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-        </Style>
-        <Style Selector="Button.crit-add:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="TextBlock.Foreground" Value="{DynamicResource AccentHover}" />
-        </Style>
-
         <Style Selector="TextBlock.crit-title">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
             <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
@@ -236,16 +218,6 @@
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <!-- What a field is really holding, when that differs from what it shows: a clamped number, or
-             a command carrying characters that do not display as themselves. Faint, because it is only
-             there when something needs saying. -->
-        <Style Selector="TextBlock.crit-note">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
-
         <Style Selector="CheckBox.crit-check">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
             <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
@@ -697,55 +669,14 @@
 
         <!-- ======== When is this goal done? ========
              Everything here used to be a constant: five attempts, and the presence of the characters
-             "VERDICT: PASS" anywhere in the review. The verify command is the one row that is not an
-             opinion — an exit code decides it — which is why it sits at the top.
-
-             It is also the one row that is not always here. Nothing on this panel is typed to make it
-             appear: the command is worked out from the goal by the clarification round, so what shows
-             here is a proposal that has arrived, and a goal that named nothing to check has no row at
-             all rather than an empty box asking for a shell command. -->
+             "VERDICT: PASS" anywhere in the review. -->
         <Border DockPanel.Dock="Top" Classes="criteria" IsVisible="{Binding ShowCriteria}">
             <StackPanel>
                 <TextBlock Classes="crit-title" Text="done when" />
 
-                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0,0,0,4">
-                    <!-- Both halves of the row carry the visibility, not the Grid: an Auto row with
-                         nothing visible in it measures to nothing, so the rows below simply move up. -->
-                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="crit-label" Text="verify command"
-                               IsVisible="{Binding Criteria.ShowVerifyRow}" />
-                    <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2"
-                                IsVisible="{Binding Criteria.ShowVerifyRow}">
-                        <!-- Still a box, not a label. What arrives is a proposal, and the two things
-                             anyone wants to do with one — read it and change it — both need the text
-                             selectable and editable. Emptying it is how it is refused. -->
-                        <TextBox Classes="crit-field"
-                                 Text="{Binding Criteria.VerifyCommand}"
-                                 ToolTip.Tip="Worked out from your goal, and run after every attempt. A non-zero exit is a blocker; its output goes to the review.&#x0a;Empty the box to drop it. Read by the shell mTiles resolves for commands, which is not always the one you would guess." />
-                        <!-- Only when the box is not showing the truth. A text box cannot sanitise what
-                             it is editing, and editing this field is what makes a command "chosen" — so
-                             a user deciding by reading it would be deciding on the version the approval
-                             dialog exists to refuse. -->
-                        <TextBlock Classes="crit-note"
-                                   IsVisible="{Binding Criteria.HasVerifyCommandNote}"
-                                   Text="{Binding Criteria.VerifyCommandAsShown}" />
-                    </StackPanel>
-
-                    <!-- The way back to a field this panel no longer offers by default. `verify` is
-                         read only out of a structured json clarification, and three of the four tools
-                         answer in prose often enough that the proposal never arrives — as it also
-                         never arrives for a repository whose build cannot be identified, or a goal
-                         about writing documentation. Without this, those users had no way at all to arm
-                         the one gate here that is not a model's opinion of its own work. -->
-                    <Button Grid.Row="0" Grid.Column="1"
-                            Classes="crit-add"
-                            Command="{Binding Criteria.AddVerifyCommandCommand}"
-                            IsVisible="{Binding Criteria.CanAddVerifyCommand}"
-                            HorizontalAlignment="Left"
-                            Content="+ verify command"
-                            ToolTip.Tip="A command run after every attempt. Normally worked out from your goal; set it here when it was not." />
-
-                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="crit-label" Text="attempts" Margin="0,6,10,0" />
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" Margin="0,0,0,4">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="crit-label" Text="attempts" Margin="0,6,10,0" />
+                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
                         <!-- LostFocus puts the fields back to what the tile actually holds. Avalonia
                              reports a failed string-to-int conversion as a binding error, not as data
                              validation, so the :error pseudo-class never fires and a style built on it
@@ -763,8 +694,8 @@
                                    IsVisible="{Binding Criteria.AttemptsNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     </StackPanel>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="crit-label" Text="tolerated" Margin="0,6,10,0" />
-                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
+                    <TextBlock Grid.Row="1" Grid.Column="0" Classes="crit-label" Text="tolerated" Margin="0,6,10,0" />
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
                         <TextBox Classes="crit-field" Text="{Binding Criteria.MaxErrors}" MinWidth="42"
                                  LostFocus="NumberBox_LostFocus"
                                  ToolTip.Tip="Errors allowed to remain. Blockers never are." />
@@ -785,8 +716,8 @@
                          in a library they will maintain for years and none of them in a one-page
                          script. And it is a completion criterion in the only sense that matters — a
                          violation comes back as a warning, against the tolerance two rows up. -->
-                    <TextBlock Grid.Row="3" Grid.Column="0" Classes="crit-label" Text="principles" Margin="0,6,10,0" />
-                    <ItemsControl Grid.Row="3" Grid.Column="1" Margin="0,6,0,0"
+                    <TextBlock Grid.Row="2" Grid.Column="0" Classes="crit-label" Text="principles" Margin="0,6,10,0" />
+                    <ItemsControl Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"
                                   ItemsSource="{Binding Criteria.Solid}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -814,6 +745,26 @@
                 <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireGoalMet}"
                           Content="the review says the goal is met"
                           ToolTip.Tip="Separate from the counts: clean code that does the wrong thing has no findings" />
+                <!-- The two health checks. They are sentences added to the prompts, not commands this
+                     tile runs, so what they buy is the tool checking its own work with this project's
+                     own build and test commands — which it can work out and the panel could not.
+
+                     What they replace was a verify command: a shell line proposed by the clarification
+                     round, approved by the user and run by the tile, with its exit code gating
+                     completion. That only ever worked in a repository which was already green, and a
+                     project whose suite has failures nobody has got to yet is the ordinary case — so
+                     the gate spent every attempt of every goal on failures the work had not caused and
+                     then reported the goal as not reached.
+
+                     Tests are their own switch rather than part of "builds" for exactly that reason:
+                     a red suite is a thing a user may reasonably want left alone while still asking
+                     for code that compiles. -->
+                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireBuild}"
+                          Content="the project still builds"
+                          ToolTip.Tip="The tool is told to check this itself with this project's own build command, and to fix what it broke." />
+                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireTestsPass}"
+                          Content="the tests still pass"
+                          ToolTip.Tip="The tool is told to run this project's own tests. Failures that were already there are reported, not fixed — turn this off in a repository whose suite is red on purpose." />
                 <!-- The two mechanical stops used to be checkboxes here and are neither settings nor
                      switches any more: both are always on. A switch is worth a line of this panel where
                      two users would reasonably choose differently, and nobody reasonably chooses to
@@ -933,8 +884,13 @@
                         Command="{Binding ContinueRunCommand}"
                         Content="{Binding ContinueLabel}"
                         ToolTip.Tip="Give this goal that many more attempts and carry on, keeping the conversation" />
+                <!-- Literal, not a binding. The bar is shown only when CanContinue, and Continue is
+                     offered for one stop — BudgetSpent — so this sentence cannot say anything else.
+                     It was a property while a timed-out verify command was the second continuable
+                     stop; bound to a constant it only suggested a variation that no longer exists,
+                     and the notification that went with it could never fire. -->
                 <TextBlock Classes="strip"
-                           Text="{Binding ContinueReason}"
+                           Text="The attempts ran out."
                            VerticalAlignment="Center" />
             </DockPanel>
         </Border>

@@ -49,7 +49,6 @@ public class GoalWorkflowLoopTests : IDisposable
     {
         GoalTileViewModel.AiRunnerFactory = null;
         WorktreeReader.Factory = null;
-        VerifyCommandRunner.Factory = null;
         try { Directory.Delete(_dir, recursive: true); } catch { /* not a test failure */ }
     }
 
@@ -263,239 +262,6 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
-    public void A_failing_verify_command_blocks_a_review_that_says_everything_is_fine()
-    {
-        OnUiThread(async () =>
-        {
-            var ran = 0;
-            VerifyCommandRunner.Factory = (_, command, _) =>
-            {
-                ran++;
-                Assert.Equal("dotnet build", command);
-                return Task.FromResult(new VerifyOutcome(true, 1, "error CS0103: the name x does not exist"));
-            };
-
-            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
-
-            using var vm = NewTile();
-            vm.Criteria.VerifyCommand = "dotnet build";
-
-            vm.InputText = "a goal";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "all of it";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            // The review said the goal was met; the exit code says the code does not build. The exit
-            // code is the only fact here that is not the tool's opinion of its own work.
-            Assert.Equal(5, ran);
-            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.DoesNotContain(vm.Messages, m => m.Text.StartsWith("Goal completed"));
-            Assert.Contains(vm.Messages, m => m.Text.Contains("exited 1"));
-        });
-    }
-
-    [Fact]
-    public void The_command_a_project_checks_itself_with_is_adopted_and_asked_about_before_it_runs()
-    {
-        OnUiThread(async () =>
-        {
-            var ran = new List<string>();
-            VerifyCommandRunner.Factory = (_, command, _) =>
-            {
-                ran.Add(command);
-                return Task.FromResult(new VerifyOutcome(true, 0, ""));
-            };
-
-            AnswerWith(
-                "```json\n{\"needsClarification\":false,\"verify\":\"npm test\"}\n```",
-                "The plan", "Implemented it", "VERDICT: PASS");
-
-            var asked = new List<string>();
-            using var vm = NewTile();
-            vm.ConfirmAction = q => { asked.Add(q); return Task.FromResult(true); };
-
-            vm.InputText = "make the tests pass";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            // Nobody typed this into the panel. It was worked out from the goal by a tool standing in
-            // the repository — which is the whole point, since the panel had no idea whether this
-            // project is built with dotnet, npm or cargo.
-            Assert.Equal("npm test", vm.Criteria.VerifyCommand);
-
-            // Adopting is not running. An AI tool proposing a shell command is precisely the case the
-            // consent gate exists for, and the question says where it came from.
-            Assert.Contains(asked, q => q.Contains("npm test") && q.Contains("proposes checking"));
-            Assert.Equal(["npm test"], ran.Distinct());
-        });
-    }
-
-    [Fact]
-    public void A_command_the_user_typed_is_not_overwritten_by_the_clarification_round()
-    {
-        OnUiThread(async () =>
-        {
-            VerifyCommandRunner.Factory = (_, _, _) => Task.FromResult(new VerifyOutcome(true, 0, ""));
-
-            AnswerWith(
-                "```json\n{\"needsClarification\":false,\"verify\":\"npm test\"}\n```",
-                "The plan", "Implemented it", "VERDICT: PASS");
-
-            using var vm = NewTile();
-
-            // They are looking at the panel and they put it there. A clarification round replacing it
-            // would be the tile arguing with the person using it.
-            vm.Criteria.VerifyCommand = "dotnet test";
-
-            vm.InputText = "make the tests pass";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            Assert.Equal("dotnet test", vm.Criteria.VerifyCommand);
-        });
-    }
-
-    [Fact]
-    public void A_proposal_too_long_to_show_is_ignored_rather_than_reported_as_a_removal()
-    {
-        OnUiThread(async () =>
-        {
-            var ran = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                ran++;
-                return Task.FromResult(new VerifyOutcome(true, 0, ""));
-            };
-
-            var huge = new string('x', CommandDisplay.MaxConsentable + 1);
-            AnswerWith(
-                "```json\n{\"needsClarification\":false,\"verify\":\"" + huge + "\"}\n```",
-                "The plan", "Implemented it", "VERDICT: PASS");
-
-            using var vm = NewTile();
-
-            vm.InputText = "make the tests pass";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            // Refused before it is stored, not at the consent gate. The gate's version of this refusal
-            // announces a *removal*, which is the wrong thing to say about something the user never had.
-            Assert.Equal("", vm.Criteria.VerifyCommand);
-            Assert.Equal(0, ran);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("too long to show you in full")
-                                              && m.Text.Contains("ignored"));
-            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("has been removed"));
-        });
-    }
-
-    [Fact]
-    public void A_proposal_refused_in_the_dialog_is_dropped_and_never_run()
-    {
-        OnUiThread(async () =>
-        {
-            var ran = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                ran++;
-                return Task.FromResult(new VerifyOutcome(true, 0, ""));
-            };
-
-            AnswerWith(
-                "```json\n{\"needsClarification\":false,\"verify\":\"npm test\"}\n```",
-                "The plan", "Implemented it", "VERDICT: PASS");
-
-            var asked = new List<string>();
-            using var vm = NewTile();
-            vm.ConfirmAction = q => { asked.Add(q); return Task.FromResult(false); };
-
-            vm.InputText = "make the tests pass";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            // The question describes where it came from, and a no removes it rather than skipping it
-            // once: a question asked on every attempt is one answered wrongly on the fifth.
-            Assert.Contains(asked, q => q.Contains("proposes checking"));
-            Assert.Equal(0, ran);
-            Assert.Equal("", vm.Criteria.VerifyCommand);
-        });
-    }
-
-    [Fact]
-    public void A_failing_verify_command_is_counted_as_a_blocker()
-    {
-        OnUiThread(async () =>
-        {
-            VerifyCommandRunner.Factory = (_, _, _) =>
-                Task.FromResult(new VerifyOutcome(true, 1, "error CS0103"));
-
-            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it",
-                "```json\n{\"goalMet\":true,\"findings\":[]}\n```");
-
-            using var vm = NewTile();
-            vm.Criteria.VerifyCommand = "dotnet build";
-
-            vm.InputText = "a goal";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "all of it";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            // It was always a hard gate and it was always invisible: the strip said "nothing found"
-            // over a run that could not finish, and the one line naming the exit code scrolled away
-            // with the attempt. A blocker is what this is, in the word the tile already uses for it.
-            Assert.Contains("1B", vm.Badges.Select(b => b.Text));
-            Assert.Contains(vm.Messages, m => m.Findings.Any(
-                f => f.Severity == GoalSeverity.Blocker && f.Title.Contains("The verify command exited 1")));
-        });
-    }
-
-    [Fact]
-    public void The_verify_output_reaches_the_review_prompt()
-    {
-        OnUiThread(async () =>
-        {
-            VerifyCommandRunner.Factory = (_, _, _) =>
-                Task.FromResult(new VerifyOutcome(true, 0, "Build succeeded. 0 warnings"));
-
-            var prompts = new List<string>();
-            var asked = 0;
-            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
-            {
-                prompts.Add(prompt);
-                asked++;
-                return Task.FromResult<AiOutput>(asked switch
-                {
-                    1 => "Which files?",
-                    2 => NoMoreQuestions,
-                    3 => "The plan",
-                    4 => "Implemented it",
-                    _ => "VERDICT: PASS",
-                });
-            };
-
-            using var vm = NewTile();
-            vm.Criteria.VerifyCommand = "dotnet build";
-
-            vm.InputText = "a goal";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "all of it";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            // So the review argues with a compiler rather than with the diff alone.
-            Assert.Contains("Build succeeded. 0 warnings", prompts[^1]);
-        });
-    }
-
-    [Fact]
     public void The_questions_stop_after_the_round_budget_and_the_tile_plans_anyway()
     {
         OnUiThread(async () =>
@@ -702,22 +468,22 @@ public class GoalWorkflowLoopTests : IDisposable
             first.InputText = "a goal";
             await first.SubmitCommand.ExecuteAsync(null);
 
-            first.Criteria.VerifyCommand = "dotnet build";
             first.Criteria.MaxIterations = 9;
             first.Criteria.MaxWarnings = 2;
             first.Criteria.RequireGoalMet = false;
+            first.Criteria.RequireTestsPass = false;
             first.Dispose();
 
             using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
 
-            Assert.Equal("dotnet build", second.Criteria.VerifyCommand);
             Assert.Equal(9, second.Criteria.MaxIterations);
             Assert.Equal(2, second.Criteria.MaxWarnings);
             Assert.False(second.Criteria.RequireGoalMet);
 
-            // And a command that arrived in a file is named out loud, and gated: goal files live in the
-            // user's own repository and a committed one travels with the branch.
-            Assert.Contains(second.Messages, m => m.Text.Contains("carries a verify command: `dotnet build`"));
+            // A switch turned off stays off, and the one beside it stays on: both are written, so a
+            // default reappearing would be the file quietly disagreeing with the panel.
+            Assert.False(second.Criteria.RequireTestsPass);
+            Assert.True(second.Criteria.RequireBuild);
         });
     }
 
@@ -911,76 +677,6 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
-    public void A_pause_during_the_verify_command_resumes_at_the_review()
-    {
-        OnUiThread(async () =>
-        {
-            using var vm = NewTile();
-            vm.Criteria.VerifyCommand = "dotnet build";
-
-            // Cancelled from inside the verify command, which is the long part of a lap and the part
-            // most likely to be interrupted. Leaving Implement standing through it meant Resume ran the
-            // whole implementation again over a worktree that already had its changes.
-            VerifyCommandRunner.Factory = (_, _, ct) =>
-            {
-                vm.PauseCommand.Execute(null);
-                throw new OperationCanceledException(ct);
-            };
-
-            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it");
-
-            vm.InputText = "a goal";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "all of it";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            Assert.True(vm.IsPaused);
-            Assert.Equal(GoalPhase.Review, vm.CurrentPhase);
-            Assert.True(GoalTilePolicy.ResumesAtReview(vm.CurrentPhase));
-        });
-    }
-
-    [Fact]
-    public void A_command_the_user_typed_is_never_asked_about_however_the_panel_is_used()
-    {
-        OnUiThread(async () =>
-        {
-            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
-
-            var ran = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                ran++;
-                return Task.FromResult(new VerifyOutcome(true, 0, ""));
-            };
-
-            var asked = 0;
-            using var vm = NewTile();
-            vm.ConfirmAction = _ => { asked++; return Task.FromResult(false); };
-
-            vm.Criteria.VerifyCommand = "dotnet build";
-
-            // Leaving a number field refreshes the panel, and refreshing used to be indistinguishable
-            // from the criteria arriving from somewhere else — so the command the user had just typed
-            // became a command "from the file", was asked about, and was deleted on a no.
-            vm.Criteria.Refresh();
-
-            vm.InputText = "a goal";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "all of it";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            Assert.Equal(0, asked);
-            Assert.Equal("dotnet build", vm.Criteria.VerifyCommand);
-            Assert.True(ran > 0);
-        });
-    }
-
-    [Fact]
     public void A_failed_detection_does_not_point_at_a_button_that_cannot_help()
     {
         OnUiThread(async () =>
@@ -1015,57 +711,6 @@ public class GoalWorkflowLoopTests : IDisposable
             await vm.DetectGoalCommand.ExecuteAsync(null);
 
             Assert.Contains(vm.Messages, m => m.Text.Contains("git is on fire"));
-        });
-    }
-
-    [Fact]
-    public void A_verify_command_from_the_saved_file_is_not_run_until_it_is_approved()
-    {
-        OnUiThread(async () =>
-        {
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
-
-            AnswerWith("Which files?");
-
-            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
-            var path = first.FilePath;
-            first.InputText = "a goal";
-            await first.SubmitCommand.ExecuteAsync(null);
-            first.Criteria.VerifyCommand = "rm -rf /";
-            first.Dispose();
-
-            var ran = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                ran++;
-                return Task.FromResult(new VerifyOutcome(true, 0, ""));
-            };
-
-            // A shell command that arrived in a file. Goal files live in the user's own repository and
-            // nothing gitignores them unless the Git tile is used, so a committed one travels with a
-            // branch — and this tile would otherwise run it unattended after every attempt.
-            var asked = new List<string>();
-            using var second = new GoalTileViewModel(path, _dir, settings)
-            {
-                ConfirmAction = q => { asked.Add(q); return Task.FromResult(false); },
-            };
-
-            AnswerWith(NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
-
-            second.InputText = "all of it";
-            await second.SubmitCommand.ExecuteAsync(null);
-            second.InputText = "ok";
-            await second.SubmitCommand.ExecuteAsync(null);
-
-            Assert.Equal(0, ran);
-            Assert.Contains(asked, q => q.Contains("rm -rf /"));
-
-            // Declining removes it rather than skipping it once: a question asked on every attempt is a
-            // question answered wrongly on the fifth.
-            Assert.Equal("", second.Criteria.VerifyCommand);
-            Assert.Contains(second.Messages, m => m.Text.Contains("not approved"));
         });
     }
 
@@ -1116,64 +761,6 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
-    public void Clearing_the_verify_command_that_hung_is_what_lets_the_goal_carry_on()
-    {
-        OnUiThread(async () =>
-        {
-            var runs = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                runs++;
-                return Task.FromResult(
-                    VerifyOutcome.Timeout("it was still running after 30 minutes and was stopped"));
-            };
-
-            var reviews = 0;
-            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
-            {
-                if (prompt.Contains("Review the code changes")) reviews++;
-                return Task.FromResult<AiOutput>(
-                    prompt.Contains("Implement the following goal") ? "Implemented it" : NoMoreQuestions);
-            };
-
-            using var vm = NewTile();
-            vm.Criteria.MaxIterations = 5;
-            vm.Criteria.VerifyCommand = "dotnet build";
-
-            await RunToSummaryAsync(vm);
-
-            // Once, not five times. The timeout is half an hour, so the attempts left on the budget are
-            // hours of waiting for the same answer, and the answer is unusable either way — so the
-            // review it was meant to inform is never asked for.
-            Assert.Equal(1, runs);
-            Assert.Equal(0, reviews);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("never finished"));
-
-            // Not a budget, so more attempts would buy another half hour of the same wait.
-            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.False(vm.CanContinue);
-
-            // It is, however, the one stop the user can fix — and the summary says how. Once the
-            // command that hung is gone, carrying on is exactly what they want, and the alternative was
-            // retyping the goal into an empty tile.
-            Assert.Contains(vm.Messages, m => m.Text.Contains("clear it under the tune button"));
-
-            vm.Criteria.VerifyCommand = "";
-            Assert.True(vm.CanContinue);
-
-            // The budget was never spent — the run stopped on attempt 1 of 5 — so Continue has four
-            // attempts to let happen and nothing to add. Adding the field on top would raise a ceiling
-            // the user set to 5 up to 6, which is neither asked for nor what the button says.
-            Assert.Equal("Continue", vm.ContinueLabel);
-            Assert.Equal("The verify command was cleared.", vm.ContinueReason);
-
-            var attempts = vm.Criteria.MaxIterations;
-            await vm.ContinueRunCommand.ExecuteAsync(null);
-            Assert.Equal(attempts, vm.Criteria.MaxIterations);
-        });
-    }
-
-    [Fact]
     public void A_run_that_ran_out_of_attempts_can_be_given_more_without_losing_the_conversation()
     {
         OnUiThread(async () =>
@@ -1189,10 +776,8 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Equal(2, implemented());
             Assert.True(vm.CanContinue);
 
-            // Here the attempts really did run out, so the button names what it will add and the bar
-            // says why it is there.
+            // Here the attempts really did run out, so the button names what it will add.
             Assert.Equal("Continue · +2", vm.ContinueLabel);
-            Assert.Equal("The attempts ran out.", vm.ContinueReason);
 
             // The summary names what stood in the way. Without it the choice this button exists for —
             // more attempts, or a tolerance that admits what the reviewer keeps finding — has to be made
@@ -1288,281 +873,6 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
-    public void A_note_about_this_session_is_not_written_into_the_goal_file()
-    {
-        OnUiThread(async () =>
-        {
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
-
-            AnswerWith("Which files?");
-
-            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
-            var path = first.FilePath;
-            first.InputText = "a goal";
-            await first.SubmitCommand.ExecuteAsync(null);
-            first.Criteria.VerifyCommand = "dotnet build";
-            first.Dispose();
-
-            // Opened, closed, opened again. The note is true of each opening, so it is said at each one —
-            // and if it were written down, every opening would inherit all the earlier copies too.
-            var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            second.Dispose();
-
-            using var third = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-
-            Assert.Single(third.Messages, m => m.Text.Contains("carries a verify command"));
-        });
-    }
-
-    [Fact]
-    public void Editing_the_verify_command_and_undoing_it_is_not_consent()
-    {
-        OnUiThread(async () =>
-        {
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
-
-            AnswerWith("Which files?");
-
-            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
-            var path = first.FilePath;
-            first.InputText = "a goal";
-            await first.SubmitCommand.ExecuteAsync(null);
-            first.Criteria.VerifyCommand = "rm -rf /";
-            first.Dispose();
-
-            var ran = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                ran++;
-                return Task.FromResult(new VerifyOutcome(true, 0, ""));
-            };
-
-            var asked = new List<string>();
-            using var second = new GoalTileViewModel(path, _dir, settings)
-            {
-                ConfirmAction = q => { asked.Add(q); return Task.FromResult(false); },
-            };
-
-            // Touched, then put back exactly as it was. The string about to be handed to a shell is the
-            // file's, unchanged — and a latch would have called that a choice and dropped the gate.
-            second.Criteria.VerifyCommand = "rm -rf /x";
-            second.Criteria.VerifyCommand = "rm -rf /";
-            Assert.False(second.Criteria.VerifyCommandWasTyped);
-
-            AnswerWith(NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
-
-            second.InputText = "all of it";
-            await second.SubmitCommand.ExecuteAsync(null);
-            second.InputText = "ok";
-            await second.SubmitCommand.ExecuteAsync(null);
-
-            Assert.Contains(asked, q => q.Contains("rm -rf /"));
-            Assert.Equal(0, ran);
-        });
-    }
-
-    [Fact]
-    public void A_refusal_deletes_the_command_it_was_about_and_not_the_one_typed_since()
-    {
-        OnUiThread(async () =>
-        {
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
-
-            AnswerWith("Which files?");
-
-            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
-            var path = first.FilePath;
-            first.InputText = "a goal";
-            await first.SubmitCommand.ExecuteAsync(null);
-            first.Criteria.VerifyCommand = "rm -rf /";
-            first.Dispose();
-
-            VerifyCommandRunner.Factory = (_, _, _) => Task.FromResult(new VerifyOutcome(true, 0, ""));
-
-            GoalTileViewModel? second = null;
-
-            // The dialog is awaited and the panel stays usable while it is on screen. Somebody who says
-            // "no" to the command out of the file and then types their own used to have the new one
-            // deleted by the refusal — in the name of an answer that was never about it.
-            second = new GoalTileViewModel(path, _dir, settings)
-            {
-                ConfirmAction = _ =>
-                {
-                    second!.Criteria.VerifyCommand = "dotnet test";
-                    return Task.FromResult(false);
-                },
-            };
-
-            using (second)
-            {
-                AnswerWith(NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
-
-                second.InputText = "all of it";
-                await second.SubmitCommand.ExecuteAsync(null);
-                second.InputText = "ok";
-                await second.SubmitCommand.ExecuteAsync(null);
-
-                Assert.Equal("dotnet test", second.Criteria.VerifyCommand);
-            }
-        });
-    }
-
-    [Fact]
-    public void A_command_the_user_typed_is_never_the_subject_of_the_question()
-    {
-        OnUiThread(async () =>
-        {
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
-
-            AnswerWith("Which files?");
-
-            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
-            var path = first.FilePath;
-            first.InputText = "a goal";
-            await first.SubmitCommand.ExecuteAsync(null);
-            first.Criteria.VerifyCommand = "dotnet build";
-            first.Dispose();
-
-            var ran = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                ran++;
-                return Task.FromResult(new VerifyOutcome(true, 0, ""));
-            };
-
-            // Loaded from the file, so the gate is armed — and then the user types their own command
-            // over the top of it, which is the whole of "they chose it".
-            var asked = new List<string>();
-            using var second = new GoalTileViewModel(path, _dir, settings)
-            {
-                ConfirmAction = q => { asked.Add(q); return Task.FromResult(false); },
-            };
-
-            second.Criteria.VerifyCommand = "dotnet test";
-
-            var reviews = 0;
-            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
-            {
-                if (!prompt.Contains("Review the code changes"))
-                    return Task.FromResult<AiOutput>(prompt.Contains("Implement the following goal")
-                        ? "Implemented it"
-                        : NoMoreQuestions);
-
-                // A title that moves, so two reviews never look alike and the no-progress stop stays
-                // out of the way of what this test is about.
-                reviews++;
-                return Task.FromResult<AiOutput>(
-                    "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"warning\"," +
-                    $"\"title\":\"W{reviews}\"}}]}}\n```");
-            };
-
-            second.Criteria.MaxIterations = 1;
-            second.InputText = "all of it";
-            await second.SubmitCommand.ExecuteAsync(null);
-            second.InputText = "ok";
-            await second.SubmitCommand.ExecuteAsync(null);
-
-            // Never asked, and still there. ConfirmAction answers "no", so an asked question would also
-            // have deleted the command the user had just typed.
-            Assert.Empty(asked);
-            Assert.Equal(1, ran);
-            Assert.Equal("dotnet test", second.Criteria.VerifyCommand);
-
-            // And it survives Continue, which reloads the panel to show the raised ceiling. That reload
-            // used to clear the "the user typed it" flag, so the next attempt asked them to approve
-            // their own command and deleted it on the no above.
-            Assert.True(second.CanContinue);
-            await second.ContinueRunCommand.ExecuteAsync(null);
-
-            Assert.Empty(asked);
-            Assert.Equal("dotnet test", second.Criteria.VerifyCommand);
-            Assert.True(ran > 1);
-        });
-    }
-
-    [Fact]
-    public void A_verify_command_too_long_to_show_is_not_copied_into_the_transcript()
-    {
-        OnUiThread(async () =>
-        {
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
-
-            AnswerWith("Which files?");
-
-            var huge = new string('x', CommandDisplay.MaxConsentable * 4);
-
-            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
-            var path = first.FilePath;
-            first.InputText = "a goal";
-            await first.SubmitCommand.ExecuteAsync(null);
-            first.Criteria.VerifyCommand = huge;
-            first.Dispose();
-
-            using var second = new GoalTileViewModel(path, _dir, settings);
-
-            // The consent gate refuses this command anyway, so the note only has to say what is in the
-            // file. Printing it in full put a copy in the transcript — and the transcript is
-            // reserialised into the goal file on every save, so the file carried it twice over.
-            var note = Assert.Single(second.Messages, m => m.Text.Contains("verify command"));
-            Assert.DoesNotContain(huge, note.Text);
-            Assert.Contains(huge.Length.ToString(), note.Text);
-        });
-    }
-
-    [Fact]
-    public void A_tile_that_cannot_ask_about_a_verify_command_skips_it_without_deleting_it()
-    {
-        OnUiThread(async () =>
-        {
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
-
-            AnswerWith("Which files?");
-
-            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
-            var path = first.FilePath;
-            first.InputText = "a goal";
-            await first.SubmitCommand.ExecuteAsync(null);
-            first.Criteria.VerifyCommand = "dotnet build";
-            first.Dispose();
-
-            var ran = 0;
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                ran++;
-                return Task.FromResult(new VerifyOutcome(true, 0, ""));
-            };
-
-            // No dialog to ask in. Not running it is right — an unanswered question is not a yes — but
-            // "I could not ask" and "they said no" are opposite answers about *keeping* it, and
-            // deleting somebody's setting because a dialog was not wired is a decision nobody made.
-            using var second = new GoalTileViewModel(path, _dir, settings);
-
-            AnswerWith(NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
-
-            second.InputText = "all of it";
-            await second.SubmitCommand.ExecuteAsync(null);
-            second.InputText = "ok";
-            await second.SubmitCommand.ExecuteAsync(null);
-
-            Assert.Equal(0, ran);
-            Assert.Equal("dotnet build", second.Criteria.VerifyCommand);
-            Assert.Contains(second.Messages, m => m.Text.Contains("cannot ask"));
-        });
-    }
-
-    [Fact]
     public void A_workspace_git_cannot_read_does_not_end_every_goal_after_one_attempt()
     {
         OnUiThread(async () =>
@@ -1588,43 +898,6 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
             Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("changed no files"));
             Assert.Contains(vm.Messages, m => m.Text.Contains("without meeting the completion criteria"));
-        });
-    }
-
-    [Fact]
-    public void A_verify_command_that_touches_tracked_files_does_not_disarm_the_no_change_stop()
-    {
-        OnUiThread(async () =>
-        {
-            // The tree the review is handed is read after the verify command has run, so a command that
-            // regenerates a tracked file made the two trees differ and quietly disarmed this stop — in
-            // exactly the workspaces most likely to have one configured.
-            // Keyed off the verify command actually having run, not off a read count: the
-            // detect-availability probe reads the tree too, on its own schedule, and would shift any
-            // counter under the test.
-            var rebuilt = false;
-            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>(rebuilt ? "rebuilt" : "unchanged");
-
-            VerifyCommandRunner.Factory = (_, _, _) =>
-            {
-                rebuilt = true;
-                return Task.FromResult(new VerifyOutcome(true, 0, "built"));
-            };
-
-            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: FAIL");
-
-            using var vm = NewTile();
-            vm.Criteria.VerifyCommand = "dotnet build";
-
-            vm.InputText = "a goal";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "all of it";
-            await vm.SubmitCommand.ExecuteAsync(null);
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);
-
-            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("changed no files"));
         });
     }
 
@@ -1770,39 +1043,6 @@ public class GoalWorkflowLoopTests : IDisposable
             // the run ended after a single attempt, reporting that two reviews had agreed when only
             // one of them belonged to this plan.
             Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("reached the same conclusion"));
-        });
-    }
-
-    [Fact]
-    public void The_note_about_a_verify_command_nobody_can_approve_is_said_once()
-    {
-        OnUiThread(async () =>
-        {
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
-
-            AnswerWith("Which files?");
-
-            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
-            var path = first.FilePath;
-            first.InputText = "a goal";
-            await first.SubmitCommand.ExecuteAsync(null);
-            first.Criteria.VerifyCommand = "dotnet build";
-            first.Dispose();
-
-            using var second = new GoalTileViewModel(path, _dir, settings);
-
-            AnswerWith(NoMoreQuestions, "The plan", "Implemented it", "VERDICT: FAIL");
-
-            second.InputText = "all of it";
-            await second.SubmitCommand.ExecuteAsync(null);
-            second.InputText = "ok";
-            await second.SubmitCommand.ExecuteAsync(null);
-
-            // SayOnceAsync only skips a note that is still the last thing in the transcript, and the
-            // loop puts an implementation and a review in between — so this printed once per attempt.
-            Assert.Equal(1, second.Messages.Count(m => m.Text.Contains("cannot ask")));
         });
     }
 
