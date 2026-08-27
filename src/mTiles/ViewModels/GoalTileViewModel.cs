@@ -144,6 +144,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
 
     partial void OnCurrentPhaseChanged(GoalPhase value)
     {
+        OnPropertyChanged(nameof(RunStage));
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
         RefreshAsk();
@@ -1262,6 +1263,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             while (GoalLoopPolicy.NextAttempt(_engine.IterationCount, _engine.MaxIter, finishing) is { } attempt)
             {
                 _engine.IterationCount = attempt;
+                OnPropertyChanged(nameof(RunStage));
                 finishing = false;
 
                 // Read fresh on every lap, deliberately: what the panel says is what is in force, from
@@ -1767,6 +1769,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
     private async Task WorkingAsync(Func<Task> work)
     {
         IsRunning = true;
+        StartElapsed();
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
 
@@ -1774,6 +1777,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         finally
         {
             IsRunning = false;
+            StopElapsed();
 
             // Here rather than at each call site: a run ends five ways — finished, paused, cancelled,
             // failed, thrown — and a tile left showing the last file the tool happened to open is one
@@ -1783,6 +1787,65 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
             _cts?.Dispose();
             _cts = null;
         }
+    }
+
+    /// <summary>
+    /// Which stage the run is in, in the two or three words the waiting row has room for.
+    /// </summary>
+    /// <remarks>
+    /// Derived rather than assigned beside the strip's own sentence at each phase's call site: the two
+    /// would then be two answers to one question, and the one that goes stale is always the one nobody
+    /// is looking at when it does. Raised from the two things it reads - the phase, and the attempt as
+    /// the loop moves it on.
+    /// </remarks>
+    public string RunStage => GoalStageDisplay.Short(CurrentPhase, _engine.IterationCount, _engine.MaxIter);
+
+    /// <summary>How long the current run has been going, as the waiting row writes it.</summary>
+    /// <remarks>
+    /// Empty between runs, which is also when the row that shows it is hidden - one property saying one
+    /// thing, rather than a stale "4:07" kept alive underneath an invisible control waiting to be shown
+    /// again at the start of the next run.
+    /// </remarks>
+    [ObservableProperty] private string _elapsed = "";
+
+    /// <summary>
+    /// Ticks the elapsed label while a run is going, and only then.
+    /// </summary>
+    /// <remarks>
+    /// Built on first use rather than in a constructor because there are two constructors and a timer
+    /// created in one of them is a timer the other tile does not have. Kept afterwards: a tile runs many
+    /// times and a new timer per run is a subscription per run to get wrong.
+    /// <para><see cref="DispatcherPriority.Background"/> deliberately - this is a label, and a second's
+    /// lateness in it costs nothing, while a timer at input priority competes once a second with the
+    /// transcript that is being appended to.</para>
+    /// </remarks>
+    private DispatcherTimer? _elapsedTimer;
+
+    /// <summary>
+    /// Measures the run. A <see cref="Stopwatch"/> and not two <see cref="DateTime"/>s: the wall clock
+    /// moves - daylight saving, an NTP correction, a laptop waking up - and a label that answers
+    /// "-1:00" or jumps an hour is worse than no label.
+    /// </summary>
+    private readonly Stopwatch _runClock = new();
+
+    private void StartElapsed()
+    {
+        _runClock.Restart();
+        Elapsed = ElapsedDisplay.Format(TimeSpan.Zero);
+
+        _elapsedTimer ??= new DispatcherTimer(
+            TimeSpan.FromSeconds(1),
+            DispatcherPriority.Background,
+            (_, _) => Elapsed = ElapsedDisplay.Format(_runClock.Elapsed));
+
+        _elapsedTimer.Start();
+    }
+
+    private void StopElapsed()
+    {
+        _runClock.Stop();
+        _elapsedTimer?.Stop();
+        Elapsed = "";
     }
 
     /// <summary>
@@ -2240,6 +2303,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable
         }
 
         _disposed = true;
+
+        // A running DispatcherTimer is rooted by the dispatcher and its handler holds this tile, so a
+        // closed tile that was mid-run would go on ticking a label nobody can see, for ever.
+        StopElapsed();
 
         // The token is disposed and cleared by RunAiAsync's own finally, so this usually finds nothing
         // — but "usually" is not a guarantee worth an exception on the way out of a tile.

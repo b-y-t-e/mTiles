@@ -512,6 +512,25 @@
             <Setter Property="Fill" Value="{DynamicResource AccentDefault}" />
             <Setter Property="Opacity" Value="0.25" />
         </Style>
+        <!-- The dots say something is happening; these two say what and for how long, which are the
+             only honest things left to say about a tool nothing has been heard from - nothing here
+             knows how far along it is.
+
+             Beside the dots rather than on the status strip: the strip carries the phase as a sentence
+             and the file the tool is in, which are facts about the run as a whole, while this belongs
+             to the wait being drawn and is read without leaving the conversation.
+
+             Muted, small, and in the transcript's own monospace so it reads as a note attached to the
+             dots rather than as a message. Monospace also stops the row twitching: the clock's digits
+             change every second, and in a proportional face "1:11" and "1:00" are different widths, so
+             the dots would shuffle sideways once a second beside a label added to reassure. -->
+        <Style Selector="TextBlock.waiting-note">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        </Style>
+
         <!-- One animation per dot rather than one with three delays: two animations selecting the same
              element take turns setting the same property, and the dots stop agreeing about where they
              are in the cycle. The delay is what makes it read as a wave rather than a blink. -->
@@ -1046,6 +1065,9 @@
                         <Ellipse Classes="think d1" />
                         <Ellipse Classes="think d2" />
                         <Ellipse Classes="think d3" />
+                        <TextBlock Classes="waiting-note" Text="{Binding RunStage}" Margin="7,0,0,0" />
+                        <TextBlock Classes="waiting-note" Text="&#183;" />
+                        <TextBlock Classes="waiting-note" Text="{Binding Elapsed}" />
                     </StackPanel>
                 </DockPanel>
             </Border>

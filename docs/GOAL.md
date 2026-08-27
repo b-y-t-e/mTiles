@@ -114,8 +114,22 @@ writes leaves a transcript that has not changed and a phase label that has not m
 a progress bar: that would be a claim about how far along the run is, which nothing here knows. One
 animation per dot rather than one animation with three delays — two animations selecting the same
 element take turns setting the same property, and the dots stop agreeing about where they are in the
-cycle. It is drawn over the transcript rather than added to it, so the follow-to-the-bottom rule has
-one less thing to reason about and the dots do not scroll away when the reader looks back.
+cycle. Where the dots sit, and why they are a row rather than a badge, is two paragraphs below.
+
+**Beside them, what the tool is doing and for how long** — `implementing · 2/5 · 4:07`, ticked once a
+second by a `DispatcherTimer` that runs only while `IsRunning` is set. The dots say something is
+happening; those two are the only other honest things to say about a tool nothing has been heard from,
+since nothing here knows how far along it is. The stage is `GoalStageDisplay` and the clock
+`ElapsedDisplay`, both pure and beside the other policies: the stage is deliberately *not* the strip's
+sentence (two answers to one question, and the stale one is always the one nobody is looking at), and
+the clock's interesting part is the two places its notation changes, each one comparison away from
+being a second out. The attempt is carried on the two phases that repeat and nowhere else — a fraction
+that reads `1/5` on every clarify is a number the reader learns to ignore before the loop where it
+moves — and it is dropped when it would not make sense (`0/0` before the first lap, `6/5` from a budget
+lowered mid-run). Time is measured with a `Stopwatch` and not two `DateTime`s: the wall clock moves —
+daylight saving, an NTP correction, a laptop waking up — and a label that answers `-1:00` is worse than
+no label. Both are set in the transcript's own monospace, so the dots do not shuffle sideways once a
+second as the digits change width.
 
 The two mechanical stops end runs that were already going nowhere. **They are always on, and are not settings** — they were checkboxes on the panel and are neither now. A switch earns a line there where two users would reasonably choose differently, and nobody reasonably chooses to spend attempts on a tool that just wrote nothing, or on a review that has said the same thing twice; what replaced them is the summary naming which of the two ended the run. Old goal files may still carry the fields, and `System.Text.Json` reads what it does not recognise as absent, which is the right answer now that the behaviour is not switchable. **No progress**: two consecutive reviews with the same fingerprint (severity + file + title, never the detail, which is prose and differs every run) — asked only of a *structured* review, because an unstructured one's fingerprint is the same two words on every lap and the check would otherwise cut every prose-answering tool down to two attempts and blame it on findings it never read. **No change**: an implementation that left the working tree exactly as it found it, checked with its own read of the tree, **before the review**. Reusing the tree the review is handed looked free and was wrong: that one is read after the tool has been at it, so anything that regenerates a tracked file — a build, a formatter, a snapshot test — made the two trees differ and quietly disarmed the stop in exactly the workspaces most likely to have one configured. Two short git processes against a lap costing minutes of AI, and they pay for themselves the moment it fires: there is no sense building and reviewing a change that was never made. **The criteria in force are whatever the panel says, read fresh on every lap.** Half of them used to be captured before the loop while the attempt budget was read live, so raising the attempts mid-run worked and raising the tolerated warnings did nothing — the same panel, two answers. Nothing is decided mid-lap, so a change never lands between an implementation and the review that judges it. The bounds are applied where the numbers are *used* rather than where they are typed — the panel shows what was typed, and a saved file can hold anything — and `GoalCompletionPolicy.Attempts` is the single place that decides how many attempts there are, because a second copy of the arithmetic had the summary report "stopped after 999 attempts" over a run of fifty. The summary counts the attempts that **happened**, not the budget they came out of: the two are the same number until the budget moves, and lowering it mid-run reported two attempts over a transcript containing four. `GoalCompletionPolicy` holds all of it, pure and beside `GoalLoopPolicy`, along with `WhyNotMet` — the loop now says *what* is outstanding, where "review found issues" was equally true of one warning and of nine errors over a failing build.
 
