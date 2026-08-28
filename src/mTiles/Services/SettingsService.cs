@@ -126,6 +126,7 @@ public sealed class SettingsService
         }
 
         changed |= MigrateOpenCodeProfile();
+        changed |= RemoveSeededOpenClaudeProfile();
 
         if (changed)
             Save();
@@ -268,6 +269,52 @@ public sealed class SettingsService
         return stale.Count > 0;
     }
 
+    /// <summary>
+    /// Takes away the seeded "Open Claude" profile, which nothing can run any more.
+    /// </summary>
+    /// <remarks>
+    /// <para>The tool went out of <c>AiToolDetector.KnownTools</c> and the profile went out of
+    /// <see cref="SeedDefaultProfiles"/> in the same change — but seeding only ever <em>adds</em>, so
+    /// everybody who has run an earlier version still has the profile, and its
+    /// <c>RequiredAiToolBinaryName</c> names a tool detection no longer looks for. That combination is
+    /// the worst of both: the profile can never be offered on an empty tile again, not even to somebody
+    /// who does have <c>openclaude</c> installed, and the only way to be rid of it is to find it in
+    /// Settings and delete it by hand. Removing a seeded entry needs a migration exactly as changing
+    /// one does — <see cref="MigrateOpenCodeProfile"/> is the precedent.</para>
+    /// <para><b>Only when it is untouched</b>, matched on both scripts as well as the name and binary,
+    /// for the same reason that migration matches on both: what is being taken away is an answer this
+    /// application gave, never one the user wrote. A profile they have edited — pointed at a fork, or a
+    /// wrapper of their own on the same binary — is theirs, and stays, dead or not. Every match rather
+    /// than the first, because a user can duplicate a profile and leaving one of a pair is the kind of
+    /// half-done that gets reported as a profile that comes back.</para>
+    /// <para><b>The one cost, stated rather than hidden:</b> the visibility filter only governs the
+    /// empty tile's chooser, so a tile already launched on this profile goes on running it. Taking the
+    /// profile away means such a tile falls back to its <c>ShellName</c> on the next restart — a plain
+    /// shell — which for somebody who genuinely has <c>openclaude</c> installed is a working tile
+    /// changed out from under them. It is still the right way round: leaving it costs everybody else a
+    /// permanent entry they cannot be offered and can only delete by hand, and the fallback here is a
+    /// shell rather than a failure.</para>
+    /// </remarks>
+    private bool RemoveSeededOpenClaudeProfile()
+    {
+        const string seededStartup = "openclaude --resume ${tileId}";
+        const string seededFallback = "openclaude --session-id ${tileId}";
+
+        var removed = Settings.ShellProfiles.RemoveAll(p =>
+            p.Name.Equals("Open Claude", StringComparison.OrdinalIgnoreCase)
+            // Static `string.Equals`, because the property is `string?` and has no initialiser. A
+            // profile read from a file with the key present is saved by `NullToEmptyStringConverter`;
+            // one built in memory, or read from a file written before the key existed, is null — and a
+            // dereference here throws inside `MigrateLegacySettings`, which runs while the main window
+            // is being built. That failure is the one the settings file's own guards exist to prevent:
+            // the application does not start and says nothing about why.
+            && string.Equals(p.RequiredAiToolBinaryName, "openclaude", StringComparison.OrdinalIgnoreCase)
+            && p.StartupScript == seededStartup
+            && p.FallbackScript == seededFallback);
+
+        return removed > 0;
+    }
+
     private void SeedDefaultProfiles()
     {
         var defaults = new List<UserShellProfile>
@@ -287,14 +334,6 @@ public sealed class SettingsService
                 RequiredAiToolBinaryName = "pi",
                 StartupScript = "pi --session-id ${tileId}",
                 FallbackScript = "pi --session-id ${tileId}"
-            },
-            new()
-            {
-                Name = "Open Claude",
-                ShellName = "",
-                RequiredAiToolBinaryName = "openclaude",
-                StartupScript = "openclaude --resume ${tileId}",
-                FallbackScript = "openclaude --session-id ${tileId}"
             },
             new()
             {

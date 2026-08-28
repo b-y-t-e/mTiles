@@ -20,14 +20,38 @@ namespace mTiles.Services;
 /// into a message about something else. Telling them which files those are is the difference between a
 /// commit that looks incomplete and one that looks wrong.</para>
 /// </param>
+/// <param name="TouchedSince">
+/// Paths this run did change, and somebody has changed again since it finished — the other Goal tile in
+/// the workspace, or the user in the terminal tile next door.
+/// <para>Kept apart from <paramref name="LeftAlone"/> because the two are opposite ends of the run and
+/// the sentence differs: one is work that was already here, the other is work that arrived afterwards.
+/// The consequence is the same and it is the reason both exist — a commit takes the whole file, so
+/// either way what would go in is not only this run's.</para>
+/// </param>
+/// <param name="Bounded">
+/// False when nothing recorded how the tree looked as this run finished, so the upper end of the scope
+/// is the tree as it is <em>now</em>.
+/// <para>That is the old behaviour and it is wrong in exactly one way, which is why it is a field rather
+/// than left silent: anything that changed after the run — a second Goal tile finishing, the user's own
+/// afternoon — cannot be told from the run's own work, and the person approving the commit is the only
+/// one who can say whether that matters. It happens for a goal that ran before this was recorded at all,
+/// and for one whose closing snapshot git refused.</para>
+/// </param>
 internal readonly record struct GoalCommitScope(
-    IReadOnlyList<string> Files, IReadOnlyList<string> LeftAlone, bool Readable = true)
+    IReadOnlyList<string> Files,
+    IReadOnlyList<string> LeftAlone,
+    bool Readable = true,
+    IReadOnlyList<string>? TouchedSince = null,
+    bool Bounded = true)
 {
     /// <summary>Git answered, and there is nothing here to commit.</summary>
     public static readonly GoalCommitScope Empty = new([], []);
 
     /// <summary>Git could not be asked. Not the same thing, and not said the same way.</summary>
     public static readonly GoalCommitScope Unreadable = new([], [], Readable: false);
+
+    /// <summary>The paths somebody touched after this run finished. Never null.</summary>
+    public IReadOnlyList<string> TouchedSince { get; init; } = TouchedSince ?? [];
 
     public bool HasWork => Files.Count > 0;
 }
@@ -52,12 +76,19 @@ internal sealed class GoalCommitFailure(int made, string message, Exception inne
 /// </summary>
 /// <remarks>
 /// <para><b>The boundary comes from <see cref="GoalBaseline"/>, which is the whole reason this can be
-/// honest.</b> The baseline commit holds the tree as it stood when the goal started and is parented on
-/// the HEAD of that moment, so three tree-to-tree comparisons answer everything: what changed during the
-/// run (<c>baseline</c> against a snapshot taken now), what the user had already changed before it
-/// (<c>baseline^</c> against <c>baseline</c>), and therefore what is this run's to commit. Tree against
-/// tree rather than anything involving the index, because the index is the user's and untracked files
-/// are invisible to most of the alternatives.</para>
+/// honest.</b> A run is bracketed by two snapshots — the tree as the goal started and the tree as it
+/// finished — each a commit object beside the history, parented on the HEAD of its moment. Tree-to-tree
+/// comparisons then answer everything: what changed <em>during</em> the run (<c>baseline</c> against
+/// <c>end</c>), what the user had already changed before it (<c>baseline^</c> against <c>baseline</c>),
+/// what anybody has changed since it finished (<c>end</c> against now), and what is still uncommitted at
+/// all (<c>HEAD</c> against now). Tree against tree rather than anything involving the index, because
+/// the index is the user's and untracked files are invisible to most of the alternatives.</para>
+/// <para><b>Both ends, not just the lower one.</b> With only a baseline, "what this run changed" was
+/// read as "everything that has changed since it started" — which is the run's own work in a workspace
+/// with one Goal tile in it, and the work of every tile in a workspace with three. Measured the hard
+/// way: three tiles finished, Commit was pressed in the first, and all three runs went into the history
+/// under the first one's messages. The closing snapshot is what the run's own work is bounded by, and
+/// anything after it belongs to whoever made it.</para>
 /// <para><b>Without a baseline there is no commit.</b> A run in a workspace that could not be
 /// snapshotted has no way to tell its own work from the user's, and "commit everything that is dirty"
 /// is exactly the mistake this whole area of the tile exists to stop making.</para>
@@ -125,8 +156,15 @@ internal sealed class GoalCommitter(string workingDirectory, string gitPath)
     /// HEAD, because the changes are the point. Making one of the two say it and not the other is how
     /// the tile ended up reviewing one set of files and offering to commit another.</para>
     /// </param>
-    public async Task<GoalCommitScope> ScopeAsync(string baselineRef, CancellationToken ct,
-        bool existingWork = false)
+    /// <param name="endRef">
+    /// The ref holding the tree as this run finished, or null when none was recorded.
+    /// <para>Null is the honest unknown rather than a default: a goal that ran before this was recorded,
+    /// or one whose closing snapshot git refused. The scope is then bounded at <em>now</em> exactly as
+    /// it used to be, and says so — see <see cref="GoalCommitScope.Bounded"/> — because the alternative
+    /// is refusing to commit reviewed work over a snapshot the user never asked for.</para>
+    /// </param>
+    public async Task<GoalCommitScope> ScopeAsync(string baselineRef, string? endRef,
+        CancellationToken ct, bool existingWork = false)
     {
         using var timed = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timed.CancelAfter(Budget);
@@ -165,14 +203,43 @@ internal sealed class GoalCommitter(string workingDirectory, string gitPath)
                 $"diff --name-only --no-renames HEAD^{{tree}} {now} -- {WorktreeReader.Excluded}",
                 timed.Token);
 
+            // The run's own upper end. Without a closing snapshot there is none, so the tree as it is
+            // now stands in for it — which is what lets a later run's work look like this one's, and is
+            // reported rather than assumed away.
+            //
+            // **Verified, not assumed.** These refs are pruned to the newest twenty of their namespace,
+            // and a tile keeps its `EndRef` in its state file for as long as the tile exists — so a
+            // goal reopened after twenty later summaries in the same workspace holds a ref git no longer
+            // has. Used unchecked, the very first `diff` against it fails, the catch below reports
+            // `Unreadable`, and the dialog tells the user git could not be asked at all: a run that
+            // committed perfectly well before the closing snapshot existed became one that cannot be
+            // committed because of it. A missing end is exactly the case `Bounded: false` already
+            // describes and the dialog already explains.
+            var bounded = endRef is { Length: > 0 } && await ExistsAsync(git, endRef, timed.Token);
+            var end = bounded ? $"{endRef}^{{tree}}" : now;
+
             // On the detect paths that is also the answer to "what did this run change", because there
-            // the run is about everything that was already here — so the same comparison is not made
-            // twice against the same two trees.
+            // the run is about everything that was already here — bounded at the same closing snapshot,
+            // for the same reason: the tree it was about is the one this run finished with, not the one
+            // the tile next door has been writing to since.
             var changed = existingWork
-                ? uncommitted
+                ? await NamesAsync(git,
+                    $"diff --name-only --no-renames HEAD^{{tree}} {end} -- {WorktreeReader.Excluded}",
+                    timed.Token)
                 : await NamesAsync(git,
-                    $"diff --name-only --no-renames {baselineRef}^{{tree}} {now} -- {WorktreeReader.Excluded}",
+                    $"diff --name-only --no-renames {baselineRef}^{{tree}} {end} -- {WorktreeReader.Excluded}",
                     timed.Token);
+
+            // Whatever has moved since this run finished, whoever moved it. A second Goal tile, or the
+            // user in the terminal tile next door — not told apart, because a commit takes the whole
+            // file and the consequence of getting it wrong is identical either way.
+            //
+            // Empty when there is no closing snapshot: `end` is then `now` and the diff is of a tree
+            // against itself. That is the unbounded case, and `Bounded` is what says so.
+            var touchedSince = await NamesAsync(
+                git,
+                $"diff --name-only --no-renames {end} {now} -- {WorktreeReader.Excluded}",
+                timed.Token);
 
             // What the user had already changed when the goal started — the baseline's tree against
             // the tree of the commit it was parented on. Excluded whatever the tool proposes, because a
@@ -189,9 +256,17 @@ internal sealed class GoalCommitter(string workingDirectory, string gitPath)
 
             var mine = changed.Where(uncommitted.Contains).ToList();
 
+            // Held back for either reason, and named under whichever one applies. A file in both lists
+            // is reported as somebody's pre-existing work: that is the older claim on it, and naming one
+            // file twice in one dialog reads as a bug in the dialog.
+            var held = mine.Where(f => theirs.Contains(f) || touchedSince.Contains(f)).ToList();
+
             return new GoalCommitScope(
-                [..mine.Where(f => !theirs.Contains(f))],
-                [..mine.Where(theirs.Contains)]);
+                [..mine.Where(f => !held.Contains(f))],
+                [..held.Where(theirs.Contains)],
+                Readable: true,
+                TouchedSince: [..held.Where(f => !theirs.Contains(f))],
+                Bounded: bounded);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -201,6 +276,33 @@ internal sealed class GoalCommitter(string workingDirectory, string gitPath)
         {
             Trace.TraceWarning($"Working out what a goal run changed failed: {ex.Message}");
             return GoalCommitScope.Unreadable;
+        }
+    }
+
+    /// <summary>Whether a ref is still there to be read.</summary>
+    /// <remarks>
+    /// <c>--verify --quiet</c> so a missing ref is an exit code rather than a message on stderr, and
+    /// the non-zero that follows is caught here rather than left to the caller — the whole point is to
+    /// find out without the finding out being the failure. The <c>^{tree}</c> is asked for as well as
+    /// the ref, because that is the form every comparison below uses and a ref whose commit is there
+    /// but whose tree is not is unusable in the same way.
+    /// </remarks>
+    private static async Task<bool> ExistsAsync(GitCommandRunner git, string reference, CancellationToken ct)
+    {
+        try
+        {
+            await git.RunAsync($"rev-parse --verify --quiet {reference}^{{tree}}", ct);
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Gone, or never written. Either way there is no upper end to bound the run at, which is a
+            // scope this already knows how to describe.
+            return false;
         }
     }
 

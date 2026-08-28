@@ -564,4 +564,58 @@ public class AiProcessRunnerTests
     private static void Run(string executable, string prompt) =>
         AiProcessRunner.RunPlainAsync(executable, prompt, ".", new GenericToolRunner())
             .GetAwaiter().GetResult();
+
+    // ── Standard input is always closed ─────────────────
+
+    /// <summary>Captures the <see cref="ProcessStartInfo"/> and stops before anything is launched.</summary>
+    private sealed class StartInfoRunner(bool acceptsStdin) : IAiToolRunner
+    {
+        public ProcessStartInfo? Captured { get; private set; }
+
+        public bool AcceptsPromptOnStdin => acceptsStdin;
+
+        public sealed class Stop : Exception;
+
+        public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+            AiPermissionMode permission = AiPermissionMode.Auto,
+            AiEffort effort = AiEffort.High)
+        {
+            Captured = psi;
+            throw new Stop();
+        }
+
+        public IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
+    }
+
+    /// <summary>
+    /// Standard input is redirected for every tool, not only the one that reads its prompt from it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Inherited, it is this application's own standard input — and in a windowed process nobody
+    /// is ever going to type into that. A tool that decides to be interactive therefore does not fail,
+    /// it stops, on a path that deliberately has no wall-clock timeout, and the tile waits for ever
+    /// with nothing on screen.</para>
+    /// <para>It is the ordinary case rather than a corner: a bare positional prompt is what
+    /// <c>GenericToolRunner</c> passes, and that is measured to open an interactive session rather than
+    /// a print run on at least one CLI here. Every custom tool a user adds takes that path, and so does
+    /// any tool whose own runner is removed.</para>
+    /// <para>Redirecting is half of it; the run then closes the pipe at once when there is no prompt to
+    /// send, so the child reads end-of-input instead of waiting. That half cannot be asserted without
+    /// launching something, which is why this test pins the half it can and the reasoning sits beside
+    /// the close itself.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Standard_input_is_redirected_whether_or_not_the_prompt_goes_down_it(bool acceptsStdin)
+    {
+        var runner = new StartInfoRunner(acceptsStdin);
+
+        await Assert.ThrowsAsync<StartInfoRunner.Stop>(() => AiProcessRunner.RunPlainAsync(
+            "some-tool", "the prompt", Path.GetTempPath(), runner));
+
+        Assert.NotNull(runner.Captured);
+        Assert.True(runner.Captured!.RedirectStandardInput,
+            "standard input was left inherited, so a tool that waits for input waits on ours");
+    }
 }

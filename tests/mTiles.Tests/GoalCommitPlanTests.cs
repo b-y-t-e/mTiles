@@ -230,4 +230,157 @@ public class GoalCommitPlanTests
         Assert.Empty(GoalResponseParser.ParseCommitPlan("```json\n{\"other\":1}\n```"));
         Assert.Empty(GoalResponseParser.ParseCommitPlan(null));
     }
+
+    // ── The upper end of the scope ──────────────────────
+
+    /// <summary>
+    /// A run with no closing snapshot says so, before the list rather than after it.
+    /// </summary>
+    /// <remarks>
+    /// The last text the user reads before agreeing, and the only place they are told the scope has no
+    /// upper end — so what follows is "everything that changed since the goal started", another Goal
+    /// tile's finished work included. It goes before the list because it changes what the list means.
+    /// </remarks>
+    [Fact]
+    public void An_unbounded_scope_warns_before_it_lists_anything()
+    {
+        var scope = new GoalCommitScope(["src/Cart.cs"], [], Bounded: false);
+        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
+
+        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0);
+
+        Assert.Contains("Nothing recorded how the tree looked when this run finished", asked);
+        Assert.True(
+            asked.IndexOf("Nothing recorded", StringComparison.Ordinal)
+            < asked.IndexOf("feat: apply discounts", StringComparison.Ordinal),
+            "the warning came after the list it changes the meaning of");
+    }
+
+    /// <summary>A bounded run says nothing about it, rather than saying there is nothing to say.</summary>
+    [Fact]
+    public void A_bounded_scope_says_nothing_about_its_upper_end() =>
+        Assert.DoesNotContain("Nothing recorded",
+            GoalCommitPlan.Describe(
+                GoalCommitPlan.Sound([Commit("feat", "x", "src/Cart.cs")], Scope(["src/Cart.cs"])),
+                Scope(["src/Cart.cs"]), 0, 0));
+
+    /// <summary>
+    /// Files written again after the run finished are named, under their own reason.
+    /// </summary>
+    /// <remarks>
+    /// The other end of the rule the pre-existing list covers, and the one a workspace with three Goal
+    /// tiles meets: this run wrote the file and somebody has written it since, so what would go in is
+    /// not only this run's work. A different sentence, because a different thing happened.
+    /// </remarks>
+    [Fact]
+    public void Files_changed_after_the_run_are_named_under_their_own_reason()
+    {
+        var scope = new GoalCommitScope(
+            ["src/Cart.cs"], [], TouchedSince: ["src/Later.cs"]);
+        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
+
+        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0);
+
+        Assert.Contains("src/Later.cs", asked);
+        Assert.Contains("changed after this run finished", asked);
+        Assert.DoesNotContain("already changed before this goal started", asked);
+    }
+
+    /// <summary>Both lists at once are two sentences, not one merged one.</summary>
+    [Fact]
+    public void The_two_reasons_a_file_is_held_back_are_kept_apart()
+    {
+        var scope = new GoalCommitScope(
+            ["src/Cart.cs"], ["src/Theirs.cs"], TouchedSince: ["src/Later.cs"]);
+        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
+
+        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0);
+
+        Assert.Contains("already changed before this goal started", asked);
+        Assert.Contains("changed after this run finished", asked);
+    }
+
+    /// <summary>What was written afterwards is repeated in the record, not only in the offer.</summary>
+    /// <remarks>
+    /// The transcript is what is left once the dialog is gone, and "this file may carry somebody else's
+    /// work" is the part worth still being able to read tomorrow.
+    /// </remarks>
+    [Fact]
+    public void The_record_repeats_what_was_changed_after_the_run()
+    {
+        var planned = new[] { Commit("feat", "apply discounts", "src/Cart.cs") };
+
+        var said = GoalCommitPlan.Made(planned, made: 1,
+            new GoalCommitScope(["src/Cart.cs"], [], TouchedSince: ["src/Later.cs"]));
+
+        Assert.Contains("src/Later.cs", said);
+        Assert.Contains("changed after this run finished", said);
+    }
+
+    /// <summary>
+    /// Nothing to commit says which files were held back and why.
+    /// </summary>
+    /// <remarks>
+    /// The sentence on its own reads as a claim about the user's work — as if the tool had done nothing
+    /// — when what has usually happened is that every file it touched is also somebody else's. The
+    /// closing snapshot makes this the ordinary outcome of two Goal tiles over one workspace, which is
+    /// the case it was added for.
+    /// </remarks>
+    [Fact]
+    public void Nothing_to_commit_names_what_was_held_back_and_why()
+    {
+        var said = GoalCommitPlan.Nothing(
+            new GoalCommitScope([], ["src/Theirs.cs"], TouchedSince: ["src/Later.cs"]));
+
+        Assert.Contains("nothing here this run can claim", said);
+        Assert.Contains("src/Theirs.cs", said);
+        Assert.Contains("already changed before this goal started", said);
+        Assert.Contains("src/Later.cs", said);
+        Assert.Contains("changed after this run finished", said);
+    }
+
+    /// <summary>With nothing held back either, it stays the one sentence.</summary>
+    [Fact]
+    public void Nothing_at_all_is_still_one_sentence() =>
+        Assert.Equal(
+            "There is nothing here this run can claim as its own to commit.",
+            GoalCommitPlan.Nothing(GoalCommitScope.Empty));
+
+    /// <summary>
+    /// A detected goal with no closing snapshot says one thing, not two contradictory ones.
+    /// </summary>
+    /// <remarks>
+    /// The two warnings were written independently and both fired in this state: one said the list was
+    /// the tree "when this run finished", the next said nothing had recorded how the tree looked when
+    /// it finished. The first is precisely what is unknown here, so it gives way — and the surviving
+    /// sentence still carries the part the detect path needs, that the goal was about work already in
+    /// the tree.
+    /// </remarks>
+    [Fact]
+    public void A_detected_goal_with_no_upper_end_does_not_claim_to_know_where_it_ended()
+    {
+        var scope = new GoalCommitScope(["src/Cart.cs"], [], Bounded: false);
+        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
+
+        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0, existingWork: true);
+
+        Assert.DoesNotContain("uncommitted when this run finished", asked);
+        Assert.Contains("worked out from the changes already in the tree", asked);
+        Assert.Contains("everything uncommitted right now", asked);
+        Assert.Contains("cannot be told apart", asked);
+    }
+
+    /// <summary>With an end recorded it says the bounded thing, and only that.</summary>
+    [Fact]
+    public void A_detected_goal_that_knows_where_it_ended_says_so_once()
+    {
+        var scope = new GoalCommitScope(["src/Cart.cs"], []);
+        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
+
+        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0, existingWork: true);
+
+        Assert.Contains("uncommitted when this run finished", asked);
+        Assert.DoesNotContain("Nothing recorded", asked);
+        Assert.DoesNotContain("right now", asked);
+    }
 }

@@ -128,7 +128,6 @@ public class GoalBaselineTests
         Assert.False(result.NoRepository);
     }
 
-    /// <summary>Fails loudly rather than passing quietly. See the note on this class.</summary>
     /// <summary>
     /// The commit path, end to end against a real repository — the scope, the awkward paths, and what
     /// it refuses to touch.
@@ -171,8 +170,12 @@ public class GoalBaselineTests
         // the whole file, so it would carry their half along under this run's message.
         repo.Write("theirs.txt", "the user's edit, plus a line the run added");
 
+        // No closing snapshot, which is a goal file written before this tile recorded one — the
+        // scope then reaches up to the tree as it stands and reports that it is not bounded.
         var committer = new GoalCommitter(repo.Path, "git");
-        var scope = await committer.ScopeAsync(baselineRef, default);
+        var scope = await committer.ScopeAsync(baselineRef, null, default);
+
+        Assert.False(scope.Bounded);
 
         Assert.Contains("ours.txt", scope.Files);
         Assert.Contains("żółw.txt", scope.Files);
@@ -210,6 +213,116 @@ public class GoalBaselineTests
             .Single());
     }
 
+    /// <summary>
+    /// One Goal tile does not commit another Goal tile's work.
+    /// </summary>
+    /// <remarks>
+    /// <para>The failure this was written for: three Goal tiles in one workspace, all three finished,
+    /// Commit pressed in the first — and all three runs went into the history under the first one's
+    /// messages. A baseline is only the lower end of a run, so "what this run changed" meant
+    /// "everything that has changed since it started", which is every tile that finished afterwards.
+    /// </para>
+    /// <para>Two files, because the two halves fail differently. A file only the second tile wrote is
+    /// not the first tile's at all and must not appear anywhere in its scope; a file <em>both</em>
+    /// wrote cannot be committed by the first either — <c>git commit -- path</c> takes the whole file
+    /// — but it is named rather than dropped, because a file this run really did write and will not
+    /// commit is something the user has to be told about.</para>
+    /// </remarks>
+    [Fact]
+    public async Task One_goal_tile_does_not_commit_anothers_work()
+    {
+        RequireGit();
+
+        using var repo = new TempRepo();
+        repo.Write("shared.txt", "v1");
+        repo.Git("add -A");
+        repo.Git("commit -m first");
+
+        var git = new GoalBaseline(repo.Path, "git");
+
+        // The first tile runs and finishes.
+        var first = Assert.IsType<string>((await git.CaptureAsync("g1", default)).Ref);
+        repo.Write("first.txt", "written by the first tile");
+        repo.Write("shared.txt", "v2, by the first tile");
+        var firstEnd = Assert.IsType<string>((await git.CaptureEndAsync("g1", default)).Ref);
+
+        // The second tile runs and finishes afterwards, which is what the first one used to claim.
+        await git.CaptureAsync("g2", default);
+        repo.Write("second.txt", "written by the second tile");
+        repo.Write("shared.txt", "v3, by the second tile");
+        await git.CaptureEndAsync("g2", default);
+
+        var committer = new GoalCommitter(repo.Path, "git");
+        var scope = await committer.ScopeAsync(first, firstEnd, default);
+
+        Assert.True(scope.Bounded);
+        Assert.Equal(["first.txt"], scope.Files);
+
+        // Never the second tile's own file, and not mentioned either: the first run never wrote it,
+        // so there is nothing to explain about it.
+        Assert.DoesNotContain("second.txt", scope.Files);
+        Assert.DoesNotContain("second.txt", scope.LeftAlone);
+        Assert.DoesNotContain("second.txt", scope.TouchedSince);
+
+        // The file both wrote is held back and named.
+        Assert.DoesNotContain("shared.txt", scope.Files);
+        Assert.Equal(["shared.txt"], scope.TouchedSince);
+        Assert.Empty(scope.LeftAlone);
+
+        var made = await committer.CommitAsync(
+            [new GoalCommit { Type = "feat", Subject = "the first tile", Files = [..scope.Files] }],
+            default);
+
+        Assert.Equal(1, made);
+
+        var committed = repo.Git("show --name-only --format= HEAD");
+        Assert.Contains("first.txt", committed);
+        Assert.DoesNotContain("second.txt", committed);
+        Assert.DoesNotContain("shared.txt", committed);
+
+        // And the second tile still has everything it produced, waiting for its own Commit.
+        var left = repo.Git("status --porcelain")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l[3..].Trim())
+            .ToList();
+        Assert.Contains("second.txt", left);
+        Assert.Contains("shared.txt", left);
+    }
+
+    /// <summary>
+    /// A run that finished before anybody else moved commits everything it wrote.
+    /// </summary>
+    /// <remarks>
+    /// The other side of the test above, and the one that would catch a boundary drawn too tightly: a
+    /// single tile in a quiet workspace must still commit its whole run, closing snapshot or not.
+    /// </remarks>
+    [Fact]
+    public async Task A_run_nobody_disturbed_commits_all_of_its_own_work()
+    {
+        RequireGit();
+
+        using var repo = new TempRepo();
+        repo.Write("start.txt", "v1");
+        repo.Git("add -A");
+        repo.Git("commit -m first");
+
+        var git = new GoalBaseline(repo.Path, "git");
+        var baseline = Assert.IsType<string>((await git.CaptureAsync("g1", default)).Ref);
+
+        repo.Write("start.txt", "v2");
+        repo.Write("added.txt", "new");
+
+        var end = Assert.IsType<string>((await git.CaptureEndAsync("g1", default)).Ref);
+
+        var scope = await new GoalCommitter(repo.Path, "git").ScopeAsync(baseline, end, default);
+
+        Assert.True(scope.Bounded);
+        Assert.Equal(["added.txt", "start.txt"], scope.Files.OrderBy(f => f).ToList());
+        Assert.Empty(scope.TouchedSince);
+        Assert.Empty(scope.LeftAlone);
+    }
+
+    /// <summary>Fails loudly rather than passing quietly. See the note on this class.</summary>
     private static void RequireGit() =>
         Assert.True(HasGit(), "git is not on PATH, so none of these can say anything about GoalBaseline.");
 
@@ -231,6 +344,103 @@ public class GoalBaselineTests
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// A closing snapshot git no longer has degrades the scope, it does not block the commit.
+    /// </summary>
+    /// <remarks>
+    /// <para>These refs are pruned to the newest twenty of their namespace and a tile keeps its
+    /// <c>EndRef</c> for as long as the tile exists, so a goal reopened after twenty later summaries in
+    /// the same workspace holds a ref that has been collected. Used unchecked, the first <c>diff</c>
+    /// against it fails and the whole scope comes back <c>Unreadable</c> — the dialog says git could
+    /// not be asked, and a run that committed perfectly well before closing snapshots existed becomes
+    /// one that cannot be committed <em>because</em> of them.</para>
+    /// <para>A missing upper end is exactly what <c>Bounded: false</c> already describes and the dialog
+    /// already explains, so that is where it lands.</para>
+    /// </remarks>
+    [Fact]
+    public async Task A_closing_snapshot_that_has_been_collected_falls_back_to_an_unbounded_scope()
+    {
+        RequireGit();
+
+        using var repo = new TempRepo();
+        repo.Write("start.txt", "v1");
+        repo.Git("add -A");
+        repo.Git("commit -m first");
+
+        var git = new GoalBaseline(repo.Path, "git");
+        var baseline = Assert.IsType<string>((await git.CaptureAsync("g1", default)).Ref);
+
+        repo.Write("start.txt", "v2");
+
+        var end = Assert.IsType<string>((await git.CaptureEndAsync("g1", default)).Ref);
+
+        // What the prune does to an older tile's end while its state file still names it.
+        repo.Git($"update-ref -d {end}");
+
+        var scope = await new GoalCommitter(repo.Path, "git").ScopeAsync(baseline, end, default);
+
+        Assert.True(scope.Readable, "a collected end ref made the whole scope unreadable");
+        Assert.False(scope.Bounded);
+        Assert.Contains("start.txt", scope.Files);
+    }
+
+    /// <summary>
+    /// Two runs that overlap in time are <b>not</b> told apart, and this is what that costs.
+    /// </summary>
+    /// <remarks>
+    /// <para>The sequential case is pinned by
+    /// <see cref="One_goal_tile_does_not_commit_anothers_work"/> and it holds. This is the other
+    /// arrangement, and it does not: every question <c>GoalCommitter</c> asks is about <em>when</em> a
+    /// file changed and none is about <em>who</em> changed it. B's file lands inside A's
+    /// baseline-to-end window, so it is in what A changed; it is uncommitted, so it survives that
+    /// filter; and it is in neither held-back list, because <c>LeftAlone</c> covers only what was dirty
+    /// before A started and <c>TouchedSince</c> only what moved after A finished.</para>
+    /// <para><b>Asserted rather than fixed</b>, and deliberately: this is a limit named in
+    /// <c>docs/GOAL.md</c>, not a bug with a small correction behind it — closing it means recording
+    /// which files a run's own attempts wrote instead of bracketing them in time. The test exists so
+    /// that the day somebody does close it, this stops passing and says so, and so that nobody reads
+    /// the sequential test as covering both.</para>
+    /// <para>The sharper half is the last assertion: the scope comes back <c>Bounded</c>, so the dialog
+    /// stays silent about another tile's work being indistinguishable. The wrong set of files arrives
+    /// with no warning attached to it.</para>
+    /// </remarks>
+    [Fact]
+    public async Task Two_runs_that_overlap_in_time_are_not_told_apart()
+    {
+        RequireGit();
+
+        using var repo = new TempRepo();
+        repo.Write("start.txt", "v1");
+        repo.Git("add -A");
+        repo.Git("commit -m first");
+
+        var git = new GoalBaseline(repo.Path, "git");
+
+        // A starts.
+        var baselineA = Assert.IsType<string>((await git.CaptureAsync("a", default)).Ref);
+
+        // B starts, works and finishes — entirely inside A's run.
+        await git.CaptureAsync("b", default);
+        repo.Write("written-by-b.txt", "B's work");
+        await git.CaptureEndAsync("b", default);
+
+        // A writes its own file and finishes after B.
+        repo.Write("written-by-a.txt", "A's work");
+        var endA = Assert.IsType<string>((await git.CaptureEndAsync("a", default)).Ref);
+
+        var scope = await new GoalCommitter(repo.Path, "git").ScopeAsync(baselineA, endA, default);
+
+        Assert.Contains("written-by-a.txt", scope.Files);
+
+        // The limitation, stated as an assertion so it cannot be believed away.
+        Assert.Contains("written-by-b.txt", scope.Files);
+        Assert.Empty(scope.LeftAlone);
+        Assert.Empty(scope.TouchedSince);
+
+        // And nothing warns, because as far as the boundaries are concerned the run is well bounded.
+        Assert.True(scope.Bounded);
     }
 
     private sealed class TempRepo : IDisposable

@@ -428,4 +428,80 @@ public sealed class SettingsMigrationTests : IDisposable
         Assert.Equal(@"C:\tools\claude.exe", reloaded.CustomAiToolPaths["claude"]);
         Assert.Equal("opus", reloaded.GoalDefaultModels["claude"]);
     }
+
+    // ── The profile for a tool that is gone ─────────────
+
+    private static string OpenClaudeProfile(string startup, string fallback) => $$"""
+    {
+      "ShellProfiles": [
+        {
+          "Id": "11111111-1111-1111-1111-111111111111",
+          "Name": "Open Claude",
+          "ShellName": "",
+          "RequiredAiToolBinaryName": "openclaude",
+          "StartupScript": "{{startup}}",
+          "FallbackScript": "{{fallback}}"
+        }
+      ]
+    }
+    """;
+
+    private const string SeededStartup = "openclaude --resume ${tileId}";
+    private const string SeededFallback = "openclaude --session-id ${tileId}";
+
+    /// <summary>
+    /// The seeded "Open Claude" profile goes when the tool it names does.
+    /// </summary>
+    /// <remarks>
+    /// Seeding only ever adds, so dropping an entry from the defaults leaves it standing for everybody
+    /// who has run an earlier version — and this one names a binary detection no longer looks for, so
+    /// it can never be offered on an empty tile again, not even to somebody who has the tool. Removing
+    /// a seeded entry needs a migration exactly as changing one does.
+    /// </remarks>
+    [Fact]
+    public void The_seeded_profile_for_a_tool_that_was_dropped_is_taken_away()
+    {
+        GivenSettings(OpenClaudeProfile(SeededStartup, SeededFallback));
+
+        var service = new SettingsService(SettingsPath);
+        service.Load();
+
+        Assert.DoesNotContain(service.Settings.ShellProfiles,
+            p => p.Name.Equals("Open Claude", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// A profile the user has edited is theirs, dead tool or not.
+    /// </summary>
+    /// <remarks>
+    /// The same rule the OpenCode migration follows: what is taken away is an answer this application
+    /// gave, never one the user wrote. Somebody who pointed the profile at a fork or at a wrapper of
+    /// their own keeps it, and can delete it themselves.
+    /// </remarks>
+    [Fact]
+    public void A_profile_the_user_edited_is_left_alone()
+    {
+        GivenSettings(OpenClaudeProfile("my-openclaude-wrapper ${tileId}", SeededFallback));
+
+        var service = new SettingsService(SettingsPath);
+        service.Load();
+
+        Assert.Contains(service.Settings.ShellProfiles,
+            p => p.Name.Equals("Open Claude", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Nothing else is disturbed, which is the failure a RemoveAll invites.</summary>
+    [Fact]
+    public void The_other_seeded_profiles_stay()
+    {
+        GivenSettings(OpenClaudeProfile(SeededStartup, SeededFallback));
+
+        var service = new SettingsService(SettingsPath);
+        service.Load();
+
+        Assert.Contains(service.Settings.ShellProfiles,
+            p => p.Name.Equals("Claude Code", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(service.Settings.ShellProfiles,
+            p => p.Name.Equals("OpenCode", StringComparison.OrdinalIgnoreCase));
+    }
 }

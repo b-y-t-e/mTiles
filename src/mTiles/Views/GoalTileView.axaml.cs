@@ -303,7 +303,7 @@ public partial class GoalTileView : UserControl
     private void PlanBox_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None) return;
-        if (DataContext is not GoalTileViewModel vm) return;
+        if (DataContext is not GoalTileViewModel vm || IsPickingAFile) return;
 
         vm.ApproveOrChangeCommand.Execute(null);
         e.Handled = true;
@@ -409,7 +409,7 @@ public partial class GoalTileView : UserControl
     private void AnswerBox_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None) return;
-        if (DataContext is not GoalTileViewModel vm) return;
+        if (DataContext is not GoalTileViewModel vm || IsPickingAFile) return;
 
         // Through the command, so the "answer at least one" rule is the same one whichever way the
         // answers are sent.
@@ -419,7 +419,7 @@ public partial class GoalTileView : UserControl
 
     private void InputBox_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None && !IsPickingAFile)
         {
             if (DataContext is GoalTileViewModel vm && vm.SubmitCommand.CanExecute(null))
             {
@@ -427,5 +427,74 @@ public partial class GoalTileView : UserControl
                 e.Handled = true;
             }
         }
+
+        if (e.Key != Key.V) return;
+
+        // Alt+V is the image whatever else is on the clipboard, and nothing else wants the key — the
+        // box ignores it — so it is marked handled and taken outright. Ctrl+V is deliberately *not*
+        // marked: the box's own paste has to go on working, and whether there is an image to take
+        // instead cannot be known here, because reading a clipboard is asynchronous and the key has
+        // been dispatched long before the answer comes back. Letting both run is safe precisely
+        // because the two are exclusive — the image is taken only when there is no text, which is the
+        // case in which the box's paste does nothing at all.
+        if (e.KeyModifiers == KeyModifiers.Alt)
+        {
+            e.Handled = true;
+            _ = AttachClipboardImageAsync(evenWhenThereIsText: true);
+        }
+        else if (e.KeyModifiers == KeyModifiers.Control)
+        {
+            _ = AttachClipboardImageAsync(evenWhenThereIsText: false);
+        }
     }
+
+    /// <summary>
+    /// Hands the clipboard's image to the tile, as PNG bytes.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Text wins when the clipboard holds both</b>, which is the rule the terminal tile
+    /// already follows: a copy from a browser or a screenshot tool routinely puts text and an image on
+    /// the clipboard at once, and pasting the picture instead of the words the user selected is the
+    /// more surprising of the two mistakes. <b>Alt+V</b> is the way past it, exactly as it is in a
+    /// terminal tile.</para>
+    /// <para>Encoded here rather than in the view model: what Avalonia hands back is a decoded bitmap,
+    /// and turning one into bytes needs the imaging stack. The view model is given something it can be
+    /// handed by a test.</para>
+    /// </remarks>
+    private async Task AttachClipboardImageAsync(bool evenWhenThereIsText)
+    {
+        if (DataContext is not GoalTileViewModel vm) return;
+        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
+
+        try
+        {
+            if (!evenWhenThereIsText && await clipboard.TryGetTextAsync() is { Length: > 0 }) return;
+            if (await clipboard.TryGetBitmapAsync() is not { } bitmap) return;
+
+            using (bitmap)
+            {
+                using var png = new MemoryStream();
+                bitmap.Save(png);
+                vm.AttachImageCommand.Execute(png.ToArray());
+            }
+        }
+        catch (Exception ex)
+        {
+            // A clipboard can be held by another application, and an image on it can be one this
+            // machine cannot decode. Neither is worth a dialog over a paste that can be tried again.
+            System.Diagnostics.Trace.TraceWarning($"Reading an image from the clipboard failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Whether the <c>@</c> suggestions are up, in which case Enter takes the file rather than sends.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="FileMentionBehavior"/> already takes Enter in the tunnel phase and marks it handled,
+    /// which is what actually stops these handlers running. This is the second lock on the same door,
+    /// and it is worth having: what it guards against is sending a goal with a half-typed <c>@go</c> in
+    /// it, and that is not undone by pressing the key again.
+    /// </remarks>
+    private bool IsPickingAFile =>
+        DataContext is GoalTileViewModel { FileMentions.IsOpen: true };
 }

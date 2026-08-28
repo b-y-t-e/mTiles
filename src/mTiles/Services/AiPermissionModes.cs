@@ -67,8 +67,16 @@ public static class AiPermissionModes
     /// cost of a miss is the old, unhelpful sentence; the cost of a false positive is telling somebody
     /// their settings are wrong when the failure was something else.</para>
     /// </remarks>
-    public static bool LooksLikeRejectedMode(string? toolOutput) =>
-        RejectedFlag.Named(toolOutput, "--permission-mode", valueRejectionCounts: true, "--effort");
+    /// <param name="permissionFlag">The flag the tool was actually given, from
+    /// <see cref="IAiToolRunner.PermissionFlagFor"/> — <c>--permission-mode</c> for Claude Code,
+    /// <c>--dangerously-skip-permissions</c> for Antigravity, nothing at all for the rest.</param>
+    /// <param name="effortFlag">The tool's other flag, needed to read a usage message: one is only
+    /// worth acting on when it mentions this flag alone.</param>
+    public static bool LooksLikeRejectedMode(
+        string? toolOutput, string? permissionFlag, string? effortFlag) =>
+        permissionFlag is { Length: > 0 }
+        && RejectedFlag.Named(toolOutput, permissionFlag, valueRejectionCounts: true,
+            effortFlag is { Length: > 0 } ? [effortFlag] : []);
 
     /// <summary>What to tell the user when it was. Names the control and the value that always works.
     /// </summary>

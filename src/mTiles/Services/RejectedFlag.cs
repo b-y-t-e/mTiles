@@ -33,7 +33,10 @@ internal static partial class RejectedFlag
     /// unknown flag and wants the same sentence.</para>
     /// </param>
     /// <param name="otherFlags">The other flags this application passes uninvited. They are what makes
-    /// a usage dump ambiguous, so their presence withdraws the weaker answer.</param>
+    /// a usage dump ambiguous, so their presence withdraws the weaker answer. <b>Their absence
+    /// withdraws it too</b>: with nothing to compare against, "this flag alone" is not a question the
+    /// text can answer, and the weaker rule would say yes to every usage message the tool prints. An
+    /// explicit refusal on an error line still counts — that names the flag itself.</param>
     public static bool Named(string? toolOutput, string flag, bool valueRejectionCounts,
         params string[] otherFlags)
     {
@@ -46,8 +49,14 @@ internal static partial class RejectedFlag
                 return true;
 
         // No error line naming anything. A usage message is then all there is to go on, and it is only
-        // worth acting on when it mentions this flag alone.
-        return text.Contains("usage:", StringComparison.OrdinalIgnoreCase)
+        // worth acting on when it mentions this flag *alone* — which cannot be established without a
+        // second flag to compare against. With none, every usage message a tool ever prints names this
+        // flag simply because usage lists all of them, and the rule fires on any failure at all: `pi`
+        // has one flag, so a bad argument, a missing key or a crash that printed usage would each have
+        // advised the user to change their Effort setting. Refusing to answer is the safe direction —
+        // no advice rather than confident advice about the wrong thing.
+        return otherFlags.Length > 0
+               && text.Contains("usage:", StringComparison.OrdinalIgnoreCase)
                && !otherFlags.Any(other => text.Contains(other, StringComparison.OrdinalIgnoreCase));
     }
 

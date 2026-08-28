@@ -65,8 +65,17 @@ public static class AiEfforts
     /// never one of those alone. A miss costs the old unhelpful sentence; a false positive tells
     /// somebody their settings are wrong when the failure was something else.</para>
     /// </remarks>
-    public static bool LooksLikeRejectedEffort(string? toolOutput) =>
-        RejectedFlag.Named(toolOutput, "--effort", valueRejectionCounts: false, "--permission-mode");
+    /// <param name="effortFlag">The flag the tool was actually given, from
+    /// <see cref="IAiToolRunner.EffortFlagFor"/>. Not a constant here: <c>--effort</c> is Claude Code's
+    /// spelling and <c>pi</c> calls the same idea <c>--thinking</c>, so a constant recognised one
+    /// tool's refusal and left the other's as a bare "the AI tool reported a failure".</param>
+    /// <param name="permissionFlag">The tool's other flag, needed to read a usage message: one is only
+    /// worth acting on when it mentions this flag alone.</param>
+    public static bool LooksLikeRejectedEffort(
+        string? toolOutput, string? effortFlag, string? permissionFlag) =>
+        effortFlag is { Length: > 0 }
+        && RejectedFlag.Named(toolOutput, effortFlag, valueRejectionCounts: false,
+            permissionFlag is { Length: > 0 } ? [permissionFlag] : []);
 
     /// <summary>What to tell the user when it was. Names the control and the value that always works.
     /// </summary>

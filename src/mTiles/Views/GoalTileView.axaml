@@ -941,6 +941,7 @@
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
                              MaxHeight="120"
+                             v:FileMentionBehavior.Mentions="{Binding FileMentions}"
                              KeyDown="PlanBox_KeyDown" />
 
                     <Button HorizontalAlignment="Right"
@@ -985,6 +986,8 @@
                              PlaceholderText="Describe the goal, or answer&#x2026;"
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
+                             v:FileMentionBehavior.Mentions="{Binding FileMentions}"
+                             CaretIndex="{Binding InputCaretIndex, Mode=TwoWay}"
                              GotFocus="InputBox_FocusChanged"
                              LostFocus="InputBox_FocusChanged"
                              KeyDown="InputBox_KeyDown" />
@@ -1270,11 +1273,16 @@
                                             <!-- Enter sends, as it does in the composer. The box refuses
                                                  line breaks, so without this Enter was the one key that
                                                  did nothing at all in a panel you answer by typing. -->
+                                            <!-- The mentions belong to the tile, not to the question,
+                                                 so they are reached the way the findings button
+                                                 reaches its command: out of the template to the view
+                                                 that owns it. -->
                                             <TextBox Classes="ask-field"
                                                      Text="{Binding Answer}"
                                                      PlaceholderText="Your answer&#x2026;"
                                                      AcceptsReturn="False"
                                                      TextWrapping="Wrap"
+                                                     v:FileMentionBehavior.Mentions="{Binding $parent[UserControl].((vm:GoalTileViewModel)DataContext).FileMentions}"
                                                      KeyDown="AnswerBox_KeyDown" />
                                         </StackPanel>
                                     </Grid>

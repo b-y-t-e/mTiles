@@ -111,20 +111,36 @@ internal static class GoalCommitPlan
     /// </remarks>
     /// <param name="existingWork">
     /// True where the goal was worked out from the tree rather than typed. The offer then covers
-    /// <em>everything</em> uncommitted, including anything the user has changed since — which is the
-    /// honest consequence of having said "these changes are the goal", and has to be said out loud
-    /// rather than left to be discovered in <c>git log</c>. A tile reopened days later is exactly the
-    /// case: the run it is offering to commit is old and the working tree is not.
+    /// everything that was uncommitted when the run finished — which is the honest consequence of
+    /// having said "these changes are the goal", and has to be said out loud rather than left to be
+    /// discovered in <c>git log</c>.
     /// </param>
     public static string Describe(IReadOnlyList<GoalCommit> commits, GoalCommitScope scope,
         int warnings, int suggestions, bool existingWork = false)
     {
         var text = new StringBuilder();
 
-        if (existingWork)
+        // Said before the list, because both of these change what the list *means* — and they are
+        // written as one decision because they used to be two. Independently, a detected goal with no
+        // closing snapshot got both: one line calling the list the tree "when this run finished", the
+        // next saying nothing had recorded how the tree looked when it finished. The first is exactly
+        // what is unknown in that state, so it is the one that gives way.
+        if (existingWork && scope.Bounded)
             text.Append("This goal was worked out from the changes already in the tree, so what is " +
-                        "committed below is everything uncommitted here now — including anything you " +
-                        "have changed since.\n\n");
+                        "committed below is everything that was uncommitted when this run " +
+                        "finished.\n\n");
+
+        if (!scope.Bounded)
+            text.Append(
+                (existingWork
+                    ? "This goal was worked out from the changes already in the tree, and nothing " +
+                      "recorded how that tree looked when this run finished — so this is everything " +
+                      "uncommitted right now. "
+                    : "Nothing recorded how the tree looked when this run finished, so this is " +
+                      "everything that has changed since the goal started. ")
+                + "Work done by another Goal tile, or by you, cannot be told apart from this run's " +
+                "here — read the list before agreeing.\n\n");
+
         text.Append(Count(commits.Count, "commit")).Append(" from ")
             .Append(Count(commits.Sum(c => c.Files.Count), "file")).Append(":\n\n");
 
@@ -141,13 +157,12 @@ internal static class GoalCommitPlan
 
         // Named, because a commit takes the whole file: these are files this run also touched, and
         // committing one would carry the user's own unfinished edit along with it.
-        if (scope.LeftAlone.Count > 0)
-            text.Append('\n').Append(Count(scope.LeftAlone.Count, "file"))
-                .Append(" you had already changed before this goal started ")
-                .Append(scope.LeftAlone.Count == 1 ? "is" : "are")
-                .Append(" left uncommitted:\n")
-                .Append(string.Join("\n", scope.LeftAlone.Select(f => "  " + f)))
-                .Append('\n');
+        Held(text, scope.LeftAlone, "you had already changed before this goal started");
+
+        // The other end of the same rule, and the one a workspace with three Goal tiles in it meets:
+        // this run wrote these files and somebody has written them again since, so what would go in
+        // is not only this run's work.
+        Held(text, scope.TouchedSince, "changed after this run finished");
 
         return text.Append("\nCommit?").ToString();
     }
@@ -162,17 +177,56 @@ internal static class GoalCommitPlan
         foreach (var commit in commits.Take(made))
             text.Append("  ").Append(commit.Message).Append('\n');
 
-        if (scope.LeftAlone.Count > 0)
-            text.Append("\nLeft alone, because you had already changed ")
-                .Append(scope.LeftAlone.Count == 1 ? "it" : "them")
-                .Append(" before this goal started:\n")
-                .Append(string.Join("\n", scope.LeftAlone.Select(f => "  " + f)))
-                .Append('\n');
+        Held(text, scope.LeftAlone, "you had already changed before this goal started");
+        Held(text, scope.TouchedSince, "changed after this run finished");
 
         // The way back, spelled out rather than assumed. Undoing a commit somebody else made is the
         // one git operation people reach for under time pressure and get wrong, and --soft is what
         // keeps the work in the tree while the commits go away.
         return text.Append("\nTo undo: git reset --soft HEAD~").Append(made).ToString();
+    }
+
+    /// <summary>
+    /// What the transcript says when the run has nothing of its own to commit.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why, not just that.</b> "There is nothing here this run can claim as its own" on its own
+    /// reads as a statement about the user's work — as if the tool had done nothing — when what has
+    /// usually happened is that every file it touched is also somebody else's: theirs before the goal
+    /// started, or another Goal tile's since it finished. The scope knows which files and under which
+    /// of the two reasons, and this is the only place the user would ever be told.</para>
+    /// <para>The closing snapshot made this state markedly more likely rather than introducing it:
+    /// <c>TouchedSince</c> is empty by construction without one, so before it every held file was held
+    /// as pre-existing work. Two Goal tiles over the same files is the case it exists for and the case
+    /// this message is read in.</para>
+    /// </remarks>
+    public static string Nothing(GoalCommitScope scope)
+    {
+        var text = new StringBuilder("There is nothing here this run can claim as its own to commit.");
+
+        Held(text, scope.LeftAlone, "you had already changed before this goal started");
+        Held(text, scope.TouchedSince, "changed after this run finished");
+
+        return text.ToString();
+    }
+
+    /// <summary>
+    /// One list of files this run wrote and will not commit, and the reason it will not.
+    /// </summary>
+    /// <remarks>
+    /// Shared by both reasons rather than written out twice: they differ only in the clause, and the
+    /// second one was added by a bug where a workspace with three Goal tiles in it committed all three
+    /// runs under the first one's messages. A copy of this paragraph would have been the place that
+    /// still said "before this goal started" about work that arrived after it.
+    /// </remarks>
+    private static void Held(StringBuilder text, IReadOnlyList<string> files, string because)
+    {
+        if (files.Count == 0) return;
+
+        text.Append('\n').Append(Count(files.Count, "file")).Append(' ').Append(because)
+            .Append(' ').Append(files.Count == 1 ? "is" : "are").Append(" left uncommitted:\n")
+            .Append(string.Join("\n", files.Select(f => "  " + f)))
+            .Append('\n');
     }
 
     private static string Count(int n, string noun) => $"{n} {noun}{(n == 1 ? "" : "s")}";

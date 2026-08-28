@@ -58,6 +58,18 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     private List<AiToolInfo>? _cachedTools;
 
     [ObservableProperty] private string _inputText = "";
+
+    /// <summary>
+    /// Where the caret is in the composer, kept in step by the view's own two-way binding.
+    /// </summary>
+    /// <remarks>
+    /// Here only so that a pasted image's marker lands where the user was typing rather than at the
+    /// end of whatever they had written — the one thing this tile does to the composer's text that the
+    /// user did not type themselves. A tile with no view leaves it at zero, which puts the marker at
+    /// the front of an empty box, and that is the same place either way.
+    /// </remarks>
+    [ObservableProperty] private int _inputCaretIndex;
+
     [ObservableProperty] private GoalPhase _currentPhase = GoalPhase.Goal;
     [ObservableProperty] private bool _isRunning;
     [ObservableProperty] private string _selectedToolName = "Claude Code";
@@ -560,10 +572,12 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// because nothing in the application chooses it and a parameter every call site has to pass null
     /// for is a parameter that will be passed the wrong thing eventually.</para>
     /// </summary>
-    /// <summary>The stand-in for a real tool. It answers with an <see cref="AiOutput"/> rather than a
-    /// string so a test can say the tool <em>failed</em> — the path that pauses the run and prints what
-    /// the tool managed to say. While this returned a string that path could only be reached at the
-    /// level of the stream reader, which is the half that does not decide anything.</summary>
+    /// <remarks>
+    /// The stand-in answers with an <see cref="AiOutput"/> rather than a string so a test can say the
+    /// tool <em>failed</em> — the path that pauses the run and prints what the tool managed to say.
+    /// While this returned a string that path could only be reached at the level of the stream reader,
+    /// which is the half that does not decide anything.
+    /// </remarks>
     internal static Func<AiToolInfo, string, string, CancellationToken, Task<AiOutput>>? AiRunnerFactory { get; set; }
 
     public string FilePath => _filePath;
@@ -572,6 +586,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     {
         _workingDirectory = workingDirectory;
         _settingsService = settingsService;
+
+        FileMentions = NewFileMentions();
 
         var goalsDir = WorkspacePaths.Combine(workingDirectory, "goals");
         _filePath = Path.Combine(goalsDir, $"{Guid.NewGuid():N}.json");
@@ -596,6 +612,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         _workingDirectory = workingDirectory;
         _settingsService = settingsService;
         _filePath = filePath;
+        FileMentions = NewFileMentions();
         _store = NewStore();
         WatchQuestions();
         Criteria = NewCriteriaEditor();
@@ -852,8 +869,6 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// has just been fixed by hand in the terminal tile next door, and re-deriving the goal from a tree
     /// that has changed would answer a different question every time. The goal stands; only the verdict
     /// moves.
-    /// </remarks>
-    /// <remarks>
     /// Named for what it returns, like every other command here that returns a <c>Task</c>. The
     /// generator strips the suffix, so the binding stays <c>ReReviewCommand</c> and the markup does not
     /// move. <c>CommitWork</c> is the one that cannot follow: <c>CommitWorkAsync</c> is already the
@@ -1055,6 +1070,60 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         SyncFromEngine();
 
         await RunImplementReviewLoopAsync(startAtReview: true);
+    }
+
+    // ── Pasted images ───────────────────────────────────
+
+    /// <summary>
+    /// Where images pasted into this tile are written. Built on the first paste rather than in the
+    /// constructors: it is the same object either way, and asking for it moves the workspace's state
+    /// directory into place — work a tile nobody pastes into has no reason to do.
+    /// </summary>
+    private GoalImageStore? _imageStore;
+
+    private GoalImageStore ImageStore => _imageStore ??= new GoalImageStore(_workingDirectory);
+
+    /// <summary>
+    /// Takes an image the user pasted, and leaves its marker where their caret was.
+    /// </summary>
+    /// <remarks>
+    /// <para>The bytes rather than the clipboard, because a clipboard belongs to a window — the same
+    /// argument that keeps copying a message in the view. What arrives here is already encoded, so
+    /// this knows nothing about clipboards, formats or windows and a test can hand it a file.</para>
+    /// <para>A failure to write is said in the transcript and <b>no marker is inserted</b>. The other
+    /// way round is the trap: a marker in the goal whose file was never written is one the tool is
+    /// told to open, and the run spends an attempt on a picture that does not exist.</para>
+    /// </remarks>
+    [RelayCommand]
+    private async Task AttachImage(byte[]? image)
+    {
+        if (image is not { Length: > 0 }) return;
+
+        string path;
+        try
+        {
+            path = ImageStore.SavePng(image);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Saving a pasted image failed: {ex.Message}");
+            await SayOnceAsync($"The pasted image could not be saved: {ex.Message}");
+            return;
+        }
+
+        // A trailing space, so the next word the user types is not welded onto the marker — which
+        // would leave the goal saying [Image #1]make instead of naming an image at all.
+        InsertIntoComposer(_engine.AttachImage(path) + " ");
+        SaveStateSoon();
+    }
+
+    /// <summary>Puts text into the composer where the caret is, and leaves the caret after it.</summary>
+    private void InsertIntoComposer(string text)
+    {
+        var at = Math.Clamp(InputCaretIndex, 0, InputText.Length);
+
+        InputText = InputText.Insert(at, text);
+        InputCaretIndex = at + text.Length;
     }
 
     // ── Phase dispatch ──────────────────────────────────
@@ -1619,6 +1688,15 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         // pair in step.
         _engine.StartNewGoal(goal);
 
+        // StartNewGoal keeps only the images the new goal still refers to, so a marker the user pasted
+        // and then left in the composer — + pressed, or a goal detected from the working tree — now
+        // stands for nothing. It goes with them: sent as it is, the tool is handed [Image #1] with no
+        // path anywhere in the prompt, which is exactly what AttachImage refuses to do when a save
+        // fails. Submit has already emptied the composer by the time it gets here, so this is the two
+        // routes that have not.
+        InputText = GoalImageMarker.DropMarkersExcept(
+            InputText, [.._engine.AttachedImages.Select(image => image.Index)]);
+
         // The panel is redrawn because StartNewGoal may have put the attempts field back to what the
         // user set, undoing what Continue wrote for the goal that has just been replaced.
         Criteria.Reload();
@@ -1695,8 +1773,26 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// done", and an inspection is not a run. The Commit button is still in the summary, where pressing
     /// it is the consent this path does not have.</para>
     /// </param>
+    /// <param name="wroteChanges">
+    /// False for a run that judged the tree and changed nothing, which is what decides whether the
+    /// closing snapshot <em>moves</em>. It does not decide whether one is taken at all: a run with no
+    /// end recorded yet takes one either way, or the first review of a goal detected from the working
+    /// tree is left with no upper bound at all.
+    /// <para><b>Not the same question as <paramref name="autoCommit"/>, and conflating them is the bug
+    /// this parameter exists for.</b> That one is about consent; this one is about what happened. A
+    /// Re-review taken through the shared summary moved the run's upper end onto the tree <em>as it is
+    /// now</em> — and the reason anybody presses Re-review, said in <see cref="ReReviewAsync"/>'s own
+    /// remarks, is that something has just been fixed by hand next door, so that tree is known to hold
+    /// somebody else's work. The run then claimed it: with the end moved past the other tile's commit,
+    /// its files landed in <c>changed</c> and nothing at all in <c>touchedSince</c>. That is the
+    /// "three tiles, one commit" failure the closing snapshot was added to prevent, reintroduced by
+    /// putting the snapshot on the one path that writes nothing.</para>
+    /// <para>Leaving the end where the last implementation put it is also what makes the dialog right
+    /// afterwards: the other tile's files fall into <c>touchedSince</c>, are held back, and are named
+    /// under the reason they were held.</para>
+    /// </param>
     private async Task ShowSummaryAsync(GoalStopReason reason, string? outstanding = null,
-        bool autoCommit = true)
+        bool autoCommit = true, bool wroteChanges = true)
     {
         // Kept with the goal, not merely said in the transcript: the Summary offers Continue for one of
         // the four reasons only, and a tile reopened tomorrow has nothing to read that back out of.
@@ -1709,6 +1805,25 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         _engine.IsPaused = false;
         _engine.CurrentPhase = GoalPhase.Summary;
         SyncFromEngine();
+
+        // Before the summary is written and before anything offers to commit, because it is the upper
+        // end of what this run may claim: the tree as *this* run left it. Here rather than at the call
+        // sites, so that every route into a summary bounds the run — a Continue that takes three more
+        // attempts moves the end on with them, and a run that stopped early still knows where it
+        // stopped, which is exactly when the user reaches for Commit.
+        //
+        // Except a run that wrote nothing: see `wroteChanges`. Moving the end there hands the run
+        // whatever anybody else has done since the last implementation.
+        //
+        // **Unless there is no end to preserve.** `RunReviewOnlyAsync` serves two buttons: Re-review,
+        // which follows an implementation and must keep that implementation's end, and Detect & Review,
+        // where nothing ran before it and `EndRef` is still null. Refusing on both left the second one
+        // unbounded — `end` falls back to the tree as it is *now*, `touchedSince` compares that tree
+        // with itself and comes out empty, and on the detect path `LeftAlone` is empty by design — so
+        // every dirty file in the workspace, another tile's included, was offered as this goal's work
+        // with nothing held back. The two conditions are different questions: `wroteChanges` asks
+        // whether to *move* the end, and this asks whether there is one at all.
+        if (wroteChanges || _engine.EndRef is null) await CaptureEndAsync();
 
         // The label too, not only whether the button is there: it is the ceiling less the attempts
         // already spent, and both have just moved.
@@ -1799,7 +1914,11 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         await ShowSummaryAsync(
             met ? GoalStopReason.Met : GoalStopReason.Reviewed,
             met ? null : GoalCompletionPolicy.WhyNotMet(review, criteria),
-            autoCommit: false);
+            autoCommit: false,
+            // This button judges the tree and changes nothing, so the run's upper end stays where the
+            // last implementation left it. Both flags are false here for different reasons, which is
+            // why they are two flags.
+            wroteChanges: false);
 
         RefreshFinishedRunActions();
     }
@@ -1904,8 +2023,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
             Working("Working out what this run changed...");
 
             var committer = new GoalCommitter(_workingDirectory, GitPath());
-            var scope = await committer.ScopeAsync(baseline, _cts?.Token ?? CancellationToken.None,
-                _engine.ReviewsExistingWork);
+            var scope = await committer.ScopeAsync(baseline, _engine.EndRef,
+                _cts?.Token ?? CancellationToken.None, _engine.ReviewsExistingWork);
 
             if (!scope.Readable)
             {
@@ -1920,8 +2039,11 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
 
             if (!scope.HasWork)
             {
+                // Through the plan, so the sentence names the files it held back and under which of the
+                // two reasons. Said flat, it reads as a claim about the user's work rather than an
+                // account of what happened to the run's.
                 await AddMessageAsync(GoalMessageRole.System,
-                    "There is nothing here this run can claim as its own to commit.", GoalPhase.Summary);
+                    GoalCommitPlan.Nothing(scope), GoalPhase.Summary);
                 return;
             }
 
@@ -2117,9 +2239,25 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
                 // Two flags, two ways out, asked in the order they were added to the command line.
                 // Either one is a tool too old for something this tile asks for by default, and both
                 // fail *every* run on that machine while saying nothing a user can act on.
-                var cause = AiPermissionModes.LooksLikeRejectedMode(result.Text)
+                // Asked of the runner that built the command line, not of a constant. The flags are
+                // the tools' own words — Claude Code's `--effort` is pi's `--thinking` — so a matcher
+                // holding one spelling recognised one tool's refusal and left every other tool's as a
+                // bare failure over a usage message about a flag the user never typed.
+                var runner = AiProcessRunner.GetRunner(_resolvedTool.BinaryName);
+
+                // The settings this run was launched with, so the question is "was the flag we passed
+                // refused" and not "does this tool have such a flag at all". Every runner adds its
+                // flags conditionally, and a matcher told about one that was never on the command line
+                // reads any usage message as a refusal of it.
+                var effortFlag = runner.EffortFlagFor(_settingsService.Settings.GoalEffort);
+                var permissionFlag =
+                    runner.PermissionFlagFor(_settingsService.Settings.GoalPermissionMode);
+
+                var cause = AiPermissionModes.LooksLikeRejectedMode(
+                    result.Text, permissionFlag, effortFlag)
                     ? $"{AiPermissionModes.RejectedModeAdvice} "
-                    : AiEfforts.LooksLikeRejectedEffort(result.Text)
+                    : AiEfforts.LooksLikeRejectedEffort(
+                        result.Text, effortFlag, permissionFlag)
                         ? $"{AiEfforts.RejectedEffortAdvice} "
                         : "";
 
@@ -2467,8 +2605,96 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     private WorktreeReader NewWorktreeReader() =>
         new(_workingDirectory, GitPath());
 
+    /// <summary>
+    /// The <c>@</c> file suggestions every text box in this tile shares.
+    /// </summary>
+    /// <remarks>
+    /// One for the tile rather than one per box: the boxes never hold the keyboard at the same time, so
+    /// there is only ever one list on screen, and sharing it shares the reading of the working tree —
+    /// the only part of this that costs anything.
+    /// </remarks>
+    public FileMentionsViewModel FileMentions { get; }
+
+    private FileMentionsViewModel NewFileMentions() =>
+        new(new WorkspaceFileMentionSource(_workingDirectory, GitPath()));
+
     private string GitPath() =>
         _settingsService.Settings.GitPath is { Length: > 0 } p ? p : "git";
+
+    /// <summary>How long the closing snapshot may take before the summary goes on without it.</summary>
+    /// <remarks>Generous for four local git commands and short enough that a hung one is a missing
+    /// boundary rather than a tile stuck in a phase with no text under it.</remarks>
+    private static readonly TimeSpan EndSnapshotTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// Photographs the working tree as this run finishes, so a commit can tell where the run ended.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The upper end of the boundary, and it was missing.</b> A baseline alone says when the
+    /// run started, so "what this run changed" was read as "everything that has changed since" — which
+    /// is the same thing only while the tile is the sole thing writing to the workspace. Three Goal
+    /// tiles were run in one workspace, all three finished, Commit was pressed in the first, and it put
+    /// all three runs into the history under the first one's messages. The closing snapshot is what
+    /// bounds the run; what moves after it belongs to whoever moved it.</para>
+    /// <para><b>Quiet, unlike the baseline's.</b> That one says what it wrote because it is a way back
+    /// the user may need to type; this one is only ever read by the commit that comes next, and a line
+    /// about a ref in the middle of a finished run's summary explains nothing to anybody.</para>
+    /// <para>Fails soft, like everything here. Without it the commit falls back to bounding at the tree
+    /// as it is now — the old behaviour — and says so in the dialog rather than quietly claiming work
+    /// it cannot account for.</para>
+    /// </remarks>
+    private async Task CaptureEndAsync()
+    {
+        // Nothing to bound: a run with no baseline cannot be committed at all, so a closing snapshot
+        // for it would be a git command run for nobody.
+        if (_engine.BaselineRef is not { Length: > 0 }) return;
+
+        try
+        {
+            // Deliberately **not** the run's token. A summary is reached inside `WorkingAsync`, so on
+            // every route but a clean finish `_cts` is already cancelled — Stop cancels it and then the
+            // loop unwinds into here — and a snapshot taken on it would throw before git was started,
+            // leaving `EndRef` null on exactly the runs whose end most needs recording. A stopped run
+            // is the one the user is most likely to commit.
+            //
+            // Bounded by a timeout of its own instead, because the alternative to the run's token is
+            // not "no limit": this is awaited before the summary is written, and a git that hangs on a
+            // network drive would leave the tile in a phase with no text under it and no way out.
+            using var bound = new CancellationTokenSource(EndSnapshotTimeout);
+
+            // The tile's own file name, with no timestamp on it. `update-ref` overwrites, so this is
+            // one ref per goal rather than one per summary — and the difference is not tidiness: the
+            // namespace is pruned to its newest twenty, `EndRef` only ever holds the latest anyway, and
+            // a goal taken through three Continues was writing four refs into a window sized for
+            // twenty. That is what evicts the *other* tiles' ends, which is the failure the check in
+            // `GoalCommitter.ScopeAsync` now degrades rather than reports.
+            //
+            // The baseline keeps its timestamp, and that asymmetry is the point: a baseline is a way
+            // back the user may still need from a goal that has since been replaced, so each is worth
+            // its own slot. An end is read only by the commit that follows it.
+            var result = await new GoalBaseline(_workingDirectory, GitPath())
+                .CaptureEndAsync(Path.GetFileNameWithoutExtension(_filePath), bound.Token);
+
+            // Only when there is one. A failed capture must not clear the snapshot an earlier summary
+            // took: bounding at the previous end is wrong by however much this run added, while
+            // bounding at *now* is wrong by whatever every other tile in the workspace has done.
+            if (result.Ref is { Length: > 0 } taken) _engine.EndRef = taken;
+        }
+        catch (OperationCanceledException)
+        {
+            // **The timeout, not the user.** This deliberately does not take the run's token, so the
+            // only thing that cancels it is `EndSnapshotTimeout` — a git that did not come back. Left
+            // silent, as it was while the comment here still said "the user pressed Stop", a hung git
+            // on a network drive produced an unbounded scope and nothing anywhere saying why.
+            Trace.TraceWarning(
+                "Taking the goal's closing snapshot timed out after "
+                + $"{EndSnapshotTimeout.TotalSeconds:0} s; the commit will not be bounded at its end.");
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Taking the goal's closing snapshot failed: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// Photographs the working tree before the tool is let near it, and says what came of it.
@@ -2620,6 +2846,16 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
 
     // ── Engine ↔ ViewModel sync ────────────────────────
 
+    /// <summary>The label a phase runs under, and the end of whatever the last phase was doing. The
+    /// clear belongs with the label because they change together: without it the strip named a file
+    /// from the implementation for the whole of the review that followed it — a tile looking busy
+    /// about something that finished.</summary>
+    private void Working(string label)
+    {
+        PhaseLabel = label;
+        Activity = "";
+    }
+
     /// <summary>
     /// The engine has moved; the view model and the file both follow it.
     /// <para>The save is here rather than at each call site because a phase change is exactly the thing
@@ -2634,16 +2870,6 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// method wrote unconditionally — the file was created here, a line before anything asked whether
     /// it should be.
     /// </param>
-    /// <summary>The label a phase runs under, and the end of whatever the last phase was doing. The
-    /// clear belongs with the label because they change together: without it the strip named a file
-    /// from the implementation for the whole of the review that followed it — a tile looking busy
-    /// about something that finished.</summary>
-    private void Working(string label)
-    {
-        PhaseLabel = label;
-        Activity = "";
-    }
-
     private void SyncFromEngine(bool save = true)
     {
         CurrentPhase = _engine.CurrentPhase;
@@ -2915,5 +3141,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         // After the final write, so a probe still in flight cannot be the reason it did not happen.
         // Cancelled, not disposed — see the field.
         _lifetime.Cancel();
+
+        // The `@` suggestions read the working tree with a git process, and a tile nobody is looking at
+        // has no use for the answer. Last, because it is the only thing here that cannot affect the
+        // save above.
+        FileMentions.Dispose();
     }
 }

@@ -2144,4 +2144,256 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Contains(vm.Messages, m => m.Text.Contains("The AI tool failed"));
         });
     }
+
+    // ── The run's closing snapshot ──────────────────────
+
+    /// <summary>
+    /// Reaching a summary records where the run ended, on every route into one.
+    /// </summary>
+    /// <remarks>
+    /// <para>The contract nothing was holding. <c>GoalBaselineTests</c> proves what a closing snapshot
+    /// <em>is</em> by taking one itself, so it went on passing while the view model's call to
+    /// <c>CaptureEndAsync</c> sat in a <c>catch (OperationCanceledException)</c> in the detect path —
+    /// reachable only on a cancelled read, and on an already-cancelled token, so it threw before git
+    /// was started. <c>EndRef</c> was therefore always null, every commit bounded at <em>now</em>, and
+    /// the dialog said so on every run.</para>
+    /// <para>Two different refs from the stub, in order, so this cannot pass on the baseline alone: the
+    /// end is only distinguishable from the start by being the second capture the run asks for.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData(GoalStopReason.Met, "VERDICT: PASS")]
+    [InlineData(GoalStopReason.BudgetSpent, "VERDICT: FAIL - still broken")]
+    public void Every_route_into_a_summary_records_where_the_run_ended(
+        GoalStopReason expected, string verdict)
+    {
+        OnUiThread(async () =>
+        {
+            var captures = 0;
+            GoalBaseline.Factory = (_, ct) =>
+            {
+                // The token is honoured, as the real thing honours it. A stub that ignores it cannot
+                // tell a snapshot taken on a live token from one taken on the run's own cancelled one
+                // — which is the entire difference this test exists to hold.
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult(new GoalBaselineResult($"ref-{++captures}", NoRepository: false));
+            };
+
+            using var vm = NewTile();
+            vm.Criteria.MaxIterations = 1;
+            var path = vm.FilePath;
+
+            AnswerWith(NoMoreQuestions, "The plan", "Implemented it", verdict);
+
+            vm.InputText = "make the tile resumable";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            await vm.ApproveOrChangeCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+
+            vm.Dispose();
+
+            var state = new GoalStatePersistence().Load(path);
+            Assert.NotNull(state);
+            Assert.Equal(expected, state!.LastStopReason);
+            Assert.Equal("ref-1", state.BaselineRef);
+            Assert.Equal("ref-2", state.EndRef);
+        });
+    }
+
+    /// <summary>
+    /// A run the user paused still records where it stopped.
+    /// </summary>
+    /// <remarks>
+    /// <para>The route that makes the run's own cancellation token the wrong one to take the snapshot
+    /// on. Pausing cancels <c>_cts</c>, and with the budget already spent the loop does not leave the
+    /// run paused — there is no next attempt to resume into — so it summarises, <em>inside</em> the
+    /// same <c>WorkingAsync</c>, on a token that is now cancelled. A capture taken on it throws before
+    /// git is started.</para>
+    /// <para>This is also the run most likely to be committed: the user stopped it because it had done
+    /// enough. Without the closing snapshot the commit bounds at <em>now</em> and claims whatever every
+    /// other tile in the workspace has done since.</para>
+    /// </remarks>
+    [Fact]
+    public void A_run_paused_into_its_summary_still_records_where_it_stopped()
+    {
+        OnUiThread(async () =>
+        {
+            var captures = 0;
+            GoalBaseline.Factory = (_, ct) =>
+            {
+                // The token is honoured, as the real thing honours it. A stub that ignores it cannot
+                // tell a snapshot taken on a live token from one taken on the run's own cancelled one
+                // — which is the entire difference this test exists to hold.
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult(new GoalBaselineResult($"ref-{++captures}", NoRepository: false));
+            };
+
+            using var vm = NewTile();
+            vm.Criteria.MaxIterations = 1;
+            var path = vm.FilePath;
+
+            // Paused as the review answers, so PauseRequested is true when the loop reads it — and the
+            // budget is spent, so the loop summarises rather than leaving the run paused.
+            var answers = new Queue<string>([NoMoreQuestions, "The plan", "Implemented it"]);
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+            {
+                if (answers.Count > 0) return Task.FromResult<AiOutput>(answers.Dequeue());
+
+                vm.PauseCommand.Execute(null);
+                return Task.FromResult<AiOutput>("VERDICT: FAIL - still broken");
+            };
+
+            vm.InputText = "make the tile resumable";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            await vm.ApproveOrChangeCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+
+            vm.Dispose();
+
+            var state = new GoalStatePersistence().Load(path);
+            Assert.NotNull(state);
+            Assert.False(string.IsNullOrEmpty(state!.EndRef),
+                "a paused run left nothing saying where it stopped, so a commit would claim "
+                + "everything in the tree");
+        });
+    }
+
+    /// <summary>
+    /// Re-review judges the tree and leaves the run's upper end where the implementation put it.
+    /// </summary>
+    /// <remarks>
+    /// <para>The closing snapshot is taken in the one method every route into a summary goes through,
+    /// and Re-review is one of those routes — so it moved the end onto the tree <em>as it is now</em>.
+    /// The reason anybody presses Re-review is that something has just been fixed by hand next door,
+    /// which is to say that tree is known to hold somebody else's work: with the end moved past it,
+    /// those files land in what this run changed and nothing lands in what changed after it, and a
+    /// Commit — still offered, on the same bar as the button just pressed — puts them into history
+    /// under this goal's messages.</para>
+    /// <para>That is the "three tiles, one commit" failure the snapshot exists to prevent, reappearing
+    /// on the one path that writes nothing.</para>
+    /// </remarks>
+    [Fact]
+    public void A_review_that_changes_nothing_does_not_move_the_runs_upper_end()
+    {
+        OnUiThread(async () =>
+        {
+            var captures = 0;
+            GoalBaseline.Factory = (_, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult(new GoalBaselineResult($"ref-{++captures}", NoRepository: false));
+            };
+
+            using var vm = NewTile();
+            vm.Criteria.MaxIterations = 1;
+            var path = vm.FilePath;
+
+            AnswerWith(NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
+
+            vm.InputText = "make the tile resumable";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            await vm.ApproveOrChangeCommand.ExecuteAsync(null);
+
+            var afterTheRun = new GoalStatePersistence().Load(path)!.EndRef;
+            Assert.Equal("ref-2", afterTheRun);
+
+            // The tile next door finishes and writes a shared file; the user asks for another verdict.
+            AnswerWith("VERDICT: PASS");
+            await vm.ReReviewCommand.ExecuteAsync(null);
+
+            vm.Dispose();
+
+            var afterTheReview = new GoalStatePersistence().Load(path)!.EndRef;
+
+            Assert.Equal(afterTheRun, afterTheReview);
+        });
+    }
+
+    /// <summary>
+    /// A goal detected from the tree and reviewed once still records an upper end.
+    /// </summary>
+    /// <remarks>
+    /// <para>Detect &amp; Review and Re-review are the same method, and both say they changed nothing —
+    /// truthfully. But Re-review has an implementation behind it whose end must be kept, while this has
+    /// none at all, so refusing on both left this one with <c>EndRef</c> null.</para>
+    /// <para>What that costs is the whole guarantee: the scope falls back to the tree as it is now,
+    /// <c>touchedSince</c> compares that tree with itself and is empty, and on the detect path the
+    /// pre-existing work is the goal so <c>LeftAlone</c> is empty too. Every dirty file in the
+    /// workspace is then offered as this goal's, with nothing held back — the "three tiles, one commit"
+    /// failure again, on the one route that had no end to protect.</para>
+    /// <para>This is also why the Re-review test passed for the wrong reason before: with no end ever
+    /// recorded, "the end did not move" was true of a value that was always null.</para>
+    /// </remarks>
+    [Fact]
+    public void A_goal_detected_from_the_tree_records_an_upper_end_when_it_is_reviewed()
+    {
+        OnUiThread(async () =>
+        {
+            var captures = 0;
+            GoalBaseline.Factory = (_, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult(new GoalBaselineResult($"ref-{++captures}", NoRepository: false));
+            };
+
+            using var vm = NewTile();
+            var path = vm.FilePath;
+
+            AnswerWith("Finish the cart", "VERDICT: PASS");
+
+            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+            vm.Dispose();
+
+            var state = new GoalStatePersistence().Load(path);
+
+            Assert.NotNull(state);
+            Assert.True(state!.ReviewsExistingWork);
+            Assert.False(string.IsNullOrEmpty(state.EndRef),
+                "a detected goal was reviewed and left no upper end, so a commit would claim every "
+                + "dirty file in the workspace");
+        });
+    }
+
+    /// <summary>And a second look at it does not move that end on.</summary>
+    /// <remarks>
+    /// The other half of the same rule: once there is an end, a run that changes nothing keeps it.
+    /// Without both halves the condition could be satisfied by always capturing, which is the bug the
+    /// Re-review test exists for.
+    /// </remarks>
+    [Fact]
+    public void A_second_look_at_a_detected_goal_keeps_the_end_the_first_one_recorded()
+    {
+        OnUiThread(async () =>
+        {
+            var captures = 0;
+            GoalBaseline.Factory = (_, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult(new GoalBaselineResult($"ref-{++captures}", NoRepository: false));
+            };
+
+            using var vm = NewTile();
+            var path = vm.FilePath;
+
+            AnswerWith("Finish the cart", "VERDICT: PASS");
+            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+
+            // One for the baseline, one for the end this review established.
+            Assert.Equal(2, captures);
+
+            AnswerWith("VERDICT: PASS");
+            await vm.ReReviewCommand.ExecuteAsync(null);
+
+            // Counted rather than read back from the file: the state is written on a debounce, so a
+            // read taken before the tile is disposed answers about the save before last. The count is
+            // also the stronger claim — it says no snapshot was *taken*, not merely that the value on
+            // disk happens to match.
+            Assert.Equal(2, captures);
+
+            vm.Dispose();
+
+            Assert.Equal("ref-2", new GoalStatePersistence().Load(path)!.EndRef);
+        });
+    }
 }

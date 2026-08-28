@@ -71,6 +71,37 @@ public readonly record struct AiOutput(string Text, bool Failed, int PermissionD
 
 public interface IAiToolRunner
 {
+    /// <summary>
+    /// The flag this tool is given for the effort asked of it, and the one it is given for the
+    /// permission mode — or null where nothing is passed for that setting.
+    /// <para>Two methods rather than two properties, because the answer depends on the setting: see the
+    /// last paragraph below.</para>
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Here rather than in <see cref="AiEfforts"/> or <see cref="AiPermissionModes"/>, because
+    /// the spelling is the tool's and not this application's.</b> Those two hard-coded
+    /// <c>--effort</c> and <c>--permission-mode</c> — Claude Code's words — so a <c>pi</c> older than
+    /// <c>--thinking</c> answered <c>error: unknown option '--thinking'</c>, matched neither, and the
+    /// user was told only that "the AI tool reported a failure" over a usage message about a flag they
+    /// had never typed. That is the exact failure <see cref="RejectedFlag"/> exists to prevent, and it
+    /// came back the moment a second tool was given a second spelling.</para>
+    /// <para>Both are named together because recognising one needs the other: a usage message is only
+    /// worth acting on when it mentions one of them alone, which is what tells "too old for this flag"
+    /// from "the command line was wrong in some other way".</para>
+    /// <para><b>Asked for the run that happened, not for the tool in general.</b> Every runner here
+    /// adds its flags conditionally — Claude Code passes none for the mode the tool already defaults
+    /// to, Antigravity passes its one flag only on bypass — so a matcher told the tool's flag
+    /// unconditionally reads a usage message as "the flag was refused" over a flag that was never on
+    /// the command line. For Antigravity that is not a corner: its effort flag is null, which leaves the
+    /// weaker rule (a usage message naming the flag) with nothing to disambiguate against, and every
+    /// failure of <c>agy</c> that prints its usage would advise a user on <em>Auto</em> to stop passing
+    /// something they were not passing.</para>
+    /// </remarks>
+    string? EffortFlagFor(AiEffort effort) => null;
+
+    /// <inheritdoc cref="EffortFlagFor"/>
+    string? PermissionFlagFor(AiPermissionMode permission) => null;
+
     // No model parameter — each tool uses its own default model.
     // Tools support many providers so there's no way to build a universal model list.
     // If tools add a model listing command in the future, we can re-add model selection.
@@ -125,6 +156,11 @@ public interface IAiToolRunner
 
 public sealed class ClaudeToolRunner : IAiToolRunner
 {
+    public string? EffortFlagFor(AiEffort effort) => AiEfforts.Flag(effort) is null ? null : "--effort";
+
+    public string? PermissionFlagFor(AiPermissionMode permission) =>
+        AiPermissionModes.Flag(permission) is null ? null : "--permission-mode";
+
     /// <summary><c>claude -p</c> with no prompt after it reads the prompt from standard input.</summary>
     public bool AcceptsPromptOnStdin => true;
 
@@ -419,6 +455,9 @@ public sealed class OpenCodeToolRunner : IAiToolRunner
 
 public sealed class PiToolRunner : IAiToolRunner
 {
+    public string? EffortFlagFor(AiEffort effort) =>
+        AiEfforts.Flag(effort) is null ? null : "--thinking";
+
     public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
         AiPermissionMode permission = AiPermissionMode.Auto,
         AiEffort effort = AiEffort.High)
@@ -427,6 +466,56 @@ public sealed class PiToolRunner : IAiToolRunner
         psi.ArgumentList.Add(prompt);
         psi.ArgumentList.Add("--mode");
         psi.ArgumentList.Add("text");
+
+        // Measured against `pi --help`: `--thinking off|minimal|low|medium|high|xhigh|max`. Every level
+        // AiEffort names exists there under the same word, so the map is the identity and the tile's
+        // setting means here what it means for Claude Code. `off` and `minimal` are pi's alone and are
+        // deliberately not offered: a Goal run is left alone, and the tile has no level below `low`.
+        //
+        // pi has no permission flag of its own — `--approve` is about trusting project-local files, not
+        // about tool calls — so `permission` goes unused rather than being mapped to something adjacent.
+        if (AiEfforts.Flag(effort) is { } level)
+        {
+            psi.ArgumentList.Add("--thinking");
+            psi.ArgumentList.Add(level);
+        }
+    }
+
+    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
+        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
+}
+
+/// <summary>
+/// Google's Antigravity CLI.
+/// </summary>
+/// <remarks>
+/// <para>Measured, and it needed a runner of its own rather than the generic fallback: a bare
+/// positional argument does not start a print run, it opens the interactive session and <b>hangs</b> —
+/// which, on a path with no wall-clock timeout, is a Goal tile that never comes back.
+/// <c>agy --print &lt;prompt&gt;</c> answers on stdout and exits 0.</para>
+/// <para><c>--dangerously-skip-permissions</c> is the only permission control it has, so only
+/// <see cref="AiPermissionMode.BypassPermissions"/> maps to anything. The three finer modes pass no
+/// flag rather than being rounded up to it — asking for "auto" and getting "nothing is asked about at
+/// all" is the one direction this must never round.</para>
+/// <para><b>No effort flag.</b> Antigravity spends its effort through the model name — the catalogue
+/// is <c>gemini-3.7-flash-high</c>, <c>-medium</c>, <c>-low</c> — so a level would have to rewrite
+/// whatever model the user has configured, which is a larger claim than this setting makes anywhere
+/// else. It is left alone.</para>
+/// </remarks>
+public sealed class AntigravityToolRunner : IAiToolRunner
+{
+    public string? PermissionFlagFor(AiPermissionMode permission) =>
+        permission == AiPermissionMode.BypassPermissions ? "--dangerously-skip-permissions" : null;
+
+    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+        AiPermissionMode permission = AiPermissionMode.Auto,
+        AiEffort effort = AiEffort.High)
+    {
+        if (permission == AiPermissionMode.BypassPermissions)
+            psi.ArgumentList.Add("--dangerously-skip-permissions");
+
+        psi.ArgumentList.Add("--print");
+        psi.ArgumentList.Add(prompt);
     }
 
     public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
@@ -456,10 +545,10 @@ public static class AiProcessRunner
     private static readonly ConcurrentDictionary<string, IAiToolRunner> Runners = new(StringComparer.OrdinalIgnoreCase)
     {
         ["claude"] = new ClaudeToolRunner(),
-        ["openclaude"] = new ClaudeToolRunner(),
         ["codex"] = new CodexToolRunner(),
         ["opencode"] = new OpenCodeToolRunner(),
-        ["pi"] = new PiToolRunner()
+        ["pi"] = new PiToolRunner(),
+        ["agy"] = new AntigravityToolRunner()
     };
 
     public static IAiToolRunner GetRunner(string toolBinary) =>
@@ -548,7 +637,19 @@ public static class AiProcessRunner
         var streaming = onActivity != null && runner.SupportsStreaming;
 
         var psi = CreateProcessStartInfo(executablePath, workingDirectory);
-        psi.RedirectStandardInput = runner.AcceptsPromptOnStdin;
+
+        // **Always redirected, whether or not the prompt goes down it.** Left inherited, a tool that
+        // decides to be interactive waits on this application's own standard input, which in a windowed
+        // process nobody is ever going to type into — so the run does not fail, it stops, on a path
+        // that deliberately has no wall-clock timeout, and the tile waits for ever.
+        //
+        // This is not hypothetical and not about one tool: a bare positional prompt is what
+        // `GenericToolRunner` passes, and a bare positional prompt is measured to open an interactive
+        // session rather than a print run on at least one of the CLIs here. Every tool without a runner
+        // of its own — every custom AI tool a user adds, and any tool whose entry is removed — takes
+        // that path. Closing the pipe below turns "waits for input that will never come" into
+        // end-of-input, which is a tool that exits and says something.
+        psi.RedirectStandardInput = true;
         // Both, and this is the whole of what makes either setting real. `effort` was accepted here
         // and dropped on this line, so ConfigureProcess took its own default of High: every run went
         // out with `--effort high` whatever the strip said, the combo box was decoration, and — worse —
@@ -576,7 +677,20 @@ public static class AiProcessRunner
         });
 
         if (runner.AcceptsPromptOnStdin)
+        {
             await WritePromptAsync(process, prompt);
+        }
+        else
+        {
+            // Nothing to send, so the pipe is closed at once — the same thing `WritePromptAsync` does
+            // after writing, and for the same reason: an open pipe with nobody writing to it is
+            // indistinguishable, from the child's side, from a user who has not typed yet.
+            try { process.StandardInput.Close(); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+            {
+                // The child has already gone. Nothing to close it for.
+            }
+        }
 
         var output = await stdoutTask;
         var stderr = await stderrTask;

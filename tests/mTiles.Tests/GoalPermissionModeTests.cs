@@ -81,7 +81,7 @@ public class GoalPermissionModeTests
     [InlineData("Unknown value for --permission-mode")]
     [InlineData("usage: claude [options]\n  --permission-mode <mode>")]
     public void A_rejected_mode_is_recognised(string output) =>
-        Assert.True(AiPermissionModes.LooksLikeRejectedMode(output));
+        Assert.True(AiPermissionModes.LooksLikeRejectedMode(output, "--permission-mode", "--effort"));
 
     /// <summary>
     /// A tool that refuses one flag prints the usage for all of them, and only one of them was refused.
@@ -103,8 +103,8 @@ public class GoalPermissionModeTests
               --effort <level>           Effort level for the current session
             """;
 
-        Assert.True(AiEfforts.LooksLikeRejectedEffort(refusedEffort));
-        Assert.False(AiPermissionModes.LooksLikeRejectedMode(refusedEffort));
+        Assert.True(AiEfforts.LooksLikeRejectedEffort(refusedEffort, "--effort", "--permission-mode"));
+        Assert.False(AiPermissionModes.LooksLikeRejectedMode(refusedEffort, "--permission-mode", "--effort"));
 
         const string refusedMode = """
             error: unknown option '--permission-mode'
@@ -113,8 +113,8 @@ public class GoalPermissionModeTests
               --effort <level>           Effort level for the current session
             """;
 
-        Assert.True(AiPermissionModes.LooksLikeRejectedMode(refusedMode));
-        Assert.False(AiEfforts.LooksLikeRejectedEffort(refusedMode));
+        Assert.True(AiPermissionModes.LooksLikeRejectedMode(refusedMode, "--permission-mode", "--effort"));
+        Assert.False(AiEfforts.LooksLikeRejectedEffort(refusedMode, "--effort", "--permission-mode"));
     }
 
     [Theory]
@@ -125,5 +125,5 @@ public class GoalPermissionModeTests
     [InlineData("")]
     [InlineData(null)]
     public void An_ordinary_failure_is_not_blamed_on_the_permission_mode(string? output) =>
-        Assert.False(AiPermissionModes.LooksLikeRejectedMode(output));
+        Assert.False(AiPermissionModes.LooksLikeRejectedMode(output, "--permission-mode", "--effort"));
 }

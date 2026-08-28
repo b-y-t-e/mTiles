@@ -68,6 +68,19 @@ internal sealed class GoalBaseline(string workingDirectory, string gitPath)
     public const string RefPrefix = "refs/mtiles/goals/";
 
     /// <summary>
+    /// Where the <em>closing</em> snapshots live — the tree as it stood when a run finished.
+    /// </summary>
+    /// <remarks>
+    /// <para>A namespace of its own rather than a differently named ref under
+    /// <see cref="RefPrefix"/>, and that is the prune talking. <see cref="PruneAsync"/> keeps the
+    /// newest <see cref="Keep"/> of whatever prefix it is given: sharing one would mean every run
+    /// wrote two refs into a window sized for one, so twenty runs of history became ten — and the ref
+    /// evicted first is always a baseline, which is the one somebody's lost afternoon is recovered
+    /// from.</para>
+    /// </remarks>
+    public const string EndRefPrefix = "refs/mtiles/ends/";
+
+    /// <summary>
     /// How long the snapshot may take before it is abandoned.
     /// </summary>
     /// <remarks>
@@ -96,7 +109,31 @@ internal sealed class GoalBaseline(string workingDirectory, string gitPath)
     /// </summary>
     /// <param name="goalId">The goal's own id, which becomes the last part of the ref so the user can
     /// tell one run's snapshot from another's.</param>
-    public async Task<GoalBaselineResult> CaptureAsync(string goalId, CancellationToken ct)
+    public Task<GoalBaselineResult> CaptureAsync(string goalId, CancellationToken ct) =>
+        CaptureAsync(goalId, RefPrefix, "working tree before goal", ct);
+
+    /// <summary>
+    /// Takes the closing snapshot: the working tree as it stands now that this run has finished.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>This is what makes a commit honest about a workspace with more than one Goal tile in
+    /// it.</b> A baseline alone gives the run a lower bound, so "what this run changed" was read as
+    /// "everything that has changed since it started" — and a second tile finishing afterwards is
+    /// exactly that. Three tiles run in one workspace, the first one's Commit was pressed, and it
+    /// committed all three runs' work under the first one's messages.</para>
+    /// <para>Taken when the run reaches its summary, so the pair of trees brackets the run itself:
+    /// what changed between them is this run's, and what changed after them is somebody else's — the
+    /// other tile, or the user, and <see cref="GoalCommitter"/> treats those the same way because a
+    /// commit takes the whole file either way.</para>
+    /// <para>It is written and kept exactly as the baseline is, for the same reason: a tile is
+    /// reopened days later and offers to commit, long after a dangling tree would have been collected.
+    /// </para>
+    /// </remarks>
+    public Task<GoalBaselineResult> CaptureEndAsync(string goalId, CancellationToken ct) =>
+        CaptureAsync(goalId, EndRefPrefix, "working tree after goal", ct);
+
+    private async Task<GoalBaselineResult> CaptureAsync(
+        string goalId, string prefix, string what, CancellationToken ct)
     {
         if (Factory is { } stub) return await stub(workingDirectory, ct);
 
@@ -142,15 +179,15 @@ internal sealed class GoalBaseline(string workingDirectory, string gitPath)
             // is the worst kind here, a headless process waiting for a passphrase nobody can type.
             var commit = (await git.RunAsync(
                 "-c user.name=mTiles -c user.email=mtiles@localhost -c commit.gpgsign=false " +
-                $"commit-tree {tree} -p HEAD -m \"mTiles: working tree before goal {goalId}\"",
+                $"commit-tree {tree} -p HEAD -m \"mTiles: {what} {goalId}\"",
                 timed.Token)).Trim();
 
-            var name = RefPrefix + goalId;
+            var name = prefix + goalId;
             await git.RunAsync($"update-ref {name} {commit}", timed.Token);
 
             // After the ref is written, never before: a prune that ran first could leave a workspace
             // with no snapshot at all if what follows it fails.
-            await PruneAsync(git, timed.Token);
+            await PruneAsync(git, prefix, timed.Token);
 
             return new GoalBaselineResult(name, NoRepository: false);
         }
@@ -282,12 +319,12 @@ internal sealed class GoalBaseline(string workingDirectory, string gitPath)
     /// snapshot this run needed has already been written, and "some old refs could not be deleted" is
     /// not a sentence worth putting in a transcript about a goal.</para>
     /// </summary>
-    private static async Task PruneAsync(GitCommandRunner git, CancellationToken ct)
+    private static async Task PruneAsync(GitCommandRunner git, string prefix, CancellationToken ct)
     {
         try
         {
             var listed = await git.RunAsync(
-                $"for-each-ref --sort=committerdate --format=%(refname) {RefPrefix}", ct);
+                $"for-each-ref --sort=committerdate --format=%(refname) {prefix}", ct);
             var refs = listed.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
             foreach (var stale in refs.Take(Math.Max(0, refs.Length - Keep)))
