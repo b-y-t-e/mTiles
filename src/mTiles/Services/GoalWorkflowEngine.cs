@@ -10,7 +10,8 @@ public sealed partial class GoalWorkflowEngine
     // tile.
     private readonly GoalPromptBuilder _promptBuilder;
 
-    public GoalWorkflowEngine() => _promptBuilder = new GoalPromptBuilder(() => Criteria);
+    public GoalWorkflowEngine() =>
+        _promptBuilder = new GoalPromptBuilder(() => Criteria, () => AttachedImages);
 
     /// <summary>
     /// How many times the tool may be asked to clarify before the tile plans anyway.
@@ -32,6 +33,31 @@ public sealed partial class GoalWorkflowEngine
     public void SetPendingQuestions(IEnumerable<GoalQuestion>? questions) =>
         PendingQuestions = questions is null ? [] : [..questions];
     public List<string> ClarificationHistory { get; } = [];
+
+    /// <summary>
+    /// The images pasted into this goal, each with the marker number that stands for it in the text.
+    /// </summary>
+    /// <remarks>
+    /// Held by the run rather than by the message that carried them. A marker typed into the goal is
+    /// still in the goal three attempts later, and a prompt that says <c>[Image #1]</c> without saying
+    /// which file that is names something the tool cannot open — so every prompt of the run is given
+    /// the whole list, exactly as it is given the goal itself.
+    /// </remarks>
+    public List<GoalImageAttachment> AttachedImages { get; } = [];
+
+    /// <summary>Files an image and returns the marker that stands for it in the text.</summary>
+    /// <remarks>
+    /// One past the highest number so far, not one past the count: <see cref="StartNewGoal"/> keeps
+    /// only the images the new goal still refers to, so the list can have gaps in it, and counting
+    /// would then hand out a number that is already in use — two markers for two different files.
+    /// </remarks>
+    public string AttachImage(string path)
+    {
+        var index = AttachedImages.Count == 0 ? 1 : AttachedImages.Max(image => image.Index) + 1;
+        AttachedImages.Add(new GoalImageAttachment { Index = index, Path = path });
+        return GoalImageMarker.For(index);
+    }
+
     public string ApprovedPlan { get; set; } = "";
     public string? LastReviewFeedback { get; set; }
 
@@ -150,6 +176,17 @@ public sealed partial class GoalWorkflowEngine
     public string? BaselineRef { get; set; }
 
     /// <summary>
+    /// The ref holding the working tree as this run finished, or null while it is still running.
+    /// </summary>
+    /// <remarks>
+    /// Written every time the tile reaches a summary, so a Continue that runs three more attempts moves
+    /// it on with them. Together with <see cref="BaselineRef"/> it brackets the run, which is what lets
+    /// a commit tell this tile's work from the work of the Goal tile next door — see
+    /// <c>GoalBaseline.CaptureEndAsync</c>.
+    /// </remarks>
+    public string? EndRef { get; set; }
+
+    /// <summary>
     /// Whether this goal is about work that was already in the tree when it started.
     /// </summary>
     /// <remarks>
@@ -252,6 +289,15 @@ public sealed partial class GoalWorkflowEngine
     {
         OriginalGoal = goal;
         ClarificationHistory.Clear();
+
+        // Kept if the new goal still refers to them, dropped with the old goal otherwise — and it has
+        // to be this way round rather than an outright clear. The markers are in the text *before* this
+        // is called: the user pasted them into the composer and then pressed Send, so a goal starting
+        // with a clear would strip every image out of the goal that had just been typed and hand the
+        // tool markers standing for nothing.
+        AttachedImages.RemoveAll(image =>
+            !goal.Contains(GoalImageMarker.For(image.Index), StringComparison.Ordinal));
+
         ApprovedPlan = "";
         ProposedPlan = null;
         LastReviewFeedback = null;
@@ -263,6 +309,7 @@ public sealed partial class GoalWorkflowEngine
         // The old goal's snapshot belongs to the old goal. A new one is taken as this one starts, and
         // until it is there is nothing to point the user at.
         BaselineRef = null;
+        EndRef = null;
 
         // Belongs to the goal being replaced, exactly as the snapshot does. A new goal typed into a
         // tile that had detected one would otherwise go on measuring its diffs from HEAD.
@@ -532,6 +579,7 @@ public sealed partial class GoalWorkflowEngine
     {
         OriginalGoal = OriginalGoal,
         ClarificationHistory = [..ClarificationHistory],
+        AttachedImages = [..AttachedImages],
         ApprovedPlan = ApprovedPlan,
         ProposedPlan = ProposedPlan,
         CurrentPhase = CurrentPhase,
@@ -539,6 +587,7 @@ public sealed partial class GoalWorkflowEngine
         IterationCount = IterationCount,
         LastStopReason = LastStopReason,
         BaselineRef = BaselineRef,
+        EndRef = EndRef,
         ReviewsExistingWork = ReviewsExistingWork,
         AttemptsBeforeExtension = AttemptsBeforeExtension,
         ClarifyRounds = ClarifyRounds,
@@ -566,12 +615,18 @@ public sealed partial class GoalWorkflowEngine
         // some do not — which is worse than none of them doing so. What the old format stored was the
         // user's answers, so that is what an unlabelled line is.
         ClarificationHistory.AddRange(state.ClarificationHistory.Select(Labelled));
+
+        // Restored, or a run resumed after a restart carries markers whose files nothing can name any
+        // more — the images are still on disk, and the prompt would stop saying where.
+        AttachedImages.Clear();
+        AttachedImages.AddRange(state.AttachedImages);
         ApprovedPlan = state.ApprovedPlan;
         ProposedPlan = state.ProposedPlan;
         CurrentPhase = state.CurrentPhase;
         IterationCount = state.IterationCount;
         LastStopReason = state.LastStopReason;
         BaselineRef = state.BaselineRef;
+        EndRef = state.EndRef;
         ReviewsExistingWork = state.ReviewsExistingWork;
         AttemptsBeforeExtension = state.AttemptsBeforeExtension;
         ClarifyRounds = state.ClarifyRounds;

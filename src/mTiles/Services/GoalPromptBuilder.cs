@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using mTiles.Models;
 
@@ -7,6 +7,7 @@ namespace mTiles.Services;
 public sealed class GoalPromptBuilder
 {
     private readonly Func<GoalCompletionCriteria> _criteria;
+    private readonly Func<IReadOnlyList<GoalImageAttachment>> _attachments;
 
     /// <param name="criteria">The goal's criteria, read fresh on every prompt. A function rather than a
     /// value because they are edited while a run is paused, and the builder outlives the object they
@@ -14,8 +15,18 @@ public sealed class GoalPromptBuilder
     /// the panel. Captured by value, a switch flipped in the panel would take effect on the next tile
     /// rather than the next attempt. Defaults to the defaults, which is what a builder made without an
     /// opinion should ask for.</param>
-    public GoalPromptBuilder(Func<GoalCompletionCriteria>? criteria = null) =>
+    /// <param name="attachments">The images pasted into the goal, read fresh for the same reason and
+    /// handed over the same way — a paste during a paused run belongs to the next prompt, not to the
+    /// next tile. Read here rather than added to four signatures: every prompt that carries the goal
+    /// carries the same list, so a parameter would have been the same value spelled out at every call
+    /// site and one of them would eventually be spelled wrong.</param>
+    public GoalPromptBuilder(
+        Func<GoalCompletionCriteria>? criteria = null,
+        Func<IReadOnlyList<GoalImageAttachment>>? attachments = null)
+    {
         _criteria = criteria ?? (static () => new GoalCompletionCriteria());
+        _attachments = attachments ?? (static () => []);
+    }
 
     /// <summary>
     /// The rules every change here is held to: Clean Code always, and the SOLID principles the user
@@ -171,10 +182,11 @@ public sealed class GoalPromptBuilder
     public string BuildClarify(string goal, IReadOnlyList<string> clarificationHistory, int? budget = null) =>
         Fit(cap => ComposeClarify(goal, clarificationHistory, cap), budget);
 
-    private static string ComposeClarify(string goal, IReadOnlyList<string> clarificationHistory, int cap)
+    private string ComposeClarify(string goal, IReadOnlyList<string> clarificationHistory, int cap)
     {
         var prompt = "You are helping implement a goal in a software project.\n\n"
-                     + Block("The goal is", goal, GoalCap(cap));
+                     + Block("The goal is", goal, GoalCap(cap))
+                     + Images(cap);
         // `cap > 0` as everywhere else: at the last fitting step there is no room for borrowed text,
         // and Recent would otherwise contribute a block containing only "… earlier turns omitted."
         if (clarificationHistory.Count > 0 && cap > 0)
@@ -199,7 +211,8 @@ public sealed class GoalPromptBuilder
     private string ComposePlan(string goal, IReadOnlyList<string> clarificationHistory, int cap)
     {
         var prompt = "You are planning the implementation of a goal in a software project.\n\n"
-                     + Block("Original goal", goal, GoalCap(cap));
+                     + Block("Original goal", goal, GoalCap(cap))
+                     + Images(cap);
         if (clarificationHistory.Count > 0 && cap > 0)
             prompt += Block("User clarifications", Recent(clarificationHistory, Cap(cap)), int.MaxValue);
         prompt += QualityRules();
@@ -253,6 +266,16 @@ public sealed class GoalPromptBuilder
     /// </summary>
     public const int MaxBorrowedChars = 2_000;
 
+    /// <summary>The least working tree a review is sent, however tight the prompt. Enough for the
+    /// line saying git could not be read, which is the one part of the tree that cannot be looked up by
+    /// the tool itself — see <c>ComposeReview</c>.</summary>
+    private const int TreeFloor = 200;
+
+    private const int Roomy = 3_000;
+    private const int Tight = 1_500;
+    private const int Cramped = 750;
+    private const int Bare = 300;
+
     /// <summary>
     /// The rungs <see cref="Fit"/> climbs down, named because parts of the prompt are chosen by
     /// comparing against them.
@@ -264,16 +287,6 @@ public sealed class GoalPromptBuilder
     /// last step drops every borrowed block, which is a poor prompt and still an enormously better one
     /// than an exception.
     /// </remarks>
-    /// <summary>The least working tree a review is sent, however tight the prompt. Enough for the
-    /// line saying git could not be read, which is the one part of the tree that cannot be looked up by
-    /// the tool itself — see <c>ComposeReview</c>.</summary>
-    private const int TreeFloor = 200;
-
-    private const int Roomy = 3_000;
-    private const int Tight = 1_500;
-    private const int Cramped = 750;
-    private const int Bare = 300;
-
     private static readonly int[] FittingSteps = [Roomy, Tight, Cramped, Bare, 0];
 
     /// <summary>
@@ -343,6 +356,35 @@ public sealed class GoalPromptBuilder
     private static int GoalCap(int step) => Math.Max(200, Cap(step));
 
     /// <summary>
+    /// The images the user pasted, as the markers they left in the text and the files those markers
+    /// stand for.
+    /// </summary>
+    /// <remarks>
+    /// <para>Markers and paths together, because either alone is useless: the text says
+    /// <c>[Image #1]</c> and the tool has no way to turn that into something it can open, while a bare
+    /// list of paths does not say which sentence each picture belongs to.</para>
+    /// <para>Asking rather than telling — <em>open it if the work depends on it</em>. Every tool this
+    /// tile drives can read a file, but reading three screenshots on a prompt that only mentions them
+    /// in passing spends the run's time on nothing, and a review that has to look at a picture before
+    /// it may report anything is a review that will find something in the picture.</para>
+    /// <para>Capped like every other borrowed block and dropped whole at the last rung, and the
+    /// instruction goes with it: a line telling the tool to open the files above, printed above
+    /// nothing, is a prompt asking for something it did not say.</para>
+    /// </remarks>
+    private string Images(int cap)
+    {
+        if (_attachments() is not { Count: > 0 } images) return "";
+
+        var listed = string.Join("\n", images.Select(i => $"{GoalImageMarker.For(i.Index)} {i.Path}"));
+        var block = Block("Attached images", listed, Cap(cap));
+        if (block.Length == 0) return "";
+
+        return block +
+               "Each marker above appears in the text and names a file on this machine. Open the ones " +
+               "the work depends on.\n\n";
+    }
+
+    /// <summary>
     /// Wraps a block of borrowed text in a fence long enough that the text cannot end it.
     /// <para>A three-backtick fence is broken by any diff that touches a markdown file — the file's own
     /// fences close ours, and everything after them reads as prose, including the rest of the diff. The
@@ -402,7 +444,8 @@ public sealed class GoalPromptBuilder
 
     private string ComposeImplement(ImplementContext c, int cap)
     {
-        var prompt = Block("Implement the following goal in this project", c.Goal, GoalCap(cap));
+        var prompt = Block("Implement the following goal in this project", c.Goal, GoalCap(cap))
+                     + Images(cap);
         if (!string.IsNullOrEmpty(c.ApprovedPlan))
             prompt += Block("Approved implementation plan", c.ApprovedPlan, Cap(cap));
         prompt += QualityRules();
@@ -508,7 +551,8 @@ public sealed class GoalPromptBuilder
     private string ComposeReview(string goal, string? gitDiff, bool scoped, int cap)
     {
         var prompt = "Review the code changes that were just made in this project.\n\n"
-                     + Block("The original goal was", goal, GoalCap(cap));
+                     + Block("The original goal was", goal, GoalCap(cap))
+                     + Images(cap);
         prompt += QualityRules();
         prompt += HealthRules(review: true);
         // The fitting step itself, with no ceiling over it — see the note in ComposeImplement —

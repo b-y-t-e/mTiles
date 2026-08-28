@@ -3,6 +3,14 @@ using mTiles.Services;
 
 namespace mTiles.Models;
 
+/// <summary>Dropping the nulls a file can put inside a list, in one place so every collection here is
+/// guarded the same way.</summary>
+internal static class Without
+{
+    public static List<T> Nulls<T>(List<T>? items) =>
+        items is null ? [] : [..items.Where(x => x is not null)];
+}
+
 /// <summary>
 /// A Goal tile's session as it is written to disk.
 /// <para>Every reference property refuses a null in its own setter, the same rule
@@ -14,14 +22,6 @@ namespace mTiles.Models;
 /// so the tile can start again. Strings are guarded too: they are compared, split and put into
 /// messages, never merely tested for absence.</para>
 /// </summary>
-/// <summary>Dropping the nulls a file can put inside a list, in one place so every collection here is
-/// guarded the same way.</summary>
-internal static class Without
-{
-    public static List<T> Nulls<T>(List<T>? items) =>
-        items is null ? [] : [..items.Where(x => x is not null)];
-}
-
 public sealed class GoalTileState
 {
     public string OriginalGoal
@@ -49,6 +49,21 @@ public sealed class GoalTileState
         set => _clarificationHistory = Without.Nulls(value);
     }
     private List<string> _clarificationHistory = [];
+
+    /// <summary>
+    /// The images pasted into this goal, so a resumed run can still say what its markers stand for.
+    /// </summary>
+    /// <remarks>
+    /// Guarded against a null list and a null <em>in</em> the list, like every collection here: each
+    /// entry's path is read straight into a prompt block, so one null would throw inside the build of
+    /// the very prompt the resume exists to send.
+    /// </remarks>
+    public List<GoalImageAttachment> AttachedImages
+    {
+        get => _attachedImages;
+        set => _attachedImages = Without.Nulls(value);
+    }
+    private List<GoalImageAttachment> _attachedImages = [];
 
     public string ApprovedPlan
     {
@@ -112,6 +127,17 @@ public sealed class GoalTileState
     /// converter that turns a null into an empty one costs nothing here.
     /// </remarks>
     public string? BaselineRef { get; set; }
+
+    /// <summary>
+    /// The ref holding the working tree as this run <em>finished</em>, or null when none was taken.
+    /// </summary>
+    /// <remarks>
+    /// The other end of <see cref="BaselineRef"/>, and persisted for the same reason: what a commit is
+    /// allowed to claim is decided by the pair, and a tile reopened tomorrow has nothing else to read
+    /// the boundary out of. Null in a file written before this was recorded, which the committer treats
+    /// as an unknown upper end rather than as an empty one.
+    /// </remarks>
+    public string? EndRef { get; set; }
 
     /// <summary>
     /// True when the work under review is what the user already had, rather than what the tool wrote.
