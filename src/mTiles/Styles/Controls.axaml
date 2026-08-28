@@ -727,4 +727,44 @@
         <Setter Property="VerticalAlignment" Value="Stretch" />
     </Style>
 
+    <!--
+        The @ file-mention popup's rows.
+
+        Built in code (Views/FileMentionBehavior.cs), so the class is all that crosses over and the
+        colours stay here — every UI colour is a role token derived from the terminal theme, and a
+        ListBox left unstyled takes its selected and hover brushes from Fluent instead, which
+        ThemeBridge does not control. That is exactly the row this feature is judged on: the one Enter
+        will take, painted from a palette the rest of the tile does not share.
+
+        Selected is not hover, and here it carries the most weight in the application: hover says the
+        pointer is over a row, selected says this is the path about to be written into the message. So
+        selected gets its own ground *and* the accent leading edge the workspaces panel uses for the
+        same idea, while hover stays the quiet one.
+    -->
+    <Style Selector="ListBox.file-mentions > ListBoxItem">
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <Style Selector="ListBox.file-mentions > ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+    </Style>
+
+    <Style Selector="ListBox.file-mentions > ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
+        <Setter Property="BorderThickness" Value="2,0,0,0" />
+    </Style>
+
+    <!-- Pointing at another row must not make the picked one ambiguous: the pick is what Enter takes,
+         and the pointer is only ever passing over. -->
+    <Style Selector="ListBox.file-mentions > ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
+        <Setter Property="BorderThickness" Value="2,0,0,0" />
+    </Style>
+
 </Styles>
