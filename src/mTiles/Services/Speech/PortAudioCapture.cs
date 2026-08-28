@@ -404,6 +404,16 @@ internal static class PortAudioRuntime
     }
 
     /// <summary>
+    /// How many times the library has actually been asked to enumerate the machine.
+    /// </summary>
+    /// <remarks>
+    /// Nothing in the application reads it. It exists so that "a rescan was refused" is a fact a test can
+    /// check without a microphone: whether <c>Pa_Terminate</c> ran is otherwise visible only to portaudio
+    /// itself, and a guard nobody can observe is a guard nobody will notice the removal of.
+    /// </remarks>
+    internal static int Generation { get; private set; }
+
+    /// <summary>
     /// Loads and initialises the library, once.
     /// </summary>
     /// <remarks>
@@ -414,16 +424,6 @@ internal static class PortAudioRuntime
     /// is what the Rescan button in Settings does, so a transient failure has a way back that does not
     /// involve restarting the application.
     /// </remarks>
-    /// <summary>
-    /// How many times the library has actually been asked to enumerate the machine.
-    /// </summary>
-    /// <remarks>
-    /// Nothing in the application reads it. It exists so that "a rescan was refused" is a fact a test can
-    /// check without a microphone: whether <c>Pa_Terminate</c> ran is otherwise visible only to portaudio
-    /// itself, and a guard nobody can observe is a guard nobody will notice the removal of.
-    /// </remarks>
-    internal static int Generation { get; private set; }
-
     private static bool EnsureInitializedLocked()
     {
         if (_tried)

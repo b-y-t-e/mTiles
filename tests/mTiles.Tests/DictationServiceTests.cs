@@ -156,14 +156,6 @@ public class DictationServiceTests
     }
 
     /// <summary>
-    /// A recording nobody stops is stopped anyway, and what was said is kept.
-    /// </summary>
-    /// <remarks>
-    /// Push-to-talk ends when the key comes up; toggle mode ends only when somebody presses again, and
-    /// a recording left running grows at 64 KB a second towards a transcription of an hour of audio.
-    /// The cap transcribes rather than discards — the words already spoken are still worth having.
-    /// </remarks>
-    /// <summary>
     /// The model is loaded when the recording <em>starts</em>, not when it ends.
     /// </summary>
     /// <remarks>
@@ -208,6 +200,14 @@ public class DictationServiceTests
         Assert.Equal(1, engine.Loads);
     }
 
+    /// <summary>
+    /// A recording nobody stops is stopped anyway, and what was said is kept.
+    /// </summary>
+    /// <remarks>
+    /// Push-to-talk ends when the key comes up; toggle mode ends only when somebody presses again, and
+    /// a recording left running grows at 64 KB a second towards a transcription of an hour of audio.
+    /// The cap transcribes rather than discards — the words already spoken are still worth having.
+    /// </remarks>
     [Fact]
     public async Task A_recording_nobody_stops_is_cut_off_and_still_delivered()
     {

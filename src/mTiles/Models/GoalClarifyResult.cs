@@ -43,14 +43,12 @@ public sealed class GoalQuestion
     /// question's box, so answering is choosing rather than typing — and it is still a box, so they
     /// stay an offer rather than a list to pick from.</para>
     /// <para>Guarded against a null <em>in</em> the list as well as a null list.
-    /// </summary>
-    /// <remarks>
     /// The same level, and the same lesson, as <c>GoalTileState.ClarificationHistory</c>: a guard only
     /// ever covers the one somebody remembered. Two ways in, both real — the tool can answer
     /// <c>"options":["a",null]</c>, and a goal file on disk carries these now that the pending questions
     /// are persisted. Either ends the same way: a <c>NullReferenceException</c> in
     /// <c>GoalQuestionAnswer</c>'s constructor or in <c>GoalTranscript.Questions</c>, inside the view
-    /// model's catch of last resort, which stops the tile saving for the rest of its life.
+    /// model's catch of last resort, which stops the tile saving for the rest of its life.</para>
     /// </remarks>
     public List<string> Options
     {

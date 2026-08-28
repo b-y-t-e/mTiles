@@ -157,16 +157,49 @@ where the user most wants to decide for themselves. A review has to have *run*, 
 at all nothing has looked at this work, and "no errors" would be a claim about an examination that never
 happened.
 
-**"Only its own" is a real guarantee rather than an instruction, and it is the baseline that makes it
-one.** `GoalCommitter` takes a second snapshot by the same mechanism and asks git three tree-to-tree
-questions: what changed during the run (`baseline` against now), what the user had already changed before
-it (`baseline^` against `baseline`), and therefore what this run may claim. Tree against tree because the
-index belongs to the user and untracked files are invisible to most of the alternatives. **Without a
-baseline there is no commit at all** — a run that could not be snapshotted cannot tell its own work from
-anybody else's, and "commit whatever is dirty" is the exact mistake this part of the tile exists to stop
-making. Files the user had already touched are **named and left alone**, because `git commit -- path`
-takes the whole file rather than the part this run wrote: committing one would sweep somebody's
-unfinished afternoon into a message about something else.
+**"Only its own" is a real guarantee against runs that do not overlap, and it is the pair of snapshots
+that makes it one.** A run is bracketed: `GoalBaseline.CaptureAsync` photographs the tree as the goal starts
+and `CaptureEndAsync` photographs it again as the run reaches its summary, each a commit object beside
+the history. `GoalCommitter` then asks git four tree-to-tree questions — what changed *during* the run
+(`baseline` against `end`), what the user had already changed before it (`baseline^` against `baseline`),
+what anybody has changed *since* it finished (`end` against now), and what is still uncommitted at all
+(`HEAD` against now). Tree against tree because the index belongs to the user and untracked files are
+invisible to most of the alternatives. **Without a baseline there is no commit at all** — a run that
+could not be snapshotted cannot tell its own work from anybody else's, and "commit whatever is dirty" is
+the exact mistake this part of the tile exists to stop making.
+
+**The boundaries are times, not authors, and that is the limit of the guarantee.** Everything above
+asks *when* a file changed and nothing asks *who* changed it, which answers the sequential case
+exactly and the overlapping one not at all. Tile A takes its baseline; tile B starts afterwards,
+finishes and writes files; tile A finishes later. B's files fall inside A's `baseline`–`end` window, so
+they are in what A "changed"; they are uncommitted, so they survive the filter; and they are in neither
+held-back list — `theirs` covers only what was dirty *before* A started, and `touchedSince` only what
+moved *after* A finished. A's commit takes them.
+
+The unpleasant part is that this case is confident: `Bounded` is true, so the dialog does **not** print
+the paragraph about another Goal tile's work being indistinguishable — the very sentence that would
+apply. It is still better than it was, since before the closing snapshot every commit had this problem
+and the sequential case is now closed; but it is a limit rather than a guarantee, and
+`GoalBaselineTests` pins both — the sequential case it does hold for, and the overlapping one it does
+not. Closing it properly means recording *which files this run's own attempts wrote*, rather than
+bracketing them in time.
+
+**Both ends, and the upper one was missing.** With only a baseline, "what this run changed" means
+"everything that has changed since it started" — which is the run's own work in a workspace with one
+Goal tile in it, and the work of every tile in a workspace with three. Measured the hard way: three
+tiles finished, Commit was pressed in the first, and all three runs went into the history under the
+first one's messages. The closing snapshot is the run's upper bound; what moves after it belongs to
+whoever moved it. The two snapshots live in **separate ref namespaces** (`refs/mtiles/goals/` and
+`refs/mtiles/ends/`) because the prune keeps the newest twenty of whatever prefix it is given, and
+sharing one would halve the baseline history a lost afternoon is recovered from.
+
+Files this run wrote but will not commit are **named and left alone**, because `git commit -- path`
+takes the whole file rather than the part this run wrote: committing one would sweep somebody else's
+work into a message about something else. There are two such lists and they are kept apart, because the
+sentence differs even though the consequence does not — files the user had already changed *before* the
+goal started, and files somebody changed *after* the run finished. A goal file written before any of
+this was recorded has no closing snapshot; the scope then reaches up to the tree as it stands, exactly
+as it used to, and the confirmation says so rather than quietly claiming work it cannot account for.
 
 The tool decides the *grouping*, because that is a judgement about meaning — which change is a feature
 and which is the chore that made room for it — and nothing here can make it; grouping by directory
@@ -334,7 +367,73 @@ The two mechanical stops end runs that were already going nowhere. **They are al
 
 Findings are shown in the transcript as one scannable column (errors first) and counted as badges in the status strip (`1B 2E 1W 3S`) — one `ItemsControl` over a collection of the severities that found something, so a clean review shows nothing at all rather than four zeroes, and a severity added later needs an enum member and one style rather than a view-model property, a `TextBlock`, a visibility converter and a style, each forgettable on its own. It does not make `GoalSeverity` open — a new level still needs prompt wording describing it and a rule saying what it blocks, and no indirection supplies those — but the mechanical half is gone. Blockers and errors share `DangerText` — both mean "must fix", the letter is what tells them apart, and there is one danger token; inventing a second red for a six-pixel label would leave two shades nobody could rank at a glance, so the blocker is bold instead. Warnings take the ANSI-derived `GoalPhasePlan`, suggestions `TextFaint`. The tool's own prose around the JSON block is not reprinted underneath — it said the same things at greater length, and printing both makes every review something you read twice — **unless there are no findings**, where the prose is the only account of why and its absence left "Goal not met · nothing found" standing as the entire explanation of a failed attempt. The counts are saved with the rest of the state, so a tile paused mid-run comes back with the strip still summarising the review Resume is about to act on.
 
-**AI tool integration:** Uses `AiProcessRunner` with `IAiToolRunner` interface (OCP). `ClaudeToolRunner` launches `claude -p "prompt" --output-format text --max-turns 20` via `ProcessStartInfo.ArgumentList` (no shell injection). New tools (OpenCode, Pi Agent) implement `IAiToolRunner`.
+**AI tool integration:** Uses `AiProcessRunner` with `IAiToolRunner` interface (OCP).
+
+**What each supported CLI actually gets**, measured from its own `--help` and pinned by
+`AiToolContractTests`, because every line of it is a claim about somebody else's contract:
+
+| tool | prompt | permission | effort | stdin | streaming |
+|---|---|---|---|---|---|
+| `claude` | stdin | `--permission-mode` | `--effort` | yes | yes |
+| `pi` | `-p <prompt> --mode text` | — | `--thinking` | no | no |
+| `agy` | `--print <prompt>` | `--dangerously-skip-permissions` (bypass only) | — | no | no |
+| `opencode` | `run <prompt>` | — | — | no | no |
+| `codex` | `exec <prompt>` | — | — | no | no |
+| anything else | the prompt as one argument | — | — | no | no |
+
+Three of those are worth the words. **Antigravity needed a runner rather than the generic fallback, and
+getting it wrong does not fail — it hangs**: a bare positional argument opens the interactive session
+and never returns, on a path that deliberately has no wall-clock timeout. Only `bypass` maps to its
+one permission flag; the finer modes pass nothing rather than being rounded up to it, because asking
+for *auto* and being given *nothing is asked about at all* is the one direction this must never round.
+It has no effort flag either — Antigravity spends effort through the model name
+(`gemini-3.7-flash-high`) — so a level here would have to rewrite whatever model the user configured,
+which is a larger claim than this setting makes anywhere else.
+
+**pi understands the tile's effort levels under its own name for them**: `--thinking` takes
+`off|minimal|low|medium|high|xhigh|max`, so every level `AiEffort` names exists there under the same
+word and the setting means what it means for Claude Code instead of being quietly ignored. `off` and
+`minimal` are pi's alone and are not offered: a Goal run is left alone, and the tile has no level below
+`low`. It has no permission control — `--approve` is about trusting project-local files, not tool calls
+— so that setting goes unused rather than being mapped to something adjacent.
+
+**opencode and codex take the prompt as a positional after a subcommand and have neither setting.**
+opencode's `run --format json` would give a streaming path; nothing here reads that schema yet, so it is
+a gap rather than a half-built feature.
+
+**Open Claude has been removed, and what happens to it now is not known.** It was mapped to
+`ClaudeToolRunner`, which since then acquired standard input, `--permission-mode`, `--effort` and
+`--max-turns` — four claims about a fork nobody here has measured, and the stdin one is the shape that
+hangs when it is wrong. Removing that promise is right; **"so it still runs" was not, and it has been
+taken out.** It falls to `GenericToolRunner`, which hands the tool a bare positional argument and
+nothing else — which is exactly the shape measured against Antigravity two paragraphs up, where it
+does not print and exit but opens an interactive session and never returns, on a path with no
+wall-clock timeout. Open Claude is a Claude Code fork, so a positional prompt with no `-p` is more
+likely to start a session than a print run. Nobody has measured it, which is the whole reason it lost
+its runner, and that cuts both ways: the honest statement is that it is no longer promised Claude
+Code's contract and is not promised anything else either.
+
+`SettingsService.RemoveSeededOpenClaudeProfile` takes away the shell profile this application seeded,
+and only that one. **A user who added `openclaude` as a custom AI tool keeps it**, and it is that entry
+— not the profile — that a Goal run would launch.
+
+**The safeguard is not this paragraph.** A document is not a guard, and the first version of this
+section offered nothing else. What actually stops the hang is that **standard input is now redirected
+for every tool and closed at once when there is no prompt to send it** (`AiProcessRunner.RunPlainAsync`).
+Inherited, it is this application's own standard input — which in a windowed process nobody will ever
+type into — so a tool that decides to be interactive does not fail, it stops, on a path that
+deliberately has no wall-clock timeout. Closed, it reads end-of-input, exits, and says something the
+transcript can show. That is a guard for **every** tool without a measured runner of its own, which is
+every custom AI tool a user adds, rather than a special case for this one.
+
+It is not a promise that an unmeasured tool works. Measuring `openclaude -p` and giving it a runner is
+still the fix; what changed is that not having done so costs a failure the user can see instead of a
+tile that never comes back.
+
+Every runner passes its arguments through `ProcessStartInfo.ArgumentList` rather than building a
+command line, so nothing here is quotable into something else; a tool nobody has measured gets
+`GenericToolRunner`, which passes the prompt as a plain argument and claims nothing about stdin,
+streaming or flags.
 
 **No model selection.** The tile picks a tool, not a model: each tool uses its own default, because they front many providers and there is no command to list what a given one can reach (`AiProcessRunner`). `AppSettings.GoalDefaultModels` and `GoalTileState.SelectedModel` are what is left of an attempt at it — neither is read or written by anything, and they are kept only because removing a settings key is a migration. This paragraph used to describe the feature as though it shipped.
 
@@ -370,6 +469,31 @@ ends up somewhere nobody is reading. **None of them is up while the tool is work
 while `IsRunning`, so a composer shown there is a box that takes text and does nothing with it — and
 the one thing it did do, silently, was hold text that a finishing detection then wrote over.
 
+**An image can be pasted into the composer, and what goes into the prompt is a path.** `Ctrl+V` takes
+the clipboard's image when there is no text on it, `Alt+V` takes it regardless — the same pair, and the
+same "text wins when the clipboard holds both" rule, that a terminal tile already follows, so the
+gesture is the one a user pasting a screenshot at Claude Code already has in their fingers. The image is
+written to `.mtiles/goals/images/` (`GoalImageStore`, PNG, never pruned) and a marker — `[Image #1]`,
+`GoalImageMarker`, Claude Code's own spelling — is inserted where the caret was, so the picture is
+referred to in the sentence it belongs to. The run then carries the pair in **every** prompt that
+carries the goal (Clarify, Plan, Implement, Review): the marker and the file it stands for, with the
+tool asked to open the ones the work depends on rather than told to read all of them.
+
+Three details are load-bearing. **The path, not the bytes** — a prompt is a command line fitted to a
+budget (`GoalPromptBuilder.MaxBorrowedChars`) and base64 would not survive being fitted into one even
+once, while every tool here can open a file it is given. **Inside the workspace, not in the temporary
+directory** — the path is written into the goal file and read by a tool that may not start until the
+user comes back and resumes, so a swept temporary would leave a marker naming nothing. **A new goal
+keeps the images its own text refers to** rather than clearing outright (`StartNewGoal`): the markers
+are in the text *before* the goal starts — the user pasted them into the composer and then pressed Send
+— so an outright clear would strip every image out of the goal that had just been typed. That leaves
+gaps in the numbering, which is why `AttachImage` counts from the highest number so far and not from the
+length of the list; counting would hand two different files the same marker. A marker left behind in the
+composer when its image is dropped goes with it (`GoalImageMarker.DropMarkersExcept`) — `+` and a
+detected goal both replace the goal without touching what is typed, so the marker would otherwise be
+sent with no path anywhere in the prompt. A failure to write says so in the transcript and inserts
+**no** marker, because a marker whose file was never written is one the tool is told to open.
+
 The question panel is what the numbered skeleton in the composer used to be, and the difference is who
 does the filing. A number in its own grid column is a real hanging indent, so a question that wraps
 keeps its indent instead of returning to column zero under its own marker — which is the thing that
@@ -404,6 +528,129 @@ The resume is from the top of an iteration, never from the middle of a prompt �
 **UI:** a terminal transcript, not a chat window. The tile borrows the terminal's own monospace face and size (`TerminalFontFamily`, `UiFontSize`/`UiFontSizeSm`) and the app's colour tokens, which `ThemeBridge` derives from the active terminal theme — so it follows the colour scheme like every other tile. Each message is a fixed 16px gutter glyph plus its text (`>` you, a dot the tool, a corner a note from the tile), aligned to one column. The bubbles it replaced aligned every message differently and made a two-line answer look like a different kind of thing from a twenty-line one; the gutter also gives the transcript a single left edge to read down. A message is drawn one of two ways, and which one is the message's own answer (`GoalMessage.IsMarkdown`). **The tool's own prose is rendered as markdown** by `GoalMarkdownView` — agents write headings, bold and fenced code whether or not anything reads them, and raw those markers are noise in every answer. **Anything this application composed is not**, and that distinction is load-bearing rather than tidy: a review is a column of severities with each detail indented under its title, and markdown collapses runs of spaces, reads a two-space indent as a continuation, and turns a `*` inside a finding into emphasis — so the one part of the transcript arranged to be read in columns was the part being re-flowed. Neither is what the user typed, where an asterisk is one they meant. Both controls hold their own selection, so a transcript can be copied out — which is why `TerminalClipboardCoordinator.HandlesItsOwnCopy` has to know them: this tunnel handler runs before the control's own Ctrl+C, and without it a selection made here was answered with text from whichever terminal in another tile still held one. It matches by **type**, not by namespace, because `is` catches a subclass and a prefix does not — the markdown view is a subclass living in this assembly, and the prefix version missed the very control it was written for. Each message also carries a copy button, revealed on hover, which is the only thing in the row that is not the message. The other half of that change is deliberate too: with focus in a Goal transcript and **nothing** selected, Ctrl+C no longer copies from a terminal in another tile — the same rule a focused `TextBox` has always had.
 
 Three strips: a status strip on top (tool selector · phase dot · phase label — a `DockPanel`, because a horizontal `StackPanel` measures with infinite width and `TextTrimming` there is inert), the transcript, and a composer at the bottom drawn as one field with the prompt glyph inside it — the `Border` owns the border and focus ring, the `TextBox` gives up its own, and a click anywhere in it puts the caret in the box. Enter sends, Shift+Enter breaks a line. Buttons are the app-wide `tile-btn`. Pause/Resume appear while the tool is running; `+` starts a fresh goal.
+
+**`@` names a file.** In the composer, the plan box and every answer box, typing `@` offers the
+workspace's files and folders, and picking one writes the path in —
+`@src/mTiles/Services/TileScript.cs` rather than a name the tool has to go and find. Up/Down move,
+Escape puts the list away, **Enter takes the row that is lit and Tab types the part every row agrees
+on** — the shell's completion, so Tab narrows and only picks when there is nothing left to narrow.
+While the list is up Enter belongs to it rather than to Send, taken in the tunnel phase, because the
+bubble phase would reach it after the box's own handler had already sent a goal with a half-typed
+`@go` in it. **A folder is a step rather than an answer**: taking one types it without the trailing
+space and leaves the list up on what is inside, so Enter walks down a tree exactly as Tab does.
+
+The whole thing follows what the popular tools of this kind do, measured against a 3443-file
+TypeScript repository, and the reason is one number. The ranking here used to say that a hit in the
+file's own name beats a hit in a directory above it, which is wrong for any tree organised by folder
+— and that repository is the extreme case, with 121 files called `index.ts` and 45 called
+`prompt.ts`. Typing `@bash` there put
+`tools/BashTool/prompt.ts` at position **32 of 66** and filled every row with files merely spelling
+"bash" in their name, so nothing else in `BashTool/` was reachable at all, whatever the user typed
+next.
+
+`FileMentionMatcher` is now an fzf-style scorer of the kind those tools use:
+a **fuzzy subsequence** over the whole path, greedy and earliest, scoring each matched character and
+then paying bonuses for where it landed — after a boundary (`/ \ - _ .` or a space), on a camel-case
+capital, immediately after the previous match — against penalties for the gaps it had to jump. There
+is deliberately **no term for the file's own name**: a folder is a first-class thing to type, and the
+boundary bonus pays for hitting the start of one exactly as it pays for hitting the start of a file
+name. The only thing separating two equally good matches is a bonus for a short path, which is what
+the old `ThenBy(path.Length)` was for and now says so on the same scale as everything else. Same
+tree, same query: `@bash` now answers with `BashTool/` and `utils/bash/`, and `@btp` finds
+`tools/BashTool/prompt.ts` at #2 — a class of query a substring ranking cannot answer at all.
+**Smart case** comes with it: a query in lower case ignores case, one carrying a capital means it.
+Measured at 0.3–0.5 ms per keystroke over those 3443 paths, which is why there is no debounce —
+tools of this kind wait around 50 ms because they filter a quarter of a million paths, and a wait
+here would only add latency, and its own cost is elsewhere: the corpus — every path folded to lower case and a
+26-bit map of which letters `a`–`z` it holds — is built once per reading of the tree
+(`FileMentionCorpus`), and the letter map rejects most candidates without
+reading them at all. Measured at the declared ceiling of 200 000 paths: **2.4–4.0 ms a keystroke and
+under 3 MB allocated**, against 8–17 ms and 15–18 MB when the fold happened inside the loop. A delay
+would also not be free to add: `Task.Delay` yields unconditionally, and with no synchronisation
+context to post back to the continuation rewrites the bound collection off the UI thread.
+
+`FileMentionToken` holds the rest of the text rules — when an `@` is a request and not an email
+address, and the quotes a path with a space in it is given, because a mention ends at the first space
+for whatever reads the prompt and `@docs/my notes.md` unquoted would arrive as `@docs/my` and a loose
+`notes.md`, naming no file at all. A quote *inside* a name is left alone rather than escaped: it is
+illegal in a Windows file name, and the backslash this used to write was worse than nothing, since
+the parser on the other side reads `@"([^"]+)"` and an escaped quote ends the mention exactly where a
+bare one does — with the backslash then delivered as part of the name. **The query stops at the caret
+but the replacement takes the whole word**, which is the usual rule and replaced the opposite one:
+completing `@fi|le.cs` now replaces `@file.cs` rather than leaving `le.cs` stranded after the path it
+had just inserted.
+
+`WorkspaceFileMentionSource` is what there is to offer, and it is the arrangement these popups use
+rather than a simpler one: **git decides what exists, three rules decide what is shown.** The corpus is
+`ls-files --cached --recurse-submodules` plus `--others --exclude-standard` — the tracked files and
+the untracked ones the repository does not ignore, which is the user's own `.gitignore` rather than a
+list this application would have to keep in step with. Two commands rather than one flag more,
+because `--recurse-submodules` is only accepted alongside `--cached`. Both carry
+`--no-optional-locks` like every command in `WorktreeReader`, and more sharply: these run unprompted
+while the user is typing, and `ls-files` refreshes the index on the way past when
+`core.untrackedCache` or fsmonitor is on — taking `index.lock` behind the back of a rebase in the
+terminal tile next door because a popup was deciding what to offer. `-z` rather than
+`-c core.quotepath=false`: same fix for the same problem — git quotes any path that is not plain
+ASCII, so a repository with Polish file names would suggest paths that do not exist — and it also
+survives a newline in a file name, which splitting on lines cannot. Both exclude `.mtiles` by
+pathspec, as `WorktreeReader` does: it holds this tile's own transcript and the images pasted into
+it.
+
+**The untracked half is not awaited.** The tracked list answers nearly every mention, and making the
+first `@` of a session wait for a second walk of the working tree spends the user's time on the half
+they are least likely to want; the untracked files merge into the reading when they arrive, or into
+the next one. A **generation counter** is what makes that safe — a refresh that has already replaced
+the reading has established what is there *now*, and merging a slower answer to an older question on
+top of it would put back files that refresh had just found were gone. Its failure is not the tracked
+read's, either: a repository mid-rebase can refuse this while answering that perfectly well, and half
+a list is worth having.
+
+The three rules are applied where such a list belongs — to **every** candidate, git's output
+included, which is the part that is easy to get wrong by filtering only the fallback:
+
+- **`ExcludedDirectories`**, the excluded-directory list a popup like this carries. This is the one
+  place the
+  popup overrules the user's own `.gitignore`, and it earns that: a repository that commits its
+  `dist/` has said something about distributing it and nothing at all about wanting eight hundred
+  bundled files in a popup. The last four entries — `bin`, `obj`, `packages`, `target` — are ours;
+  lists like this are written for JavaScript and Python repositories and never had to name the .NET,
+  Java and Rust build outputs, and a tile in *this* application offering
+  `bin/Debug/net10.0/mTiles.dll` is the failure the list exists to prevent. The cost is stated rather
+  than hidden: a repository that deliberately tracks something under `bin/` — and some do — will
+  not have it offered here. Matched against every directory *above* the
+  file, never the file's own name, so a file called `build` is still a file.
+- **`FileSuggestionIgnore`**, the workspace's `.ignore` / `.rgignore`. ripgrep's own files, which
+  exist for exactly this case — "git tracks it, but do not show it to me" — so a user who has written
+  one has already answered the question the popup asks. A stated subset of the gitignore syntax:
+  comments, blanks, `!` negation with last-match-wins, a leading `/` anchoring to the root, a
+  trailing `/` for directories only, and `*` `?` `**`. Not character classes or escapes — and the
+  failure direction is deliberate, since a pattern it cannot read matches nothing, so the worst case
+  is something offered that the user did not want to see, never a file they were reaching for
+  silently gone.
+- **The ceiling**, `MaxPaths` = 200 000, the figure these listings settle on.
+
+**The agent's own configuration is added outside all of that** — `CLAUDE.md`, `AGENTS.md`,
+`CLAUDE.local.md`, and the markdown one level down in `.claude/commands`, `.claude/agents`,
+`.claude/skills`, `.claude/output-styles`. Offered the way a popup like this offers it, pointed at
+the agent this application actually drives, and the reason is visible in almost any repository's
+`.gitignore`, which routinely carries `CLAUDE.md` and `/.claude`: the files telling the agent how to work are routinely the ones
+the repository declines to track, and they are exactly what somebody writing a goal wants to point
+at. Markdown only, one level deep, and only those directories — narrow enough that it cannot quietly
+become a second file listing that ignores `.gitignore`.
+
+Outside a repository there is no git list, so the walk skips what starts with a dot — `.git` and the
+editors' own directories — and then goes through the same three rules. Tools of this kind fall back
+to **ripgrep** here; this walks, because ripgrep is a program a user may not have and a workspace that
+offers nothing is worse than one that walks. It runs on the thread pool, because the popup asks while
+the user is typing and a walk on the dispatcher is the keyboard stopping mid-word.
+
+Folders are **derived** from the file list rather than listed — git has no command for them, and a
+second walk would answer for a tree the first has already described — each ending in `/`, which is
+what tells the two apart on screen and in the text and is also the boundary character the scorer pays
+for. One reading is shared by all three boxes and stands for five seconds, or until git touches
+`.git/index`: the timestamp is read on every ask, so a commit or a branch switch in the terminal tile
+next door shows up at once and a quiet minute of typing still costs one reading. The boxes never hold
+the keyboard at once, so there is only ever one list on screen.
 
 What a phase says while it waits comes from `GoalWorkflowEngine.GetPhaseLabel` and nowhere else: the same four sentences used to exist in three places — the engine, the labels passed into `RunPhaseAsync`, and the summary — with nothing keeping them in step. The phase is the one saturated colour in the tile, and it is set as a style class (`phase-clarify`…) rather than a brush resolved in code-behind, so it repaints on a theme change. Its five colours come from the ANSI palette (`ThemeBridge`) and are pulled toward the foreground on a light theme — a six-pixel dot in ANSI yellow is invisible on white.
 

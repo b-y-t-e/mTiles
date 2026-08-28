@@ -318,8 +318,6 @@ public sealed class PhoneBridgeManagerTests : IDisposable
     /// <c>settings.json</c> is a file the user can open. An out-of-range number reaches <c>Listen</c> as
     /// an <see cref="ArgumentOutOfRangeException"/>, which is not a bind failure — so it never took the
     /// fallback, and the feature was simply dead with an obscure message.
-    /// </remarks>
-    /// <remarks>
     /// One number, not a table of them: what a nonsensical port is <em>clamped to</em> is pinned purely by
     /// the test below, which costs nothing, and this one exists only to prove the clamp is reached from a
     /// real start — a second case of it spins up another Kestrel to learn the same thing.
