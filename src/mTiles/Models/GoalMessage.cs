@@ -106,4 +106,34 @@ public sealed class GoalMessage
     /// </summary>
     [JsonIgnore]
     public bool HasFindings => Findings.Count > 0;
+
+    /// <summary>
+    /// A round of clarifying questions and what was answered to them, kept as questions rather than
+    /// only as the block of text they were flattened into.
+    /// </summary>
+    /// <remarks>
+    /// <para>The same decision as <see cref="Findings"/>, one panel later. A round used to be asked in a
+    /// bar pinned under the transcript and recorded above it as a numbered paragraph, which meant the
+    /// thing you answered and the thing you could read back afterwards were two different controls with
+    /// two different shapes. Now the round <em>is</em> the row: the questions are asked in the
+    /// conversation and stay there, answered and read-only, at the point they were asked.</para>
+    /// <para>Kept <em>beside</em> <see cref="Text"/> for the reason the findings are: the text still
+    /// holds the whole round flattened, so it is what the clipboard gets and what a goal file written
+    /// before this existed still renders from — those messages have no questions here, fall through to
+    /// the plain template and are drawn exactly as they always were.</para>
+    /// <para>Guarded against a null list and a null <em>in</em> it, as everything reachable from
+    /// <see cref="GoalTileState"/> is: this is bound straight into an items control that reads
+    /// <c>Question</c> off every element.</para>
+    /// </remarks>
+    public List<GoalQuestion> Questions
+    {
+        get => _questions;
+        set => _questions = Without.Nulls(value);
+    }
+    private List<GoalQuestion> _questions = [];
+
+    /// <summary>Whether this message is a clarification round to draw as questions rather than as text.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasQuestions => Questions.Count > 0;
 }

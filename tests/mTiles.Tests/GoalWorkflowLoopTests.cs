@@ -1460,6 +1460,78 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// A tile killed while the tool is working on the answers comes back offering Resume.
+    /// </summary>
+    /// <remarks>
+    /// <para>Driven through <c>SendAnswers</c> rather than over a hand-built state, which is the whole
+    /// point of it: <see cref="GoalWorkflowEngine.WasInterrupted"/> reads the conversation, and every
+    /// other test of it composes that conversation itself — so the day the conversation stopped carrying
+    /// the answers as a turn of the user's own, none of them noticed.</para>
+    /// <para>Which is what happened. Recording the round as one assistant message and dropping the echo
+    /// of the answers left an assistant message last in Clarify, the reading for "the tool has answered
+    /// and the tile is waiting" — so a hard kill during the run came back with no Resume, no pause, and
+    /// nothing to say the answers had gone nowhere. Graceful shutdown was never affected, and that is
+    /// exactly why this needed a test: the one path that fails is the one no orderly exit takes.</para>
+    /// </remarks>
+    [Fact]
+    public void Answering_a_round_leaves_a_state_that_reads_as_interrupted_while_the_tool_works()
+    {
+        OnUiThread(async () =>
+        {
+            GoalTileViewModel? tile = null;
+            List<GoalMessage>? midRun = null;
+            var asked = 0;
+
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+            {
+                // The transcript as it stands while the tool holds the answers and has not replied —
+                // the moment the power goes off. Taken from inside the runner because there is nowhere
+                // else to stand: by the time the call returns, the tool has spoken.
+                if (++asked == 2)
+                    midRun = [..tile!.Messages];
+
+                return Task.FromResult<AiOutput>(asked == 1
+                    ? """{"questions":[{"question":"Which file?"}]}"""
+                    : NoMoreQuestions);
+            };
+
+            using var vm = NewTile();
+            tile = vm;
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            vm.Questions[0].Answer = "appsettings.json";
+            await vm.SendAnswersCommand.ExecuteAsync(null);
+
+            Assert.NotNull(midRun);
+
+            // What a kill leaves behind: the phase it was in, the questions already cleared off the
+            // screen with the round recorded in their place, and no pause, because nothing ran to
+            // write one.
+            var killed = new GoalTileState { CurrentPhase = GoalPhase.Clarify, Messages = midRun! };
+            Assert.EndsWith("appsettings.json", killed.Messages[^1].Text);
+            Assert.True(GoalWorkflowEngine.WasInterrupted(killed));
+
+            // And the opposite reading is still there to be had: an ordinary answer from the tool on
+            // the end is a tile waiting for the user, not a run that was cut off. Without this the fix
+            // could be "always interrupted in Clarify", which would have Resume ask every waiting tile
+            // its round a second time.
+            var answered = new GoalTileState
+            {
+                CurrentPhase = GoalPhase.Clarify,
+                Messages = [..midRun!, new GoalMessage
+                {
+                    Role = GoalMessageRole.Assistant,
+                    Phase = GoalPhase.Clarify,
+                    Text = "Nothing further to ask.",
+                }],
+            };
+            Assert.False(GoalWorkflowEngine.WasInterrupted(answered));
+        });
+    }
+
     [Fact]
     public void Answers_go_back_numbered_and_the_questions_join_the_transcript_with_them()
     {
@@ -1487,12 +1559,22 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Contains("1. appsettings.json", prompts[1]);
             Assert.Contains("2. async", prompts[1]);
 
-            // The questions reach the transcript when they are answered, not when they are asked —
-            // so the record still reads question then answer, without a second copy of the panel
-            // sitting above the conversation while it is being filled in.
-            var questionsAt = vm.Messages.ToList().FindIndex(m => m.Text.Contains("Sync or async?"));
-            var answersAt = vm.Messages.ToList().FindIndex(m => m.Text.Contains("2. async"));
-            Assert.True(questionsAt >= 0 && answersAt == questionsAt + 1);
+            // The round reaches the transcript when it is answered, as one message carrying both
+            // halves: the questions as they were asked, and the answer under each. It used to be two —
+            // the questions, then the answers as a turn of the user's own — which was the same text
+            // twice the moment the questions became a block you fill in rather than a paragraph you
+            // transcribe.
+            var round = Assert.Single(vm.Messages, m => m.HasQuestions);
+            Assert.Equal(["Which file?", "Sync or async?"], round.Questions.Select(q => q.Question));
+            Assert.Equal(["appsettings.json", "async"], round.Questions.Select(q => q.Answer));
+
+            // The text is still the whole round, which is what the clipboard gets and what a build that
+            // cannot draw the rows falls back to.
+            Assert.Contains("Sync or async?", round.Text);
+            Assert.Contains("async", round.Text);
+
+            // And no second copy of the answers as a message of the user's own.
+            Assert.DoesNotContain(vm.Messages, m => m.Role == GoalMessageRole.User && m.Text.Contains("2. async"));
 
             // And the panel is gone, because there is nothing left to answer: the tool said it had no
             // more questions and the tile went on to the plan, which is the next thing it asks about.

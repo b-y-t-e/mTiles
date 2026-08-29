@@ -536,6 +536,13 @@ public sealed partial class GoalWorkflowEngine
     /// the answer arrived and the tile is waiting, which is not an interruption. Nothing at all from
     /// either party — reachable only from a damaged file — is treated as interrupted, since there is
     /// certainly no answer in it.</para>
+    /// <para><b>A recorded round of questions is the user's turn</b>, whatever role it is filed under.
+    /// It is written as the assistant's because the questions in it are the tool's, but what makes it
+    /// the last thing said is the <em>answers</em> — and once the round became one message the answers
+    /// stopped being echoed as a turn of their own, which took this rule's only signal away with them:
+    /// a tile killed while the tool was working on those answers came back with no Resume and nothing
+    /// to say the answers had gone nowhere. A round is only ever recorded once at least one question
+    /// has been answered, so there is no such message that is not the user having spoken.</para>
     /// </summary>
     public static bool WasInterrupted(GoalTileState state)
     {
@@ -550,7 +557,7 @@ public sealed partial class GoalWorkflowEngine
         if (state.PendingQuestions.Count > 0) return false;
 
         var lastTurn = state.Messages.LastOrDefault(m => m.Role != GoalMessageRole.System);
-        return lastTurn is not { Role: GoalMessageRole.Assistant };
+        return lastTurn is not { Role: GoalMessageRole.Assistant, HasQuestions: false };
     }
 
     public string GetPhaseLabel() => IsPaused

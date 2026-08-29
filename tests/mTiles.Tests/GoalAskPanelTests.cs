@@ -343,33 +343,231 @@ public class GoalAskPanelTests : IDisposable
     }
 
     /// <summary>
-    /// The panel takes at most three fifths of the tile, and never grows on its own.
+    /// Nothing the tile asks of the user is pinned to its bottom edge: every one of them is a block
+    /// inside the conversation.
     /// </summary>
     /// <remarks>
-    /// The ratchet is the part worth pinning. A clamped height is read straight back as "what the user
-    /// wanted" on the next pass, so the rule has to be one that survives being applied to its own
-    /// output: shrinking the tile clamps the panel, and growing the tile again must leave it where the
-    /// clamp put it rather than expanding a panel nobody dragged.
+    /// <para>The whole of what this rearrangement is, asked of the markup — which is the only place it
+    /// can be got wrong. A block moved back out of the scroller looks perfectly reasonable in the file
+    /// and is a bar across the foot of the tile again on screen, and the view model cannot tell: every
+    /// one of these was bound to exactly the same property before and after.</para>
+    /// <para>Asked as "is <c>ChatScroll</c> an ancestor" rather than by counting children, because what
+    /// matters is that it scrolls with the conversation, not where in the column it was put.</para>
     /// </remarks>
-    [Theory]
-    [InlineData(230, 800, 230)]    // room to spare: what was asked for
-    [InlineData(230, 200, 120)]    // a small tile: three fifths of it, so the transcript survives
-    [InlineData(230, 0, 230)]      // before the first layout there is nothing to measure
-    public void The_panel_never_takes_more_than_its_share(double wanted, double available, double expected)
+    [Fact]
+    public void Everything_the_tile_asks_for_scrolls_with_the_conversation()
     {
-        Assert.Equal(expected, GoalTileView.FitsIn(wanted, available));
+        OnUiThread(() =>
+        {
+            using var vm = Tile();
+            var view = Shown(vm);
+
+            var scroller = view.GetVisualDescendants().OfType<ScrollViewer>().First(c => c.Name == "ChatScroll");
+
+            // The two ask blocks — the questions and the plan — and the composer. All three are in the
+            // tree whether or not they are showing, so this holds before anything has been asked.
+            var blocks = Asks(view)
+                .Concat(view.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("composer")))
+                .ToList();
+
+            Assert.Equal(3, blocks.Count);
+            Assert.All(blocks, b => Assert.Contains(scroller, b.GetVisualAncestors()));
+
+            // And the transcript is in there with them, which is the point: one scroller, not two
+            // fighting each other for the tile's height.
+            Assert.Contains(scroller,
+                view.GetVisualDescendants().OfType<ItemsControl>().First(i => i.Name == "Transcript")
+                    .GetVisualAncestors());
+        });
     }
 
+    /// <summary>
+    /// Which changes overrule the reader's scroll position, and which leave it alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>The follow-to-the-bottom rule stands down when the reader has scrolled up, which is right
+    /// for the dozen messages a run posts and wrong for the handful of moments the tile stops and needs
+    /// an answer. While those were bars docked under the transcript it could not come up — they were on
+    /// screen at any offset. In the conversation they are not: the composer vanishes from where it was
+    /// and comes back below the fold, and what is left on screen is a tile that appears to be doing
+    /// nothing with nowhere to type. The round of questions was covered by accident, because taking the
+    /// keyboard drags it into view; the plan and the composer had nothing equivalent.</para>
+    /// <para>The two exclusions are the part worth pinning. <c>CanDetectGoal</c> is fed by the git
+    /// watcher, so it turns over when a file changes in a terminal tile next door — forcing on it would
+    /// move somebody's reading position because of an edit made somewhere else entirely. And nothing
+    /// forces on the way <em>out</em>: a block disappearing is not a reason to move anybody's view.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void Clamping_does_not_ratchet_the_panel_open_again()
+    public void Only_a_request_arriving_overrules_where_the_reader_is()
     {
-        // 230 wanted, clamped to 120 by a short tile, and that 120 is what the next pass reads back.
-        var clamped = GoalTileView.FitsIn(230, 200);
-        Assert.Equal(120, clamped);
+        OnUiThread(() =>
+        {
+            using var vm = Tile();
 
-        // The tile grows again. The panel stays where the clamp left it: the user asked for 230 once,
-        // the row has said 120 ever since, and inventing the difference back is not restoring anything.
-        Assert.Equal(120, GoalTileView.FitsIn(clamped, 800));
+            // A fresh tile: the composer is up and nothing else is.
+            Assert.True(vm.ShowComposer);
+            Assert.True(Appears(vm, nameof(vm.ShowComposer)));
+            Assert.False(Appears(vm, nameof(vm.ShowApproval)));
+            Assert.False(Appears(vm, nameof(vm.ShowQuestions)));
+            Assert.False(Appears(vm, nameof(vm.HasFinishedRunActions)));
+
+            // A round is asked. The questions overrule; the composer, now gone, does not — which is the
+            // going-away case, and it fires on exactly the same property name.
+            vm.CurrentPhase = GoalPhase.Clarify;
+            vm.Questions.Add(new GoalQuestionAnswer(1, new GoalQuestion { Question = "Which file?" }));
+
+            Assert.True(Appears(vm, nameof(vm.ShowQuestions)));
+            Assert.False(vm.ShowComposer);
+            Assert.False(Appears(vm, nameof(vm.ShowComposer)));
+
+            // Neither of the two that are not requests, whatever the tile is doing.
+            Assert.False(Appears(vm, nameof(vm.CanDetectGoal)));
+            Assert.False(Appears(vm, nameof(vm.IsRunning)));
+
+            // And a name nothing knows about is not a request either — the handler falls through to the
+            // ordinary follow rather than forcing on every property the view model raises.
+            Assert.False(Appears(vm, nameof(vm.CurrentPhase)));
+        });
+    }
+
+    /// <summary>
+    /// A block that was already showing has not arrived, however often it is announced.
+    /// </summary>
+    /// <remarks>
+    /// <para>The rule is <em>arriving</em>, and for a while the code read <em>showing</em> — which is a
+    /// different sentence every time a notification carries a value that did not move. This view model
+    /// raises all three ask flags together and unconditionally, on every phase of every lap, at a
+    /// moment when the composer has been up all along; so the tile scrolled a reader who had gone back
+    /// through the transcript down to the bottom several times a run, over nothing having appeared.
+    /// That is precisely the reader the whole rule exists to leave alone.</para>
+    /// <para>Stated on the pure half so it can be asked without a window: the previous value is a
+    /// parameter here and a small map in the view, seeded when it attaches.</para>
+    /// </remarks>
+    [Fact]
+    public void A_block_that_was_already_there_has_not_arrived()
+    {
+        OnUiThread(() =>
+        {
+            using var vm = Tile();
+            Assert.True(vm.ShowComposer);
+
+            const string composer = nameof(GoalTileViewModel.ShowComposer);
+
+            // The same state, announced twice. The first is the composer arriving; the second is
+            // RefreshAsk saying so again, and it must not move anybody.
+            Assert.True(GoalTileView.Appeared(vm, composer, wasShowing: false));
+            Assert.False(GoalTileView.Appeared(vm, composer, wasShowing: true));
+
+            // And going away is not arriving either, whatever was remembered.
+            vm.CurrentPhase = GoalPhase.Clarify;
+            vm.Questions.Add(new GoalQuestionAnswer(1, new GoalQuestion { Question = "Which file?" }));
+
+            Assert.False(vm.ShowComposer);
+            Assert.False(GoalTileView.Appeared(vm, composer, wasShowing: true));
+            Assert.False(GoalTileView.Appeared(vm, composer, wasShowing: false));
+        });
+    }
+
+    /// <summary>
+    /// The other two arms, each seen answering yes.
+    /// </summary>
+    /// <remarks>
+    /// <para>A five-armed switch that reads properties by name is exactly the shape a copy-paste
+    /// survives: an arm returning its neighbour's property is indistinguishable from a correct one
+    /// while every property it could return is false. Both of these are false on a fresh tile, so
+    /// asserting them there proves only that nothing is on — which is what the test above could do,
+    /// and no more.</para>
+    /// <para>Reached by loading a state rather than running to it, because these are facts about a
+    /// saved conversation and the constructor that takes a file is how a tile gets one. What is being
+    /// pinned is that the plan waiting to be approved, and the row of things to do with a finished run,
+    /// each pull the view to themselves — the failure otherwise being the one this whole rule exists
+    /// for: the block arrives below the fold and the tile looks like it has stopped.</para>
+    /// </remarks>
+    [Fact]
+    public void The_plan_and_the_finished_run_actions_are_requests_too()
+    {
+        OnUiThread(() =>
+        {
+            using var waitingForApproval = TileWith(new GoalTileState
+            {
+                OriginalGoal = "a goal",
+                CurrentPhase = GoalPhase.Plan,
+                ProposedPlan = "1. Do the thing.",
+            });
+
+            Assert.True(waitingForApproval.ShowApproval);
+            Assert.True(Appears(waitingForApproval, nameof(GoalTileViewModel.ShowApproval)));
+
+            // And not the arm next door, which is false in this very state — a swapped pair would pass
+            // the assertion above and fail this one.
+            Assert.False(waitingForApproval.ShowComposer);
+            Assert.False(Appears(waitingForApproval, nameof(GoalTileViewModel.ShowComposer)));
+
+            using var finished = TileWith(new GoalTileState
+            {
+                OriginalGoal = "a goal",
+                CurrentPhase = GoalPhase.Summary,
+                LastStopReason = GoalStopReason.Reviewed,
+            });
+
+            Assert.True(finished.HasFinishedRunActions);
+            Assert.True(Appears(finished, nameof(GoalTileViewModel.HasFinishedRunActions)));
+            Assert.False(Appears(finished, nameof(GoalTileViewModel.ShowApproval)));
+        });
+    }
+
+    /// <summary>Arriving: it is showing now and was not a moment ago.</summary>
+    private static bool Appears(GoalTileViewModel vm, string name) =>
+        GoalTileView.Appeared(vm, name, wasShowing: false);
+
+    /// <summary>A tile reopened on a saved conversation, which is the only way to a phase it did not
+    /// get to by being driven.</summary>
+    private GoalTileViewModel TileWith(GoalTileState state)
+    {
+        var path = Path.Combine(_dir, $"{Guid.NewGuid():N}.json");
+        new GoalStatePersistence().Save(path, state);
+
+        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+        return new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+    }
+
+    /// <summary>
+    /// A copy button hands over what it is attached to, whichever of the four things that is.
+    /// </summary>
+    /// <remarks>
+    /// One handler serves the message, the finding, the answered question and the one still being
+    /// typed, so the thing that can go wrong is a case falling through to the empty string — a button
+    /// that does nothing, silently, on the one row somebody wanted. Every answer goes through
+    /// <c>GoalTranscript</c>, so a finding copied alone reads as it does inside the review it came from.
+    /// </remarks>
+    [Fact]
+    public void A_copy_button_hands_over_whatever_it_is_attached_to()
+    {
+        var finding = new GoalFinding { Severity = GoalSeverity.Error, Title = "Total ignores discounts" };
+        var question = new GoalQuestion { Question = "Which file?", Answer = "appsettings.json" };
+
+        Assert.Equal(GoalTranscript.Copyable(finding), GoalTileView.TextOf(finding));
+        Assert.Contains("Total ignores discounts", GoalTileView.TextOf(finding));
+
+        Assert.Contains("Which file?", GoalTileView.TextOf(question));
+        Assert.Contains("appsettings.json", GoalTileView.TextOf(question));
+
+        // The live block, mid-round: the answer is in the view model rather than in the model behind
+        // it, and copying has to see what is in the box.
+        var asking = new GoalQuestionAnswer(1, new GoalQuestion { Question = "Sync or async?" })
+        {
+            Answer = "async",
+        };
+        Assert.Contains("Sync or async?", GoalTileView.TextOf(asking));
+        Assert.Contains("async", GoalTileView.TextOf(asking));
+
+        Assert.Equal("make the tests pass",
+            GoalTileView.TextOf(new GoalMessage { Role = GoalMessageRole.User, Text = "make the tests pass" }));
+
+        // Anything else is nothing, and the handler returns before it reaches a clipboard.
+        Assert.Equal("", GoalTileView.TextOf(null));
+        Assert.Equal("", GoalTileView.TextOf(new object()));
     }
 
     /// <summary>

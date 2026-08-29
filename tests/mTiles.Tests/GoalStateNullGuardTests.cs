@@ -61,7 +61,16 @@ public class GoalStateNullGuardTests
               "OriginalGoal": "a goal",
               "ClarificationHistory": ["User: appsettings.json", null],
               "AttemptLog": [null, "Attempt 1: did a thing"],
-              "Messages": [null, { "Role": "User", "Text": "hello" }],
+              "Messages": [
+                null,
+                { "Role": "User", "Text": "hello" },
+                {
+                  "Role": "Assistant",
+                  "Text": "a round",
+                  "Questions": [null, { "Question": "Which?", "Options": [null, "a"] }],
+                  "Findings": [null, { "Title": "null deref" }]
+                }
+              ],
               "PendingQuestions": [null, { "Question": "Which?", "Options": ["a", null] }],
               "CurrentPhase": "Clarify"
             }
@@ -78,8 +87,17 @@ public class GoalStateNullGuardTests
 
         Assert.Single(state.ClarificationHistory);
         Assert.Single(state.AttemptLog);
-        Assert.Single(state.Messages);
+        Assert.Equal(2, state.Messages.Count);
         Assert.All(state.Messages, m => Assert.NotNull(m));
+
+        // A message carries two lists of its own, and both are that same third level: a list inside an
+        // element of a list. Neither is reached by the property walk, so both are named here — and the
+        // round is the one that arrived last, which is exactly the case this test exists to catch
+        // before it is a tile that cannot save.
+        var round = state.Messages[^1];
+        Assert.Equal(["Which?"], round.Questions.Select(q => q.Question));
+        Assert.Equal(["a"], Assert.Single(round.Questions).Options);
+        Assert.Equal(["null deref"], round.Findings.Select(f => f.Title));
 
         var engine = new GoalWorkflowEngine();
         engine.LoadFrom(state);

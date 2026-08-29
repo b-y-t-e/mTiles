@@ -51,6 +51,114 @@ public class GoalMessageRenderingTests
         Assert.Equal("plain", Built(template, Message(GoalMessageRole.System, "1. a", markdown: true)));
     }
 
+    /// <summary>
+    /// A round of questions outranks all three of the others.
+    /// </summary>
+    /// <remarks>
+    /// The same decision the findings make and for the same reason: the message is composed here, so
+    /// every other answer is false and the order only decides which false one is reached. It is asked
+    /// first because it is the newest, and because a round carries neither findings nor markdown — so
+    /// getting the order wrong here has no symptom until somebody adds a message that is both.
+    /// </remarks>
+    [Fact]
+    public void A_round_of_questions_is_drawn_as_questions()
+    {
+        var template = new GoalMessageTemplate
+        {
+            Questions = new FuncDataTemplate<GoalMessage>((_, _) => new Avalonia.Controls.TextBlock { Tag = "questions" }),
+            Findings = new FuncDataTemplate<GoalMessage>((_, _) => new Avalonia.Controls.TextBlock { Tag = "findings" }),
+            Markdown = new FuncDataTemplate<GoalMessage>((_, _) => new Avalonia.Controls.TextBlock { Tag = "markdown" }),
+            Plain = new FuncDataTemplate<GoalMessage>((_, _) => new Avalonia.Controls.TextBlock { Tag = "plain" }),
+        };
+
+        var round = Message(GoalMessageRole.Assistant, "1. Which file?", markdown: true);
+        round.Questions = [new GoalQuestion { Question = "Which file?", Answer = "appsettings.json" }];
+
+        Assert.Equal("questions", Built(template, round));
+
+        // A goal file written before rounds were kept has the same text and no questions of its own.
+        // It falls through to the plain template and is drawn as the numbered paragraph it always was.
+        Assert.Equal("plain", Built(template, Message(GoalMessageRole.Assistant, "1. Which file?")));
+    }
+
+    /// <summary>
+    /// The record of a round says what was asked and what was answered, both.
+    /// </summary>
+    /// <remarks>
+    /// It is the message's own text, so it is what the clipboard gets and what anything that cannot
+    /// draw the rows falls back to. A question left blank still appears: it was asked, and a round of
+    /// two answered once is a round of two.
+    /// </remarks>
+    [Fact]
+    public void A_recorded_round_carries_the_questions_and_the_answers()
+    {
+        var text = GoalTranscript.Answered(
+        [
+            new GoalQuestion
+            {
+                Question = "Which file holds the port?",
+                Why = "There are two candidates.",
+                Options = ["appsettings.json", "launchSettings.json"],
+                Answer = "appsettings.json",
+            },
+            new GoalQuestion { Question = "Sync or async?" },
+        ]);
+
+        Assert.StartsWith("1. Which file holds the port?", text);
+        Assert.Contains("There are two candidates.", text);
+        Assert.Contains("launchSettings.json", text);
+        Assert.Contains("appsettings.json", text);
+        Assert.Contains("2. Sync or async?", text);
+
+        // The answered one is marked with the transcript's own "you said" glyph; the unanswered one
+        // carries no answer line at all rather than an empty one.
+        Assert.Contains("\u276F appsettings.json", text);
+        Assert.EndsWith("2. Sync or async?", text);
+    }
+
+    /// <summary>One question copied on its own reads as the same block, without the number — which is a
+    /// position in a round, and what is copied out of a round is pasted somewhere the round is not.
+    /// </summary>
+    [Fact]
+    public void Copying_one_question_takes_its_reason_its_offers_and_its_answer()
+    {
+        var copied = GoalTranscript.Copyable(new GoalQuestion
+        {
+            Question = "Which file holds the port?",
+            Why = "There are two candidates.",
+            Options = ["appsettings.json", "launchSettings.json"],
+            Answer = "appsettings.json",
+        });
+
+        Assert.StartsWith("Which file holds the port?", copied);
+        Assert.Contains("There are two candidates.", copied);
+        Assert.Contains("launchSettings.json", copied);
+        Assert.Contains("\u276F appsettings.json", copied);
+        Assert.DoesNotContain("1.", copied);
+    }
+
+    /// <summary>
+    /// One finding copied on its own reads exactly as it does inside the review it came from.
+    /// </summary>
+    /// <remarks>
+    /// The two are built by one method, which is the whole of the guarantee: a second spelling of a
+    /// finding is how the row and the clipboard come to disagree about what the reviewer said. The lone
+    /// copy loses the blank line that separates two findings and nothing else.
+    /// </remarks>
+    [Fact]
+    public void Copying_one_finding_reads_as_it_does_inside_the_review()
+    {
+        var finding = Finding(GoalSeverity.Error, "Total ignores discounts", "Sum() runs before ApplyDiscount().");
+
+        var alone = GoalTranscript.Copyable(finding);
+        var whole = GoalTranscript.Copyable(Message(GoalMessageRole.Assistant, "Goal not met", true, finding));
+
+        Assert.Contains("Total ignores discounts", alone);
+        Assert.Contains("Sum() runs before ApplyDiscount().", alone);
+        Assert.DoesNotContain("Goal not met", alone);
+        Assert.EndsWith(alone, whole);
+    }
+
     private static string? Built(GoalMessageTemplate template, GoalMessage message) =>
         (template.Build(message) as Avalonia.Controls.TextBlock)?.Tag as string;
 

@@ -66,6 +66,24 @@ public sealed partial class GoalQuestionAnswer : ObservableObject
     partial void OnAnswerChanged(string value) => _answered?.Invoke(value);
 
     /// <summary>
+    /// This question and what has been typed against it, as the model the record is kept in.
+    /// </summary>
+    /// <remarks>
+    /// A copy rather than the engine's own object. The round is written into the transcript at the
+    /// moment it is answered and the pending set is cleared immediately afterwards; handing the record
+    /// the live object would leave a message in a saved conversation pointing at something the next
+    /// round is free to reuse. It is also what the copy button on a single question is built from, so
+    /// the clipboard and the record are made the same way.
+    /// </remarks>
+    public GoalQuestion Snapshot() => new()
+    {
+        Question = Question,
+        Why = Why,
+        Answer = Answer.Trim(),
+        Options = [..Options.Select(o => o.Text)],
+    };
+
+    /// <summary>
     /// Takes one of the offered answers into the box.
     /// </summary>
     /// <remarks>

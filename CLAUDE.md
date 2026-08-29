@@ -338,6 +338,15 @@ a ref under `refs/mtiles/`, so nothing the user can see moves. **Untracked files
 form of `diff` shows one and `checkout HEAD` cannot bring one back. Read *docs/GOAL.md* before touching
 it; four details there were measured and each is load-bearing.
 
+**The tile is a conversation and nothing is docked to the bottom of it.** One `ScrollViewer`, one
+column: the transcript, and then whatever the tile is asking for — the round of questions, the plan
+box, the finished-run actions, the composer with the detect buttons under it — each as a block where the next thing
+in a conversation goes. A round is *replaced by the record of itself* when it is answered, in place,
+rather than being asked in a docked panel and recorded as a numbered paragraph several screens above
+it. Anything in the conversation can be copied on its own — a message, one finding, one question with
+its answer — through one handler and one builder, so a finding copied alone reads exactly as it does
+inside the review it came from.
+
 **Everything else is in [`docs/GOAL.md`](docs/GOAL.md)** — the phase machine, the prompts and how they
 are fitted to a command line, the structured review and its severities, the completion criteria, the
 per-goal SOLID switches and the two health checks, what a run remembers between attempts, Continue,

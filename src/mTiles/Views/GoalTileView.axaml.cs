@@ -86,7 +86,7 @@ public partial class GoalTileView : UserControl
             // over: every message cost two synchronous UpdateLayout passes over the whole transcript,
             // markdown views included, and four ScrollToEnd calls. One event is the whole answer.
             vm.Messages.CollectionChanged += OnMessagesChanged;
-            ScrollTranscriptToEnd(force: true);
+            ScrollTranscriptToEnd();
             vm.ConfirmAction = async message =>
             {
                 // No window to ask in means no, the same answer the Settings dialog gives. The view
@@ -104,46 +104,90 @@ public partial class GoalTileView : UserControl
             vm.PropertyChanged += OnVmPropertyChanged;
             UpdatePhaseDot(vm.CurrentPhase);
 
-            // A tile can arrive already asking — reopened from a file whose questions were never
-            // answered — and no property changes on the way in to say so.
-            UpdateAskRow(vm.ShowQuestions);
+            // What the tile is already asking, before anything has changed. Without it a reopened tile
+            // waiting on a plan reads its first RefreshAsk as the plan arriving — which is harmless
+            // here only because attaching scrolls to the end anyway, and would stop being harmless the
+            // day it did not.
+            _showing.Clear();
+            foreach (var name in AskFlags)
+                _showing[name] = Showing(vm, name) ?? false;
         }
     }
 
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.Action is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Reset)
-            ScrollTranscriptToEnd();
+            FollowTheEndSoon();
     }
 
     /// <summary>
-    /// Follows the transcript down as it grows.
+    /// Decides now, scrolls once.
     /// </summary>
     /// <remarks>
-    /// <para><b>Asked before the scroll, and asked here rather than after a layout pass.</b> The message
-    /// has been added to the collection but not yet measured, so the extent still describes the
-    /// transcript without it — which is exactly the question worth asking: was the reader at the bottom
-    /// <em>before</em> this arrived. A run posts a dozen messages over an hour, and a tile that yanks
-    /// the view down while somebody is reading back through the plan is worse than one that does not
-    /// follow at all.</para>
-    /// <para>Then the scroll happens twice, and both are needed. <c>UpdateLayout</c> forces the new
-    /// message to be measured so <c>ScrollToEnd</c> has the real extent to scroll to — without it the
-    /// call used the old one and stopped a message short, which is the bug this replaced. The posted
-    /// one catches what sizes late: a rendered markdown answer arrives at its final height after its
-    /// own pass, and <c>Loaded</c> is the priority that runs once layout is done.</para>
+    /// <para>One change to the view model reaches here several times: setting <c>IsRunning</c> raises
+    /// <c>CanDetectGoal</c>, <c>HasFinishedRunActions</c>, the three ask flags and then itself, four of
+    /// which this view follows — so every boundary of a run paid for four synchronous
+    /// <c>UpdateLayout</c> passes over the whole transcript, markdown views included, and eight
+    /// <c>ScrollToEnd</c> calls, to end where the first one already was. Exactly the cost that was
+    /// taken out of the per-message path by watching the collection instead of a hook, and it grew back
+    /// on the other side.</para>
+    /// <para><b>The decision cannot be deferred with the work.</b> Whether to follow at all is "was the
+    /// reader at the bottom <em>before</em> this arrived", and the answer is only readable while the
+    /// new content is still unmeasured — a turn later the extent has grown and every reader looks
+    /// scrolled up. So it is taken on the first call of the turn and kept; the later calls of the same
+    /// turn can only add <c>force</c>, never take the answer back. Which also settles what was
+    /// previously decided four times against an extent that the first of the four had already
+    /// changed.</para>
     /// </remarks>
-    private void ScrollTranscriptToEnd(bool force = false)
+    private void FollowTheEndSoon(bool force = false)
     {
-        if (!force)
-        {
-            var below = ChatScroll.Extent.Height - ChatScroll.Viewport.Height - ChatScroll.Offset.Y;
-            if (below > StuckToBottom) return;
-        }
+        _scrollForce |= force;
 
+        if (_scrollQueued) return;
+        _scrollQueued = true;
+        _scrollWanted = force || IsNearTheEnd();
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            _scrollQueued = false;
+            var wanted = _scrollWanted || _scrollForce;
+            _scrollForce = false;
+
+            if (wanted) ScrollTranscriptToEnd();
+        }, DispatcherPriority.Loaded);
+    }
+
+    private bool _scrollQueued;
+    private bool _scrollWanted;
+    private bool _scrollForce;
+
+    /// <summary>
+    /// Goes to the end of the transcript, unconditionally.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Whether</b> to follow is not asked here and must not be — it is
+    /// <see cref="FollowTheEndSoon"/>'s, taken while the new content is still unmeasured. This is only
+    /// the doing, and it is reached having already been decided. It had a <c>force</c> parameter with a
+    /// guard behind it, left over from when the two were one method; both callers passed true, so the
+    /// guard was unreachable and the paragraph explaining it described a rule that had moved. A third
+    /// caller written against that paragraph would have got a decision taken a turn late, against an
+    /// extent that had already grown — which is the one thing the rule exists to prevent.</para>
+    /// <para>The scroll happens twice, and both are needed. <c>UpdateLayout</c> forces the new message
+    /// to be measured so <c>ScrollToEnd</c> has the real extent to scroll to — without it the call used
+    /// the old one and stopped a message short, which is the bug this replaced. The posted one catches
+    /// what sizes late: a rendered markdown answer arrives at its final height after its own pass, and
+    /// <c>Loaded</c> is the priority that runs once layout is done.</para>
+    /// </remarks>
+    private void ScrollTranscriptToEnd()
+    {
         ChatScroll.UpdateLayout();
         ChatScroll.ScrollToEnd();
         Dispatcher.UIThread.Post(ChatScroll.ScrollToEnd, DispatcherPriority.Loaded);
     }
+
+    /// <summary>Whether the reader is watching the run rather than reading back through it.</summary>
+    private bool IsNearTheEnd() =>
+        ChatScroll.Extent.Height - ChatScroll.Viewport.Height - ChatScroll.Offset.Y <= StuckToBottom;
 
     /// <summary>How far off the bottom still counts as watching the run rather than reading the
     /// history. A line and a half: enough that a message arriving as the last one is measured does not
@@ -151,9 +195,14 @@ public partial class GoalTileView : UserControl
     private const double StuckToBottom = 48;
 
     /// <summary>
-    /// Puts one message on the clipboard.
+    /// Puts one thing in the conversation on the clipboard — a message, a finding, or a question with
+    /// what was answered to it.
     /// </summary>
     /// <remarks>
+    /// <para>One handler for all of them, because a copy button is the same button wherever it is and
+    /// the only thing that differs is what its own <c>DataContext</c> happens to be. Four handlers doing
+    /// this would be four copies of the clipboard's failure path and of the tick, which is where the
+    /// third one quietly stops matching the other two.</para>
     /// <para>In the view rather than in the view model, because a clipboard belongs to a window: reaching
     /// one needs a <c>TopLevel</c>, and a view model that holds one holds the window open. The
     /// alternative was a command on the tile reached from inside the item template by walking up out of
@@ -162,21 +211,19 @@ public partial class GoalTileView : UserControl
     /// user pressing it again, and the second press is indistinguishable from the first not having
     /// worked.</para>
     /// </remarks>
-    private async void CopyMessage_Click(object? sender, RoutedEventArgs e)
+    private async void CopyItem_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || button.DataContext is not GoalMessage message) return;
+        if (sender is not Button button || TextOf(button.DataContext) is not { Length: > 0 } text) return;
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
 
         try
         {
-            // Not Text on its own: a review's findings are findings now, and its text is only the
-            // head, so copying that alone handed over a verdict with the defects it counted missing.
-            await clipboard.SetTextAsync(GoalTranscript.Copyable(message));
+            await clipboard.SetTextAsync(text);
         }
         catch (Exception ex)
         {
             // A clipboard can be held by another application. Not worth a dialog over a convenience.
-            System.Diagnostics.Trace.TraceWarning($"Copying a message failed: {ex.Message}");
+            System.Diagnostics.Trace.TraceWarning($"Copying failed: {ex.Message}");
             return;
         }
 
@@ -185,11 +232,36 @@ public partial class GoalTileView : UserControl
         icon.Kind = MaterialIconKind.Check;
         await Task.Delay(CopiedFeedback);
 
-        // Checked again: a transcript row is reused as the list changes, so by now this button may be
-        // showing a different message — and it is still the same button, so it is still the tick that
-        // has to come off.
+        // Checked again: a row is reused as the list changes, so by now this button may be showing a
+        // different message — and it is still the same button, so it is still the tick that has to come
+        // off.
         if (icon.Kind == MaterialIconKind.Check) icon.Kind = MaterialIconKind.ContentCopy;
     }
+
+    /// <summary>
+    /// What each of the four things a copy button can be attached to reads as, on the clipboard.
+    /// </summary>
+    /// <remarks>
+    /// <para>Every case goes through <see cref="GoalTranscript"/>, so a finding copied on its own reads
+    /// exactly as it does inside the review it came from, and a question copied on its own reads as it
+    /// does inside the round. Two spellings of the same thing is the failure this avoids — and it is not
+    /// hypothetical: a message's own <c>Text</c> is only the head of a review, so copying that alone
+    /// once handed somebody a verdict with the defects it counted missing.</para>
+    /// <para>Internal so the mapping can be stated in a test without a window: what a button hands over
+    /// is a decision, and the clipboard it hands it to is not.</para>
+    /// </remarks>
+    internal static string TextOf(object? data) => data switch
+    {
+        GoalMessage message => GoalTranscript.Copyable(message),
+        GoalFinding finding => GoalTranscript.Copyable(finding),
+        GoalQuestion question => GoalTranscript.Copyable(question),
+
+        // The live block, where the answer is still being typed: the view model's own snapshot, which is
+        // also what the record is written from, so what is copied mid-round and what is copied out of
+        // the record afterwards are made by one method.
+        GoalQuestionAnswer asking => GoalTranscript.Copyable(asking.Snapshot()),
+        _ => "",
+    };
 
     /// <summary>How long the tick stays. Long enough to be seen, short enough that a second copy of the
     /// next message does not find the button still congratulating itself about the last one.</summary>
@@ -202,96 +274,116 @@ public partial class GoalTileView : UserControl
         if (e.PropertyName == nameof(GoalTileViewModel.CurrentPhase))
             UpdatePhaseDot(vm.CurrentPhase);
 
-        if (e.PropertyName == nameof(GoalTileViewModel.ShowQuestions))
+        if (e.PropertyName == nameof(GoalTileViewModel.ShowQuestions) && vm.ShowQuestions)
+            FocusFirstAnswer();
+
+        if (e.PropertyName is not { } name) return;
+
+        // Everything the tile asks of the user is now a block at the end of the conversation, so each of
+        // these changes the length of the thing being scrolled without adding a message — and the
+        // follow-to-the-bottom rule is driven by the message collection. Without this the block appears
+        // below the fold on a full transcript, which is the one moment it is the only thing worth
+        // looking at.
+        //
+        // A block that has just *appeared* is followed whether or not the reader had scrolled up, which
+        // is the one place that rule is overruled. While the bars were docked it did not arise: they
+        // were on screen at any offset. Now a plan waiting to be approved, or a composer coming back,
+        // arrives off screen while the composer that was there vanishes — leaving a tile that looks
+        // like it is doing nothing and offers nowhere to type. That is not a message streaming past
+        // during a run, which is what the rule protects a reader from; it is the tile stopping and
+        // needing an answer, and it happens a handful of times in a run rather than a dozen.
+        if (Showing(vm, name) is { } showing)
         {
-            UpdateAskRow(vm.ShowQuestions);
-            if (vm.ShowQuestions) FocusFirstAnswer();
+            // Through Appeared rather than spelled out again here. The rule is one line, which is
+            // exactly what makes a second copy of it cheap to write and invisible once written: the
+            // tests pin Appeared, so a condition added to a copy in this handler would ship green.
+            // What this method owns is the *remembering* — Appeared needs a previous value and a view
+            // model has none.
+            var appeared = Appeared(vm, name, _showing.GetValueOrDefault(name));
+            _showing[name] = showing;
+
+            // A block going away still changes where the end is, so the ordinary follow applies to it —
+            // it just does not overrule anybody.
+            FollowTheEndSoon(force: appeared);
+            return;
         }
 
-        // The waiting row is part of the transcript, so it changes the transcript's height without
-        // adding a message — and the follow-to-the-bottom rule is driven by the message collection.
-        // Without this the dots appear a row below the fold on a full transcript, which is the one
-        // place the user is looking when they are waiting.
-        if (e.PropertyName == nameof(GoalTileViewModel.IsRunning))
-            ScrollTranscriptToEnd();
+        if (FollowsTheEnd.Contains(name))
+            FollowTheEndSoon();
     }
 
     /// <summary>
-    /// How tall the question panel is, in pixels, until the user drags it somewhere else.
+    /// What each of the four blocks is showing now, and null for a name that is not one of them.
     /// </summary>
     /// <remarks>
-    /// Tall enough for one question with its reasons and offered answers, which is what most rounds
-    /// ask, and short enough to leave the conversation visible — the whole argument for a panel rather
-    /// than a wall of text in the transcript.
+    /// <para>Read rather than listed, so a name here that cannot be answered does not compile — the
+    /// alternative was a second set beside the first, where "in the set" and "how to read it" drift.</para>
+    /// <para>Only the current state, deliberately: turning it into <em>arriving</em> needs the previous
+    /// one, and where that is remembered is the view. Kept apart so this half stays pure and the
+    /// transition can be stated in a test — see <see cref="Appeared"/>.</para>
+    /// <para><c>CanDetectGoal</c> is deliberately not here, though it shows a block like the rest. It is
+    /// fed by the git watcher, so it turns over when a file changes in a terminal tile next door — and
+    /// yanking somebody's reading position because of an edit made somewhere else is worse than the
+    /// offer arriving quietly. <c>IsRunning</c> is not here either: the waiting dots are information
+    /// about a run, not a request, and they arrive a dozen times to the requests' handful.</para>
+    /// <para>Internal so the rule can be stated in a test, as <see cref="TextOf"/> is: which changes
+    /// overrule a reader's scroll position is a decision, and the scroller it overrules is not.</para>
     /// </remarks>
-    private const double DefaultAskHeight = 230;
-
-    /// <summary>What the row goes back to when the panel returns. It is not a setting: a height dragged
-    /// for three long questions is not the right height for the next tile, and remembering it across
-    /// sessions would make an answer to one round the default for every round after it.</summary>
-    private double _askHeight = DefaultAskHeight;
-
-    /// <summary>The row the question panel sits in. Taken from the end rather than by index: it is the
-    /// last row by construction, and a number would go quietly wrong the day a row is added above it in
-    /// the markup — at run time, in a handler, with nothing to catch it.</summary>
-    private RowDefinition AskRow => AskGrid.RowDefinitions[^1];
-
-    /// <summary>
-    /// Gives the question row its height, and takes it away again.
-    /// </summary>
-    /// <remarks>
-    /// <para>The row cannot simply be left at its dragged size: a <c>RowDefinition</c> holds a height
-    /// whatever its child's visibility says, so a tile that had been asked three questions kept an
-    /// empty band under the transcript for the rest of the session.</para>
-    /// <para>The height is read back before it is collapsed rather than caught from a drag event,
-    /// because that is true however the row got its size — a drag, a later default, or anything else
-    /// that ever sets it. There is no event to miss.</para>
-    /// </remarks>
-
-    private void UpdateAskRow(bool asking)
+    internal static bool? Showing(GoalTileViewModel vm, string name) => name switch
     {
-        var row = AskRow;
-
-        // Read before anything is written, on every path. Whoever last set this row — the splitter,
-        // an earlier clamp, the default — what it is showing now is the truth, and taking it only on
-        // the way out meant a resize put back the height from before the user last dragged it.
-        if (row.ActualHeight > 1)
-            _askHeight = row.ActualHeight;
-
-        row.Height = asking ? new GridLength(Fits(_askHeight)) : new GridLength(0);
-    }
-
-    private double Fits(double wanted) => FitsIn(wanted, AskGrid.Bounds.Height);
+        nameof(GoalTileViewModel.ShowQuestions) => vm.ShowQuestions,
+        nameof(GoalTileViewModel.ShowApproval) => vm.ShowApproval,
+        nameof(GoalTileViewModel.ShowComposer) => vm.ShowComposer,
+        nameof(GoalTileViewModel.HasFinishedRunActions) => vm.HasFinishedRunActions,
+        _ => null,
+    };
 
     /// <summary>
-    /// The asked-for height, or as much of it as a tile this tall can spare.
+    /// Whether this change is one of the tile's requests <em>arriving</em>.
     /// </summary>
     /// <remarks>
-    /// <para>A fixed 230 was fine until the tile was smaller than that. A grid row with an absolute
-    /// height takes it whether or not there is room: on a tile 200 pixels tall the transcript vanished
-    /// entirely and the Send button went with it, off the bottom edge — a panel you cannot answer,
-    /// covering a conversation you cannot read. Three fifths, so what the panel is for is always still
-    /// visible behind it. Before the first layout there is no height to measure and the wanted value
-    /// stands.</para>
-    /// <para>Static and taking the height as an argument, so the rule can be stated without a window:
-    /// it is arithmetic, and the thing worth pinning is the ratchet — shrinking the tile clamps the
-    /// panel, and growing it again must not <em>expand</em> a panel the user never dragged, because a
-    /// clamped height is what gets read back as "what the user wanted" on the next pass.</para>
+    /// <para>The rule this view is written to, and the only statement of it — <c>OnVmPropertyChanged</c>
+    /// calls this rather than repeating the comparison, which it did for one round: a one-line rule is
+    /// the cheapest kind to copy and the hardest kind to notice twice, and with the tests pinning this
+    /// one a change to the other would have shipped green.</para>
+    /// <para>For a while the code said something else again: it forced on a block that was
+    /// <em>showing</em> rather than one that had appeared, which is a different sentence every time a
+    /// notification is raised for a value that did not move — and this view model raises all three ask
+    /// flags together, unconditionally, several times a run. Only <em>false to true</em> counts: a
+    /// block disappearing is not a reason to move anybody's view, and a block that was already there
+    /// has not asked for anything.</para>
     /// </remarks>
-    internal static double FitsIn(double wanted, double available) =>
-        available > 1 ? Math.Min(wanted, available * 0.6) : wanted;
+    internal static bool Appeared(GoalTileViewModel vm, string name, bool wasShowing) =>
+        Showing(vm, name) is true && !wasShowing;
+
+    /// <summary>What each block was showing when it was last heard from. Seeded on attach, so the first
+    /// notification about a tile that is already asking is not read as the ask arriving.</summary>
+    private readonly Dictionary<string, bool> _showing = [];
 
     /// <summary>
-    /// Re-clamps the panel when the tile is resized.
+    /// What, changing, moves the end of the conversation without being a request in its own right.
     /// </summary>
     /// <remarks>
-    /// A height that fitted when it was dragged does not fit after the tile is halved, and a row with an
-    /// absolute height does not give any of it back on its own.
+    /// A set rather than a chain of comparisons, because the failure it guards against is a block added
+    /// to the markup and forgotten here: one place to look, next to nothing else. It is the *end* being
+    /// followed rather than each block in turn — whichever of them appears, the answer is the same.
     /// </remarks>
-    private void AskGrid_SizeChanged(object? sender, SizeChangedEventArgs e)
-    {
-        if (DataContext is GoalTileViewModel { ShowQuestions: true }) UpdateAskRow(asking: true);
-    }
+    private static readonly HashSet<string> FollowsTheEnd =
+    [
+        nameof(GoalTileViewModel.IsRunning),
+        nameof(GoalTileViewModel.CanDetectGoal),
+    ];
+
+    /// <summary>The four <see cref="Showing"/> answers, for seeding. Named once; the switch is what
+    /// decides, and a name here that it does not know seeds false and is never asked about again.
+    /// </summary>
+    private static readonly string[] AskFlags =
+    [
+        nameof(GoalTileViewModel.ShowQuestions),
+        nameof(GoalTileViewModel.ShowApproval),
+        nameof(GoalTileViewModel.ShowComposer),
+        nameof(GoalTileViewModel.HasFinishedRunActions),
+    ];
 
     /// <summary>
     /// Enter in the plan box sends, as it does in the composer and in an answer box.

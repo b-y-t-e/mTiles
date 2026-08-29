@@ -94,6 +94,38 @@ internal static class GoalTranscript
         return sb.ToString();
     }
 
+    /// <summary>
+    /// One finding as text: what the copy button on a single row puts on the clipboard.
+    /// </summary>
+    /// <remarks>
+    /// The same builder the whole review is copied with, so a finding copied on its own reads exactly
+    /// as it does inside a review copied whole — one shape, not two that drift.
+    /// <see cref="AppendFindings"/> writes the blank line that separates two of them, which a lone
+    /// finding does not want.
+    /// </remarks>
+    public static string Copyable(GoalFinding finding)
+    {
+        var sb = new StringBuilder();
+        AppendFindings(sb, [finding]);
+        return sb.ToString().TrimStart('\n');
+    }
+
+    /// <summary>
+    /// One question as text — what it asked, why, what it offered and what was answered.
+    /// </summary>
+    /// <remarks>
+    /// Unnumbered, deliberately. A number is a position in a round, and what is copied out of a round is
+    /// pasted somewhere the round is not: "2." there names nothing. The answer is marked with the same
+    /// <c>&#x276F;</c> the transcript puts beside the user's own turns, because what tells the two
+    /// halves apart on the clipboard should be what tells them apart on screen.
+    /// </remarks>
+    public static string Copyable(GoalQuestion question)
+    {
+        var sb = new StringBuilder();
+        AppendQuestion(sb, question, marker: "");
+        return sb.ToString();
+    }
+
     /// <summary>Blockers first, as a list. Public because the view model stores findings already
     /// ordered: they are written to the goal file and read back by a control that sorts nothing.
     /// </summary>
@@ -199,21 +231,60 @@ internal static class GoalTranscript
         if (!clarify.WasStructured || clarify.Questions.Count == 0)
             return Prose(clarify.RawText) is { Length: > 0 } prose ? prose : Unfenced(clarify.RawText);
 
+        return Round(clarify.Questions, withAnswers: false);
+    }
+
+    /// <summary>
+    /// A finished round: the questions as they were asked, each with the answer that was given.
+    /// </summary>
+    /// <remarks>
+    /// <para>What the message carrying a round holds as its <c>Text</c>. The row is drawn from
+    /// <c>GoalMessage.Questions</c> rather than from this, exactly as a review is drawn from its
+    /// findings — but the text is still the whole of the round, so the copy button hands over the
+    /// questions <em>and</em> the answers rather than a heading, and a message read back by anything
+    /// that cannot draw the rows falls back to something complete.</para>
+    /// <para>Questions left blank are still listed, without an answer line. They were asked; leaving
+    /// them out would make a round of three that was answered once read as a round of one.</para>
+    /// </remarks>
+    public static string Answered(IReadOnlyList<GoalQuestion> questions) =>
+        Round(questions, withAnswers: true);
+
+    private static string Round(IReadOnlyList<GoalQuestion> questions, bool withAnswers)
+    {
         var sb = new StringBuilder();
-        for (var i = 0; i < clarify.Questions.Count; i++)
+        for (var i = 0; i < questions.Count; i++)
         {
-            var q = clarify.Questions[i];
             if (i > 0) sb.Append('\n').Append('\n');
 
-            // "1." and not "1)", because the skeleton the composer is filled with uses "1." and an
-            // answer is matched to its question by eye. Two spellings of the same number is one more
-            // thing for the reader to reconcile.
-            sb.Append(i + 1).Append(". ").Append(q.Question);
-            if (q.Why.Length > 0) sb.Append('\n').Append("   ").Append(q.Why);
-            AppendOptions(sb, q.Options);
+            // "1." and not "1)", because an answer is matched to its question by eye, and two
+            // spellings of the same number is one more thing for the reader to reconcile.
+            AppendQuestion(sb, questions[i], $"{i + 1}. ", withAnswers);
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// One question, its reason, its offered answers and — where it is wanted — the answer given.
+    /// </summary>
+    /// <remarks>
+    /// The indent under a question is three spaces whether or not a marker stands above it: it is the
+    /// hanging indent of a numbered list rather than a measurement of the number, so one question
+    /// copied on its own reads as the same block, one level in.
+    /// </remarks>
+    private static void AppendQuestion(StringBuilder sb, GoalQuestion q, string marker,
+        bool withAnswer = true)
+    {
+        sb.Append(marker).Append(q.Question);
+        if (q.Why.Length > 0) sb.Append('\n').Append("   ").Append(q.Why);
+        AppendOptions(sb, q.Options);
+
+        if (!withAnswer) return;
+
+        var answer = q.Answer.Trim();
+        if (answer.Length > 0)
+            sb.Append('\n').Append("   \u276F ")
+              .Append(answer.ReplaceLineEndings("\n     "));
     }
 
     /// <summary>

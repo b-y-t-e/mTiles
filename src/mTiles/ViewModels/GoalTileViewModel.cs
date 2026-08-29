@@ -182,7 +182,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         RefreshAsk();
     }
 
-    /// <summary>The approval panel's button reads the box, so it has to be told when the box changes.
+    /// <summary>The plan block's button reads the box, so it has to be told when the box changes.
     /// </summary>
     partial void OnInputTextChanged(string value) => OnPropertyChanged(nameof(ApprovalActionLabel));
 
@@ -193,7 +193,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// </summary>
     /// <remarks>
     /// Rebuilt from the engine rather than added to, so there is one copy of the truth and a reload
-    /// produces the same panel a fresh round does.
+    /// produces the same round a fresh one does.
     /// </remarks>
     public ObservableCollection<GoalQuestionAnswer> Questions { get; } = [];
 
@@ -205,12 +205,13 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     private void WatchQuestions() => Questions.CollectionChanged += (_, _) => RefreshAsk();
 
     /// <summary>
-    /// Whether the question panel is up.
+    /// Whether a round of questions is being asked.
     /// </summary>
     /// <remarks>
-    /// The panel replaces the composer rather than sitting above it, because they would be two boxes
-    /// asking for the same thing with different filing rules. While it is up the composer has nothing
-    /// to send that the panel cannot send better.
+    /// The round replaces the composer rather than standing above it, because they would be two boxes
+    /// asking for the same thing with different filing rules — and an answer typed into the wrong one
+    /// is filed against the wrong question. While it is up the composer has nothing to send that the
+    /// round cannot send better.
     /// </remarks>
     public bool ShowQuestions =>
         !IsRunning && Questions.Count > 0 && CurrentPhase == GoalPhase.Clarify;
@@ -242,7 +243,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// </remarks>
     public bool ShowComposer => !IsRunning && !ShowQuestions && !ShowApproval;
 
-    /// <summary>What the panel's one button does, which follows the box under it. A user who has typed
+    /// <summary>What the plan block's one button does, which follows the box under it. A user who has typed
     /// a correction is not asking to approve, and a button labelled "Approve" that sends their
     /// correction instead — or throws it away — would be the same betrayal twice.</summary>
     public string ApprovalActionLabel =>
@@ -254,9 +255,12 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// The count, above the questions.
     /// </summary>
     /// <remarks>
-    /// All that is left of a line that used to say what was being asked as well. The panel is capped
-    /// and scrolls, so the count is the one thing it cannot show for itself — everything else that
-    /// line said was already on the status strip, in the placeholder and on the button.
+    /// All that is left of a line that used to say what was being asked as well: everything else it
+    /// said was already on the status strip, in the placeholder and on the button. The count stays
+    /// because a round is as tall as it is — three questions with their reasons run past the fold of a
+    /// small tile, and "3 questions" at the head is how you know there is a third one down there. It
+    /// used to be justified by the panel being capped and scrolling; the cap is gone and the reason is
+    /// not the same one.
     /// </remarks>
     public string QuestionsTitle =>
         Questions.Count == 1 ? "1 question" : $"{Questions.Count} questions";
@@ -303,44 +307,40 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// <para>Unanswered questions are left out rather than sent empty. A blank line under a number
     /// says "none of your business" to a model that cannot tell it from a skipped one, and the round
     /// after it asks again.</para>
-    /// <para>The questions go into the transcript here, at the moment they are answered, rather than
-    /// when they were asked. That keeps the record complete — question then answer, in order, exactly
-    /// as it always read — without spending the screen on a second copy of what the panel above is
-    /// already showing. Which is the whole point: the conversation has to stay readable while three
-    /// questions are on screen.</para>
+    /// <para>The round becomes one message, here, at the moment it is answered: the questions as they
+    /// were asked with the answers under them, drawn as the same block the user has just filled in.
+    /// That is the whole of the record, which is why <c>echoTyped</c> is off below — the answers are
+    /// already in the row above, and a second copy of them as a turn of the user's own is the same text
+    /// twice in a conversation whose whole argument is that it stays readable.</para>
+    /// <para>Every question is snapshotted, not only the answered ones. They were all asked, and a
+    /// round of three answered once is still a round of three.</para>
     /// </remarks>
     [RelayCommand]
     private async Task SendAnswers()
     {
-        // The same question the panel's own visibility asks, so a phase the tile has moved on from
+        // The same question the block's own visibility asks, so a phase the tile has moved on from
         // cannot send answers to questions it is no longer asking.
         if (!ShowQuestions) return;
 
         var answered = Questions.Where(q => q.Answer.Trim().Length > 0).ToList();
         if (answered.Count == 0)
         {
-            // Not the composer's version of this sentence, which offers to hear what you want changed
-            // instead: while the panel is up the composer is not, so there is nowhere to say it.
             await SayOnceAsync("Answer at least one of the questions before sending.");
             return;
         }
 
         var text = string.Join("\n", answered.Select(q => $"{q.Marker} {q.Answer.Trim()}"));
-        var asked = GoalTranscript.Questions(new GoalClarifyResult
-        {
-            WasStructured = true,
-            Questions = [.._engine.PendingQuestions],
-        });
+        var round = Questions.Select(q => q.Snapshot()).ToList();
 
-        // The transcript first, the pending set second: clearing is what takes the questions off the
-        // screen, and doing it before the record is written is a moment in which they exist nowhere at
-        // all. Not markdown, because this is a numbered list composed here rather than prose the tool
-        // wrote, and markdown would re-flow it.
-        await AddMessageAsync(GoalMessageRole.Assistant, asked, GoalPhase.Clarify);
+        // The record first, the pending set second: clearing is what takes the live block off the
+        // screen, and doing it before the record is written is a moment in which the round exists
+        // nowhere at all. Not markdown — this is composed here, and its columns are made of spaces.
+        await AddMessageAsync(GoalMessageRole.Assistant, GoalTranscript.Answered(round),
+            GoalPhase.Clarify, questions: round);
         ClearPendingQuestions();
 
         InputText = text;
-        await Submit();
+        await SubmitCore(echoTyped: false);
     }
 
     /// <summary>Approves the plan, or sends the correction typed under it — whichever the box says.
@@ -349,8 +349,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     [RelayCommand]
     private async Task ApproveOrChange()
     {
-        // The same question the panel's visibility asks. IsRunning alone let the command run in a phase
-        // with no plan in it, where Submit's own "there is no plan to approve yet" is the only thing
+        // The same question the plan box's visibility asks. IsRunning alone let the command run in a
+        // phase with no plan in it, where Submit's own "there is no plan to approve yet" is the only thing
         // that catches it.
         if (!ShowApproval) return;
 
@@ -1129,7 +1129,14 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     // ── Phase dispatch ──────────────────────────────────
 
     [RelayCommand]
-    private async Task Submit()
+    private Task Submit() => SubmitCore(echoTyped: true);
+
+    /// <param name="echoTyped">Whether what is being sent is also written into the transcript as a turn
+    /// of the user's own. Off for the answers to a round of questions, which have just been recorded
+    /// under the questions they answer — see <see cref="SendAnswers"/>. It gates the transcript and
+    /// nothing else: what goes to the tool, and the clarification history it is remembered in, are the
+    /// same either way.</param>
+    private async Task SubmitCore(bool echoTyped)
     {
         var text = InputText.Trim();
         if (string.IsNullOrEmpty(text) || IsRunning) return;
@@ -1205,7 +1212,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
                     // run that was cut off, and what Resume then does — ask the tool again with the
                     // answer in hand — is exactly what was owed.
                     _engine.RecordClarification(text);
-                    await AddMessageAsync(GoalMessageRole.User, text, GoalPhase.Clarify);
+                    if (echoTyped)
+                        await AddMessageAsync(GoalMessageRole.User, text, GoalPhase.Clarify);
                     await WorkingAsync(RunClarifyAsync);
                     break;
 
@@ -1279,7 +1287,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         // First, before the budget is even looked at. Whatever is on screen is about to be answered by
         // a fresh set, by none, or by the tile giving up and planning — and that last path returns
         // below without ever reaching the round. Clearing after the check left a tile in Plan still
-        // showing the old questions, with the approval panel suppressed behind them (ShowApproval
+        // showing the old questions, with the plan box suppressed behind them (ShowApproval
         // stands down while ShowQuestions is up), so the only thing on screen was a set of questions
         // nobody was going to read and no way to approve the plan they had been abandoned for.
         ClearPendingQuestions();
@@ -1359,13 +1367,14 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         // nobody had written down.
         _engine.RecordClarification(questions, fromUser: false);
 
-        // Structured questions are asked in the panel, which owns a box per question — so they are
-        // deliberately *not* put in the transcript here. They go in when they are answered, together
-        // with the answer, which keeps the record in the order it always read while leaving the screen
-        // to the conversation. Three questions and their reasons is most of a small tile.
+        // Structured questions become a block in the conversation with a box per question — so they are
+        // deliberately *not* put in the transcript here as well. The block is replaced by the record of
+        // itself when it is answered: one message carrying the same questions in the same order with
+        // the answers under them, at the point they were asked. Writing them here too would put the
+        // round on screen twice, which on a small tile is most of it.
         //
         // Prose is the other half of the rule and keeps the behaviour it always had: there is nothing
-        // to build a panel from, so it is a message and the composer answers it.
+        // to build a block from, so it is a message and the composer answers it.
         if (clarify.WasStructured && clarify.Questions.Count > 0)
         {
             _engine.SetPendingQuestions(clarify.Questions);
@@ -1428,7 +1437,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
 
                     // Said here rather than left to IsRunning going false a moment later. ProposedPlan
                     // is a plain field that notifies nobody, and the phase does not move when a plan
-                    // arrives, so the approval panel appeared by luck — luck that runs out the day
+                    // arrives, so the plan box appeared by luck — luck that runs out the day
                     // anything else sets a plan.
                     RefreshAsk();
 
@@ -2902,28 +2911,26 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// <param name="findings">A review's findings, drawn as rows under the text rather than flattened
     /// into it. Ordered by the caller: this list is what goes in the file, and what comes back out of it
     /// is bound straight into an items control that sorts nothing.</param>
+    /// <param name="questions">A clarification round and its answers, drawn as the questions they were
+    /// rather than as the numbered paragraph they flatten to. Snapshots, not the engine's own objects —
+    /// see <see cref="GoalQuestionAnswer.Snapshot"/>.</param>
     private async Task AddMessageAsync(GoalMessageRole role, string text, GoalPhase phase,
-        bool markdown = false, IReadOnlyList<GoalFinding>? findings = null)
+        bool markdown = false, IReadOnlyList<GoalFinding>? findings = null,
+        IReadOnlyList<GoalQuestion>? questions = null)
     {
+        // Built once and added on whichever thread this is. The two branches used to hold a copy of the
+        // initialiser each, which is how the third property was added to one of them.
+        var message = new GoalMessage
+        {
+            Role = role, Text = text, Phase = phase, Markdown = markdown,
+            Findings = findings is null ? [] : [..findings],
+            Questions = questions is null ? [] : [..questions],
+        };
+
         if (Dispatcher.UIThread.CheckAccess())
-        {
-            Messages.Add(new GoalMessage
-                {
-                    Role = role, Text = text, Phase = phase, Markdown = markdown,
-                    Findings = findings is null ? [] : [..findings],
-                });
-        }
+            Messages.Add(message);
         else
-        {
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                Messages.Add(new GoalMessage
-                    {
-                        Role = role, Text = text, Phase = phase, Markdown = markdown,
-                        Findings = findings is null ? [] : [..findings],
-                    });
-            });
-        }
+            await Dispatcher.UIThread.InvokeAsync(() => Messages.Add(message));
 
         SaveStateSoon();
     }

@@ -39,10 +39,26 @@ public sealed class GoalMessageTemplate : IDataTemplate
     /// </remarks>
     public IDataTemplate? Findings { get; set; }
 
+    /// <summary>
+    /// Drawn for a clarification round that kept its questions: each question, why it was asked, the
+    /// answers it offered and the one that was given — read-only, because the round is over.
+    /// </summary>
+    /// <remarks>
+    /// Asked first, and for the same reason <see cref="Findings"/> is asked before <see cref="Markdown"/>:
+    /// the round is composed here rather than written by the tool, so the other three answers are all
+    /// false and the order only decides which false one is reached. A message from a goal file written
+    /// before the questions were kept has none, falls through to <see cref="Plain"/>, and is drawn as
+    /// the numbered paragraph it always was.
+    /// </remarks>
+    public IDataTemplate? Questions { get; set; }
+
     public bool Match(object? data) => data is GoalMessage;
 
     public Control? Build(object? param) =>
         param is not GoalMessage message
             ? null
-            : (message.HasFindings ? Findings : message.IsMarkdown ? Markdown : Plain)?.Build(param);
+            : (message.HasQuestions ? Questions
+                : message.HasFindings ? Findings
+                : message.IsMarkdown ? Markdown
+                : Plain)?.Build(param);
 }
