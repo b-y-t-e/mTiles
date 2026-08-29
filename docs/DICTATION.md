@@ -676,6 +676,10 @@ focused text box first when there is one, so dictating into a Note from a phone 
 resolved on the UI thread when the recording starts, for the same reason the shortcut resolves it then:
 the words belong where the user was looking when they spoke.
 
+The page also carries **three keys** — Enter, and the arrows up and down. Dictating a command is only
+half of driving an agent from the sofa: the other half is answering the prompt it stops on, which is a
+choice moved through with the arrows and taken with Enter. See *Enter and the arrows* below.
+
 The button is **window-level rather than per-tile**. It started in the tile header next to the microphone,
 which read as "dictate into *this* tile" — something the feature neither promises nor could deliver, since
 the destination is resolved when the recording starts, not when the panel was opened. Next to Settings it
@@ -795,6 +799,120 @@ route the only way in was `/p/{token}`, and pairing tokens are single-use by des
 refreshed, or was locked and reopened its browser, held a perfectly good session and could reach nothing
 with it. It had to be handed a fresh QR code from a machine that might be in another building, which made
 "keep running so a paired phone reconnects on its own" a promise the server could not keep.
+
+### Enter and the arrows
+
+Three buttons under the talk button, and one more message type on the same socket:
+`{"type":"key","key":"enter"|"up"|"down"}`. `PhoneKeys` is both ends of that name — the page's list and
+the server's — and everything outside it is answered with silence.
+
+**A closed set of three, decided in this process.** The obvious generalisation is a key *name* off the
+wire, and it is the wrong shape: what arrives has crossed a network from a device paired once and left in
+a coat pocket, and where it arrives is a shell. Three is also all the job needs.
+
+Closed at *both* ends, which took a second pass to get right. Parsing a name was already a closed list;
+turning one into a keystroke was a two-arm switch with `Enter` as its fallback, so a fourth key added to
+the enum and to the wire names and missed there would have been delivered as Enter — of the three, the
+one that cannot be taken back, since it answers whatever prompt the agent is sitting on with that
+prompt's default. Every member is now spelled out and the default throws, which the wrapper below turns
+into "could not deliver that key"; a test walks the enum so the three lists cannot drift apart without
+the build saying so.
+
+**They go where the transcript goes, by the same rule** — and by the same *code*: both destinations come
+from `DictationTextSink` (`WritableTextTarget`, the focused control when it is a writable text control
+still on screen; `LiveTerminal`, the active tile's terminal when its shell is still running), which
+`PhoneKeys` calls rather than working out again. Not a simplification: the two are used in one breath.
+You dictate a line, then press Enter to send it. A key that chose its target by a different rule than the
+text did would submit an empty prompt in one place while the sentence sat in another — and two copies of
+that rule is how the two rules come to differ, silently, the first time a third kind of text control is
+added to one of them. What is *done* with the target stays where it is done: inserting a transcript into
+a `TextBox` and into a `TextEditor` have nothing in common, so that dispatch is a second switch, and a
+type that reaches the resolver but not it falls through to "nowhere to put it" rather than to a wrong
+destination. The target is resolved at the press, because half a minute can pass between the two and the
+user may have switched tiles.
+
+**A synthesised `KeyDown`, not bytes on the pipe.** What Up means on the wire is the terminal control's
+decision and it changes under the application's feet: DECCKM — which every full-screen agent sets — turns
+`ESC [ A` into `ESC O A`, and in win32-input-mode keys travel as INPUT_RECORDs, where a bare `\r` is not
+what the child is parsing. Neither mode is exposed, and a copy of that table here would be one more thing
+to keep in step with a library that already has it right. It is also the only way the text-control branch
+can work at all: there is no string that means "Enter" to a `TextBox`.
+
+**Not tied to a recording, but held back by one.** `end` and `cancel` belong to the connection that
+started the stream; a key belongs to nobody, because the moment it is wanted is *between* utterances.
+Tying it to stream ownership would have made the keys work only while the talk button was held down.
+
+What the keys *are* gated on is time rather than ownership: they go grey while this device is recording
+and while mTiles is transcribing. The keys need no permission, no model and no audio — but the sentence
+Enter is meant to send does, and it has not arrived yet. Both sides of mTiles run on the same UI-thread
+queue and a transcript is only queued once recognition has finished, so a key pressed inside that window
+is not racing the words, it is deterministically ahead of them: the Enter reaches whatever prompt the
+agent is sitting on and takes its default answer, and the sentence lands underneath afterwards, unsent.
+Which is the exact reverse of the gesture — stop speaking, reach straight for Enter — that the buttons
+exist for.
+
+The gate is on **mTiles' state, not the page's**, and that distinction is the whole of the second attempt
+at this. Recording counts as well as transcribing, because tap-to-talk leaves the user's hands free
+during their own utterance — but gating on *this page's* recording flag covered only the device that
+pressed. mTiles broadcasts three states, and everything that is not `idle` is somebody speaking: a second
+phone in the room, or the shortcut held on the computer itself, arrives here as `recording` while this
+page's own flag is false, and its keys were live. That is the same race the gate exists for, in the
+multi-device configuration this page is built for. The page's own flag is kept beside it, because it is
+true a round trip before mTiles has said so, and for the same reason letting go assumes transcription has
+started rather than waiting to be told — that gap is exactly when the reach for Enter happens.
+
+Only the **state channel** and a dropped connection ever clear it — which is why mTiles answers a refused
+`begin` with its **current state** as well as the reason. That is not belt and braces: a page sets its own
+`recording` when it *sends* `begin`, because the microphone is already capturing and waiting for an answer
+would cost the first syllable, so a release that beats the refusal home leaves the page assuming an
+utterance is on its way to be transcribed. None was — and a refused begin causes no dictation transition,
+so nothing would ever have said so. The keys stayed dead until the socket dropped. The state also tells
+the two kinds of refusal apart, which the words cannot: *"already recording"* arrives with `recording` and
+must leave the keys alone, *"switched off"* arrives with `idle` and must not.
+
+A refusal never clears the flag on its own, and that took two attempts to get right: it looks like the safe thing to do, and it is the wrong thing, because two of the
+refusals a `begin` can get are *"mTiles is already recording"* and *"mTiles is still working out the
+previous recording"* — which say the opposite, and are the only ones that can arrive while the flag is
+true. Letting go and pressing again during the transcription is an ordinary gesture (the talk button is
+deliberately live then; pressing it is how you find out why nothing happened), and the refusal it earns
+was re-enabling the keys for the length of the user's own sentence. Nothing is stranded by leaving it:
+the flag is only ever set for a recording mTiles accepted, so a state message is always coming.
+
+**What it grants, said plainly.** What pairing protects is the keyboard — see below — and a paired device
+could already type an arbitrary line into the terminal. What it could not do, with the phone's auto-Enter
+off (which is the default), is *run* it. That is the change, and an earlier version of this note claimed
+there was none: it said the grant was already covered, on the strength of a clause reading "and, with the
+phone's auto-Enter on" — the one configuration in which it was true. On a machine with no speech model at
+all the change is larger still, because there a paired device could previously do nothing whatever, and
+these keys are gated on nothing dictation is gated on: no model, no microphone, no speech engine. A
+machine that cannot transcribe a word can now be driven from the phone, which is the case this whole
+feature exists for and is also, exactly, a new capability.
+
+**And it is deliberately not behind `Phone.AutoSubmitEnter`**, though the temptation is obvious. That
+setting governs mTiles pressing Enter *for* the user, on every transcript, before they have seen what was
+transcribed — off by default because a mis-heard sentence then runs as a command, and its own note says
+the switch exists so somebody can opt in knowingly. A button is the opposite gesture: the user pressing
+Enter, having read the transcript the page is showing them. Gating the smaller, explicit act on consent
+to the larger, automatic one would read as "you may not press Enter unless you have agreed that Enter is
+pressed for you", and it would leave the arrows — which submit nothing — either gated on an Enter setting
+or split from the key they sit beside. The honest boundary is the one that was always here: pairing. What
+is worth watching is the accidental press, since a phone left unlocked in a pocket now has a button that
+runs whatever line is in the prompt; the button flashes on tap rather than latching, and nothing here
+repeats.
+
+**A refusal is a sentence, and the button acknowledges itself.** mTiles answers a key that landed with
+nothing — the screen that changes is the computer's — so the button flashes on tap, because otherwise the
+phone gives no sign of having heard it and the user presses again, which for Enter means submitting
+twice. A key that could not be delivered (no tile, or a tile whose shell has exited) comes back with the
+reason, for the same reason every other refusal here does: the phone is usually the only screen the user
+is looking at.
+
+It arrives as **`keyError`, not `error`**, and the two are shown in the same box. The word is not
+cosmetic: `error` is the answer to *this device's dictation attempt*, and the page undoes its own
+assumptions on one — that it is recording, that mTiles has an utterance in hand, that the microphone can
+be let go. None of that is true of a keystroke. Sharing the word had a key refusal clear a busy flag that
+belonged to whoever was actually speaking — re-enabling the keys for the length of somebody else's
+utterance, which is the race the gate above exists for — and release a microphone over a keypress.
 
 ### Which address the QR code points at
 

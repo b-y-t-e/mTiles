@@ -15,10 +15,10 @@ namespace mTiles.Services.Phone;
 /// Modelled on <see cref="Database.DatabaseServiceManager"/> — one object the application starts and
 /// stops, raising <see cref="StateChanged"/> for the UI to redraw from — because the two have the same
 /// shape: a server whose lifetime is a user decision, with state worth showing while it runs.
-/// <para>It implements <see cref="IPhoneAudioSink"/> rather than handing the server a pile of callbacks,
+/// <para>It implements <see cref="IPhoneSink"/> rather than handing the server a pile of callbacks,
 /// which keeps the transport ignorant of dictation and this class ignorant of WebSockets.</para>
 /// </remarks>
-public sealed class PhoneBridgeManager : IPhoneAudioSink, IAsyncDisposable
+public sealed class PhoneBridgeManager : IPhoneSink, IAsyncDisposable
 {
     private readonly SettingsService _settings;
     private readonly DictationService _dictation;
@@ -753,9 +753,9 @@ public sealed class PhoneBridgeManager : IPhoneAudioSink, IAsyncDisposable
     /// ignore it today, and the interface promises nothing of the kind.</param>
     internal Task<FirewallResult> RepairFirewallAsync(int port) => Firewall.TryAllowAsync(port);
 
-    // ── IPhoneAudioSink ─────────────────────────────────────────────────────────────────────────────
+    // ── IPhoneSink ─────────────────────────────────────────────────────────────────────────────
 
-    Task<PhoneStreamOutcome> IPhoneAudioSink.BeginAsync(int sampleRate) =>
+    Task<PhoneStreamOutcome> IPhoneSink.BeginAsync(int sampleRate) =>
         _dispatcher.InvokeAsync(() =>
         {
             // Each refusal names its own cause. The phone is often the only screen the user is looking
@@ -831,9 +831,9 @@ public sealed class PhoneBridgeManager : IPhoneAudioSink, IAsyncDisposable
             return new PhoneStreamOutcome(false, "Dictation could not be started on the computer.");
         });
 
-    void IPhoneAudioSink.Write(ReadOnlySpan<byte> pcm) => _router.Phone.Write(pcm);
+    void IPhoneSink.Write(ReadOnlySpan<byte> pcm) => _router.Phone.Write(pcm);
 
-    Task IPhoneAudioSink.EndAsync()
+    Task IPhoneSink.EndAsync()
     {
         _dispatcher.Post(() =>
         {
@@ -843,7 +843,7 @@ public sealed class PhoneBridgeManager : IPhoneAudioSink, IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    void IPhoneAudioSink.CancelStream() => _dispatcher.Post(() =>
+    void IPhoneSink.CancelStream() => _dispatcher.Post(() =>
     {
         if (_dictation.State == DictationState.Recording && _router.IsRecordingFromPhone)
             _dictation.Cancel();
@@ -852,7 +852,53 @@ public sealed class PhoneBridgeManager : IPhoneAudioSink, IAsyncDisposable
         _streamTile = null;
     });
 
-    string IPhoneAudioSink.DescribeState()
+    /// <remarks>
+    /// Asks for the tile and the focused control at the moment the key is pressed, rather than reusing
+    /// whatever the last recording aimed at: half a minute passes between dictating a line and sending
+    /// it, and the user may well have switched tiles in between. The transcript's own path captures its
+    /// target at the press for the same reason — there it is the press that matters, here it is this one.
+    /// </remarks>
+    Task<string?> IPhoneSink.PressKeyAsync(PhoneKey key) =>
+        _dispatcher.InvokeAsync<string?>(() =>
+        {
+            LeafTileNodeViewModel? tile;
+
+            // Wrapped for the reason BeginAsync is, and then some. Pressing the key ends in a
+            // RaiseEvent, which runs the application's own KeyDown handlers — the Goal tile's answer
+            // box, its plan box, anything bubbling up to the window — synchronously and on this thread.
+            // A throw from any of them is captured into this task, returns to the socket thread, passes
+            // both catches in PumpAsync (neither is a WebSocketException or a cancellation) and reaches
+            // Kestrel, which drops the connection: the phone blinks "Offline" and reconnects, over a
+            // keystroke, with nothing anywhere saying why. SafeTileName wraps the very same _activeTile
+            // call one method down for the smaller half of this.
+            try
+            {
+                tile = _activeTile();
+                if (PhoneKeys.Press(tile, key, SafeFocusedElement()))
+                    return null;
+            }
+            catch (Exception ex)
+            {
+                // Not reported as delivered. Whether the key reached anything before the handler threw
+                // is unknowable from here, and the honest answer to the phone is that it did not work —
+                // pressing again is cheap, and silence would have the user press again anyway.
+                Trace.TraceWarning("Pressing a key from a phone failed: {0}", ex);
+                return "mTiles could not deliver that key.";
+            }
+
+            // One sentence, and it names the thing the user can act on. "It did not work" sends somebody
+            // holding a phone back to the computer to guess which of several things was wrong. A
+            // terminal tile that refused is a terminal whose shell has ended — a live one always takes
+            // the key, and a focused text box would have taken it before the tile was consulted at all.
+            return tile switch
+            {
+                null => "No tile is active in mTiles.",
+                { Content: TerminalTileViewModel } => "The shell in that tile is not running.",
+                _ => "That tile has nothing to type into.",
+            };
+        });
+
+    string IPhoneSink.DescribeState()
     {
         // Answers immediately from the cache — this is a socket thread and the phone is waiting — and
         // asks for a fresh reading, which arrives a frame later as an ordinary state message.

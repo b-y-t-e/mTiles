@@ -14,7 +14,7 @@ namespace mTiles.Tests;
 /// A real Kestrel on loopback with a real self-signed certificate, driven by a real
 /// <see cref="ClientWebSocket"/> — because the things worth testing here are exactly the ones a fake
 /// transport would define away: whether a cookie survives, whether two overlapping sends collide,
-/// whether one phone's disconnection cancels another's recording. <see cref="IPhoneAudioSink"/> is the
+/// whether one phone's disconnection cancels another's recording. <see cref="IPhoneSink"/> is the
 /// seam that lets all of that run with no dictation service, no tile and no UI thread.
 /// </remarks>
 public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
@@ -653,6 +653,141 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         Assert.Contains("\"state\"", await ReadUntilAsync(socket, "state"));
     }
 
+    // ── the keys ────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The three keys the page offers, each reaching the sink as itself.
+    /// </summary>
+    /// <remarks>
+    /// Worth spelling out per key rather than testing one: what crosses the wire is a name, and the map
+    /// from that name to a key is the whole of what the transport contributes here. Getting one entry
+    /// wrong sends Up where Enter was pressed, which in an agent's prompt is not a no-op.
+    /// <para>Nothing is begun first, deliberately: the keys answer the prompt an agent is waiting on,
+    /// which happens <em>between</em> utterances. Tying them to stream ownership — the rule <c>end</c>
+    /// and <c>cancel</c> follow — would make them work only while the talk button was held down.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData("enter")]
+    [InlineData("up")]
+    [InlineData("down")]
+    public async Task A_key_press_reaches_the_sink(string name)
+    {
+        using var socket = await ConnectAsync();
+
+        await SendTextAsync(socket, $$"""{"type":"key","key":"{{name}}"}""");
+
+        await WaitUntilAsync(() => { lock (_sink.Keys) return _sink.Keys.Count == 1; });
+        lock (_sink.Keys)
+            Assert.Equal(name, Assert.Single(_sink.Keys).ToString().ToLowerInvariant());
+    }
+
+    /// <summary>A name this build does not know gets no reply at all, and nothing is pressed.</summary>
+    [Fact]
+    public async Task An_unknown_key_name_presses_nothing()
+    {
+        using var socket = await ConnectAsync();
+
+        await SendTextAsync(socket, """{"type":"key","key":"delete-everything"}""");
+
+        // Followed by one that does work, so this waits for something rather than for a length of time:
+        // if the unknown name had been let through it would be in the list ahead of this one.
+        await SendTextAsync(socket, """{"type":"key","key":"up"}""");
+        await WaitUntilAsync(() => { lock (_sink.Keys) return _sink.Keys.Count > 0; });
+        lock (_sink.Keys) Assert.Equal(PhoneKey.Up, Assert.Single(_sink.Keys));
+    }
+
+    /// <summary>
+    /// A refusal comes back as its own kind of error the phone can show.
+    /// </summary>
+    /// <remarks>
+    /// <para>The phone is usually the only screen the user is looking at: a key that goes nowhere
+    /// because the tile's shell has exited has to say so, or it reads as a page that has stopped
+    /// working.</para>
+    /// <para><c>keyError</c> and not <c>error</c>, which is the part worth pinning because the two look
+    /// identical on screen. <c>error</c> is the answer to this device's <em>dictation</em> attempt, and
+    /// the page undoes its own assumptions on one — that it is recording, that mTiles has an utterance
+    /// in hand, that the microphone should be let go. None of that is true of a keystroke, and a key
+    /// refusal wearing that word cleared a busy flag that belonged to whoever was actually
+    /// speaking.</para>
+    /// </remarks>
+    [Fact]
+    public async Task A_refused_key_press_is_explained_without_being_a_dictation_error()
+    {
+        _sink.KeyRefusal = "That tile has nothing to type into.";
+        using var socket = await ConnectAsync();
+
+        await SendTextAsync(socket, """{"type":"key","key":"enter"}""");
+
+        var reply = await ReadUntilAsync(socket, "keyError");
+        Assert.Contains("nothing to type into", reply);
+        Assert.DoesNotContain("\"error\"", reply);
+    }
+
+    /// <summary>
+    /// Well-formed JSON of the wrong shape is nonsense too, and costs nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>The interesting half of "a peer sending nonsense gets no reply". Malformed JSON never
+    /// reaches the reads; <c>{"key":123}</c> parses perfectly and then <c>GetString</c> throws — which
+    /// is <c>JsonElement</c> saying "that property is there, but not of the kind you asked for", and is
+    /// not a <c>JsonException</c>. Uncaught, it left the handler, passed both catches in the pump and
+    /// reached Kestrel, which drops the socket — and the pump's <c>finally</c> cancels whatever
+    /// recording that connection owned on the way out.</para>
+    /// <para>So this asserts the connection is still usable afterwards, which is the actual damage:
+    /// a live dictation ended by a number where a string belonged. Each of the three reads is given its
+    /// own wrong kind, because the guard is by exception type and a per-property one would have covered
+    /// whichever was remembered.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData("""{"type":"key","key":123}""")]
+    [InlineData("""{"type":42}""")]
+    [InlineData("""{"type":"begin","sampleRate":"lots"}""")]
+    public async Task A_value_of_the_wrong_kind_costs_nothing(string json)
+    {
+        using var socket = await ConnectAsync();
+
+        await SendTextAsync(socket, json);
+
+        // Still open, still listening: a key sent afterwards arrives, which it cannot do on a socket
+        // Kestrel has dropped.
+        await SendTextAsync(socket, """{"type":"key","key":"down"}""");
+        await WaitUntilAsync(() => { lock (_sink.Keys) return _sink.Keys.Count > 0; });
+        lock (_sink.Keys) Assert.Equal(PhoneKey.Down, Assert.Single(_sink.Keys));
+    }
+
+    /// <summary>
+    /// A refused <c>begin</c> is answered with the reason <em>and</em> with what mTiles is doing.
+    /// </summary>
+    /// <remarks>
+    /// <para>The state is the half that is not obvious. A page sets its own "recording" the moment it
+    /// sends <c>begin</c> — it cannot wait, the microphone is already capturing — so a release before
+    /// the refusal arrives leaves it having assumed an utterance is on its way to be transcribed, which
+    /// is what disables the keys so an Enter cannot overtake the sentence it is meant to send. Nothing
+    /// was on its way, and nothing would have said so: state is broadcast from dictation's own
+    /// transitions, and a refused begin causes none. The keys stayed dead, with no message, until the
+    /// socket dropped.</para>
+    /// <para>It is also the only thing that tells the two kinds of refusal apart, which matters because
+    /// they want opposite answers: <em>"already recording"</em> means somebody else is speaking and the
+    /// keys must stay out of the way, <em>"switched off"</em> means nothing is happening at all. The
+    /// words cannot be parsed for that and should not be.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData("""{"type":"begin","sampleRate":16000}""")]   // refused by the sink
+    [InlineData("""{"type":"begin","sampleRate":2000000}""")] // refused by the transport
+    public async Task A_refused_begin_says_what_mTiles_is_doing_as_well_as_why(string json)
+    {
+        _sink.BeginRefusal = "Dictation is switched off in mTiles.";
+        using var socket = await ConnectAsync();
+
+        // The state every connection is greeted with, so what follows is the answer to this begin.
+        await ReadUntilAsync(socket, "state");
+
+        await SendTextAsync(socket, json);
+
+        Assert.Contains("\"error\"", await ReadUntilAsync(socket, "error"));
+        Assert.Contains("\"idle\"", await ReadUntilAsync(socket, "state"));
+    }
+
     // ── plumbing ────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>The bytes a connection sends to prove it owns the recording, and later that it does not.</summary>
@@ -720,7 +855,7 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         }
     }
 
-    private sealed class FakeSink : IPhoneAudioSink
+    private sealed class FakeSink : IPhoneSink
     {
         private readonly List<byte> _audio = [];
 
@@ -734,11 +869,16 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
             get { lock (_audio) return [.. _audio]; }
         }
 
+        /// <summary>Set to have the next begin refused, as the manager refuses one it cannot start.</summary>
+        public string? BeginRefusal { get; set; }
+
         public Task<PhoneStreamOutcome> BeginAsync(int sampleRate)
         {
             SampleRate = sampleRate;
             Began.TrySetResult();
-            return Task.FromResult(PhoneStreamOutcome.Ok);
+            return Task.FromResult(BeginRefusal is { } why
+                ? new PhoneStreamOutcome(false, why)
+                : PhoneStreamOutcome.Ok);
         }
 
         public void Write(ReadOnlySpan<byte> pcm)
@@ -754,6 +894,18 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         }
 
         public void CancelStream() => Interlocked.Increment(ref Cancellations);
+
+        /// <summary>Every key the sink was asked to press, in order.</summary>
+        public List<PhoneKey> Keys { get; } = [];
+
+        /// <summary>Set to have the next press refused, as the manager refuses one with nowhere to go.</summary>
+        public string? KeyRefusal { get; set; }
+
+        public Task<string?> PressKeyAsync(PhoneKey key)
+        {
+            lock (Keys) Keys.Add(key);
+            return Task.FromResult(KeyRefusal);
+        }
 
         public string DescribeState() =>
             JsonSerializer.Serialize(new { type = "state", state = "idle", tile = "Terminal #1" });

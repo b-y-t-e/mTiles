@@ -21,14 +21,15 @@ internal sealed record PhoneStreamOutcome(bool Accepted, string Message)
 }
 
 /// <summary>
-/// Where audio arriving from a phone goes, and what the phone is told about it.
+/// Where what arrives from a phone goes — audio, and the few keys its page can press — and what the
+/// phone is told about it.
 /// </summary>
 /// <remarks>
 /// The server's whole view of the rest of the application. It exists so that the transport — TLS,
 /// WebSocket framing, pairing — can be tested and reasoned about without a dictation service, a tile or a
-/// UI thread anywhere near it, and so that the server holds no opinion about what audio is for.
+/// UI thread anywhere near it, and so that the server holds no opinion about what any of it is for.
 /// </remarks>
-internal interface IPhoneAudioSink
+internal interface IPhoneSink
 {
     /// <summary>A phone has pressed and held. Returns whether recording actually started.</summary>
     Task<PhoneStreamOutcome> BeginAsync(int sampleRate);
@@ -41,6 +42,18 @@ internal interface IPhoneAudioSink
 
     /// <summary>The phone gave up, or its connection died mid-utterance. Nothing is transcribed.</summary>
     void CancelStream();
+
+    /// <summary>
+    /// A phone pressed one of the keys its page offers.
+    /// </summary>
+    /// <remarks>
+    /// Nothing to do with dictation, and gated on nothing dictation is gated on: a machine with no speech
+    /// model — or no microphone at all — can still be driven from the phone, which is the case this whole
+    /// feature exists for.
+    /// </remarks>
+    /// <returns>Null when the key was delivered, otherwise why it was not. A refusal is worth a sentence
+    /// because the phone is usually the only screen the user is looking at.</returns>
+    Task<string?> PressKeyAsync(PhoneKey key);
 
     /// <summary>What to tell a phone that has just connected: current state, and which tile it is aimed at.</summary>
     string DescribeState();
@@ -63,7 +76,7 @@ internal interface IPhoneAudioSink
 /// </remarks>
 internal sealed class PhoneBridgeServer(
     PhonePairing pairing,
-    IPhoneAudioSink sink,
+    IPhoneSink sink,
     Action<string> onReachedVia) : IAsyncDisposable
 {
     /// <summary>The session cookie's name. Never appears in a URL, a QR code, or on screen.</summary>
@@ -581,18 +594,31 @@ internal sealed class PhoneBridgeServer(
     private async Task HandleControlAsync(Connection connection, string json)
     {
         string? type;
+        string? keyName;
         int sampleRate;
 
         try
         {
             using var document = JsonDocument.Parse(json);
             type = document.RootElement.TryGetProperty("type", out var t) ? t.GetString() : null;
+            keyName = document.RootElement.TryGetProperty("key", out var k) ? k.GetString() : null;
             sampleRate = document.RootElement.TryGetProperty("sampleRate", out var r) && r.TryGetInt32(out var v)
                 ? v : 0;
         }
-        catch (JsonException)
+        // A peer sending nonsense is disconnected by nothing; it simply gets no reply — and that has to
+        // hold for *well-formed* nonsense too. `{"key":123}` parses, so JsonException never fires;
+        // GetString throws InvalidOperationException instead, which is how JsonElement says "that is
+        // there, but it is not the kind you asked for". Uncaught it left this method, passed both
+        // catches in PumpAsync and reached Kestrel, which drops the socket — and the pump's finally
+        // cancels whatever recording the connection owned on the way out. A number where a string
+        // belongs, from a paired device, killing a live dictation.
+        //
+        // Caught by type rather than by guarding each read: TryGetInt32 throws the same thing on a
+        // string, and the next property added here would have needed remembering. Nothing else runs
+        // inside this block, so there is no other meaning it could be swallowing.
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
-            return;   // a peer sending nonsense is disconnected by nothing; it simply gets no reply
+            return;
         }
 
         switch (type)
@@ -611,7 +637,7 @@ internal sealed class PhoneBridgeServer(
                 // sizes a resampling kernel and comes from the network.
                 if (sampleRate is < 8_000 or > 192_000)
                 {
-                    connection.Post(Message("error", "Unsupported sample rate."));
+                    Refuse(connection, "Unsupported sample rate.");
                     return;
                 }
 
@@ -619,7 +645,7 @@ internal sealed class PhoneBridgeServer(
                 if (outcome.Accepted)
                     connection.OwnsStream = true;
                 else
-                    connection.Post(Message("error", outcome.Message));
+                    Refuse(connection, outcome.Message);
                 return;
 
             case "end":
@@ -635,7 +661,54 @@ internal sealed class PhoneBridgeServer(
                 connection.OwnsStream = false;
                 sink.CancelStream();
                 return;
+
+            // Deliberately not tied to a recording: the whole point is to answer a prompt the agent is
+            // waiting on, which is a thing you do between utterances rather than during one. Any paired
+            // device may press — the keyboard is what pairing protects, and it protects it at the
+            // handshake.
+            case "key":
+                // A key name this build does not know is nonsense from a peer, and nonsense gets the same
+                // answer as malformed JSON: none. Naming what was rejected would be the one message here
+                // that describes the sender to itself.
+                if (!PhoneKeys.TryParse(keyName, out var pressed))
+                    return;
+
+                // Its own type, not "error". The page shows both in the same box, but "error" is the
+                // answer to *this device's dictation attempt* and the page undoes its own optimistic
+                // state on one — it assumes transcription has started the moment the talk button is
+                // let go, since waiting for the round trip is waiting through the exact moment the
+                // user reaches for Enter. A key refusal sharing that word cleared the assumption on
+                // behalf of a recording that was somebody else's, re-enabling the keys for the length
+                // of their utterance: the very race the gate exists for. It also had the page release
+                // a microphone over a keystroke.
+                if (await sink.PressKeyAsync(pressed).ConfigureAwait(false) is { } refusal)
+                    connection.Post(Message("keyError", refusal));
+                return;
         }
+    }
+
+    /// <summary>
+    /// Says no to a <c>begin</c>, and says what mTiles is doing instead.
+    /// </summary>
+    /// <remarks>
+    /// <para>The state is the load-bearing half. A page sets its own "recording" the moment it sends
+    /// <c>begin</c> — it cannot wait for an answer, because the microphone is already live and the
+    /// first syllable is being captured — so a release that happens before the refusal arrives leaves
+    /// it having assumed an utterance is on its way to be transcribed. Nothing was, and nothing else
+    /// would ever have said so: state is broadcast from dictation's own transitions, and a refused
+    /// begin causes none. The page was left with its keys disabled and no message, until the socket
+    /// dropped.</para>
+    /// <para>It is also what tells the two kinds of refusal apart, which the page cannot do from the
+    /// words: <em>"mTiles is already recording"</em> comes with <c>recording</c> and <em>"dictation is
+    /// switched off"</em> with <c>idle</c>, so a page that clears its assumption on the second does not
+    /// clear it on the first — and the first is somebody else's utterance, which the phone's keys must
+    /// stay out of the way of. Answering that from the one place that knows beats every rule the page
+    /// could have guessed at.</para>
+    /// </remarks>
+    private void Refuse(Connection connection, string why)
+    {
+        connection.Post(Message("error", why));
+        connection.Post(Encoding.UTF8.GetBytes(sink.DescribeState()));
     }
 
     private static byte[] Message(string type, string message) =>

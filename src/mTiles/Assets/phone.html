@@ -41,6 +41,21 @@
   #talk.busy { background: #1d2a3a; border-color: var(--accent); }
   #talk small { font-size: 13px; font-weight: 400; color: var(--muted); }
 
+  /* The keys. Big enough to hit without looking, because the phone is usually held at arm's length
+     with the eyes on the computer — and laid out as they are on a keyboard, with Enter the wide one. */
+  #keys { display: flex; gap: 10px; }
+  #keys button {
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 10px; min-height: 58px; font-size: 17px; font-weight: 500; flex: 1;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background .1s, border-color .1s, transform .1s;
+  }
+  #keys button:disabled { opacity: .45; }
+  #keys button.pressed { background: #1d2a3a; border-color: var(--accent); transform: scale(.96); }
+  #keys #enter { flex: 1.6; }
+  #keys .glyph { font-size: 20px; line-height: 1; }
+
   #transcript {
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
     padding: 12px 14px; min-height: 76px; font-size: 15px; white-space: pre-wrap; word-break: break-word;
@@ -64,6 +79,11 @@
     <span id="label">Hold to talk</span>
     <small id="hint"></small>
   </button>
+  <div id="keys">
+    <button id="up" disabled aria-label="Arrow up"><span class="glyph">↑</span></button>
+    <button id="down" disabled aria-label="Arrow down"><span class="glyph">↓</span></button>
+    <button id="enter" disabled aria-label="Enter"><span class="glyph">↵</span> Enter</button>
+  </div>
   <div id="transcript"></div>
   <div id="error"></div>
 </main>
@@ -86,7 +106,41 @@
   const errorBox = document.getElementById("error");
   const latch = document.getElementById("latch");
 
+  /* The keys this page can press, paired with the names mTiles knows them by. A closed list at both
+     ends: the server has the same three and answers anything else with nothing at all. */
+  const keys = [
+    [document.getElementById("up"), "up"],
+    [document.getElementById("down"), "down"],
+    [document.getElementById("enter"), "enter"],
+  ];
+
   let socket = null, connected = false, retryIn = 500;
+
+  /* Whether mTiles has an utterance in hand — being spoken or being worked out. Taken from the state it
+     broadcasts rather than from anything this page did, which is the point: the recording may be
+     somebody else's. A second phone in the room, or the shortcut being held on the computer itself, both
+     arrive here as `recording` while this page's own `recording` stays false. Gating on the local flag
+     alone left exactly those cases open — a key from the second device overtaking the first device's
+     sentence, which is the race the gate exists for.
+
+     It disables three buttons, so a `true` nobody clears is a dead control panel with no message on it.
+     The whole of what touches it, written out because the safety is not local to any one of them and has
+     twice been read as missing:
+
+       set   a `state` that is not "idle"          → cleared by the "idle" that must follow it
+       set   finish(), assuming the transcription  → see below
+       clear a `state` of "idle"
+       clear onclose
+
+     `finish()` is the only optimistic one, and it cannot strand because it cannot run without a state
+     message still to come. It returns early unless `recording` is true, and the two ways `recording`
+     ends are the two halves of the same guarantee: mTiles going idle underneath the recording (an engine
+     failure, dictation switched off, somebody stopping it at the tile) arrives as the "idle" that clears
+     `recording` here, so a release afterwards finds nothing to assume — and a release that beats that
+     message home sets the flag and is corrected by the same message a moment later. A begin mTiles
+     *refused* is the third case, and the one that used to strand: it leaves the flag set with no
+     transition behind it, which is why the server answers every refusal with its current state. */
+  let mtilesBusy = false;
 
   /* The pending reconnect. Held so it can be cancelled: coming back from the background used to call
      connect() while a retry was already scheduled, and both ran — two sockets, one of them orphaned,
@@ -142,6 +196,21 @@
 
   function paint() {
     talk.disabled = !connected;
+
+    /* The keys need no permission, no model and no audio — but they do need the sentence they are about
+       to submit to have arrived first, and it has not. Both halves of mTiles' side run on its UI thread's
+       queue, and a transcript is only queued once recognition finishes: a key pressed before that is not
+       racing the words, it is deterministically ahead of them. The natural gesture is exactly this —
+       stop speaking, reach straight for Enter — and the cost of losing it is not a lost keystroke but an
+       Enter arriving at whatever prompt the agent is on, taking its default answer, with the sentence
+       landing underneath afterwards, unsent.
+
+       Both flags, and they are not the same fact. `mtilesBusy` is whoever is speaking — this phone, the
+       one on the other side of the room, or the shortcut held on the computer — and covers the whole
+       utterance, spoken and transcribed. `recording` is this page's own press, which is true a round trip
+       before mTiles has said so. */
+    const keysReady = connected && !recording && !mtilesBusy;
+    for (const [button] of keys) button.disabled = !keysReady;
     talk.classList.toggle("live", recording);
     label.textContent = recording ? "Listening…" : (latch.checked ? "Tap to talk" : "Hold to talk");
     hint.textContent = recording ? (latch.checked ? "Tap again to send" : "Let go to send") : "";
@@ -172,6 +241,9 @@
 
       if (message.type === "state") {
         target.textContent = message.tile || "";
+        /* Anything that is not idle is an utterance in progress somewhere. The label still asks the
+           narrower question, because "Transcribing…" is only true of one of the two. */
+        mtilesBusy = message.state !== "idle";
         if (message.state === "transcribing") {
           talk.classList.add("busy"); status.textContent = "Transcribing…";
         } else {
@@ -190,13 +262,38 @@
         transcript.textContent = message.message;
         setError("");
       } else if (message.type === "error") {
+        /* This device's own dictation attempt, refused. What it assumed about *itself* is undone: the
+           microphone is open — begin() opens it before mTiles has answered — and nothing is going to
+           come of it.
+
+           `mtilesBusy` is deliberately left alone, and that is a correction. Two of these refusals are
+           "mTiles is already recording." and "mTiles is still working out the previous recording.",
+           which say the opposite of what clearing it claims — and they are the only refusals that can
+           arrive while it is true, so clearing it had no other effect than the wrong one. The gesture
+           is an ordinary one: let go, press again during the transcription (the talk button is not
+           disabled then, on purpose — pressing it is how you find out why), take the refusal, and the
+           keys come back for the length of your own sentence, which the Enter then overtakes.
+
+           Nor can leaving it strand the flag. finish() only sets it when this page was recording, and
+           this page is only still recording if mTiles accepted the begin — a refusal clears `recording`
+           right here — so a set flag always has a state message coming after it, and a dropped socket
+           clears it in onclose. */
         setError(message.message);
         held = false; recording = false; release(); scheduleRelease(); paint();
+      } else if (message.type === "keyError") {
+        /* A key that landed nowhere. The same box, because it is the same question — why did that not
+           work — but deliberately not the same handler: this says nothing about whether mTiles has an
+           utterance in hand, and nothing at all about this phone's microphone. Answered on "error" it
+           cleared a busy flag that belonged to somebody else's recording, and released a microphone
+           over a keystroke. */
+        setError(message.message);
       }
     };
 
     socket.onclose = (event) => {
-      connected = false; held = false; recording = false; release(); scheduleRelease();
+      /* Cleared with the connection: what mTiles was doing a moment ago is not something this page knows
+         any more, and a stale true would leave the keys disabled through the whole reconnect. */
+      connected = false; mtilesBusy = false; held = false; recording = false; release(); scheduleRelease();
       dot.className = "off";
       paint();
 
@@ -390,6 +487,19 @@
 
     if (!recording) { paint(); return; }
     recording = false;
+
+    /* Assumed, not waited for. mTiles says "transcribing" a round trip later, and the gap between
+       letting go and that message arriving is the one moment the user is most likely to reach for
+       Enter — which is exactly the press that must not overtake the sentence it is meant to send. A
+       cancelled utterance is transcribed by nobody, so nothing is assumed for it.
+
+       Safe to assume because a state message always follows, and that is a promise the *server* keeps
+       rather than something true by luck. `recording` is set when begin is sent, not when it is
+       accepted — the microphone is already live by then — so this can run for a begin mTiles was in
+       the middle of refusing, and a refusal causes no dictation transition and so used to broadcast
+       nothing at all. mTiles now answers every refusal with its current state, which corrects this
+       either way round. */
+    mtilesBusy = !cancel;
     if (socket && socket.readyState === WebSocket.OPEN)
       socket.send(JSON.stringify({ type: cancel ? "cancel" : "end" }));
     release();
@@ -476,6 +586,25 @@
       connect();   // cancels any pending retry and refuses to open a second socket
     }
   });
+
+  /* ── keys ───────────────────────────────────────────────────────────────────
+     `click` rather than the pointer events the talk button uses. There is no gesture to hold here, and
+     click is the one event that already knows the difference between a tap and a finger that landed on
+     the button on its way somewhere else — which matters when the thing being sent is Enter. */
+  function pressKey(button, name) {
+    if (!connected || !socket || socket.readyState !== WebSocket.OPEN) return;
+    setError("");
+    socket.send(JSON.stringify({ type: "key", key: name }));
+
+    /* The only acknowledgement there is. A key that lands changes the screen on the *computer*, so
+       without this the phone gives no sign of having heard the tap at all, and the user presses again —
+       which for Enter means submitting twice. */
+    button.classList.add("pressed");
+    setTimeout(() => button.classList.remove("pressed"), 120);
+  }
+
+  for (const [button, name] of keys)
+    button.addEventListener("click", () => pressKey(button, name));
 
   latch.addEventListener("change", paint);
 

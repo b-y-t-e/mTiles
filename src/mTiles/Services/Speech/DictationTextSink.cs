@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.VisualTree;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using AvaloniaEdit;
 using mTiles.Models;
 using mTiles.ViewModels;
@@ -68,26 +69,87 @@ internal static class DictationTextSink
         return settings.AppendTrailingSpace ? payload + " " : payload;
     }
 
+    /// <summary>
+    /// Whether a control captured earlier is still somewhere the user can see.
+    /// </summary>
+    /// <remarks>
+    /// The focused element is captured when the key goes down and used seconds later, by which time its
+    /// dialog may have closed or its tile been removed — writing into a detached control puts the text
+    /// somewhere nobody can see, and returning true then reports that as delivered, which is the one
+    /// thing the caller must not be told.
+    /// <para>Attached <em>and</em> visible. A window that has been hidden rather than closed keeps its
+    /// tree, so the ancestor check alone passes for a control nobody can see — which is exactly what the
+    /// settings dialog is: an overlay that is hidden, not removed.</para>
+    /// <para>Shared with <see cref="Phone.PhoneKeys"/>, which routes a key press from a phone by the same
+    /// rule so that the key lands where the transcript before it did.</para>
+    /// </remarks>
+    internal static bool IsOnScreen(IInputElement? focused) =>
+        focused is not Visual visual
+        || (visual.FindAncestorOfType<TopLevel>(includeSelf: true) is not null && visual.IsEffectivelyVisible);
+
+    /// <summary>
+    /// The focused control when it is one a transcript may be typed into, and null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Which controls count is decided here and nowhere else.</b> The rule has two consumers —
+    /// this class, which inserts text into whatever comes back, and <see cref="Phone.PhoneKeys"/>, which
+    /// raises a key at it — and they are used in one breath: you dictate a line from a phone and then
+    /// press Enter to send it. A key that chose its destination by a different rule than the text did
+    /// would submit an empty prompt in one place while the sentence sat in another, which is the one
+    /// failure the shared destination exists to rule out. Held apart as two copies of a switch it would
+    /// have drifted the first time a third kind of text control was added to one of them.</para>
+    /// <para>Read-only controls are refused rather than pressed at, so the key or the sentence falls
+    /// through to the terminal instead of being swallowed by a diff view — half the text in this
+    /// application is in a read-only editor.</para>
+    /// <para>Returned as <see cref="Interactive"/> because that is all both callers need: one raises an
+    /// event at it, the other asks what it is. What is <em>done</em> with it is genuinely different work
+    /// and stays where it is done.</para>
+    /// </remarks>
+    internal static Interactive? WritableTextTarget(IInputElement? focused)
+    {
+        if (!IsOnScreen(focused))
+            return null;
+
+        return focused switch
+        {
+            TextBox { IsReadOnly: false } box => box,
+            TextEditor { IsReadOnly: false } editor => editor,
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// The tile's terminal, when there is one and its shell is still running.
+    /// </summary>
+    /// <remarks>
+    /// Shared with <see cref="Phone.PhoneKeys"/> for the reason <see cref="WritableTextTarget"/> is, and
+    /// this half shares cleanly: both callers want the same control under the same liveness test, and
+    /// neither wants anything else. A dead terminal is refused rather than typed at — text sent to a
+    /// shell that has exited goes nowhere, and saying so is the difference between the phone showing a
+    /// reason and the user pressing again.
+    /// </remarks>
+    internal static TerminalControl? LiveTerminal(LeafTileNodeViewModel? tile)
+    {
+        if (tile?.Content is not TerminalTileViewModel terminalTile)
+            return null;
+
+        return terminalTile.CachedControl is TerminalControl terminal && terminal.IsRunning
+            ? terminal
+            : null;
+    }
+
     private static bool InsertIntoTextControl(IInputElement? focused, string text)
     {
-        // A control still on screen. The focused element is captured when the key goes down and used
-        // seconds later, by which time its dialog may have closed or its tile been removed — writing
-        // into a detached control puts the text somewhere nobody can see, and returning true then
-        // reports that as delivered, which is the one thing the caller must not be told.
-        //
-        // Attached *and* visible. A window that has been hidden rather than closed keeps its tree, so
-        // the ancestor check alone passes for a control nobody can see — which is exactly what the
-        // settings dialog is: an overlay that is hidden, not removed.
-        if (focused is Visual visual
-            && (visual.FindAncestorOfType<TopLevel>(includeSelf: true) is null || !visual.IsEffectivelyVisible))
-            return false;
-
-        switch (focused)
+        // The switch below is a second dispatch on purpose: *which* control is a destination is the
+        // shared rule above, and *how* text is inserted into it is not — a selection dance in a TextBox
+        // and a document insert in an editor have nothing in common. A type reaching the resolver and
+        // not this switch falls through to false, which is the same answer as no destination at all.
+        switch (WritableTextTarget(focused))
         {
             // Selected text is replaced, not left in place with the transcript pushed in beside it —
             // typing is what dictation stands in for, and typing overwrites a selection. Getting this
             // wrong is silent: the user selects a sentence to say again, and ends up with both.
-            case TextBox { IsReadOnly: false } box:
+            case TextBox box:
             {
                 var length = (box.Text ?? "").Length;
                 var start = Math.Clamp(Math.Min(box.SelectionStart, box.SelectionEnd), 0, length);
@@ -107,7 +169,7 @@ internal static class DictationTextSink
                 box.CaretIndex = start + text.Length;
                 return true;
             }
-            case TextEditor { IsReadOnly: false } editor:
+            case TextEditor editor:
             {
                 if (editor.SelectionLength > 0)
                     editor.SelectedText = text;
@@ -120,15 +182,8 @@ internal static class DictationTextSink
         }
     }
 
-    private static bool SendToTerminal(LeafTileNodeViewModel? tile, string text, bool submit)
-    {
-        if (tile?.Content is not TerminalTileViewModel terminalTile)
-            return false;
-        if (terminalTile.CachedControl is not TerminalControl terminal || !terminal.IsRunning)
-            return false;
-
-        return Type(terminal.SendText, text, submit);
-    }
+    private static bool SendToTerminal(LeafTileNodeViewModel? tile, string text, bool submit) =>
+        LiveTerminal(tile) is { } terminal && Type(terminal.SendText, text, submit);
 
     /// <summary>
     /// Hands the payload to whatever types into a shell, adding the carriage return if one was asked for.
