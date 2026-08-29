@@ -25,15 +25,36 @@ public partial class WorkspaceItemViewModel : ObservableObject
     /// </remarks>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasNoRepository))]
+    [NotifyPropertyChangedFor(nameof(ShowsDirectoryPath))]
     private bool? _hasRepository;
 
     /// <summary>The one state the row offers to do something about.</summary>
     /// <remarks>
     /// Not every directory without a repository gets the offer: the user's home directory, the root of
     /// a drive and the system directories are places where <c>git init</c> is a mistake rather than a
-    /// missing step, so their rows say nothing instead (<see cref="SpecialDirectories.AllowsRepository"/>).
+    /// missing step (<see cref="SpecialDirectories.AllowsRepository"/>), so their rows say where they
+    /// are instead — see <see cref="ShowsDirectoryPath"/>.
     /// </remarks>
     public bool HasNoRepository => HasRepository == false && SpecialDirectories.AllowsRepository(DirectoryPath);
+
+    /// <summary>Whether the row says where it is, in the branch's place.</summary>
+    /// <remarks>
+    /// <para>The complement of <see cref="HasNoRepository"/> among the rows that have no repository:
+    /// the home directory, the root of a drive and the system directories, which are told there is no
+    /// offer here and were then told nothing at all. The meta line is reserved on every row whatever it
+    /// holds, so a blank one spends the height and says nothing — and these are the rows whose name is
+    /// least able to cover for it, because on exactly these the name is a kind of place rather than
+    /// which one: "Home directory" is an alias this application chose, and a second "Program Files" is
+    /// a folder somebody could plausibly have made.</para>
+    /// <para>The path rather than a word for the kind, and that is the whole of the choice: a word
+    /// would be a second spelling of the name for the one row that already reads "Home directory", and
+    /// it is the path that tells a reader which profile, which drive, which of the two Program Files.
+    /// It has its own line and trims, which is what the row could not give it beside the name — the
+    /// reason it lives in the tooltip everywhere else.</para>
+    /// <para>Not while the check is still running: <see cref="HasRepository"/> is null until something
+    /// has looked, and a blank line is the truthful answer to a question nobody has answered yet.</para>
+    /// </remarks>
+    public bool ShowsDirectoryPath => HasRepository == false && !HasNoRepository;
 
     /// <summary>Whether something is running in this workspace right now.</summary>
     /// <remarks>Set from outside — the row is told, it does not look. Only workspaces that have been
@@ -71,12 +92,21 @@ public partial class WorkspaceItemViewModel : ObservableObject
 
     public string DirectoryPath => Workspace.DirectoryPath;
 
-    /// <summary>Whether this row is the user's own directory.</summary>
-    /// <remarks>The name it shows is words any other row could also be called — a row in a list of
-    /// folders is read as a folder — so the row carries the glyph as well: together they say which
-    /// directory this is, where either alone only hints at it. Same rule as
-    /// <see cref="Name"/>, asked of the path rather than of the stored name.</remarks>
-    public bool IsHome => SpecialDirectories.IsHome(DirectoryPath);
+    /// <summary>What kind of place this row sits in.</summary>
+    /// <remarks>
+    /// <para>What the glyph on the path line is drawn from. It used to be a house docked in front of
+    /// the name, which said which directory this was twice over — the name is already
+    /// "Home directory" — while the line that actually needed a mark carried a generic folder. The
+    /// glyph moved to the path and became the three it should always have been: a house, a disk, a cog.
+    /// One picture per kind, on the line where the kind is the thing being said.</para>
+    /// <para>Not cached: the path a workspace sits at does not change while its row is on screen, and a
+    /// stored copy is a second answer waiting to disagree with <see cref="SpecialDirectories"/>.</para>
+    /// <para>There was an <c>IsHome</c> beside this for a while, from when the house was docked in
+    /// front of the name. When the glyph moved here nothing read it any more except two tests, which
+    /// went on passing and pinned nothing that was drawn — a property kept alive by its own tests is
+    /// worse than a missing one, because it reads as a rule somebody relies on.</para>
+    /// </remarks>
+    public SpecialDirectoryKind SpecialKind => SpecialDirectories.Kind(DirectoryPath);
 
     public string Initials
     {

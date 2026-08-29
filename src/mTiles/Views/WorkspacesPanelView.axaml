@@ -1,4 +1,4 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
@@ -176,17 +176,6 @@
                                                              IsVisible="{Binding IsBusy}"
                                                              ToolTip.Placement="Right"
                                                              ToolTip.Tip="Working" />
-                                            <!-- The home directory says which one it is twice: the
-                                                 name it is given, and the glyph in front of it. A row
-                                                 in a list of folders is read as a folder, so the words
-                                                 alone can be taken for one somebody made; docked left
-                                                 because it belongs to the name rather than competing
-                                                 with the two glyphs on the right for what is left of
-                                                 the row. -->
-                                            <mi:MaterialIcon DockPanel.Dock="Left"
-                                                             Kind="Home"
-                                                             Classes="workspace-home"
-                                                             IsVisible="{Binding IsHome}" />
                                             <TextBlock Text="{Binding Name}" FontWeight="Medium"
                                                        TextTrimming="CharacterEllipsis"
                                                        VerticalAlignment="Center"
@@ -200,11 +189,11 @@
                                              Reserving the line also covers the moment before the check
                                              has answered, when there is nothing truthful to put in it. -->
                                         <Panel Height="15">
-                                            <StackPanel Classes="workspace-meta"
-                                                        IsVisible="{Binding BranchName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                <mi:MaterialIcon Kind="SourceBranch" />
+                                            <DockPanel Classes="workspace-meta"
+                                                       IsVisible="{Binding BranchName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                <mi:MaterialIcon DockPanel.Dock="Left" Kind="SourceBranch" />
                                                 <TextBlock Text="{Binding BranchName}" />
-                                            </StackPanel>
+                                            </DockPanel>
                                             <!-- An offer, not a label. A workspace without a repository
                                                  is the one row here that can be acted on from the panel,
                                                  and saying only "no repository" would leave the user to
@@ -215,11 +204,35 @@
                                                     CommandParameter="{Binding}"
                                                     ToolTip.Placement="Right"
                                                     ToolTip.Tip="Run git init here">
-                                                <StackPanel Classes="workspace-meta">
-                                                    <mi:MaterialIcon Kind="SourceBranchPlus" />
+                                                <DockPanel Classes="workspace-meta">
+                                                    <mi:MaterialIcon DockPanel.Dock="Left" Kind="SourceBranchPlus" />
                                                     <TextBlock Text="Create repository" />
-                                                </StackPanel>
+                                                </DockPanel>
                                             </Button>
+                                            <!-- The rows with neither a branch nor an offer: the home
+                                                 directory, the root of a drive, the system folders.
+                                                 They were the one place this line came out blank, and
+                                                 a reserved line saying nothing is height spent on
+                                                 silence. The path rather than a word for what kind of
+                                                 place it is, because a word is what the name already
+                                                 is on exactly these rows — "Home directory" is an
+                                                 alias, and it is the path that says which profile. It
+                                                 gets the line the name could not give it, and trims.
+
+                                                 The house used to sit in front of the name, where it
+                                                 said what the name already said. It lives here, and it
+                                                 is three glyphs rather than one: this is the line where
+                                                 what kind of place it is, is the thing being said, and
+                                                 a disk and a cog are the other two answers. -->
+                                            <DockPanel Classes="workspace-meta"
+                                                       IsVisible="{Binding ShowsDirectoryPath}">
+                                                <mi:MaterialIcon DockPanel.Dock="Left"
+                                                                 Kind="{Binding SpecialKind, Converter={x:Static views:SpecialDirectoryIcon.Kind}}" />
+                                                <!-- No tooltip of its own: the row already carries the
+                                                     full path, and a nested one with the same text is
+                                                     the same fact twice with a chance to disagree. -->
+                                                <TextBlock Text="{Binding DirectoryPath}" />
+                                            </DockPanel>
                                         </Panel>
                                     </StackPanel>
                                 </Border>
