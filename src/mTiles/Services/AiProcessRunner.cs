@@ -614,6 +614,7 @@ public static class AiProcessRunner
         AiPermissionMode permission = AiPermissionMode.Auto,
         AiEffort effort = AiEffort.High,
         Action<string>? onActivity = null,
+        Action<int>? onStarted = null,
         CancellationToken ct = default)
     {
         if (!runner.AcceptsPromptOnStdin)
@@ -644,6 +645,11 @@ public static class AiProcessRunner
 
         using var process = new Process { StartInfo = psi };
         process.Start();
+
+        // Reported as soon as there is something to report, and never afterwards: the caller uses it to
+        // name the root of a process tree, and a tool that has exited leaves an id the system is free to
+        // hand to somebody else. A caller that raises here is not allowed to take the run with it.
+        try { onStarted?.Invoke(process.Id); } catch { /* a bystander is not worth a run */ }
 
         // The readers start first, then the prompt goes down stdin. The other order deadlocks on a
         // prompt large enough to fill the pipe: this side blocks writing the rest of it while the child

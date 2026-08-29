@@ -568,6 +568,59 @@ public class AiProcessRunnerTests
 
     // ── Standard input is always closed ─────────────────
 
+    // ── The running tool is nameable ────────────────────
+
+    /// <summary>A runner that turns the run into a process which starts and exits at once.</summary>
+    private sealed class ExitingRunner : IAiToolRunner
+    {
+        public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+            AiPermissionMode permission = AiPermissionMode.Auto,
+            AiEffort effort = AiEffort.High)
+        {
+            psi.ArgumentList.Clear();
+            if (OperatingSystem.IsWindows())
+            {
+                psi.ArgumentList.Add("/c");
+                psi.ArgumentList.Add("exit");
+            }
+            else
+            {
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add("exit");
+            }
+        }
+
+        public IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
+    }
+
+    /// <summary>
+    /// The run says which process it started, as it starts it.
+    /// </summary>
+    /// <remarks>
+    /// The Goal tile is the heaviest thing in a workspace and this is the only way it can say so: the
+    /// workspace row's memory reading is the sum of process trees, and a tile with no id to give is a
+    /// running AI tool counted as nothing. Reported at the start rather than returned at the end,
+    /// because a run that has finished has no memory left to attribute.
+    /// </remarks>
+    [Fact]
+    public async Task The_run_reports_the_process_it_started()
+    {
+        var shell = OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.SystemDirectory, "cmd.exe")
+            : "/bin/sh";
+        Assert.True(File.Exists(shell), $"{shell} is missing, so nothing can be launched here");
+
+        int? started = null;
+
+        await AiProcessRunner.RunPlainAsync(
+            shell, "the prompt", Path.GetTempPath(), new ExitingRunner(),
+            onStarted: processId => started = processId);
+
+        Assert.NotNull(started);
+        Assert.NotEqual(0, started!.Value);
+        Assert.NotEqual(Environment.ProcessId, started.Value);
+    }
+
     /// <summary>Captures the <see cref="ProcessStartInfo"/> and stops before anything is launched.</summary>
     private sealed class StartInfoRunner(bool acceptsStdin) : IAiToolRunner
     {
