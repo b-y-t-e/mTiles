@@ -164,6 +164,10 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
 
     partial void OnHasUncommittedChangesChanged(bool value) => OnPropertyChanged(nameof(CanDetectGoal));
 
+    /// <summary>Pausing and resuming move the button in the conversation, not only the header's glyph.
+    /// </summary>
+    partial void OnIsPausedChanged(bool value) => RefreshFinishedRunActions();
+
     partial void OnIsRunningChanged(bool value)
     {
         OnPropertyChanged(nameof(IsBusy));
@@ -298,6 +302,12 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         OnPropertyChanged(nameof(ShowApproval));
         OnPropertyChanged(nameof(ShowComposer));
         OnPropertyChanged(nameof(QuestionsTitle));
+
+        // Resume stands down while one of the blocks above is asking for something, so it moves with
+        // them and not only with the run's own state.
+        OnPropertyChanged(nameof(ShowResume));
+        OnPropertyChanged(nameof(CanResume));
+        OnPropertyChanged(nameof(HasFinishedRunActions));
     }
 
     /// <summary>
@@ -887,7 +897,42 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// disappear when empty, or an idle tile carries a band of padding under its transcript for no
     /// reason.
     /// </remarks>
-    public bool HasFinishedRunActions => CanReReview || CanCommit || CanContinue;
+    public bool HasFinishedRunActions => ShowResume || CanReReview || CanCommit || CanContinue;
+
+    /// <summary>
+    /// Whether Resume is on screen — in the conversation and in the header, which ask the same
+    /// question and must not answer it differently.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>In the conversation, because that is where everything else this tile asks for is
+    /// answered.</b> The transcript ends with "This run is stopped. Click Resume to continue it" and
+    /// the only Resume on screen was a 13px play glyph in a strip of six at the far end of the tile,
+    /// while the questions, the plan, Continue and Commit are all labelled buttons in the flow. The
+    /// header keeps its copy for when the transcript is scrolled away.</para>
+    /// <para><b>The phase is part of the question, not a detail of the flow's copy.</b> The header used
+    /// to ask <c>IsPaused</c> on its own, which is reachable in a phase <see cref="ResumeAsync"/> has
+    /// nothing to run: closing a tile mid-detection pauses it in <c>Goal</c>, so the reopened tile
+    /// showed an enabled ▶ that only cleared the pause. Two controls for one command asking two
+    /// different questions is how that survives, so both read this.</para>
+    /// <para>Not while a round of questions or a plan is up. Resume re-runs the phase, which in Clarify
+    /// or Plan means asking again — beside an unanswered round that would be a second button doing
+    /// something different to the one the block is for, and answering resumes anyway
+    /// (<see cref="GoalTilePolicy.AnsweringResumes"/>). A stale pause in <c>Goal</c> is cleared the
+    /// same way: by the next thing typed, which is what that phase is waiting for anyway.</para>
+    /// </remarks>
+    public bool ShowResume =>
+        IsPaused && !ShowQuestions && !ShowApproval && GoalTilePolicy.CanResume(CurrentPhase);
+
+    /// <summary>
+    /// Whether the button is usable, as against on screen.
+    /// </summary>
+    /// <remarks>
+    /// Shown as soon as the run is paused but disabled until it has actually stopped: cancelling takes
+    /// as long as the tool takes to die, and a click in that window used to start a second loop
+    /// alongside the one still unwinding. Disabled rather than hidden, because a button that vanishes
+    /// for a second or two and comes back is a button the user is chasing.
+    /// </remarks>
+    public bool CanResume => ShowResume && !IsRunning;
 
     /// <summary>Whether there is a goal to judge the tree against again.</summary>
     /// <remarks>
@@ -1945,6 +1990,8 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     {
         OnPropertyChanged(nameof(CanCommit));
         OnPropertyChanged(nameof(CanReReview));
+        OnPropertyChanged(nameof(ShowResume));
+        OnPropertyChanged(nameof(CanResume));
         OnPropertyChanged(nameof(HasFinishedRunActions));
     }
 

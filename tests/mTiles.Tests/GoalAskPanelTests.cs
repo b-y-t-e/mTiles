@@ -517,6 +517,71 @@ public class GoalAskPanelTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// A stopped run offers Resume where everything else this tile asks for is answered.
+    /// </summary>
+    /// <remarks>
+    /// The transcript's last line says to click Resume, and for a long time the only Resume on screen
+    /// was the header's play glyph — 13 pixels at the far end of the tile from the sentence naming it,
+    /// while the questions, the plan, Continue and Commit are all labelled buttons in the flow. What is
+    /// pinned here is that the row comes up for a run that is merely stopped, and that it stands down
+    /// where Resume would mean asking again over a block already asking.
+    /// </remarks>
+    [Fact]
+    public void A_stopped_run_offers_Resume_in_the_conversation()
+    {
+        OnUiThread(() =>
+        {
+            using var stopped = TileWith(new GoalTileState
+            {
+                OriginalGoal = "a goal",
+                CurrentPhase = GoalPhase.Implement,
+                IsPaused = true,
+            });
+
+            Assert.True(stopped.ShowResume);
+            Assert.True(stopped.CanResume);
+
+            // The row itself, not just the flag: HasFinishedRunActions is what puts it on screen, and
+            // every other arm of it is false in this state — a stopped run has finished nothing.
+            Assert.True(stopped.HasFinishedRunActions);
+            Assert.False(stopped.CanContinue);
+            Assert.False(stopped.CanReReview);
+
+            var view = Shown(stopped);
+            Assert.Contains(view.GetVisualDescendants().OfType<Button>(),
+                b => b.IsVisible && (b.Content as string) == "Resume");
+
+            // And down where the plan is waiting: Resume re-runs the phase, which there means proposing
+            // a plan again beside the one the user has not answered yet.
+            using var waitingForApproval = TileWith(new GoalTileState
+            {
+                OriginalGoal = "a goal",
+                CurrentPhase = GoalPhase.Plan,
+                ProposedPlan = "1. Do the thing.",
+                IsPaused = true,
+            });
+
+            Assert.True(waitingForApproval.ShowApproval);
+            Assert.False(waitingForApproval.ShowResume);
+
+            // And not offered at all in a phase Resume has nothing to run. Closing a tile mid-detection
+            // is what reaches this — ClosingIsAPause pauses it in Goal — and the header, which asked
+            // IsPaused on its own, showed an enabled play glyph whose only effect was to clear the
+            // pause. Both buttons read these two properties now, so there is one answer.
+            using var pausedBeforeAGoal = TileWith(new GoalTileState
+            {
+                CurrentPhase = GoalPhase.Goal,
+                IsPaused = true,
+            });
+
+            Assert.False(pausedBeforeAGoal.ShowResume);
+            Assert.False(pausedBeforeAGoal.HasFinishedRunActions);
+            Assert.DoesNotContain(Shown(pausedBeforeAGoal).GetVisualDescendants().OfType<Button>(),
+                b => b.IsVisible && (b.Content as string) == "Resume");
+        });
+    }
+
     /// <summary>Arriving: it is showing now and was not a moment ago.</summary>
     private static bool Appears(GoalTileViewModel vm, string name) =>
         GoalTileView.Appeared(vm, name, wasShowing: false);

@@ -820,11 +820,15 @@
                     </Button>
                     <!-- Visible as soon as the run is paused, but not usable until it has actually
                          stopped: cancelling takes as long as the tool takes to die, and a click in
-                         that window used to start a second loop alongside the one still unwinding. -->
+                         that window used to start a second loop alongside the one still unwinding.
+                         Both halves are the view model's, and the same two the button in the
+                         conversation reads — this one used to ask IsPaused on its own, which is true
+                         in phases ResumeAsync has nothing to run, so a tile closed mid-detection came
+                         back showing an enabled play glyph that only cleared the pause. -->
                     <Button Classes="tile-btn"
                             Command="{Binding ResumeCommand}"
-                            IsVisible="{Binding IsPaused}"
-                            IsEnabled="{Binding !IsRunning}"
+                            IsVisible="{Binding ShowResume}"
+                            IsEnabled="{Binding CanResume}"
                             ToolTip.Tip="Resume">
                         <mi:MaterialIcon Kind="Play" Width="13" Height="13"
                                          Foreground="{DynamicResource AccentHover}" />
@@ -1210,6 +1214,17 @@
                  row goes the other way, under the composer, because it is an answer to the box rather
                  than to the run. -->
             <StackPanel Classes="chat-actions" IsVisible="{Binding HasFinishedRunActions}">
+                <!-- First, and the only one of these that shows while a run is merely stopped rather
+                     than finished. The transcript's last line says to click Resume; until this button
+                     existed the only Resume on screen was a play glyph in the header's strip, which is
+                     not where anything else this tile asks for is answered. The header keeps its copy
+                     for when the transcript is scrolled away. -->
+                <Button Classes="goal-action primary"
+                        Command="{Binding ResumeCommand}"
+                        IsVisible="{Binding ShowResume}"
+                        IsEnabled="{Binding CanResume}"
+                        Content="Resume"
+                        ToolTip.Tip="Pick the stopped run up where it left off" />
                 <!-- Judge the tree again against the same goal. It does not re-derive the goal: the
                      reason to press this is that something has just been fixed by hand next door, and
                      working the goal out afresh from a changed tree answers a different question. -->
