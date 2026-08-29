@@ -15,6 +15,14 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly TileCatalog _catalog;
     private readonly UpdateService _updateService;
     private readonly Dictionary<string, WorkspaceViewModel> _workspaceCache = new();
+    private readonly IProcessMemoryProbe _memoryProbe;
+    private readonly Avalonia.Threading.DispatcherTimer _memoryTimer;
+    private bool _memorySampleInFlight;
+
+    /// <summary>How often a loaded workspace's memory reading is refreshed.</summary>
+    /// <remarks>Slow on purpose. The figure is read to decide whether to unload something, not to watch
+    /// a build allocate, and each reading walks the machine's whole process table.</remarks>
+    private static readonly TimeSpan MemorySampleInterval = TimeSpan.FromSeconds(5);
 
     /// <summary>The application's dictation service, null when it was never wired up.</summary>
     internal Services.Speech.DictationService? Dictation { get; }
@@ -97,8 +105,10 @@ public partial class MainWindowViewModel : ObservableObject
     public MainWindowViewModel(WorkspaceService workspaceService, PersistenceService persistenceService,
         SettingsService settingsService, TileCatalog catalog, DatabaseServiceManager? dbManager = null,
         Services.Speech.DictationService? dictation = null,
-        Services.Phone.PhoneBridgeManager? phoneBridge = null)
+        Services.Phone.PhoneBridgeManager? phoneBridge = null,
+        IProcessMemoryProbe? memoryProbe = null)
     {
+        _memoryProbe = memoryProbe ?? new ProcessTreeMemory();
         _persistenceService = persistenceService;
         _settingsService = settingsService;
         _catalog = catalog;
@@ -140,6 +150,23 @@ public partial class MainWindowViewModel : ObservableObject
                     OnWorkspaceRemoved(item.Id);
             }
         };
+
+        _workspacesPanel.UnloadWorkspace = UnloadWorkspaceAsync;
+
+        _memoryTimer = new Avalonia.Threading.DispatcherTimer { Interval = MemorySampleInterval };
+        _memoryTimer.Tick += async (_, _) =>
+        {
+            // One sample at a time. A reading walks the machine's whole process table, so on a busy
+            // machine it can outlive the interval — and an unguarded tick would stack those walks up
+            // exactly when there is least room for them, with the row writes landing out of order.
+            // A plain field, because both the test and the write back happen on the UI thread.
+            if (_memorySampleInFlight) return;
+            _memorySampleInFlight = true;
+            try { await SampleMemoryAsync(); }
+            catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Memory sampling failed: {0}", ex.Message); }
+            finally { _memorySampleInFlight = false; }
+        };
+        _memoryTimer.Start();
 
         if (_workspacesPanel.Workspaces.Count > 0)
         {
@@ -236,6 +263,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     public void DisposeAll()
     {
+        _memoryTimer.Stop();
         _settingsService.SettingsChanged -= OnSettingsChanged;
         _updateService.Dispose();
         foreach (var vm in _workspaceCache.Values)
@@ -250,7 +278,82 @@ public partial class MainWindowViewModel : ObservableObject
 
         vm.PropertyChanged -= OnWorkspaceActivityChanged;
         vm.Dispose();
+        ShowUnloadedInPanel(workspaceId);
         WorkspaceRemoved?.Invoke(workspaceId);
+    }
+
+    /// <summary>Puts a row back to how an unopened workspace looks.</summary>
+    /// <remarks>Both properties together, because a row saying it holds 400 MB while nothing of it is
+    /// running is worse than a row saying nothing: the figure is the whole reason somebody would unload
+    /// it, and one left standing reads as an unload that did not work.</remarks>
+    private void ShowUnloadedInPanel(string workspaceId)
+    {
+        if (FindRow(workspaceId) is not { } row) return;
+        row.IsLoaded = false;
+        row.MemoryText = "";
+        row.IsBusy = false;
+    }
+
+    private WorkspaceItemViewModel? FindRow(string workspaceId) =>
+        _workspacesPanel.Workspaces.FirstOrDefault(w => w.Id == workspaceId);
+
+    /// <summary>Gives a workspace's memory back without giving up the workspace.</summary>
+    /// <remarks>
+    /// <para>Asks first, and an unwired <see cref="ConfirmAction"/> answers no: the tiles being closed
+    /// are running shells, and a shell killed by a mis-click in a context menu takes whatever it was in
+    /// the middle of with it. The layout is on disk, so what comes back on the next click is the same
+    /// set of tiles — but not the same sessions.</para>
+    /// <para>The selection is cleared first when this is the workspace on screen. Disposing the view
+    /// model out from under a selection that still names it would leave the row highlighted, the view
+    /// gone and nothing able to bring it back: re-selecting a workspace that is already selected raises
+    /// no change and so builds nothing.</para>
+    /// </remarks>
+    private async Task UnloadWorkspaceAsync(WorkspaceItemViewModel item)
+    {
+        if (!_workspaceCache.ContainsKey(item.Id)) return;
+        if (ConfirmAction is not { } confirm) return;
+        if (!await confirm($"Unload workspace \"{item.Name}\"?\n\nIts tiles are closed and everything running in them stops."))
+            return;
+
+        // Checked again: the confirmation is a dialog, and a workspace can be removed while it is open.
+        if (!_workspaceCache.ContainsKey(item.Id)) return;
+
+        if (ReferenceEquals(_workspacesPanel.SelectedWorkspace, item))
+            _workspacesPanel.SelectedWorkspace = null;
+
+        OnWorkspaceRemoved(item.Id);
+    }
+
+    /// <summary>Takes a memory reading for every loaded workspace and puts it on its row.</summary>
+    /// <remarks>
+    /// <para>The tree walk that collects the process ids is on the UI thread — it reads the tile tree,
+    /// which is the UI thread's — and the reading of the machine's process table is not, because that is
+    /// a few hundred processes opened one at a time and doing it between two frames is a stutter every
+    /// few seconds.</para>
+    /// <para>A row that has gone by the time the reading comes back is simply not found, and one that
+    /// was unloaded meanwhile is skipped: the reading describes a workspace that no longer has anything
+    /// running, and writing it would undo <see cref="ShowUnloadedInPanel"/> from a task started before
+    /// the unload.</para>
+    /// <para>Internal so a test can drive one sample with a probe of its own: the grouping by workspace
+    /// id and the skipping of what is not loaded are the joins this class alone makes.</para>
+    /// </remarks>
+    internal async Task SampleMemoryAsync()
+    {
+        var roots = _workspaceCache.ToDictionary(
+            entry => entry.Key,
+            entry => (IReadOnlyCollection<int>)entry.Value.ChildProcessIds.ToList());
+        if (roots.Count == 0) return;
+
+        // Every workspace in one call: the answer comes out of the machine's whole process table, so
+        // asking per workspace would read that table once per loaded workspace, every five seconds.
+        var readings = await Task.Run(() => _memoryProbe.WorkingSetsOf(roots));
+
+        foreach (var (workspaceId, bytes) in readings)
+        {
+            if (!_workspaceCache.ContainsKey(workspaceId)) continue;
+            if (FindRow(workspaceId) is { } row)
+                row.MemoryText = MemoryDisplay.Format(bytes);
+        }
     }
 
     /// <summary>Keeps a panel row's "working" light in step with the tiles of its workspace.</summary>
@@ -263,8 +366,13 @@ public partial class MainWindowViewModel : ObservableObject
         // the subscription: the handler finds the row itself on every event, so a workspace whose row
         // has not been added yet — or has been replaced since — starts lighting up as soon as it is
         // there. Returning early left that workspace's light dead for the life of the window.
-        if (_workspacesPanel.Workspaces.FirstOrDefault(w => w.Id == workspace.WorkspaceId) is { } row)
+        if (FindRow(workspace.WorkspaceId) is { } row)
+        {
             row.IsBusy = workspace.IsBusy;
+            // Said here rather than in SwitchToWorkspace because this is the one method a workspace's
+            // view model coming into existence goes through, and "loaded" is exactly that fact.
+            row.IsLoaded = true;
+        }
 
         // A named handler, not a lambda. The two objects are discarded together today, so nothing
         // leaks — but "nothing leaks" was resting on that being true rather than on anything saying
@@ -283,7 +391,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (e.PropertyName != nameof(WorkspaceViewModel.IsBusy)) return;
         if (sender is not WorkspaceViewModel workspace) return;
 
-        if (_workspacesPanel.Workspaces.FirstOrDefault(w => w.Id == workspace.WorkspaceId) is { } row)
+        if (FindRow(workspace.WorkspaceId) is { } row)
             row.IsBusy = workspace.IsBusy;
     }
 

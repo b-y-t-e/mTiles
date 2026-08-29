@@ -370,6 +370,31 @@
         <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
     </Style>
 
+    <!-- Loaded and unloaded, told by the name's own shade. A workspace holds nothing until it is opened
+         for the first time, and most rows in a long list never are — so this is true of nearly every row
+         and a mark on nearly every row marks nothing. A shade says it without asking for a column, and
+         reads the same way the rest of the application does: full strength is the thing itself, a step
+         back is a thing that is there but not running. -->
+    <Style Selector="Border.workspace-item TextBlock.workspace-name">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+    <Style Selector="Border.workspace-item.workspace-item-unloaded TextBlock.workspace-name">
+        <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+    </Style>
+
+    <!-- ======== WORKSPACE MEMORY (what the tiles in there are holding) ========
+         On the branch's line and docked to its right, in the meta line's own shade: it is a fact beside
+         the workspace, the same kind of thing the branch is, and giving it a colour or a box of its own
+         would make a reading that changes every few seconds the loudest thing in the panel. Empty for a
+         workspace that is not loaded, which is what makes the column quiet enough to be worth reading at
+         all. -->
+    <Style Selector="TextBlock.workspace-memory">
+        <Setter Property="FontSize" Value="{DynamicResource FontXs}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Margin" Value="6,0,0,0" />
+    </Style>
+
     <!-- ======== WORKSPACE STAR (pin to the top of the list) ========
          Always visible, never revealed on hover: it carries state the list is sorted by, and a marker
          you have to point at to see is not a marker. Unpinned it is an outline in the same muted shade

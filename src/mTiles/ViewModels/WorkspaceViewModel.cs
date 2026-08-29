@@ -32,6 +32,16 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// there", and a workspace with one busy tile out of four is a workspace to go back to.</remarks>
     public bool IsBusy => EnumerateLeaves(RootTile).Any(leaf => leaf.IsBusy);
 
+    /// <summary>Every process this workspace's tiles have started.</summary>
+    /// <remarks>The roots only: what those processes went on to spawn is the business of whoever reads
+    /// the machine's process table (<see cref="Services.IProcessMemoryProbe"/>), and a workspace that
+    /// had to know about descendants would be a workspace that knew about operating systems.</remarks>
+    public IEnumerable<int> ChildProcessIds =>
+        EnumerateLeaves(RootTile)
+            .Select(leaf => leaf.ChildProcessId)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value);
+
     /// <summary>
     /// Raised when the tile a window-level command acts on changes, or when that tile's own state does.
     /// </summary>

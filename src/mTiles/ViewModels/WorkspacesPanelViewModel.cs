@@ -318,6 +318,20 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
             Process.Start(new ProcessStartInfo("xdg-open", path) { UseShellExecute = true });
     }
 
+    /// <summary>Closes a workspace's tiles without removing the workspace itself.</summary>
+    /// <remarks>Wired from outside, because the tiles belong to the window and not to this list: the
+    /// panel knows which row was clicked and nothing at all about what is running in it.</remarks>
+    public Func<WorkspaceItemViewModel, Task>? UnloadWorkspace { get; set; }
+
+    /// <summary>Gives a loaded workspace's memory back.</summary>
+    /// <remarks>Only a loaded one has anything to give back, so the menu item is dead on every other
+    /// row rather than quietly doing nothing.</remarks>
+    [RelayCommand(CanExecute = nameof(CanUnloadWorkspace))]
+    private Task UnloadWorkspaceAsync(WorkspaceItemViewModel? item) =>
+        item != null && UnloadWorkspace is { } unload ? unload(item) : Task.CompletedTask;
+
+    private static bool CanUnloadWorkspace(WorkspaceItemViewModel? item) => item is { IsLoaded: true };
+
     [RelayCommand]
     private async Task RemoveWorkspaceAsync(WorkspaceItemViewModel item)
     {

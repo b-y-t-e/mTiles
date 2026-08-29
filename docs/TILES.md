@@ -83,6 +83,11 @@ public interface ICustomBackgroundTile : ITile
     Thickness ContentInset { get; }     // how far the content sits inside the card
     string ContentBackground { get; }   // hex — what that inset is painted in
 }
+
+public interface IProcessTile : ITile
+{
+    int? ChildProcessId { get; }        // the process it started; null between sessions
+}
 ```
 
 ```csharp
@@ -105,14 +110,21 @@ public interface ITileKind
 
 Who implements what:
 
-| Kind | `IBusyTile` | `IFileContent` | `ITileActions` | `ITextInputTile` | `ICustomBackgroundTile` |
-|---|---|---|---|---|---|
-| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ |
-| Note | | ✔ | | | |
-| Todo | | ✔ | | | |
-| Git | | | ✔ Refresh, Commit, Push | | |
-| Database | | | | | |
-| Goal | ✔ | | ✔ Continue, Pause, Commit work | | |
+| Kind | `IBusyTile` | `IFileContent` | `ITileActions` | `ITextInputTile` | `ICustomBackgroundTile` | `IProcessTile` |
+|---|---|---|---|---|---|---|
+| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ |
+| Note | | ✔ | | | | |
+| Todo | | ✔ | | | | |
+| Git | | | ✔ Refresh, Commit, Push | | | |
+| Database | | | | | | |
+| Goal | ✔ | | ✔ Continue, Pause, Commit work | | | ✔ |
+
+`IProcessTile` is the root of a tree and not a process: a terminal knows the shell it spawned and nothing
+about the agent that shell went on to start, which is where the memory actually is. A Goal tile
+answers with the AI tool it has running, which is usually the heaviest thing in the workspace. Finding the rest is
+`ProcessTreeMemory`'s job — the tile answers with one number and stays ignorant of operating systems. It
+is `null` between sessions rather than stale, because a process id the system has reclaimed is a number
+that now belongs to somebody else.
 
 `TileContext` carries what every kind needs in order to build a tile: the working directory, the
 `SettingsService`, the tile's own identity, and the callbacks a tile reports through (`RequestSave`,

@@ -63,6 +63,25 @@ public partial class WorkspaceItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Whether this workspace's tiles have been built and are holding memory.</summary>
+    /// <remarks>
+    /// <para>Set from outside, like <see cref="IsBusy"/>: the row is told, it does not look. A workspace
+    /// gets a view model the first time it is opened and keeps it until the window closes or the user
+    /// unloads it, so most rows in a long list are not loaded and never were.</para>
+    /// <para>Drawn as a dimmer name rather than as a word or a mark. It is true of most of the list most
+    /// of the time, and a marker on nearly every row marks nothing; a shade says the same thing without
+    /// asking for a column.</para>
+    /// </remarks>
+    [ObservableProperty]
+    private bool _isLoaded;
+
+    /// <summary>How much memory this workspace's processes are holding, ready to read.</summary>
+    /// <remarks>Already formatted, and empty when there is nothing to report — an unloaded workspace, or
+    /// a loaded one whose tiles run no processes. The row reserves the height either way, so an empty
+    /// string costs no layout.</remarks>
+    [ObservableProperty]
+    private string _memoryText = "";
+
     /// <summary>Told when the star is pressed, so the row never has to know the service that stores it.
     /// </summary>
     public Action<WorkspaceItemViewModel, bool>? FavoriteChanged { get; set; }

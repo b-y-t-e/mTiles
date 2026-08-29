@@ -29,10 +29,23 @@ namespace mTiles.ViewModels;
 /// workflow can be driven from anywhere, which is exactly the belief that makes a race look acceptable.
 /// </para>
 /// </remarks>
-public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActions
+public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActions, IProcessTile
 {
     /// <inheritdoc />
     public string KindId => TileKindIds.Goal;
+
+    /// <summary>The AI tool this tile has running, if any.</summary>
+    /// <remarks>
+    /// <para>The tool is usually the heaviest thing in a workspace - heavier than the shell beside it -
+    /// so a memory reading that skipped it would be lowest exactly where the user most needs it to be
+    /// right. What it starts in turn hangs off this id and is found by whoever walks the process table.</para>
+    /// <para>Zero rather than null in the field so the write is one atomic instruction: it is set on the
+    /// thread that starts the run and read by the sampler, and an id kept past the run is a number the
+    /// system is free to have handed to somebody else.</para>
+    /// </remarks>
+    public int? ChildProcessId => Volatile.Read(ref _childProcessId) is var id && id != 0 ? id : null;
+
+    private int _childProcessId;
 
     /// <summary>The ids of the three things this tile offers outside its own view.</summary>
     public const string ContinueActionId = "continue";
@@ -2347,6 +2360,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                         // the tool happened to open, for the rest of the session.
                         PostFireAndForget(() => SetActivityIfRunning(doing));
                     },
+                    onStarted: processId => Volatile.Write(ref _childProcessId, processId),
                     ct: token);
 
             _lastRunDenials = result.PermissionDenials;
@@ -2412,6 +2426,13 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             await AddMessageAsync(GoalMessageRole.System,
                 $"The AI tool failed: {ex.Message}. {Capitalised(TryAgain())}", CurrentPhase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
+        }
+        finally
+        {
+            // Every way out of the run, cancellation included: the process is gone by now, and an id
+            // left standing would keep adding somebody else's memory to this workspace's row for as
+            // long as the tile is open.
+            Volatile.Write(ref _childProcessId, 0);
         }
     }
 

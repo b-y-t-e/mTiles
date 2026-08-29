@@ -52,6 +52,11 @@ public partial class TerminalTileView : UserControl
             // Swallowing the key on a non-text clipboard, which is the control's default, is the
             // difference between image paste working and silently doing nothing.
             ForwardCtrlVWhenClipboardHasNoText = true,
+            // The one place a shell's process id is knowable. The control spawns through this factory
+            // and keeps the connection to itself, so a tile that wants to say how much memory it is
+            // holding has to be told here — and told again when that shell exits, by the connection
+            // itself rather than by the control, because the connection knows which session died.
+            PtyFactory = options => WatchChildProcess(Terminal.Pty.PtyConnection.Start(options), vm),
         };
 
         vm.AttachControl(terminal);
@@ -70,6 +75,18 @@ public partial class TerminalTileView : UserControl
             vm.IsLaunched = true;
             TileLauncher.Launch(terminal, vm);
         }
+    }
+
+    /// <summary>Tells the tile which process its shell is, for as long as that process lives.</summary>
+    private static Terminal.Pty.IPtyConnection WatchChildProcess(
+        Terminal.Pty.IPtyConnection pty, TerminalTileViewModel vm)
+    {
+        var processId = pty.ProcessId;
+        vm.TrackChildProcess(processId);
+        // A shell that has already gone simply is not in the process table, so the memory reading is
+        // right either way — this only keeps the tile from carrying a pid the system may hand out again.
+        pty.Exited += _ => vm.ForgetChildProcess(processId);
+        return pty;
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)

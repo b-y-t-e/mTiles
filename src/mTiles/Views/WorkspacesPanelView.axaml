@@ -136,6 +136,7 @@
                                      which is the only thing that makes a list this long scannable. -->
                                 <Border Classes="workspace-item"
                                         Classes.workspace-item-selected="{Binding IsSelected}"
+                                        Classes.workspace-item-unloaded="{Binding !IsLoaded}"
                                         Padding="9,5"
                                         Margin="0,0,0,1"
                                         CornerRadius="{DynamicResource RadiusRow}"
@@ -176,10 +177,14 @@
                                                              IsVisible="{Binding IsBusy}"
                                                              ToolTip.Placement="Right"
                                                              ToolTip.Tip="Working" />
+                                            <!-- The colour is a class and not a local value, because a
+                                                 workspace nobody has opened is drawn a shade back and
+                                                 one writer per property is the rule: a Foreground set
+                                                 here would beat the style and the row would never dim. -->
                                             <TextBlock Text="{Binding Name}" FontWeight="Medium"
+                                                       Classes="workspace-name"
                                                        TextTrimming="CharacterEllipsis"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource TextPrimary}" />
+                                                       VerticalAlignment="Center" />
                                         </DockPanel>
                                         <!-- The meta line is always here and always the same height,
                                              whatever it has to say. Showing it only for repositories
@@ -188,6 +193,18 @@
                                              nothing lines up and the eye has no rhythm to scan by.
                                              Reserving the line also covers the moment before the check
                                              has answered, when there is nothing truthful to put in it. -->
+                                        <!-- The memory reading shares the branch's line and is docked to
+                                             the right of it, which is the one place on the row where a
+                                             number does not compete with a name: it is three characters
+                                             wide, it is only there for a workspace that is loaded, and
+                                             the branch — the fill child — is measured against what is
+                                             left, so it trims instead of running underneath. -->
+                                        <DockPanel>
+                                        <TextBlock DockPanel.Dock="Right"
+                                                   Classes="workspace-memory"
+                                                   Text="{Binding MemoryText}"
+                                                   ToolTip.Placement="Right"
+                                                   ToolTip.Tip="Memory held by this workspace's tiles" />
                                         <Panel Height="15">
                                             <DockPanel Classes="workspace-meta"
                                                        IsVisible="{Binding BranchName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
@@ -234,6 +251,7 @@
                                                 <TextBlock Text="{Binding DirectoryPath}" />
                                             </DockPanel>
                                         </Panel>
+                                        </DockPanel>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>

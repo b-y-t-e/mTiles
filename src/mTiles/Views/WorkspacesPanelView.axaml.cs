@@ -78,6 +78,14 @@ public partial class WorkspacesPanelView : UserControl
                             await clipboard.SetTextAsync(item.DirectoryPath);
                     })
                 },
+                // Under the two harmless ones and above Remove, which is where its weight puts it: it
+                // stops whatever the workspace is running, and it does not lose the workspace.
+                new MenuItem
+                {
+                    Header = "Unload",
+                    Command = vm.UnloadWorkspaceCommand,
+                    CommandParameter = item
+                },
                 new Separator(),
                 new MenuItem
                 {

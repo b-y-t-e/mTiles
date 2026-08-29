@@ -61,6 +61,13 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// one nothing else would ever put out.</remarks>
     public bool IsBusy => !_disposed && (Content as IBusyTile)?.IsBusy == true;
 
+    /// <summary>The process this tile started, when its content runs one and is still open.</summary>
+    /// <remarks>Asked of the content rather than of its type, and null for content that runs nothing —
+    /// a note holds no process and is never asked. Guarded by <c>_disposed</c> for the same reason
+    /// <see cref="IsBusy"/> is: a closed tile's shell is being killed, and its memory is not the
+    /// workspace's any more.</remarks>
+    public int? ChildProcessId => _disposed ? null : (Content as IProcessTile)?.ChildProcessId;
+
     partial void OnContentChanged(ITile? oldValue, ITile? newValue)
     {
         WatchContent(oldValue, newValue);

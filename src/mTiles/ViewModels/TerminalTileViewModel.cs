@@ -10,7 +10,7 @@ using mTiles.Services.Speech;
 namespace mTiles.ViewModels;
 
 public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICustomBackgroundTile,
-    ITileActions, ITextInputTile
+    ITileActions, ITextInputTile, IProcessTile
 {
     /// <inheritdoc />
     public string KindId => TileKindIds.Terminal;
@@ -64,6 +64,28 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// <summary>Whether the shell in this tile is producing output — what the workspace list shows as
     /// "working".</summary>
     public bool IsBusy => _activityLight.IsOn;
+
+    /// <summary>The shell this tile is running right now, or zero when it is running nothing.</summary>
+    /// <remarks>Written from the pty's own callbacks, which are not the UI thread — hence
+    /// <see cref="Volatile"/> either side rather than an <c>[ObservableProperty]</c>. Zero rather than a
+    /// nullable field so both readings are a single word.</remarks>
+    private int _childProcessId;
+
+    /// <inheritdoc />
+    public int? ChildProcessId => Volatile.Read(ref _childProcessId) is var id && id != 0 ? id : null;
+
+    /// <summary>Takes note of the shell a new session just started.</summary>
+    internal void TrackChildProcess(int processId) => Volatile.Write(ref _childProcessId, processId);
+
+    /// <summary>
+    /// Forgets a shell that has exited — but only if it is still the one this tile is running.
+    /// </summary>
+    /// <remarks>Compared rather than cleared outright: a relaunch starts the next shell and the one that
+    /// died is reported afterwards, and an unconditional clear would then blank the id of the session
+    /// that is very much alive. A pid is reused by the operating system, so an id nobody clears is worse
+    /// than none: it is a number that has since become somebody else's process.</remarks>
+    internal void ForgetChildProcess(int processId) =>
+        Interlocked.CompareExchange(ref _childProcessId, 0, processId);
 
     internal Control? CachedControl { get; private set; }
     internal bool IsLaunched { get; set; }
