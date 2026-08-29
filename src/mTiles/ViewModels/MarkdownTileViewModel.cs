@@ -5,8 +5,20 @@ using mTiles.Services;
 
 namespace mTiles.ViewModels;
 
-public partial class MarkdownTileViewModel : ObservableObject, IFileContent, IDisposable
+/// <summary>
+/// The machinery a markdown-backed tile needs: the text, the file behind it, the debounced save and the
+/// watcher that follows an edit made outside the application.
+/// </summary>
+/// <remarks>
+/// Abstract, because it is not a kind of tile — <see cref="NoteTileViewModel"/> and
+/// <see cref="TodoTileViewModel"/> are, and they differ by what they are called and where their files
+/// go rather than by any of this.
+/// </remarks>
+public abstract partial class MarkdownTileViewModel : ObservableObject, IFileContent
 {
+    /// <inheritdoc />
+    public abstract string KindId { get; }
+
     [ObservableProperty]
     private string _fontFamily;
 
@@ -27,7 +39,7 @@ public partial class MarkdownTileViewModel : ObservableObject, IFileContent, IDi
 
     public string FilePath => _filePath;
 
-    public MarkdownTileViewModel(string filePath, SettingsService? settingsService = null)
+    protected MarkdownTileViewModel(string filePath, SettingsService? settingsService = null)
     {
         _filePath = filePath;
         _settingsService = settingsService;

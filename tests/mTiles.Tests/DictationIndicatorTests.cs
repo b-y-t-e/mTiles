@@ -28,7 +28,7 @@ public class DictationIndicatorTests
 
     private static (LeafTileNodeViewModel Leaf, Border Indicator, LeafTileView View) Build()
     {
-        var leaf = new LeafTileNodeViewModel(TileContentType.Empty, null, "", new TileActivationScope());
+        var leaf = new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope());
         var view = new LeafTileView { DataContext = leaf };
         var window = new Window { Content = view, Width = 400, Height = 300 };
 
@@ -174,7 +174,7 @@ public class DictationIndicatorTests
         {
             // Recording from the start, so the border is laid out along with everything else — a
             // control that was collapsed when the window measured itself has no bounds to compare.
-            var leaf = new LeafTileNodeViewModel(TileContentType.Empty, null, "", new TileActivationScope())
+            var leaf = new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope())
             {
                 IsRecordingDictation = true,
             };

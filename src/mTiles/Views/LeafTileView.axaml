@@ -1,7 +1,6 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
-             xmlns:m="using:mTiles.Models"
              xmlns:mi="using:Material.Icons.Avalonia"
              x:Class="mTiles.Views.LeafTileView"
              x:DataType="vm:LeafTileNodeViewModel"
@@ -94,7 +93,7 @@
                                         <MenuItem Header="Restart shell"
                                                   InputGesture="Ctrl+Shift+R"
                                                   Command="{Binding RestartTerminalCommand}"
-                                                  IsVisible="{Binding ContentType, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:TileContentType.Terminal}}">
+                                                  IsVisible="{Binding CanRestart}">
                                             <MenuItem.Icon>
                                                 <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
                                             </MenuItem.Icon>
@@ -141,9 +140,10 @@
                             </Button>
                         </StackPanel>
 
-                        <!-- The tile wears the icon it was created with. Kind and colour are set from
-                             the code-behind rather than bound, because both follow ContentType, which is
-                             already the one thing this view redraws itself on. -->
+                        <!-- The tile wears its kind's icon. Both the glyph and the colour come from the
+                             kind itself and are set from the code-behind rather than bound, because both
+                             follow KindId, which is already one of the two things this view redraws
+                             itself on. -->
                         <mi:MaterialIcon x:Name="TileTypeGlyph"
                                          DockPanel.Dock="Left"
                                          Width="13" Height="13"
@@ -175,103 +175,34 @@
                      code-behind (see ContentInset), not here: a terminal wants one and a tile whose
                      content is its own chrome does not. -->
                 <Panel>
+                    <!-- One card per registered kind, built in the code-behind from the catalog.
+                         They used to be six blocks of markup written out by hand, which meant a
+                         seventh kind was a class, a line of registration and a page of XAML nobody
+                         would think to look for. A chooser card is a big button with a glyph and a
+                         label; there is nothing in it a loop cannot say. -->
                     <WrapPanel x:Name="ContentChooser"
                                IsVisible="False"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
-                               Orientation="Horizontal">
-                        <Button Classes="chooser-card"
-                                Command="{Binding SelectContentTypeCommand}"
-                                CommandParameter="{x:Static m:TileContentType.Terminal}">
-                            <StackPanel Spacing="7" HorizontalAlignment="Center">
-                                <mi:MaterialIcon Kind="Console" Width="22" Height="22"
-                                                 HorizontalAlignment="Center"
-                                                 Foreground="{DynamicResource TileAccentTerminal}" />
-                                <TextBlock Text="Terminal" FontSize="{DynamicResource FontSm}"
-                                           HorizontalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="chooser-card"
-                                Command="{Binding SelectContentTypeCommand}"
-                                CommandParameter="{x:Static m:TileContentType.Note}">
-                            <StackPanel Spacing="7" HorizontalAlignment="Center">
-                                <mi:MaterialIcon Kind="NoteEditOutline" Width="22" Height="22"
-                                                 HorizontalAlignment="Center"
-                                                 Foreground="{DynamicResource TileAccentNote}" />
-                                <TextBlock Text="Note" FontSize="{DynamicResource FontSm}"
-                                           HorizontalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="chooser-card"
-                                Command="{Binding SelectContentTypeCommand}"
-                                CommandParameter="{x:Static m:TileContentType.Todo}">
-                            <StackPanel Spacing="7" HorizontalAlignment="Center">
-                                <mi:MaterialIcon Kind="CheckboxMarkedOutline" Width="22" Height="22"
-                                                 HorizontalAlignment="Center"
-                                                 Foreground="{DynamicResource TileAccentTodo}" />
-                                <TextBlock Text="Todo" FontSize="{DynamicResource FontSm}"
-                                           HorizontalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="chooser-card"
-                                Command="{Binding SelectContentTypeCommand}"
-                                CommandParameter="{x:Static m:TileContentType.Git}">
-                            <StackPanel Spacing="7" HorizontalAlignment="Center">
-                                <mi:MaterialIcon Kind="SourceBranch" Width="22" Height="22"
-                                                 HorizontalAlignment="Center"
-                                                 Foreground="{DynamicResource TileAccentGit}" />
-                                <TextBlock Text="Git" FontSize="{DynamicResource FontSm}"
-                                           HorizontalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="chooser-card"
-                                Command="{Binding SelectContentTypeCommand}"
-                                CommandParameter="{x:Static m:TileContentType.Database}">
-                            <StackPanel Spacing="7" HorizontalAlignment="Center">
-                                <mi:MaterialIcon Kind="DatabaseOutline" Width="22" Height="22"
-                                                 HorizontalAlignment="Center"
-                                                 Foreground="{DynamicResource TileAccentDatabase}" />
-                                <TextBlock Text="Database" FontSize="{DynamicResource FontSm}"
-                                           HorizontalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="chooser-card"
-                                Command="{Binding SelectContentTypeCommand}"
-                                CommandParameter="{x:Static m:TileContentType.Goal}">
-                            <StackPanel Spacing="7" HorizontalAlignment="Center">
-                                <mi:MaterialIcon Kind="BullseyeArrow" Width="22" Height="22"
-                                                 HorizontalAlignment="Center"
-                                                 Foreground="{DynamicResource TileAccentGoal}" />
-                                <TextBlock Text="Goal" FontSize="{DynamicResource FontSm}"
-                                           HorizontalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                    </WrapPanel>
+                               Orientation="Horizontal" />
 
-                    <!-- Profile chooser -->
-                    <WrapPanel x:Name="ProfileChooser"
+                    <!-- The step a kind asks for before it can be built: one card per option, built
+                         in the code-behind from that kind's own list. Back is the only card here the
+                         kind does not describe, because leaving the step is the tile's business and
+                         not the kind's. -->
+                    <WrapPanel x:Name="SetupChooser"
                                IsVisible="False"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
                                Orientation="Horizontal">
-                        <Button Classes="chooser-back"
-                                Command="{Binding CancelProfileSelectionCommand}">
+                        <Button x:Name="SetupBackButton"
+                                Classes="chooser-back"
+                                Command="{Binding CancelSetupCommand}">
                             <StackPanel Spacing="7" HorizontalAlignment="Center">
                                 <mi:MaterialIcon Kind="ArrowLeft" Width="22" Height="22"
                                                  HorizontalAlignment="Center"
                                                  Foreground="{DynamicResource TextMuted}" />
                                 <TextBlock Text="Back" FontSize="{DynamicResource FontSm}"
-                                           HorizontalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="ProfileButtonsMarker"
-                                Classes="chooser-card"
-                                Command="{Binding SelectDefaultTerminalCommand}">
-                            <StackPanel Spacing="7" HorizontalAlignment="Center">
-                                <mi:MaterialIcon Kind="Console" Width="22" Height="22"
-                                                 HorizontalAlignment="Center"
-                                                 Foreground="{DynamicResource TextMuted}" />
-                                <TextBlock Text="Default shell" FontSize="{DynamicResource FontSm}"
                                            HorizontalAlignment="Center" />
                             </StackPanel>
                         </Button>

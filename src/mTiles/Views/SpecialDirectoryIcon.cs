@@ -8,7 +8,7 @@ namespace mTiles.Views;
 /// The glyph beside a workspace row's path — a house, a disk, a cog.
 /// </summary>
 /// <remarks>
-/// <para>Here rather than on the view model for the reason <c>TileTypeIcon</c> is here: which picture
+/// <para>Here rather than on the view model for the reason <c>TileIcons</c> is here: which picture
 /// stands for a kind of place is a fact about the drawing, and <c>Material.Icons</c> has no business
 /// in <c>ViewModels/</c>. The view model answers <see cref="SpecialDirectoryKind"/> and this turns it
 /// into something to draw.</para>

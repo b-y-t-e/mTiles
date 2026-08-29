@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using mTiles.Models;
@@ -117,6 +117,21 @@ public sealed class PhoneBridgeManager : IPhoneSink, IAsyncDisposable
     /// and what a torn read costs is not bounded at all.
     /// </remarks>
     private volatile string _tileName = "";
+
+    /// <summary>
+    /// The actions message a phone is sent, as last built on the UI thread.
+    /// </summary>
+    /// <remarks>
+    /// Cached for the reason <see cref="_tileName"/> is, and more urgently: building it walks the active
+    /// tile's content and asks each action whether it is enabled right now, which is a read of a live
+    /// Avalonia view model tree. A socket thread must never do that — so it is assembled where it is
+    /// safe to assemble and published as an immutable snapshot.
+    /// </remarks>
+    private volatile string _actionsJson = PhoneTileActions.Describe("", []);
+
+    /// <summary>What was last broadcast, so an unchanged reading costs nothing. UI thread only.</summary>
+    private string? _lastState;
+    private string? _lastActions;
 
     internal PhoneBridgeManager(
         SettingsService settings,
@@ -853,12 +868,13 @@ public sealed class PhoneBridgeManager : IPhoneSink, IAsyncDisposable
     });
 
     /// <remarks>
-    /// Asks for the tile and the focused control at the moment the key is pressed, rather than reusing
-    /// whatever the last recording aimed at: half a minute passes between dictating a line and sending
-    /// it, and the user may well have switched tiles in between. The transcript's own path captures its
-    /// target at the press for the same reason — there it is the press that matters, here it is this one.
+    /// Asks <see cref="AddressedTile"/> and the focused control at the moment the key is pressed, rather
+    /// than reusing whatever the last recording aimed at: half a minute passes between dictating a line
+    /// and sending it, and the user may well have switched tiles in between. Inside an utterance that
+    /// same call answers with the tile the sentence is landing in, which is what makes the two halves of
+    /// one gesture agree even if the active tile moves between them.
     /// </remarks>
-    Task<string?> IPhoneSink.PressKeyAsync(PhoneKey key) =>
+    Task<string?> IPhoneSink.PressKeyAsync(TileKey key) =>
         _dispatcher.InvokeAsync<string?>(() =>
         {
             LeafTileNodeViewModel? tile;
@@ -869,11 +885,11 @@ public sealed class PhoneBridgeManager : IPhoneSink, IAsyncDisposable
             // A throw from any of them is captured into this task, returns to the socket thread, passes
             // both catches in PumpAsync (neither is a WebSocketException or a cancellation) and reaches
             // Kestrel, which drops the connection: the phone blinks "Offline" and reconnects, over a
-            // keystroke, with nothing anywhere saying why. SafeTileName wraps the very same _activeTile
-            // call one method down for the smaller half of this.
+            // keystroke, with nothing anywhere saying why. SafeTileName wraps the very same
+            // AddressedTile call one method down for the smaller half of this.
             try
             {
-                tile = _activeTile();
+                tile = AddressedTile();
                 if (PhoneKeys.Press(tile, key, SafeFocusedElement()))
                     return null;
             }
@@ -898,12 +914,77 @@ public sealed class PhoneBridgeManager : IPhoneSink, IAsyncDisposable
             };
         });
 
+    /// <remarks>
+    /// The tile is resolved here, on the UI thread and through <see cref="AddressedTile"/> — the same
+    /// call the list was built from, so the tile named on the phone is the tile the press reaches — and
+    /// the action is looked up in what it offers <em>now</em>, because the phone's snapshot is as old as
+    /// the last state it was told about. An id that is not in that list, or is in it and disabled, or is
+    /// destructive, is refused: what a paired device can cause is decided in this process, not by the
+    /// message.
+    /// </remarks>
+    Task<string?> IPhoneSink.InvokeActionAsync(string id) =>
+        _dispatcher.InvokeAsync(async () =>
+        {
+            LeafTileNodeViewModel? tile;
+            try
+            {
+                tile = AddressedTile();
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning("Reading the addressed tile for a phone action failed: {0}", ex);
+                return "mTiles could not reach the active tile.";
+            }
+
+            if (tile is null)
+                return "No tile is active in mTiles.";
+
+            if (!PhoneTileActions.IsAllowed(tile.Actions, id))
+                return "That is not something this tile can do right now.";
+
+            // Wrapped for the reason the key press is: this runs the tile's own command, which is
+            // ordinary application code, and an exception escaping here reaches Kestrel and drops the
+            // connection — the phone blinks "Offline" and reconnects, with nothing anywhere saying why.
+            try
+            {
+                var result = await tile.InvokeActionAsync(id).ConfigureAwait(true);
+                PublishState();
+                return result.Done ? null : result.Message ?? "mTiles could not do that.";
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning("Running a tile action from a phone failed: {0}", ex);
+                return "mTiles could not do that.";
+            }
+        }).Unwrap();
+
     string IPhoneSink.DescribeState()
     {
         // Answers immediately from the cache — this is a socket thread and the phone is waiting — and
         // asks for a fresh reading, which arrives a frame later as an ordinary state message.
         PublishState();
         return StateJson();
+    }
+
+    /// <summary>
+    /// The application saying that what a phone is looking at has changed: another tile is active, or the
+    /// active one's own state moved.
+    /// </summary>
+    /// <remarks>
+    /// Pushed in rather than observed from here, and that is the layering: this class is handed a
+    /// <c>Func</c> that reads the active tile and knows nothing else about the view model tree, so it is
+    /// the composition root that connects the two — the same place the <c>Func</c> itself is written.
+    /// Without it the action list only ever moved when somebody dictated, which is the wrong way round:
+    /// the run whose Continue has just lit up is exactly the one the user is watching from the sofa.
+    /// </remarks>
+    internal void NotifyActiveTileChanged() => PublishState();
+
+    string IPhoneSink.DescribeActions()
+    {
+        // Same arrangement as DescribeState: answer from the snapshot, because this is a socket thread,
+        // and ask for a fresh reading that arrives a frame later as an ordinary actions message.
+        PublishState();
+        return _actionsJson;
     }
 
     // ── internals ───────────────────────────────────────────────────────────────────────────────────
@@ -932,8 +1013,26 @@ public sealed class PhoneBridgeManager : IPhoneSink, IAsyncDisposable
             _streamTile = null;
 
         _tileName = SafeTileName();
-        _server?.Broadcast(StateJson());
+        _actionsJson = SafeActionsJson();
+        Broadcast(StateJson(), ref _lastState);
+        Broadcast(_actionsJson, ref _lastActions);
     });
+
+    /// <summary>Sends a message to every phone, unless they were told exactly this last time.</summary>
+    /// <remarks>
+    /// The tile republishes its actions on any change to its content at all — deliberately, so no list of
+    /// six kinds' internals is kept anywhere — which for a running Goal tile is once a second as the
+    /// elapsed time ticks. What a phone needs is the message that says something different; the rest is a
+    /// socket write per second per device for a picture that has not moved. A phone that has just
+    /// connected is answered from the snapshot directly, so nothing it needs is lost by holding a repeat
+    /// back. Touched only on the UI thread, where <see cref="PublishState"/> puts it.
+    /// </remarks>
+    private void Broadcast(string message, ref string? lastSent)
+    {
+        if (message == lastSent) return;
+        lastSent = message;
+        _server?.Broadcast(message);
+    }
 
     private Avalonia.Input.IInputElement? SafeFocusedElement()
     {
@@ -941,10 +1040,48 @@ public sealed class PhoneBridgeManager : IPhoneSink, IAsyncDisposable
         catch { return null; }
     }
 
+    /// <summary>
+    /// The one tile a phone is addressing: what it is shown, and what it presses.
+    /// </summary>
+    /// <remarks>
+    /// <para>Everything the phone sees and everything it can cause comes from here, and that is the
+    /// point. The caption and the action list were built from the tile a stream is aimed at while the
+    /// list was pressed on whichever tile happened to be active — so a phone dictating into Git while
+    /// the user clicked into a Goal tile went on showing Git's name and Git's buttons, and a tap ran the
+    /// Goal tile's command of the same id. The two kinds share <c>commit</c>, so that was "Commit" under
+    /// the name Git #1 starting a Goal tile's run: the filter in <see cref="PhoneTileActions"/> could not
+    /// see it, because it was asked about the tile the press had already been routed to.</para>
+    /// <para>While an utterance is in flight the phone is a remote for the tile the sentence is landing
+    /// in, which is also what makes an Enter land where the sentence did. The hold lasts exactly that
+    /// long — <see cref="PublishState"/> lets go of it the moment dictation is idle — so nothing here
+    /// keeps aiming at a tile somebody dictated into an hour ago.</para>
+    /// <para>UI thread only, like <see cref="_streamTile"/> itself.</para>
+    /// </remarks>
+    private LeafTileNodeViewModel? AddressedTile() => _streamTile ?? _activeTile();
+
     private string SafeTileName()
     {
-        try { return (_streamTile ?? _activeTile())?.TileName ?? ""; }
+        try { return AddressedTile()?.TileName ?? ""; }
         catch { return ""; }
+    }
+
+    /// <summary>What the addressed tile can be asked to do, as a message ready to send.</summary>
+    /// <remarks>The destructive filter is inside <see cref="PhoneTileActions.Describe"/> rather than
+    /// here, so the one rule that decides what a phone may see is also the one that decides what it may
+    /// press. Wrapped for the reason the name is: this reads a live view model tree, and a failure here
+    /// must cost a stale caption rather than the bridge.</remarks>
+    private string SafeActionsJson()
+    {
+        try
+        {
+            var tile = AddressedTile();
+            return PhoneTileActions.Describe(tile?.TileName ?? "", tile?.Actions ?? []);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("Reading the addressed tile's actions failed: {0}", ex);
+            return PhoneTileActions.Describe("", []);
+        }
     }
 
     private string StateJson()

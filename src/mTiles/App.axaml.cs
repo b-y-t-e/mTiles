@@ -9,6 +9,7 @@ using mTiles.Services;
 using mTiles.Services.Database;
 using mTiles.Services.Phone;
 using mTiles.Services.Speech;
+using mTiles.Services.Tiles;
 using mTiles.ViewModels;
 using mTiles.Views;
 
@@ -56,8 +57,13 @@ public partial class App : Application
             () => mainVmRef?.CurrentWorkspace?.ActiveTile);
 
         var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
-            _dbManager, _dictation, _phoneBridge);
+            BuildTileCatalog(_dbManager), _dbManager, _dictation, _phoneBridge);
         mainVmRef = mainVm;
+
+        // The other half of the Func above: it says what the active tile is, this says when to look
+        // again. Wired here because this is where the bridge is given its view of the view model tree —
+        // the manager keeps no reference to it, and the view models keep none to the bridge.
+        mainVm.ActiveTileChanged += _phoneBridge.NotifyActiveTileChanged;
 
         // Asked for explicitly, so a phone paired yesterday can reconnect without the panel being opened
         // first. Off by default: this is the one server here that listens to the network. The condition
@@ -113,6 +119,27 @@ public partial class App : Application
 
         base.OnFrameworkInitializationCompleted();
     }
+
+    /// <summary>
+    /// Every kind of tile this application can build, and the view that draws each.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>One line per kind, and adding a seventh is one more.</b> The two halves are registered
+    /// together on purpose: kinds in one list and views in another is the arrangement that has already
+    /// cost this codebase a bug, and it is the reason a tile's view is resolved by a dictionary lookup
+    /// rather than by a switch over view-model types.</para>
+    /// <para>Here rather than anywhere lower down because this is the one file allowed to see both
+    /// <c>ViewModels/</c> and <c>Views/</c>. The order is the order the empty tile's chooser offers
+    /// them in.</para>
+    /// </remarks>
+    internal static TileCatalog BuildTileCatalog(DatabaseServiceManager databases) =>
+        new TileCatalog()
+            .Register(new TerminalTileKind(), tile => new TerminalTileView { DataContext = tile })
+            .Register(new NoteTileKind(), tile => new NoteTileView { DataContext = tile })
+            .Register(new TodoTileKind(), tile => new TodoTileView { DataContext = tile })
+            .Register(new GitTileKind(), tile => new GitTileView { DataContext = tile })
+            .Register(new DatabaseTileKind(databases), tile => new DatabaseTileView { DataContext = tile })
+            .Register(new GoalTileKind(), tile => new GoalTileView { DataContext = tile });
 
     /// <summary>Runs one shutdown step, so a failure in it cannot cost the others.</summary>
     private static void Shutdown(string what, Action step)

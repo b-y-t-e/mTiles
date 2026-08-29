@@ -42,29 +42,50 @@ internal static class TileDragDrop
 
         if (zone == DropZone.Center)
         {
-            SwapContent(source, target);
+            SwapPlaces(source, target);
             return;
         }
 
         MoveToEdge(source, target, zone);
     }
 
-    private static void SwapContent(LeafTileNodeViewModel a, LeafTileNodeViewModel b)
+    /// <summary>
+    /// Swaps two tiles by exchanging their places in the tree.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Nothing inside a tile moves.</b> The obvious swap — trading <c>Content</c>, the kind,
+    /// the name and the <c>TileId</c> between two leaves — parts a tile's content from the object its
+    /// identity is read through: a terminal resolves <c>${tileId}</c> through the function its
+    /// <see cref="Services.Tiles.TileContext"/> was built with, and that function answers with the id of
+    /// the leaf that <em>created</em> it, not of whichever leaf is holding it now. Four values changed
+    /// hands and the fifth, the closure, could not — so both terminals came out reading the other tile's
+    /// id, and "Restart shell" relaunched each of them under its neighbour's session.
+    /// </para>
+    /// <para>Exchanging the two leaves' slots in their parents says the same thing on screen and leaves
+    /// every pairing intact: content, id, name and the leaf that owns all three travel together because
+    /// they never come apart. It is also why nothing has to be re-stamped afterwards — there is no
+    /// copying here for anyone to forget to keep in step.</para>
+    /// <para>A leaf with no split above it is the whole tree and the only tile in it, so the only drop
+    /// that could reach one is a drag between two workspaces — which no window shows at once. Left
+    /// alone rather than handled: moving a tile into a tree another workspace configured is a larger
+    /// question than a drop gesture answers.</para>
+    /// </remarks>
+    private static void SwapPlaces(LeafTileNodeViewModel a, LeafTileNodeViewModel b)
     {
-        var (ac, at, an, ai) = (a.Content, a.ContentType, a.TileName, a.TileId);
+        if (a.Parent is not SplitTileNodeViewModel parentOfA ||
+            b.Parent is not SplitTileNodeViewModel parentOfB)
+            return;
 
-        a.Content = b.Content;
-        a.ContentType = b.ContentType;
-        a.TileName = b.TileName;
-        a.TileId = b.TileId;
+        // Both slots are read before either is written: with one parent holding both tiles, writing the
+        // first would otherwise answer the second question wrongly.
+        var aWasFirst = parentOfA.First == a;
+        var bWasFirst = parentOfB.First == b;
 
-        b.Content = ac;
-        b.ContentType = at;
-        b.TileName = an;
-        b.TileId = ai;
+        a.Parent = parentOfB;
+        b.Parent = parentOfA;
 
-        if (a.Content is TerminalTileViewModel ta) ta.TileId = a.TileId;
-        if (b.Content is TerminalTileViewModel tb) tb.TileId = b.TileId;
+        if (aWasFirst) parentOfA.First = b; else parentOfA.Second = b;
+        if (bWasFirst) parentOfB.First = a; else parentOfB.Second = a;
 
         a.LayoutChanged?.Invoke();
     }

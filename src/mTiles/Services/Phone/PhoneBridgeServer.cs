@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Net.WebSockets;
 using System.Reflection;
@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using mTiles.ViewModels;
 
 namespace mTiles.Services.Phone;
 
@@ -53,10 +54,29 @@ internal interface IPhoneSink
     /// </remarks>
     /// <returns>Null when the key was delivered, otherwise why it was not. A refusal is worth a sentence
     /// because the phone is usually the only screen the user is looking at.</returns>
-    Task<string?> PressKeyAsync(PhoneKey key);
+    Task<string?> PressKeyAsync(TileKey key);
+
+    /// <summary>
+    /// A phone pressed one of the actions the active tile offers.
+    /// </summary>
+    /// <remarks>
+    /// The set is open — a tile kind registered later brings whatever actions it likes — but what a
+    /// paired device may cause is still decided in this process rather than by the message: the manager
+    /// looks the id up in the current actions of the currently active tile, and an unknown id gets the
+    /// same answer malformed JSON gets.
+    /// <para>This is the one member here allowed to take minutes — it runs the tile's own command, and
+    /// Continue on a Goal tile is an implement/review loop. The server therefore starts it off the
+    /// receive loop rather than awaiting it there, which is what keeps a phone able to speak and press
+    /// Enter while the action it asked for is still running.</para>
+    /// </remarks>
+    /// <returns>Null when the action was carried out, otherwise why it was not.</returns>
+    Task<string?> InvokeActionAsync(string id);
 
     /// <summary>What to tell a phone that has just connected: current state, and which tile it is aimed at.</summary>
     string DescribeState();
+
+    /// <summary>And what that tile can be asked to do.</summary>
+    string DescribeActions();
 }
 
 /// <summary>
@@ -540,6 +560,7 @@ internal sealed class PhoneBridgeServer(
         var socket = connection.Socket;
 
         connection.Post(Encoding.UTF8.GetBytes(sink.DescribeState()));
+        connection.Post(Encoding.UTF8.GetBytes(sink.DescribeActions()));
 
         while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
         {
@@ -595,6 +616,7 @@ internal sealed class PhoneBridgeServer(
     {
         string? type;
         string? keyName;
+        string? actionId;
         int sampleRate;
 
         try
@@ -602,6 +624,7 @@ internal sealed class PhoneBridgeServer(
             using var document = JsonDocument.Parse(json);
             type = document.RootElement.TryGetProperty("type", out var t) ? t.GetString() : null;
             keyName = document.RootElement.TryGetProperty("key", out var k) ? k.GetString() : null;
+            actionId = document.RootElement.TryGetProperty("id", out var i) ? i.GetString() : null;
             sampleRate = document.RootElement.TryGetProperty("sampleRate", out var r) && r.TryGetInt32(out var v)
                 ? v : 0;
         }
@@ -684,6 +707,57 @@ internal sealed class PhoneBridgeServer(
                 if (await sink.PressKeyAsync(pressed).ConfigureAwait(false) is { } refusal)
                     connection.Post(Message("keyError", refusal));
                 return;
+
+            // Not tied to a recording either, and for the same reason: driving an agent from the sofa is
+            // half dictating a line and half answering what it stops on.
+            case "action":
+                if (actionId is not { Length: > 0 })
+                    return;
+
+                // Started, not awaited, and that is load-bearing. A tile action is the one thing a phone
+                // can ask for that is not short: Continue on a Goal tile runs the whole implement/review
+                // loop, minutes of it, and a Git push that fails ends in a message box somebody has to
+                // walk over to the computer and click. Awaited here it would hold *this connection's*
+                // receive loop for all of that — no ReceiveAsync, so the audio frames of the sentence
+                // being spoken meanwhile go nowhere, `end` and `key` are never parsed, and the phone,
+                // still being sent state down the independent write chain, looks perfectly alive. That
+                // is exactly the sofa the actions were built for.
+                //
+                // Nothing here serialises two presses, because the tile already does: the id is checked
+                // against what it offers *now*, on the UI thread, at the moment of the press
+                // (PhoneTileActions.IsAllowed), so an action that is already running is refused for
+                // being disabled rather than queued behind itself.
+                _ = RunActionAsync(connection, actionId);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Runs a tile action away from the receive loop and answers the phone once it is finished.
+    /// </summary>
+    /// <remarks>
+    /// The refusal is posted rather than returned because by the time it exists the message it answers
+    /// was parsed long ago. <see cref="Connection.Post"/> is the same ordered chain everything else to
+    /// this phone goes down, and it is a no-op once the connection has been disposed, so an action that
+    /// outlives its socket answers into nothing instead of throwing.
+    /// <para>Its own type, not "error", for exactly the reason keyError is its own — the page treats
+    /// "error" as the answer to *its* dictation attempt and unwinds its optimistic microphone state on
+    /// one, so a refused action must not cancel somebody's recording.</para>
+    /// <para>Nothing awaits the returned task, so an escaping exception would be unobserved on a
+    /// thread-pool thread. The sink already wraps the tile's own command; this covers the sink itself
+    /// failing, and tells the phone the same thing the sink would have.</para>
+    /// </remarks>
+    private async Task RunActionAsync(Connection connection, string actionId)
+    {
+        try
+        {
+            if (await sink.InvokeActionAsync(actionId).ConfigureAwait(false) is { } why)
+                connection.Post(Message("actionError", why));
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("Running a tile action from a phone failed: {0}", ex);
+            connection.Post(Message("actionError", "mTiles could not do that."));
         }
     }
 

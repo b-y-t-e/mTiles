@@ -56,6 +56,21 @@
   #keys #enter { flex: 1.6; }
   #keys .glyph { font-size: 20px; line-height: 1; }
 
+  /* What the active tile can be asked to do. Quieter and shorter than the keys: the keys are the ones
+     pressed a hundred times a session with the eyes on the computer, these are read before they are
+     pressed. Wrapping rather than scrolling, because how many there are depends on which tile is
+     active and a row that scrolls sideways hides its own contents. */
+  #actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  #actions:empty { display: none; }
+  #actions button {
+    touch-action: manipulation; appearance: none; flex: 1 1 auto;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 8px; min-height: 40px; padding: 0 14px; font-size: 14px;
+    transition: background .1s, border-color .1s, transform .1s;
+  }
+  #actions button:disabled { opacity: .45; }
+  #actions button.pressed { background: #1d2a3a; border-color: var(--accent); transform: scale(.97); }
+
   #transcript {
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
     padding: 12px 14px; min-height: 76px; font-size: 15px; white-space: pre-wrap; word-break: break-word;
@@ -84,6 +99,7 @@
     <button id="down" disabled aria-label="Arrow down"><span class="glyph">↓</span></button>
     <button id="enter" disabled aria-label="Enter"><span class="glyph">↵</span> Enter</button>
   </div>
+  <div id="actions"></div>
   <div id="transcript"></div>
   <div id="error"></div>
 </main>
@@ -105,6 +121,7 @@
   const transcript = document.getElementById("transcript");
   const errorBox = document.getElementById("error");
   const latch = document.getElementById("latch");
+  const actions = document.getElementById("actions");
 
   /* The keys this page can press, paired with the names mTiles knows them by. A closed list at both
      ends: the server has the same three and answers anything else with nothing at all. */
@@ -211,6 +228,12 @@
        before mTiles has said so. */
     const keysReady = connected && !recording && !mtilesBusy;
     for (const [button] of keys) button.disabled = !keysReady;
+
+    /* The actions are gated on the connection alone. They are not racing a transcript the way Enter is —
+       none of them submits the sentence being worked out — and mTiles decides for itself, at the moment
+       of the press, whether each one can be done: `enabled` here is only what it said last time it
+       spoke. */
+    for (const button of actions.children) button.disabled = !connected || button.dataset.enabled !== "1";
     talk.classList.toggle("live", recording);
     label.textContent = recording ? "Listening…" : (latch.checked ? "Tap to talk" : "Hold to talk");
     hint.textContent = recording ? (latch.checked ? "Tap again to send" : "Let go to send") : "";
@@ -280,7 +303,22 @@
            clears it in onclose. */
         setError(message.message);
         held = false; recording = false; release(); scheduleRelease(); paint();
-      } else if (message.type === "keyError") {
+      } else if (message.type === "actions") {
+        /* Rebuilt rather than reconciled: the list is short, it changes only when the active tile or its
+           state does, and a button under the user's finger is one they are about to press deliberately —
+           there is no drag or focus here to preserve. What arrives has already been filtered by mTiles:
+           anything destructive is not sent at all, so this page never has to decide what is safe. */
+        actions.replaceChildren();
+        for (const action of message.actions || []) {
+          const button = document.createElement("button");
+          button.textContent = action.label;
+          button.dataset.id = action.id;
+          button.dataset.enabled = action.enabled ? "1" : "0";
+          button.addEventListener("click", () => pressAction(button));
+          actions.appendChild(button);
+        }
+        paint();
+      } else if (message.type === "keyError" || message.type === "actionError") {
         /* A key that landed nowhere. The same box, because it is the same question — why did that not
            work — but deliberately not the same handler: this says nothing about whether mTiles has an
            utterance in hand, and nothing at all about this phone's microphone. Answered on "error" it
@@ -605,6 +643,16 @@
 
   for (const [button, name] of keys)
     button.addEventListener("click", () => pressKey(button, name));
+
+  /* Same acknowledgement as a key, and the same reason for it: what an action does happens on the
+     computer, so without the flash the phone gives no sign of having heard the tap. */
+  function pressAction(button) {
+    if (!connected || !socket || socket.readyState !== WebSocket.OPEN) return;
+    setError("");
+    socket.send(JSON.stringify({ type: "action", id: button.dataset.id }));
+    button.classList.add("pressed");
+    setTimeout(() => button.classList.remove("pressed"), 120);
+  }
 
   latch.addEventListener("change", paint);
 

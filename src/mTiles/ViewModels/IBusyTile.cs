@@ -1,5 +1,3 @@
-using System.ComponentModel;
-
 namespace mTiles.ViewModels;
 
 /// <summary>
@@ -7,10 +5,11 @@ namespace mTiles.ViewModels;
 /// </summary>
 /// <remarks>
 /// The whole of what a workspace needs from a tile in order to light its row in the panel — deliberately
-/// one property and its change notification, so a tile that has no notion of being busy (a note, a todo
-/// list) implements nothing and the workspace asks nothing of it.
+/// one property, so a tile that has no notion of being busy (a note, a todo list) implements nothing and
+/// the workspace asks nothing of it. Change notification comes from <see cref="ITile"/>, which every
+/// tile has anyway.
 /// </remarks>
-public interface IBusyTile : INotifyPropertyChanged
+public interface IBusyTile : ITile
 {
     bool IsBusy { get; }
 }

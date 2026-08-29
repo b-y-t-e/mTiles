@@ -29,8 +29,50 @@ namespace mTiles.ViewModels;
 /// workflow can be driven from anywhere, which is exactly the belief that makes a race look acceptable.
 /// </para>
 /// </remarks>
-public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTile
+public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActions
 {
+    /// <inheritdoc />
+    public string KindId => TileKindIds.Goal;
+
+    /// <summary>The ids of the three things this tile offers outside its own view.</summary>
+    public const string ContinueActionId = "continue";
+    public const string PauseActionId = "pause";
+    public const string CommitActionId = "commit";
+
+    /// <summary>What this tile offers its header and a paired phone.</summary>
+    /// <remarks>
+    /// The three a run is driven by between attempts, which is exactly the case this exists for: a goal
+    /// left working while the user is elsewhere. Nothing that starts a new goal or throws one away —
+    /// those need the transcript on screen to mean anything.
+    /// </remarks>
+    public IReadOnlyList<TileAction> Actions =>
+    [
+        new(ContinueActionId, "Continue", "play", IsEnabled: CanContinue),
+        new(PauseActionId, "Pause", "pause", IsEnabled: IsRunning && !IsPaused),
+        new(CommitActionId, "Commit work", "check", IsEnabled: CanCommit),
+    ];
+
+    /// <inheritdoc />
+    public async Task<TileActionResult> InvokeAsync(string id)
+    {
+        // Asked again rather than trusting the snapshot the caller acted on: a run moves through its
+        // phases on its own, so a list a phone is holding is as old as the last state it was told about.
+        if (Actions.FirstOrDefault(a => a.Id == id) is not { } action)
+            return TileActionResult.Refused($"This tile has no '{id}'.");
+
+        if (!action.IsEnabled)
+            return TileActionResult.Refused($"{action.Label} is not available right now.");
+
+        switch (id)
+        {
+            case ContinueActionId: await ContinueRun(); break;
+            case PauseActionId: Pause(); break;
+            case CommitActionId: await CommitWork(); break;
+        }
+
+        return TileActionResult.Ok;
+    }
+
     private readonly string _workingDirectory;
     private readonly SettingsService _settingsService;
     private readonly GoalWorkflowEngine _engine = new();

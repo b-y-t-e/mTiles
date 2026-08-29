@@ -1,6 +1,7 @@
 namespace mTiles.ViewModels;
 
-public interface IFileContent
+/// <summary>Tile content that owns a file, so the file follows the tile's name.</summary>
+public interface IFileContent : ITile
 {
     void RenameFile(string newName);
 

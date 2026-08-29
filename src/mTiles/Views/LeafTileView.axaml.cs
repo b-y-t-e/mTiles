@@ -1,4 +1,5 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -9,17 +10,17 @@ using Material.Icons;
 using Material.Icons.Avalonia;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
-using mTiles.Models;
+using mTiles.Services.Tiles;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
 public partial class LeafTileView : UserControl
 {
-    private object? _currentContentVm;
+    private ITile? _currentContentVm;
     private string _originalTileName = "";
     private LeafTileNodeViewModel? _subscribedLeaf;
-    private INotifyPropertyChanged? _subscribedContent;
+    private ITile? _subscribedContent;
     private Point? _dragStartPoint;
     private PointerPressedEventArgs? _dragPressedArgs;
 
@@ -73,7 +74,7 @@ public partial class LeafTileView : UserControl
         // because this is the only thing that writes these two properties — see the markup for what
         // happened when a binding wrote them as well.
         var roomForSession = width >= SessionButtonsNeedWidth;
-        RestartButton.IsVisible = roomForSession && _subscribedLeaf?.ContentType == TileContentType.Terminal;
+        RestartButton.IsVisible = roomForSession && _subscribedLeaf?.CanRestart == true;
         NewSessionButton.IsVisible = roomForSession && _subscribedLeaf?.HasProfile == true;
     }
 
@@ -91,7 +92,7 @@ public partial class LeafTileView : UserControl
     {
         if (e.Key == Key.R && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
         {
-            if (DataContext is LeafTileNodeViewModel { ContentType: TileContentType.Terminal } leaf)
+            if (DataContext is LeafTileNodeViewModel { CanRestart: true } leaf)
             {
                 leaf.RestartTerminalCommand.Execute(null);
                 e.Handled = true;
@@ -133,7 +134,7 @@ public partial class LeafTileView : UserControl
     {
         if (sender is not LeafTileNodeViewModel leaf) return;
 
-        if (e.PropertyName is nameof(LeafTileNodeViewModel.Content) or nameof(LeafTileNodeViewModel.ContentType))
+        if (e.PropertyName is nameof(LeafTileNodeViewModel.Content) or nameof(LeafTileNodeViewModel.KindId))
         {
             UpdateTypeGlyph(leaf);
             UpdateContentDisplay(leaf);
@@ -148,12 +149,13 @@ public partial class LeafTileView : UserControl
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.ShowsActiveOutline)
                  or nameof(LeafTileNodeViewModel.IsActive))
             UpdateActiveIndicator(leaf);
-        else if (e.PropertyName == nameof(LeafTileNodeViewModel.HasProfile))
+        else if (e.PropertyName is nameof(LeafTileNodeViewModel.HasProfile)
+                 or nameof(LeafTileNodeViewModel.CanRestart))
             ApplyHeaderWidth(TileToolbar.Bounds.Width);
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.IsRecordingDictation)
                  or nameof(LeafTileNodeViewModel.IsTranscribingDictation))
             UpdateDictationIndicator(leaf);
-        else if (e.PropertyName == nameof(LeafTileNodeViewModel.IsChoosingProfile))
+        else if (e.PropertyName == nameof(LeafTileNodeViewModel.IsChoosingSetup))
             UpdateChooserVisibility(leaf);
     }
 
@@ -180,9 +182,13 @@ public partial class LeafTileView : UserControl
     /// </remarks>
     private void UpdateTypeGlyph(LeafTileNodeViewModel leaf)
     {
-        TileTypeGlyph.Kind = TileTypeIcon.Kind(leaf.ContentType);
+        var kind = leaf.Kind;
+        TileTypeGlyph.Kind = kind is null ? TileIcons.Placeholder : TileIcons.Kind(kind.IconId);
+
+        // An empty tile has no kind yet, so it gets the one colour that says nothing about which one it
+        // is going to become.
         TileTypeGlyph.Bind(MaterialIcon.ForegroundProperty,
-            TileTypeGlyph.GetResourceObservable(TileTypeIcon.AccentKey(leaf.ContentType)));
+            TileTypeGlyph.GetResourceObservable(kind?.AccentKey ?? "TextFaint"));
     }
 
     /// <summary>
@@ -212,12 +218,10 @@ public partial class LeafTileView : UserControl
 
     private void UpdateContentDisplay(LeafTileNodeViewModel leaf)
     {
-        if (leaf.ContentType == TileContentType.Empty)
+        if (leaf.KindId.Length == 0)
         {
-            ContentChooser.IsVisible = !leaf.IsChoosingProfile;
-            ProfileChooser.IsVisible = leaf.IsChoosingProfile;
-            if (leaf.IsChoosingProfile)
-                PopulateProfileButtons(leaf);
+            PopulateKindButtons(leaf);
+            UpdateChooserVisibility(leaf);
             ContentHost.IsVisible = false;
             ContentHost.Children.Clear();
             _currentContentVm = null;
@@ -225,7 +229,7 @@ public partial class LeafTileView : UserControl
         else
         {
             ContentChooser.IsVisible = false;
-            ProfileChooser.IsVisible = false;
+            SetupChooser.IsVisible = false;
             ContentHost.IsVisible = true;
             SetContent(leaf.Content);
         }
@@ -233,114 +237,148 @@ public partial class LeafTileView : UserControl
 
     private void UpdateChooserVisibility(LeafTileNodeViewModel leaf)
     {
-        if (leaf.ContentType != TileContentType.Empty) return;
-        ContentChooser.IsVisible = !leaf.IsChoosingProfile;
-        ProfileChooser.IsVisible = leaf.IsChoosingProfile;
-        if (leaf.IsChoosingProfile)
-            PopulateProfileButtons(leaf);
+        if (leaf.KindId.Length > 0) return;
+        ContentChooser.IsVisible = !leaf.IsChoosingSetup;
+        SetupChooser.IsVisible = leaf.IsChoosingSetup;
+        if (leaf.IsChoosingSetup)
+            PopulateSetupButtons(leaf);
     }
 
-    private void PopulateProfileButtons(LeafTileNodeViewModel leaf)
+    /// <summary>One card per registered kind.</summary>
+    /// <remarks>Built from the catalog rather than written out in the markup, so a kind added later
+    /// appears here by being registered — which is the whole point of the registry. The cards are
+    /// rebuilt rather than kept, because an empty tile is shown at most once before it becomes
+    /// something and the list is six buttons long.</remarks>
+    private void PopulateKindButtons(LeafTileNodeViewModel leaf)
     {
-        var markerIndex = ProfileChooser.Children.IndexOf(ProfileButtonsMarker);
-        if (markerIndex < 0) return;
-        while (ProfileChooser.Children.Count > markerIndex + 1)
-            ProfileChooser.Children.RemoveAt(ProfileChooser.Children.Count - 1);
+        ContentChooser.Children.Clear();
 
-        var profiles = leaf.AvailableProfiles;
-        if (profiles == null) return;
-
-        foreach (var profile in profiles)
+        foreach (var kind in leaf.AvailableKinds)
         {
-            var icon = new MaterialIcon
+            var button = new Button
             {
-                Kind = MaterialIconKind.ScriptOutline, Width = 22, Height = 22,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Classes = { "chooser-card" },
+                Command = leaf.SelectKindCommand,
+                CommandParameter = kind.Id,
+                Content = ChooserCardContent(TileIcons.Kind(kind.IconId), kind.DisplayName, kind.AccentKey),
             };
-            icon.Bind(MaterialIcon.ForegroundProperty, icon.GetResourceObservable("TextMuted"));
-
-            var label = new TextBlock
-            {
-                Text = profile.Name,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            };
-            label.Bind(TextBlock.FontSizeProperty, label.GetResourceObservable("FontSm"));
-
-            // No accent rail: the glyph carries the colour, here as on the six cards in the markup.
-            var btn = new Button { Classes = { "chooser-card" } };
-            btn.Command = leaf.SelectProfileCommand;
-            btn.CommandParameter = profile;
-            btn.Content = new StackPanel
-            {
-                Spacing = 7,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                Children = { icon, label }
-            };
-            ProfileChooser.Children.Add(btn);
+            ContentChooser.Children.Add(button);
         }
     }
 
-    private void SetContent(object? contentVm)
+    /// <summary>A glyph over a label, which is what every card in both choosers is.</summary>
+    private static StackPanel ChooserCardContent(MaterialIconKind glyph, string label, string colourKey)
     {
-        if (contentVm == _currentContentVm && ContentHost.Children.Count > 0)
+        var icon = new MaterialIcon
+        {
+            Kind = glyph, Width = 22, Height = 22,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+        };
+        icon.Bind(MaterialIcon.ForegroundProperty, icon.GetResourceObservable(colourKey));
+
+        var text = new TextBlock
+        {
+            Text = label,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+        };
+        text.Bind(TextBlock.FontSizeProperty, text.GetResourceObservable("FontSm"));
+
+        return new StackPanel
+        {
+            Spacing = 7,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            Children = { icon, text }
+        };
+    }
+
+    /// <summary>One card per option the kind being set up offers, after the Back card.</summary>
+    /// <remarks>The same loop as the kind cards, over a list the kind describes: what the options are
+    /// and what they mean is <see cref="ITileKind.SetupOptions"/>'s business, and this file knows only
+    /// that each is a glyph over a label.</remarks>
+    private void PopulateSetupButtons(LeafTileNodeViewModel leaf)
+    {
+        var backIndex = SetupChooser.Children.IndexOf(SetupBackButton);
+        if (backIndex < 0) return;
+        while (SetupChooser.Children.Count > backIndex + 1)
+            SetupChooser.Children.RemoveAt(SetupChooser.Children.Count - 1);
+
+        foreach (var option in leaf.SetupOptions)
+        {
+            // No accent rail: the glyph carries the colour, here as on the kind cards beside them.
+            SetupChooser.Children.Add(new Button
+            {
+                Classes = { "chooser-card" },
+                Command = leaf.SelectSetupOptionCommand,
+                CommandParameter = option,
+                Content = ChooserCardContent(
+                    TileIcons.Kind(option.IconId), option.Label, option.AccentKey),
+            });
+        }
+    }
+
+    /// <summary>Puts the control that draws this content into the tile.</summary>
+    /// <remarks>Resolved through the catalog by kind id, <b>never by switching on the view model's
+    /// type</b>: a dictionary lookup is simpler than a six-armed switch, it does not care whether two
+    /// kinds ever share a view model class, and a kind registered by code this file has never heard of
+    /// draws itself without this file changing.</remarks>
+    private void SetContent(ITile? content)
+    {
+        if (ReferenceEquals(content, _currentContentVm) && ContentHost.Children.Count > 0)
             return;
 
-        _currentContentVm = contentVm;
+        _currentContentVm = content;
 
         ContentHost.Children.Clear();
 
-        if (contentVm == null)
-            return;
-
-        UserControl view = contentVm switch
-        {
-            TerminalTileViewModel => new TerminalTileView { DataContext = contentVm },
-            NoteTileViewModel => new NoteTileView { DataContext = contentVm },
-            TodoTileViewModel => new TodoTileView { DataContext = contentVm },
-            GitTileViewModel => new GitTileView { DataContext = contentVm },
-            DatabaseTileViewModel => new DatabaseTileView { DataContext = contentVm },
-            GoalTileViewModel => new GoalTileView { DataContext = contentVm },
-            _ => throw new InvalidOperationException($"Unknown content type: {contentVm.GetType()}")
-        };
-
         if (_subscribedContent != null)
             _subscribedContent.PropertyChanged -= OnContentPropertyChanged;
-        _subscribedContent = contentVm as INotifyPropertyChanged;
+        _subscribedContent = content;
         if (_subscribedContent != null)
             _subscribedContent.PropertyChanged += OnContentPropertyChanged;
 
-        UpdateContentBackground(contentVm);
-        ContentHost.Children.Add(view);
+        if (content == null)
+            return;
+
+        if (_subscribedLeaf?.Catalog?.Entry(content.KindId) is not { } entry)
+        {
+            // The kind was resolved when the tile was built, so getting here means the catalog changed
+            // underneath a live tile. Nothing to draw is better than an exception on the UI thread.
+            Trace.TraceWarning("No view is registered for tile kind '{0}'.", content.KindId);
+            return;
+        }
+
+        UpdateContentBackground(content);
+        ContentHost.Children.Add(entry.CreateView(content));
     }
 
     private void OnContentPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(TerminalTileViewModel.Theme))
-            UpdateContentBackground(sender);
+        if (e.PropertyName == nameof(ICustomBackgroundTile.ContentBackground))
+            UpdateContentBackground(sender as ITile);
     }
 
     /// <summary>
-    /// How far a tile's content sits inside its card.
+    /// How far a tile's content sits inside its card, and what that gap is painted in.
     /// </summary>
     /// <remarks>
-    /// <para>A terminal is text against an edge and wants the gap; every other tile's content is its
-    /// own chrome — bars, lists, a composer — and drawing that inside an inset leaves a square-cornered
-    /// rectangle floating in a rounded card, with a sliver of card colour showing round the bottom
-    /// corners where the two shapes disagree. Those tiles run to the card's edge instead, and the
-    /// card's <c>ClipToBounds</c> gives them its corners.</para>
+    /// <para>Asked of the content rather than decided from its type: a terminal is text against an edge
+    /// and wants the gap, and every other tile's content is its own chrome — bars, lists, a composer —
+    /// which drawn inside an inset leaves a square-cornered rectangle floating in a rounded card, with a
+    /// sliver of card colour showing round the bottom corners where the two shapes disagree. Those tiles
+    /// run to the card's edge instead and take its corners from the clip.</para>
     /// <para>No inset at the top either way: the header is already there.</para>
     /// </remarks>
-    private static Thickness ContentInset(object? contentVm) =>
-        contentVm is TerminalTileViewModel ? new Thickness(6, 0, 6, 6) : default;
-
-    private void UpdateContentBackground(object? contentVm)
+    private void UpdateContentBackground(ITile? content)
     {
-        ContentHost.Margin = ContentInset(contentVm);
+        if (content is ICustomBackgroundTile custom)
+        {
+            ContentHost.Margin = custom.ContentInset;
+            ContentHost.Background = new SolidColorBrush(Color.Parse(custom.ContentBackground));
+            return;
+        }
 
-        if (contentVm is TerminalTileViewModel t)
-            ContentHost.Background = new SolidColorBrush(Color.Parse(t.Theme.Background));
-        else
-            ContentHost.Bind(Panel.BackgroundProperty, ContentHost.GetResourceObservable("BgBase"));
+        ContentHost.Margin = default;
+        ContentHost.Bind(Panel.BackgroundProperty, ContentHost.GetResourceObservable("BgBase"));
     }
 
     private void TileNameLabel_DoubleTapped(object? sender, TappedEventArgs e)

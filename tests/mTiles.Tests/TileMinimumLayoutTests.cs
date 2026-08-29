@@ -30,7 +30,7 @@ public class TileMinimumLayoutTests
     }
 
     private static LeafTileNodeViewModel Tile() =>
-        new(TileContentType.Empty, null, "", new TileActivationScope());
+        new(TileKindIds.None, null, "", new TileActivationScope());
 
     /// <summary>The tree shown in a window, with a first pane dragged as far left as it will go.</summary>
     private static (Grid Grid, Window Window) Show(SplitTileNodeViewModel root, double width = 400)

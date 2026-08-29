@@ -19,7 +19,7 @@ public class TileMinimumSizeTests
     private const double Gap = 8;
 
     private static LeafTileNodeViewModel Tile() =>
-        new(TileContentType.Note, null, "", new TileActivationScope());
+        new(TileKindIds.Note, null, "", new TileActivationScope());
 
     private static SplitTileNodeViewModel Split(Orientation orientation,
         TileNodeViewModel first, TileNodeViewModel second) => new(orientation, first, second);

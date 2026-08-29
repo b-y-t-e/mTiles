@@ -1,9 +1,7 @@
-using System.Collections.ObjectModel;
-using System.Text.RegularExpressions;
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
 using mTiles.Services;
-using mTiles.Services.Database;
+using mTiles.Services.Tiles;
 using System.Linq;
 
 namespace mTiles.ViewModels;
@@ -12,7 +10,8 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 {
     private readonly PersistenceService _persistenceService;
     private readonly SettingsService _settingsService;
-    private readonly TileFactory _tileFactory;
+    private readonly TileCatalog _catalog;
+    private readonly TileContext _tileContext;
     private readonly TileTreeSerializer _serializer;
     private readonly Services.Speech.DictationService? _dictation;
 
@@ -21,16 +20,41 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private LeafTileNodeViewModel? _lastActiveLeaf;
 
+    /// <summary>Whether this workspace's file must be left exactly as it was found — see
+    /// <see cref="ScheduleSave"/> and <c>docs/TILES.md</c> → the third migration rule.</summary>
+    private readonly bool _savingWouldLoseATile;
+
+    /// <summary>So the refusal is traced once rather than on every splitter drag.</summary>
+    private bool _refusedToSaveLayout;
+
     /// <summary>Whether anything in this workspace is working — what the panel's row light shows.</summary>
     /// <remarks>Any tile, because the question the list answers is "is there something going on in
     /// there", and a workspace with one busy tile out of four is a workspace to go back to.</remarks>
     public bool IsBusy => EnumerateLeaves(RootTile).Any(leaf => leaf.IsBusy);
 
-    partial void OnRootTileChanged(TileNodeViewModel? value) => OnPropertyChanged(nameof(IsBusy));
+    /// <summary>
+    /// Raised when the tile a window-level command acts on changes, or when that tile's own state does.
+    /// </summary>
+    /// <remarks>
+    /// One event for both, because everything listening — the phone bridge is the first — has to redraw
+    /// on either: a phone showing Git's buttons under the caption "Git#1" is as wrong when the user moves
+    /// to another tile as it is when Continue becomes available in the tile it is already looking at.
+    /// Raised for the tile the workspace <em>resolves</em> as active rather than for whichever leaf spoke,
+    /// so a background tile ticking away costs nothing.
+    /// </remarks>
+    public event Action? ActiveTileChanged;
+
+    partial void OnRootTileChanged(TileNodeViewModel? value)
+    {
+        OnPropertyChanged(nameof(IsBusy));
+
+        // A closed tile or a rebuilt tree can leave nothing active at all, and "nothing" is a state a
+        // listener has to be told about — it is the difference between a stale set of buttons and none.
+        ActiveTileChanged?.Invoke();
+    }
 
     public string WorkspaceId { get; }
     public string WorkingDirectory { get; }
-    public ObservableCollection<ShellProfile> AvailableShells { get; } = [];
 
     private readonly TileActivationScope _activationScope = new();
 
@@ -38,63 +62,72 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private DateTime _detectionCacheTime;
     private static readonly TimeSpan DetectionCacheTtl = TimeSpan.FromSeconds(30);
 
-    private int _noteCount;
-    private int _todoCount;
-    private int _gitCount;
-    private int _dbCount;
-    private int _goalCount;
-    private readonly HashSet<string> _usedTerminalNames = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Every name this workspace has given a tile, by kind id.</summary>
+    /// <remarks>A dictionary rather than a field per kind: five fields meant five parameters on the
+    /// allocator and a five-armed <c>else if</c> reading them back out of a saved layout, and a seventh
+    /// kind meant finding all three places again. Names rather than counters, because what a kind makes
+    /// of them is the kind's own business — a number for most, an adjective and an animal for a
+    /// terminal.</remarks>
+    private readonly Dictionary<string, HashSet<string>> _namesPerKind =
+        new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly Regex TileNumberRegex = new(@"#(\d+)$", RegexOptions.Compiled);
-
-    public WorkspaceViewModel(Workspace workspace, PersistenceService persistenceService, SettingsService settingsService,
-        DatabaseServiceManager? dbManager = null, Services.Speech.DictationService? dictation = null)
+    /// <param name="catalog">Every kind of tile this workspace can build.</param>
+    /// <param name="openSettings">Opens the application's settings dialog on a tab. Handed down rather
+    /// than reached for: the database tile's view used to walk up the visual tree to the main window's
+    /// view model to do this.</param>
+    public WorkspaceViewModel(Workspace workspace, PersistenceService persistenceService,
+        SettingsService settingsService, TileCatalog catalog,
+        Services.Speech.DictationService? dictation = null, Action<int>? openSettings = null)
     {
         WorkspaceId = workspace.Id;
         WorkingDirectory = workspace.DirectoryPath;
         _persistenceService = persistenceService;
         _settingsService = settingsService;
         _dictation = dictation;
-        _tileFactory = new TileFactory(settingsService, ScheduleSave, dbManager);
-
-        foreach (var shell in ShellDetector.Detect())
-            AvailableShells.Add(shell);
+        _catalog = catalog;
+        _tileContext = new TileContext(WorkingDirectory, settingsService, ScheduleSave, openSettings)
+        {
+            AvailableProfiles = GetAvailableProfiles
+        };
 
         _serializer = new TileTreeSerializer(
-            _tileFactory,
-            _settingsService,
-            AvailableShells,
-            WorkingDirectory,
+            _catalog,
+            _tileContext,
             AllocateTileName,
             ConfigureLeafCallbacks,
-            GetAvailableProfiles,
             _activationScope);
 
         var state = persistenceService.LoadLayout(workspace.Id);
         if (state?.RootTile != null)
         {
-            InitCountersFromDto(state.RootTile);
-            var (root, activeLeaf) = _serializer.Deserialize(state.RootTile, ScheduleSave);
-            RootTile = root;
-            _lastActiveLeaf = activeLeaf;
+            RememberSavedNames(state.RootTile);
+            var load = _serializer.Deserialize(state.RootTile, ScheduleSave);
+            RootTile = load.Root;
+            _lastActiveLeaf = load.ActiveLeaf;
+
+            // Nothing is written for the rest of this workspace's life once a leaf names a kind this
+            // build does not have: that tile is shown as empty, and an empty tile written over it is
+            // how a layout is lost for good. Set before anything can ask for a save, so the migrating
+            // one below and every later one are refused alike — and with nothing written there is
+            // nothing to take a copy ahead of either.
+            _savingWouldLoseATile = load.HasUnknownKind;
+
+            if (load.NeedsSave && !_savingWouldLoseATile)
+            {
+                persistenceService.BackupBeforeKindMigration(workspace.Id);
+                ScheduleSave();
+            }
         }
         else
         {
-            RootTile = CreateLeaf(TileContentType.Empty, null, "");
+            RootTile = CreateEmptyLeaf();
         }
     }
 
-    private LeafTileNodeViewModel CreateLeaf(TileContentType type, ObservableObject? content, string tileName)
+    private LeafTileNodeViewModel CreateEmptyLeaf()
     {
-        var leaf = new LeafTileNodeViewModel(type, content, WorkingDirectory,
-            _activationScope,
-            (t, d) => _tileFactory.CreateContent(t, d),
-            AllocateTileName,
-            GetAvailableProfiles,
-            (profile, dir) => _tileFactory.CreateContent(TileContentType.Terminal, dir, profile))
-        {
-            TileName = tileName
-        };
+        var leaf = new LeafTileNodeViewModel(TileKindIds.None, null, WorkingDirectory,
+            _activationScope, _catalog, _tileContext, AllocateTileName);
         // Everything else a tile needs is decided in one place, including LayoutChanged. Setting it here
         // as well is the arrangement the whole fix was about removing: two lists to keep in step.
         ConfigureLeafCallbacks(leaf);
@@ -191,7 +224,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         // rather than by whatever its parent remembered to copy.
         leaf.ConfigureNewLeaf = ConfigureLeafCallbacks;
         leaf.RootReplaced = newRoot => RootTile = ConfigureRoot(newRoot);
-        leaf.RootCleared = () => { RootTile = CreateLeaf(TileContentType.Empty, null, ""); ScheduleSave(); };
+        leaf.RootCleared = () => { RootTile = CreateEmptyLeaf(); ScheduleSave(); };
         leaf.PropertyChanged -= OnLeafPropertyChanged;
         leaf.PropertyChanged += OnLeafPropertyChanged;
         // A tile arriving is a change to the answer too — splitting anything but the root leaves
@@ -209,7 +242,19 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
         if (e.PropertyName == nameof(LeafTileNodeViewModel.IsActive)
             && sender is LeafTileNodeViewModel leaf && leaf.IsActive)
+        {
             _lastActiveLeaf = leaf;
+            ActiveTileChanged?.Invoke();
+            return;
+        }
+
+        // The active tile's own list, or the name it is offered under. The leaf republishes its Actions
+        // on any content change at all, deliberately, so this needs no list of the properties each kind
+        // computes its enabled flags from — and a tile nobody is aimed at raises nothing here.
+        if ((e.PropertyName == nameof(LeafTileNodeViewModel.Actions)
+                || e.PropertyName == nameof(LeafTileNodeViewModel.TileName))
+            && ReferenceEquals(sender, ActiveTile))
+            ActiveTileChanged?.Invoke();
     }
 
     private TileNodeViewModel ConfigureRoot(TileNodeViewModel node)
@@ -234,57 +279,61 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         }
     }
 
-    private string AllocateTileName(TileContentType type)
+    /// <summary>What to call a tile of that kind, given what this workspace already holds.</summary>
+    /// <remarks>The kind decides; this only keeps the list of names it has already handed out and
+    /// remembers the answer. A tile of no kind has no name yet, and an id nothing is registered under
+    /// gets the same answer — there is nothing to ask.</remarks>
+    private string AllocateTileName(string kindId)
     {
-        if (type == TileContentType.Terminal)
-        {
-            var name = TileNameGenerator.Generate(_usedTerminalNames);
-            _usedTerminalNames.Add(name);
-            return name;
-        }
-        return TileFactory.AllocateTileName(type, ref _noteCount, ref _todoCount, ref _gitCount, ref _dbCount, ref _goalCount);
+        if (_catalog.Kind(kindId) is not { } kind) return "";
+
+        var used = UsedNames(kindId);
+        var name = kind.NameFor(used);
+        used.Add(name);
+        return name;
     }
 
-    private void InitCountersFromDto(TileNode? node)
+    private HashSet<string> UsedNames(string kindId) =>
+        _namesPerKind.TryGetValue(kindId, out var names)
+            ? names
+            : _namesPerKind[kindId] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Picks up the names the saved layout already uses, so a new tile is not called
+    /// <c>Git#1</c> beside one already called that.</summary>
+    private void RememberSavedNames(TileNode? node)
     {
         if (node == null) return;
-        if (node.IsLeaf)
+        if (!node.IsLeaf)
         {
-            if (node.TileName != null)
-            {
-                if (node.ContentType == TileContentType.Terminal)
-                {
-                    _usedTerminalNames.Add(node.TileName);
-                }
-                else
-                {
-                    var match = TileNumberRegex.Match(node.TileName);
-                    if (match.Success)
-                    {
-                        var num = int.Parse(match.Groups[1].Value);
-                        if (node.ContentType == TileContentType.Note)
-                            _noteCount = Math.Max(_noteCount, num);
-                        else if (node.ContentType == TileContentType.Todo)
-                            _todoCount = Math.Max(_todoCount, num);
-                        else if (node.ContentType == TileContentType.Git)
-                            _gitCount = Math.Max(_gitCount, num);
-                        else if (node.ContentType == TileContentType.Database)
-                            _dbCount = Math.Max(_dbCount, num);
-                        else if (node.ContentType == TileContentType.Goal)
-                            _goalCount = Math.Max(_goalCount, num);
-                    }
-                }
-            }
+            RememberSavedNames(node.First);
+            RememberSavedNames(node.Second);
+            return;
         }
-        else
-        {
-            InitCountersFromDto(node.First);
-            InitCountersFromDto(node.Second);
-        }
+
+        if (node.TileName is { Length: > 0 } tileName && node.Kind is { Length: > 0 } kindId)
+            UsedNames(kindId).Add(tileName);
     }
 
+    /// <summary>Writes this workspace's layout out, unless doing so would lose a tile.</summary>
+    /// <remarks>The refusal is here rather than at the one save a migration asks for, because every
+    /// other route to this method — a splitter dragged, a tile renamed, split or closed — serialises the
+    /// same tree and writes the unknown kind out of the file just as thoroughly. It lasts the session:
+    /// nothing in here can restore the kind the catalog does not have, so nothing can make the file safe
+    /// to write again until the user is back on the build that wrote it.</remarks>
     private void ScheduleSave()
     {
+        if (_savingWouldLoseATile)
+        {
+            if (!_refusedToSaveLayout)
+            {
+                _refusedToSaveLayout = true;
+                System.Diagnostics.Trace.TraceWarning(
+                    "Workspace '{0}' holds a tile of a kind this build does not have; its layout will "
+                    + "not be written for the rest of this session.", WorkspaceId);
+            }
+            return;
+        }
+
         _persistenceService.DebouncedSaveLayout(WorkspaceId, () => _serializer.Serialize(RootTile));
     }
 

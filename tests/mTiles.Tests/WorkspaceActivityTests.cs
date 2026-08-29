@@ -49,7 +49,7 @@ public class WorkspaceActivityTests
     public void A_closed_tile_stops_saying_it_is_working()
     {
         var busy = new AlwaysBusyContent();
-        var tile = new LeafTileNodeViewModel(TileContentType.Note, busy, "", new TileActivationScope());
+        var tile = new LeafTileNodeViewModel(TileKindIds.Note, busy, "", new TileActivationScope());
         Assert.True(tile.IsBusy);
 
         var announced = false;
@@ -152,6 +152,8 @@ public class WorkspaceActivityTests
     /// </summary>
     private sealed class AlwaysBusyContent : CommunityToolkit.Mvvm.ComponentModel.ObservableObject, IBusyTile
     {
+        public string KindId => TileKindIds.Note;
         public bool IsBusy => true;
+        public void Dispose() { }
     }
 }

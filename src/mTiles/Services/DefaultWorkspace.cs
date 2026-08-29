@@ -53,7 +53,7 @@ public static class DefaultWorkspace
     private static TileNode SingleTerminal() => new()
     {
         IsLeaf = true,
-        ContentType = TileContentType.Terminal,
+        Kind = TileKindIds.Terminal,
         TileId = Guid.NewGuid().ToString(),
         IsActive = true
     };

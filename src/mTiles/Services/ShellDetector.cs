@@ -1,4 +1,4 @@
-using mTiles.Models;
+﻿using mTiles.Models;
 
 namespace mTiles.Services;
 
@@ -147,9 +147,16 @@ public static class ShellDetector
         return shell;
     }
 
-    public static ShellProfile ResolveFromUserProfile(UserShellProfile userProfile, AppSettings settings)
+    /// <summary>The shell a user's profile names, or the default when it is not installed.</summary>
+    /// <param name="detected">The shells to pick from. Taken rather than detected here: detection walks
+    /// every directory on <c>PATH</c> and every caller already has a list — <c>TileContext.Shells</c>
+    /// keeps one per workspace over a window — so a workspace restoring several terminals detects once
+    /// rather than once per tile. There was an overload that called <see cref="Detect"/> itself; it went
+    /// when the last caller of it did, because a convenience that hides this cost is exactly how it came
+    /// to be paid eight times.</param>
+    public static ShellProfile ResolveFromUserProfile(UserShellProfile userProfile, AppSettings settings,
+        IReadOnlyList<ShellProfile> detected)
     {
-        var detected = Detect();
         var match = detected.FirstOrDefault(s =>
             s.Name.Equals(userProfile.ShellName, StringComparison.OrdinalIgnoreCase));
         return match ?? ResolveDefault(settings);

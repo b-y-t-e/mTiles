@@ -1,9 +1,10 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Database;
+using mTiles.Services.Tiles;
 
 namespace mTiles.ViewModels;
 
@@ -11,7 +12,7 @@ public partial class MainWindowViewModel : ObservableObject
 {
     private readonly PersistenceService _persistenceService;
     private readonly SettingsService _settingsService;
-    private readonly DatabaseServiceManager? _dbManager;
+    private readonly TileCatalog _catalog;
     private readonly UpdateService _updateService;
     private readonly Dictionary<string, WorkspaceViewModel> _workspaceCache = new();
 
@@ -57,6 +58,28 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private WorkspaceViewModel? _currentWorkspace;
 
+    /// <summary>
+    /// Raised when the tile a window-level command acts on changes, or when that tile's own state does.
+    /// </summary>
+    /// <remarks>
+    /// The workspace raises it for its own tiles; this follows whichever workspace is on screen, so a
+    /// listener subscribes once and never learns that workspaces exist. Switching workspaces is itself
+    /// such a change — the active tile becomes another workspace's, or none.
+    /// </remarks>
+    public event Action? ActiveTileChanged;
+
+    partial void OnCurrentWorkspaceChanged(WorkspaceViewModel? oldValue, WorkspaceViewModel? newValue)
+    {
+        if (oldValue is not null)
+            oldValue.ActiveTileChanged -= RaiseActiveTileChanged;
+        if (newValue is not null)
+            newValue.ActiveTileChanged += RaiseActiveTileChanged;
+
+        RaiseActiveTileChanged();
+    }
+
+    private void RaiseActiveTileChanged() => ActiveTileChanged?.Invoke();
+
     [ObservableProperty]
     private SettingsViewModel _settings;
 
@@ -69,18 +92,20 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private string _updateVersion = "";
 
+    /// <param name="catalog">Every kind of tile the application can build, registered once at
+    /// startup.</param>
     public MainWindowViewModel(WorkspaceService workspaceService, PersistenceService persistenceService,
-        SettingsService settingsService, DatabaseServiceManager? dbManager = null,
+        SettingsService settingsService, TileCatalog catalog, DatabaseServiceManager? dbManager = null,
         Services.Speech.DictationService? dictation = null,
         Services.Phone.PhoneBridgeManager? phoneBridge = null)
     {
         _persistenceService = persistenceService;
         _settingsService = settingsService;
+        _catalog = catalog;
 
         // The switch lives on another dialog, so nothing else would tell this to look again — and a
         // button that appears only after a restart reads as a broken setting.
         _settingsService.SettingsChanged += OnSettingsChanged;
-        _dbManager = dbManager;
         Dictation = dictation;
         PhoneBridge = phoneBridge;
         _updateService = new UpdateService();
@@ -180,6 +205,18 @@ public partial class MainWindowViewModel : ObservableObject
 
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
+    /// <summary>Shows the settings dialog on a given tab, for a tile that has settings of its own
+    /// elsewhere.</summary>
+    /// <remarks>Handed down to every workspace and from there into each tile's context. The database
+    /// tile's view used to do this by walking up the visual tree until it found a window whose data
+    /// context was this class — which worked, and told the view about a view model two levels above the
+    /// one it was drawing.</remarks>
+    private void OpenSettingsOn(int tab)
+    {
+        Settings.SelectedTab = tab;
+        IsSettingsOpen = true;
+    }
+
     [RelayCommand]
     private async Task ApplyUpdateAsync()
     {
@@ -260,7 +297,8 @@ public partial class MainWindowViewModel : ObservableObject
 
         if (!_workspaceCache.TryGetValue(workspace.Id, out var vm))
         {
-            vm = new WorkspaceViewModel(workspace, _persistenceService, _settingsService, _dbManager, Dictation);
+            vm = new WorkspaceViewModel(workspace, _persistenceService, _settingsService, _catalog,
+                Dictation, OpenSettingsOn);
             _workspaceCache[workspace.Id] = vm;
             ShowActivityInPanel(vm);
         }

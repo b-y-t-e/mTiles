@@ -1,8 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using mTiles.Services.Phone;
+using mTiles.ViewModels;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -693,7 +694,7 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         // if the unknown name had been let through it would be in the list ahead of this one.
         await SendTextAsync(socket, """{"type":"key","key":"up"}""");
         await WaitUntilAsync(() => { lock (_sink.Keys) return _sink.Keys.Count > 0; });
-        lock (_sink.Keys) Assert.Equal(PhoneKey.Up, Assert.Single(_sink.Keys));
+        lock (_sink.Keys) Assert.Equal(TileKey.Up, Assert.Single(_sink.Keys));
     }
 
     /// <summary>
@@ -752,7 +753,89 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         // Kestrel has dropped.
         await SendTextAsync(socket, """{"type":"key","key":"down"}""");
         await WaitUntilAsync(() => { lock (_sink.Keys) return _sink.Keys.Count > 0; });
-        lock (_sink.Keys) Assert.Equal(PhoneKey.Down, Assert.Single(_sink.Keys));
+        lock (_sink.Keys) Assert.Equal(TileKey.Down, Assert.Single(_sink.Keys));
+    }
+
+    // ── the tile actions ────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>An action the active tile offers reaches the sink by its id.</summary>
+    [Fact]
+    public async Task An_action_press_reaches_the_sink()
+    {
+        using var socket = await ConnectAsync();
+
+        await SendTextAsync(socket, """{"type":"action","id":"refresh"}""");
+
+        await WaitUntilAsync(() => { lock (_sink.InvokedActions) return _sink.InvokedActions.Count == 1; });
+        lock (_sink.InvokedActions) Assert.Equal("refresh", Assert.Single(_sink.InvokedActions));
+    }
+
+    /// <summary>
+    /// A refused action is explained, and not as a dictation error.
+    /// </summary>
+    /// <remarks>
+    /// <c>actionError</c> for the reason a refused key gets <c>keyError</c>: the page treats
+    /// <c>error</c> as the answer to <em>its</em> dictation attempt and unwinds its optimistic
+    /// microphone state on one, so an action that the tile would not do must not end somebody's
+    /// recording. It matters more here than for a key, because the refusal now arrives long after the
+    /// press — the action is run off the receive loop.
+    /// </remarks>
+    [Fact]
+    public async Task A_refused_action_is_explained_without_being_a_dictation_error()
+    {
+        _sink.ActionRefusal = "That is not something this tile can do right now.";
+        using var socket = await ConnectAsync();
+
+        await SendTextAsync(socket, """{"type":"action","id":"push"}""");
+
+        var reply = await ReadUntilAsync(socket, "actionError");
+        Assert.Contains("can do right now", reply);
+        Assert.DoesNotContain("\"error\"", reply);
+    }
+
+    /// <summary>
+    /// An action that takes minutes does not stop the phone being heard while it runs.
+    /// </summary>
+    /// <remarks>
+    /// The reason the server starts an action rather than awaiting it in the receive loop. A tile action
+    /// is the one thing a phone can ask for that is not short — Continue on a Goal tile runs the whole
+    /// implement/review loop, and a failed Git push ends in a message box somebody has to walk over to
+    /// the computer and click — and awaited on that loop it stops <c>ReceiveAsync</c> being called at
+    /// all: the audio frames of the sentence spoken meanwhile are never read, <c>begin</c>, <c>key</c>
+    /// and the next <c>action</c> are never parsed, and the phone, still being sent state down the
+    /// independent write chain, looks perfectly alive. The gate stands in for the length of the run, so
+    /// what is asserted is that the connection is still served while the action is unmistakably still
+    /// going.
+    /// </remarks>
+    [Fact]
+    public async Task A_long_running_action_does_not_deafen_the_connection()
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _sink.ActionGate = running;
+        using var socket = await ConnectAsync();
+
+        try
+        {
+            await SendTextAsync(socket, """{"type":"action","id":"continue"}""");
+            await WaitUntilAsync(() =>
+            {
+                lock (_sink.InvokedActions) return _sink.InvokedActions.Count == 1;
+            });
+
+            // Both halves of driving an agent from the sofa, sent while that action is still running:
+            // the sentence, and the Enter that sends it.
+            await SendTextAsync(socket, """{"type":"begin","sampleRate":48000}""");
+            await OwnsTheStreamAsync(socket);
+            await SendTextAsync(socket, """{"type":"key","key":"enter"}""");
+
+            await WaitUntilAsync(() => { lock (_sink.Keys) return _sink.Keys.Count == 1; });
+            lock (_sink.Keys) Assert.Equal(TileKey.Enter, Assert.Single(_sink.Keys));
+        }
+        finally
+        {
+            // In a finally so a failed assertion does not leave the stub awaiting for the rest of the run.
+            running.TrySetResult();
+        }
     }
 
     /// <summary>
@@ -896,19 +979,44 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         public void CancelStream() => Interlocked.Increment(ref Cancellations);
 
         /// <summary>Every key the sink was asked to press, in order.</summary>
-        public List<PhoneKey> Keys { get; } = [];
+        public List<TileKey> Keys { get; } = [];
 
         /// <summary>Set to have the next press refused, as the manager refuses one with nowhere to go.</summary>
         public string? KeyRefusal { get; set; }
 
-        public Task<string?> PressKeyAsync(PhoneKey key)
+        public Task<string?> PressKeyAsync(TileKey key)
         {
             lock (Keys) Keys.Add(key);
             return Task.FromResult(KeyRefusal);
         }
 
+        /// <summary>Every action the sink was asked to run, in order.</summary>
+        public List<string> InvokedActions { get; } = [];
+
+        /// <summary>Set to have the next action refused, as the manager refuses one the tile does not
+        /// offer.</summary>
+        public string? ActionRefusal { get; set; }
+
+        /// <summary>Set to hold the next action until the test lets it finish, as a Goal tile's Continue
+        /// holds one for the length of a run.</summary>
+        public TaskCompletionSource? ActionGate { get; set; }
+
+        public async Task<string?> InvokeActionAsync(string id)
+        {
+            lock (InvokedActions) InvokedActions.Add(id);
+
+            if (ActionGate is { } gate)
+                await gate.Task;
+
+            return ActionRefusal;
+        }
+
         public string DescribeState() =>
             JsonSerializer.Serialize(new { type = "state", state = "idle", tile = "Terminal #1" });
+
+        public string DescribeActions() =>
+            PhoneTileActions.Describe("Terminal #1",
+                [new TileAction("refresh", "Refresh", "refresh")]);
     }
 }
 

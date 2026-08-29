@@ -345,7 +345,8 @@ public sealed class DatabaseSettingsDirtyTests : IDisposable
     /// <summary>The whole main view model, so this covers the wiring and not just the piece it calls —
     /// which is the part that was missing.</summary>
     private MainWindowViewModel NewMainWindow() =>
-        new(_settings.Workspaces, _settings.Layouts, _settings.Service);
+        new(_settings.Workspaces, _settings.Layouts, _settings.Service,
+            TestTiles.Catalog(_settings.Service));
 
     private static void Change(SettingsViewModel vm, string field)
     {

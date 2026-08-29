@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using AvaloniaEdit;
@@ -91,7 +91,7 @@ public class PhoneKeysTests : IDisposable
         content.AttachControl(control);
         control.Start(new PtyOptions { Command = "fake-shell", Arguments = ["-l"] });
 
-        var tile = new LeafTileNodeViewModel(TileContentType.Terminal, content, "", new TileActivationScope());
+        var tile = new LeafTileNodeViewModel(TileKindIds.Terminal, content, "", new TileActivationScope());
         return (tile, control, pty!);
     }
 
@@ -139,17 +139,17 @@ public class PhoneKeysTests : IDisposable
             pty.EndProcess();
             await WaitUntil(() => !control.IsRunning, "the session has been reported dead");
 
-            Assert.False(PhoneKeys.Press(tile, PhoneKey.Enter));
+            Assert.False(PhoneKeys.Press(tile, TileKey.Enter));
         });
 
     [Fact]
     public void A_tile_that_is_not_a_terminal_takes_nothing()
         => OnUiThread(() =>
         {
-            var tile = new LeafTileNodeViewModel(TileContentType.Empty, null, "", new TileActivationScope());
+            var tile = new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope());
 
-            Assert.False(PhoneKeys.Press(tile, PhoneKey.Enter));
-            Assert.False(PhoneKeys.Press(null, PhoneKey.Enter));
+            Assert.False(PhoneKeys.Press(tile, TileKey.Enter));
+            Assert.False(PhoneKeys.Press(null, TileKey.Enter));
             return Task.CompletedTask;
         });
 
@@ -165,7 +165,7 @@ public class PhoneKeysTests : IDisposable
             var seen = new List<Key>();
             box.KeyDown += (_, e) => seen.Add(e.Key);
 
-            Assert.True(PhoneKeys.Press(tile, PhoneKey.Down, box));
+            Assert.True(PhoneKeys.Press(tile, TileKey.Down, box));
 
             await Task.Yield();
             Assert.Equal([Key.Down], seen);
@@ -188,7 +188,7 @@ public class PhoneKeysTests : IDisposable
             var editor = new TextEditor { IsReadOnly = true };
             ShowingWindow(editor);
 
-            Assert.True(PhoneKeys.Press(tile, PhoneKey.Enter, editor));
+            Assert.True(PhoneKeys.Press(tile, TileKey.Enter, editor));
 
             await WaitUntil(() => pty.Written.Length > 0, "the shell has been sent something");
             Assert.Equal("\r", pty.Written);
@@ -212,7 +212,7 @@ public class PhoneKeysTests : IDisposable
             window.Content = null;                       // the dialog closed while the phone was in a pocket
             window.Close();
 
-            Assert.True(PhoneKeys.Press(tile, PhoneKey.Enter, box));
+            Assert.True(PhoneKeys.Press(tile, TileKey.Enter, box));
 
             await WaitUntil(() => pty.Written.Length > 0, "the shell has been sent something");
             Assert.Equal("\r", pty.Written);
@@ -240,21 +240,21 @@ public class PhoneKeysTests : IDisposable
             var manager = Manager(out var active);
 
             active.Tile = null;
-            Assert.Equal("No tile is active in mTiles.", await Press(manager, PhoneKey.Enter));
+            Assert.Equal("No tile is active in mTiles.", await Press(manager, TileKey.Enter));
 
             var (terminal, control, pty) = TerminalTile();
             active.Tile = terminal;
-            Assert.Null(await Press(manager, PhoneKey.Enter));
+            Assert.Null(await Press(manager, TileKey.Enter));
             await WaitUntil(() => pty.Written.Length > 0, "the shell has been sent something");
 
             pty.EndProcess();
             await WaitUntil(() => !control.IsRunning, "the session has been reported dead");
-            Assert.Equal("The shell in that tile is not running.", await Press(manager, PhoneKey.Enter));
+            Assert.Equal("The shell in that tile is not running.", await Press(manager, TileKey.Enter));
 
             // Anything that is not a terminal at all. The two refusals are deliberately different
             // sentences: one names a shell to restart, the other says the tile was never a destination.
-            active.Tile = new LeafTileNodeViewModel(TileContentType.Note, null, "", new TileActivationScope());
-            Assert.Equal("That tile has nothing to type into.", await Press(manager, PhoneKey.Enter));
+            active.Tile = new LeafTileNodeViewModel(TileKindIds.Note, null, "", new TileActivationScope());
+            Assert.Equal("That tile has nothing to type into.", await Press(manager, TileKey.Enter));
         });
 
     /// <summary>
@@ -282,7 +282,7 @@ public class PhoneKeysTests : IDisposable
 
             // Not reported as delivered: whether the key reached anything before the handler threw is
             // unknowable from here, and the honest answer is that it did not work.
-            Assert.Equal("mTiles could not deliver that key.", await Press(manager, PhoneKey.Enter));
+            Assert.Equal("mTiles could not deliver that key.", await Press(manager, TileKey.Enter));
         });
 
     /// <summary>Whatever the test says is the active tile, read at the moment of the press.</summary>
@@ -291,7 +291,7 @@ public class PhoneKeysTests : IDisposable
         public LeafTileNodeViewModel? Tile { get; set; }
     }
 
-    private static Task<string?> Press(PhoneBridgeManager manager, PhoneKey key) =>
+    private static Task<string?> Press(PhoneBridgeManager manager, TileKey key) =>
         ((IPhoneSink)manager).PressKeyAsync(key);
 
     /// <summary>
@@ -376,7 +376,7 @@ public class PhoneKeysTests : IDisposable
     /// </summary>
     /// <remarks>
     /// The set is closed at compile time, but nothing in the compiler makes the three places that list it
-    /// agree — the enum, <see cref="PhoneKeys.TryParse"/> and <see cref="PhoneKeys.ToAvalonia"/>. Walked
+    /// agree — the enum, <see cref="PhoneKeys.TryParse"/> and the map in <see cref="TileKeyPress"/>. Walked
     /// rather than enumerated here on purpose: a fourth key added to the enum and missed in either of the
     /// others fails this without anybody having to remember to come back and add a case. What it is
     /// standing guard over is one specific outcome — a key that arrives, is accepted, and is delivered as
@@ -386,7 +386,7 @@ public class PhoneKeysTests : IDisposable
     [Fact]
     public void Every_key_has_a_name_and_a_keystroke_of_its_own()
     {
-        var keys = Enum.GetValues<PhoneKey>();
+        var keys = Enum.GetValues<TileKey>();
 
         // The wire name is the member's own name in lower case — the convention the page is written to,
         // pinned here so it stays one rather than becoming a lookup table somebody has to remember.
@@ -397,8 +397,11 @@ public class PhoneKeysTests : IDisposable
             Assert.Equal(key, parsed);
         }
 
-        // And no two of them arrive as the same keystroke, which is what a forgotten arm used to produce.
-        var strokes = keys.Select(PhoneKeys.ToAvalonia).ToList();
-        Assert.Equal(keys.Length, strokes.Distinct().Count());
+        // And no two names collide, which is what a forgotten arm used to produce. What each key *is*
+        // to a control that reads the keyboard lives in one place for both destinations — TileKeyPress,
+        // which ITextInputTile.TryPressKey delivers through — and is pinned by the theory above, which
+        // drives the real thing all the way to a shell.
+        var names = keys.Select(k => k.ToString().ToLowerInvariant()).ToList();
+        Assert.Equal(keys.Length, names.Distinct().Count());
     }
 }

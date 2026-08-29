@@ -10,8 +10,11 @@ using mTiles.Services.Database;
 
 namespace mTiles.ViewModels;
 
-public partial class DatabaseTileViewModel : ObservableObject, IDisposable
+public partial class DatabaseTileViewModel : ObservableObject, ITile
 {
+    /// <inheritdoc />
+    public string KindId => TileKindIds.Database;
+
     private readonly string _workingDirectory;
     private readonly SettingsService _settingsService;
     private readonly DatabaseServiceManager _dbManager;

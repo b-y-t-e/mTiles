@@ -131,7 +131,7 @@ public class DirectLaunchSessionTests
             using var settings = new TempSettings();
             var (control, spawned) = NewTerminal();
             var tile = new TerminalTileViewModel("", Shell, settings.Service,
-                LaunchScripts.FromProfile("claude", "fallback")) { TileId = "tile-1" };
+                LaunchScripts.FromProfile("claude", "fallback"), tileId: () => "tile-1");
             var previous = new TileScriptResolutionTests.CountingLaunch();
             tile.ReplaceLaunchSession(previous);
 
@@ -167,8 +167,8 @@ public class DirectLaunchSessionTests
                 Name = "CMD", ExecutablePath = @"C:\Windows\System32\cmd.exe", Type = ShellType.Cmd,
             };
             var tile = new TerminalTileViewModel("", cmd, settings.Service,
-                LaunchScripts.FromProfile("opencode import \"x\" ; opencode", "fallback"))
-            { TileId = RealTileId };
+                LaunchScripts.FromProfile("opencode import \"x\" ; opencode", "fallback"),
+                tileId: () => RealTileId);
 
             try
             {
@@ -198,7 +198,7 @@ public class DirectLaunchSessionTests
             using var settings = new TempSettings();
             var (control, spawned) = NewTerminal();
             var tile = new TerminalTileViewModel("", Shell, settings.Service,
-                LaunchScripts.FromProfile("echo hi", null)) { TileId = "tile-1" };
+                LaunchScripts.FromProfile("echo hi", null), tileId: () => "tile-1");
 
             try
             {
@@ -226,7 +226,7 @@ public class DirectLaunchSessionTests
             using var settings = new TempSettings();
             var (control, spawned) = NewTerminal();
             var tile = new TerminalTileViewModel("", Shell, settings.Service,
-                LaunchScripts.FromProfile("cd src\nclaude --session ${tileId}", null)) { TileId = RealTileId };
+                LaunchScripts.FromProfile("cd src\nclaude --session ${tileId}", null), tileId: () => RealTileId);
 
             try
             {

@@ -38,13 +38,10 @@ public partial class DatabaseTileView : UserControl
 
         vm.GetClipboard = () => TopLevel.GetTopLevel(this)?.Clipboard;
 
-        vm.OpenDatabaseSettings = () =>
-        {
-            var mainVm = (TopLevel.GetTopLevel(this) as Window)?.DataContext as MainWindowViewModel;
-            if (mainVm == null) return;
-            mainVm.Settings.SelectedTab = SettingsTabs.Database;
-            mainVm.IsSettingsOpen = true;
-        };
+        // Opening the settings dialog is not wired here any more: it arrives with the tile, through the
+        // context its kind was built with. This view used to walk up the visual tree until it found a
+        // window whose data context was the main view model — which worked, and told a view that draws
+        // one tile about a view model two levels above it.
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)

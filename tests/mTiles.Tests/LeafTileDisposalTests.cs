@@ -44,7 +44,11 @@ public class LeafTileDisposalTests
             new SpeechModelStore(Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"))),
             action => action());
 
-        var tile = new LeafTileNodeViewModel(TileContentType.Terminal, null, "", new TileActivationScope())
+        // With content, and that is load-bearing now: the microphone is offered to a tile whose content
+        // has somewhere to type — an ITextInputTile — rather than to one whose kind happens to be
+        // "terminal". A tile with no content at all has nowhere to put a sentence.
+        var content = new TerminalTileViewModel("", null, settings.Service);
+        var tile = new LeafTileNodeViewModel(TileKindIds.Terminal, content, "", new TileActivationScope())
         {
             Dictation = service,
         };
@@ -211,7 +215,7 @@ public class LeafTileDisposalTests
         using var _s = service;
 
         var content = new CountingContent();
-        var tile = new LeafTileNodeViewModel(TileContentType.Note, content, "", new TileActivationScope());
+        var tile = new LeafTileNodeViewModel(TileKindIds.Note, content, "", new TileActivationScope());
 
         tile.Dispose();
         tile.Dispose();
@@ -219,8 +223,9 @@ public class LeafTileDisposalTests
         Assert.Equal(1, content.Disposals);
     }
 
-    private sealed class CountingContent : ObservableObject, IDisposable
+    private sealed class CountingContent : ObservableObject, ITile
     {
+        public string KindId => TileKindIds.Note;
         public int Disposals { get; private set; }
         public void Dispose() => Disposals++;
     }

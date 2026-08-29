@@ -1,26 +1,44 @@
 using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Speech;
 
 namespace mTiles.ViewModels;
 
-public partial class TerminalTileViewModel : ObservableObject, IDisposable, IBusyTile
+public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICustomBackgroundTile,
+    ITileActions, ITextInputTile
 {
+    /// <inheritdoc />
+    public string KindId => TileKindIds.Terminal;
+
     public string WorkingDirectory { get; }
     public ShellProfile Shell { get; }
     public string? UserProfileId { get; }
+
+    /// <summary>Where the tile's identity is read from — see <see cref="TileId"/>.</summary>
+    private readonly Func<string>? _tileId;
     /// <summary>
     /// The tile's persistent identity, which <c>${tileId}</c> in a profile script resolves to.
-    /// <para>A settable property with an empty default, and not a constructor parameter, because the id
-    /// belongs to the <see cref="LeafTileNodeViewModel"/> that owns this content and is stamped on it
-    /// straight after <see cref="TileFactory"/> builds it — and the factory is type-agnostic, so giving
-    /// it the id means giving it to every kind of tile. Worth doing deliberately, not as a side effect
-    /// of something else; until then the hazard the setter leaves — a blank id silently expanding to
-    /// nothing — is closed at the point of use in <see cref="TileScript.Resolve"/>.</para>
     /// </summary>
-    public string TileId { get; set; } = "";
+    /// <remarks>
+    /// <para><b>Read through a function, and not stored here.</b> The id belongs to the
+    /// <see cref="LeafTileNodeViewModel"/> that owns this content, and it moves under this object: "New
+    /// session" replaces it while this terminal keeps running. While it was a settable property, four
+    /// places had to cast the content back to a terminal and push the new value in — the serializer,
+    /// both creation paths and the drag-and-drop swap — and any one of them forgotten meant a tile
+    /// launching under somebody else's session id.</para>
+    /// <para>The function answers for the tile it was built for, so this content must never be handed to
+    /// a different one: dragging one tile onto another exchanges the two tiles' places in the tree
+    /// rather than their contents, which is what keeps that true.</para>
+    /// <para>Empty when nothing supplies one, which in practice means a test. The hazard that leaves —
+    /// a blank id turning <c>claude -r ${tileId}</c> into a different command — is closed at the point
+    /// of use in <see cref="TileScript.Resolve"/>.</para>
+    /// </remarks>
+    public string TileId => _tileId?.Invoke() ?? "";
 
     /// <summary>What this tile was created to run. Only a fallback for when the profile it came from
     /// has since been deleted — <see cref="ResolveCurrentScripts"/> prefers the profile's current
@@ -92,9 +110,10 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable, IBus
     }
 
     public TerminalTileViewModel(string workingDirectory, ShellProfile? shell, SettingsService settingsService,
-        LaunchScripts? scripts = null, string? userProfileId = null)
+        LaunchScripts? scripts = null, string? userProfileId = null, Func<string>? tileId = null)
     {
         _settingsService = settingsService;
+        _tileId = tileId;
         var s = _settingsService.Settings;
         WorkingDirectory = workingDirectory;
         Shell = shell ?? ShellDetector.ResolveDefault(s);
@@ -119,6 +138,101 @@ public partial class TerminalTileViewModel : ObservableObject, IDisposable, IBus
         if (Math.Abs(s.TerminalFontSize - FontSize) > AppDefaults.FontSizeEpsilon)
             FontSize = s.TerminalFontSize;
     }
+
+    /// <summary>How far the terminal's text sits inside the card.</summary>
+    /// <remarks>A terminal is text against an edge and wants the gap; every other tile's content is its
+    /// own chrome and runs to the card's edge instead.</remarks>
+    public Thickness ContentInset { get; } = new(6, 0, 6, 6);
+
+    /// <summary>What that gap is painted in — the terminal's own ANSI background.</summary>
+    /// <remarks>A literal hex rather than a UI role token, because the palette does not derive this
+    /// one: the inset has to be the colour of the thing inside it or it reads as a frame.</remarks>
+    public string ContentBackground => Theme.Background;
+
+    partial void OnThemeChanged(TerminalTheme value) => OnPropertyChanged(nameof(ContentBackground));
+
+    /// <summary>What this tile offers its header.</summary>
+    /// <remarks>
+    /// <para>Restarting is here rather than on the tile that owns it because it is a thing done to a
+    /// shell, and this is the object that has one. It is what removed the last cast back to this class
+    /// from <see cref="LeafTileNodeViewModel"/>.</para>
+    /// <para><b>It is destructive, so a phone is not offered it.</b> Restarting kills whatever the
+    /// shell is running — a build, an agent halfway through a task — which is the definition
+    /// <see cref="TileAction.IsDestructive"/> carries, and it is why the header asks
+    /// <c>Restart shell?</c> before doing it. That question is the whole reason the flag belongs here:
+    /// with it unset the same action went out to a paired device where nothing asked anything and
+    /// nobody could see what was about to die, so one screen guarded it and the other did not. A phone
+    /// cannot be shown what it would cost, and confirming there what you cannot see is theatre — so it
+    /// is withheld rather than confirmed, which is the rule the whole action set is filtered by
+    /// (<c>PhoneTileActions</c>).</para>
+    /// <para><b>New session is deliberately not here.</b> It replaces the tile's persistent identity —
+    /// the session an agent would otherwise resume — which belongs to the tile rather than to its
+    /// content, and it is not something to do from a screen that cannot show which conversation is
+    /// about to be left behind.</para>
+    /// </remarks>
+    public IReadOnlyList<TileAction> Actions =>
+    [
+        new(TileActionIds.Restart, "Restart shell", "restart",
+            IsEnabled: CachedControl is Terminal.Avalonia.TerminalControl,
+            IsDestructive: true),
+    ];
+
+    /// <inheritdoc />
+    public Task<TileActionResult> InvokeAsync(string id)
+    {
+        if (id != TileActionIds.Restart)
+            return Task.FromResult(TileActionResult.Refused($"This tile has no '{id}'."));
+
+        if (CachedControl is not Terminal.Avalonia.TerminalControl terminal)
+            return Task.FromResult(TileActionResult.Refused("This tile has no terminal to restart."));
+
+        // No Kill() first. Not because it would stall — the restart kills the child itself, and that
+        // call blocks the UI thread for as long as the child takes either way — but because killing
+        // here races the restart: it would leave the launcher waiting on a session that had already
+        // gone, and the previous chain seeing an exit it is entitled to relaunch. Sequencing the kill,
+        // the wait and the start is precisely what RestartAsync exists for, and it serialises
+        // overlapping restarts on top.
+        TileLauncher.Launch(terminal, this);
+        return Task.FromResult(TileActionResult.Ok);
+    }
+
+    /// <summary>Types text into the shell, submitting it when the caller asked for that.</summary>
+    /// <remarks>
+    /// A shell that has exited is refused rather than typed at: text sent to it goes nowhere, and saying
+    /// so is the difference between the phone showing a reason and the user pressing again.
+    /// <para>The carriage return is put on by <see cref="DictationTextSink.Type"/> and only when asked.
+    /// A transcript has already had every control character turned into a space before it arrives, so
+    /// that <c>\r</c> is the one that can reach the child, and it is there because the user asked for it
+    /// rather than because a model heard a newline. Which is why it is not written out again here: that
+    /// one line is the only branch in the whole feature that can <em>run a command</em>, and it is split
+    /// from resolving the destination precisely so it can be tested without a shell. A second copy of it
+    /// living on this class would be the copy nothing covers.</para>
+    /// </remarks>
+    public bool TrySendText(string text, bool submit) =>
+        LiveTerminal is { } terminal && DictationTextSink.Type(terminal.SendText, text, submit);
+
+    /// <summary>
+    /// Presses one of the few keys something outside the tile may press.
+    /// </summary>
+    /// <remarks>
+    /// Delivered by <see cref="TileKeyPress"/>, which owns the one map from <see cref="TileKey"/> to
+    /// what a control that reads the keyboard understands — the terminal is only one of the two places
+    /// a key can land, and the two must not answer differently.
+    /// </remarks>
+    public bool TryPressKey(TileKey key)
+    {
+        if (LiveTerminal is not { } terminal)
+            return false;
+
+        TileKeyPress.At(terminal, key);
+        return true;
+    }
+
+    /// <summary>This tile's terminal, when there is one and its shell is still running.</summary>
+    /// <remarks>A dead terminal is refused rather than written to — text sent to a shell that has
+    /// exited goes nowhere, and both callers above have to be able to say so.</remarks>
+    private Terminal.Avalonia.TerminalControl? LiveTerminal =>
+        CachedControl is Terminal.Avalonia.TerminalControl { IsRunning: true } control ? control : null;
 
     /// <summary>The scripts as the profile defines them <em>now</em> — edited settings take effect on
     /// the next launch, without recreating the tile.</summary>

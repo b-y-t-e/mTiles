@@ -38,10 +38,12 @@ public class WorkspaceRemovalTests : IDisposable
         workspaces.AddWorkspace(Path.Combine(_dir, "first"), "First");
         workspaces.AddWorkspace(Path.Combine(_dir, "second"), "Second");
 
+        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
         return new MainWindowViewModel(
             workspaces,
             new PersistenceService(Path.Combine(_dir, "layouts")),
-            new SettingsService(Path.Combine(_dir, "settings.json")));
+            settings,
+            TestTiles.Catalog(settings));
     }
 
     [Fact]

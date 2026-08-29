@@ -31,7 +31,8 @@ public class ActiveTileTests : IDisposable
     }
 
     private WorkspaceViewModel Build(TempSettings settings) =>
-        new(new Workspace { Name = "test", DirectoryPath = _directory }, settings.Layouts, settings.Service);
+        new(new Workspace { Name = "test", DirectoryPath = _directory }, settings.Layouts, settings.Service,
+            TestTiles.Catalog(settings.Service));
 
     [Fact]
     public void Before_anything_is_activated_the_shortcut_has_no_tile_but_focus_still_lands()
@@ -78,7 +79,7 @@ public class ActiveTileTests : IDisposable
         root.Activate();
         Assert.Same(root, workspace.ActiveTile);
 
-        var replacement = new LeafTileNodeViewModel(TileContentType.Empty, null, _directory,
+        var replacement = new LeafTileNodeViewModel(TileKindIds.None, null, _directory,
             workspace.ActivationScope);
         var focused = 0;
         replacement.FocusRequested += () => focused++;

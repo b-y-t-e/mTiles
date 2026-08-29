@@ -11,8 +11,49 @@ using mTiles.Services;
 
 namespace mTiles.ViewModels;
 
-public partial class GitTileViewModel : ObservableObject, IDisposable
+public partial class GitTileViewModel : ObservableObject, ITileActions
 {
+    /// <inheritdoc />
+    public string KindId => TileKindIds.Git;
+
+    /// <summary>The ids of the three things this tile offers outside its own view.</summary>
+    /// <remarks>Three of about twenty commands, and the choice is what a phone can be trusted with:
+    /// see what changed, record it, send it. Discard and Undo last commit are the reason
+    /// <see cref="TileAction.IsDestructive"/> exists, and they are not offered at all.</remarks>
+    public const string RefreshActionId = "refresh";
+    public const string CommitActionId = "commit";
+    public const string PushActionId = "push";
+
+    /// <inheritdoc />
+    public IReadOnlyList<TileAction> Actions =>
+    [
+        new(RefreshActionId, "Refresh", "refresh", IsEnabled: !IsLoading),
+        new(CommitActionId, "Commit", "check", IsEnabled: CanCommit()),
+        new(PushActionId, "Push", "upload", IsEnabled: IsGitRepo && !IsLoading),
+    ];
+
+    /// <inheritdoc />
+    public async Task<TileActionResult> InvokeAsync(string id)
+    {
+        // Asked again here rather than trusting the snapshot the caller acted on: a phone's copy of the
+        // list is as old as the last time anything changed, and a Commit sent against a tile that has
+        // since finished committing would run with an empty message.
+        if (Actions.FirstOrDefault(a => a.Id == id) is not { } action)
+            return TileActionResult.Refused($"This tile has no '{id}'.");
+
+        if (!action.IsEnabled)
+            return TileActionResult.Refused($"{action.Label} is not available right now.");
+
+        switch (id)
+        {
+            case RefreshActionId: await RefreshAsync(); break;
+            case CommitActionId: await CommitAsync(); break;
+            case PushActionId: await PushAsync(); break;
+        }
+
+        return TileActionResult.Ok;
+    }
+
     [ObservableProperty]
     private string _branchName = "";
 

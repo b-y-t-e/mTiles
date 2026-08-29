@@ -1,18 +1,23 @@
+﻿using System.Text.Json.Nodes;
 using Avalonia.Layout;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
 using mTiles.Services.Speech;
+using mTiles.Services.Tiles;
 
 namespace mTiles.ViewModels;
 
 public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 {
     [ObservableProperty]
-    private ObservableObject? _content;
+    private ITile? _content;
 
+    /// <summary>Which kind of tile this is, or empty for one that has not been given content yet.</summary>
+    /// <remarks>Stored on the tile rather than read from <see cref="Content"/> because an empty tile has
+    /// no content to ask, and "empty" is exactly the state the chooser is drawn for.</remarks>
     [ObservableProperty]
-    private TileContentType _contentType;
+    private string _kindId = TileKindIds.None;
 
     [ObservableProperty]
     private string _tileName = "";
@@ -23,10 +28,31 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     [ObservableProperty]
     private bool _isActive;
 
+    /// <summary>Whether the tile is showing a kind's own step instead of the list of kinds.</summary>
     [ObservableProperty]
-    private bool _isChoosingProfile;
+    private bool _isChoosingSetup;
 
+    /// <summary>Whether "New session" means anything here.</summary>
+    /// <remarks>
+    /// It generates a fresh <see cref="TileId"/> and restarts, and the id is only ever <em>used</em> by a
+    /// profile script that puts <c>${tileId}</c> on a command line — so on a tile running a plain shell
+    /// the command would restart the shell and claim to have done something else. The one place left
+    /// where this class knows what a terminal is, and it is about the tile's own identity rather than
+    /// about anything the content can do.
+    /// </remarks>
     public bool HasProfile => Content is TerminalTileViewModel { UserProfileId: not null };
+
+    /// <summary>What the tile's own header and a paired phone may ask its content to do.</summary>
+    /// <remarks>Empty for content that offers nothing, so no caller has to ask whether there is a list
+    /// before reading one.</remarks>
+    public IReadOnlyList<TileAction> Actions =>
+        _disposed ? [] : (Content as ITileActions)?.Actions ?? [];
+
+    /// <summary>Whether the header's Restart button and Ctrl+Shift+R have anything to do here.</summary>
+    /// <remarks>Asked of the content's own list rather than of what kind of tile this is: a second kind
+    /// that runs something restartable gets the button by offering the action, and this class does not
+    /// have to learn about it.</remarks>
+    public bool CanRestart => Actions.Any(a => a.Id == TileActionIds.Restart);
 
     /// <summary>Whether this tile is working right now — false for content that has no notion of it,
     /// and false once the tile has been disposed of.</summary>
@@ -35,42 +61,68 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// one nothing else would ever put out.</remarks>
     public bool IsBusy => !_disposed && (Content as IBusyTile)?.IsBusy == true;
 
-    partial void OnContentChanged(ObservableObject? oldValue, ObservableObject? newValue)
+    partial void OnContentChanged(ITile? oldValue, ITile? newValue)
     {
-        WatchContentBusy(oldValue, newValue);
+        WatchContent(oldValue, newValue);
         OnPropertyChanged(nameof(HasProfile));
         OnPropertyChanged(nameof(IsBusy));
+        RaiseActionsChanged();
     }
 
-    /// <summary>Follows the busy state of whatever content the tile holds now.</summary>
+    /// <summary>Follows whatever content the tile holds now.</summary>
     /// <remarks>The tile watches its own content and the workspace watches its tiles, so neither has to
-    /// walk the other's tree — and content that is not an <see cref="IBusyTile"/> is not subscribed to
-    /// at all.</remarks>
-    private void WatchContentBusy(ObservableObject? oldContent, ObservableObject? newContent)
+    /// walk the other's tree.</remarks>
+    private void WatchContent(ITile? oldContent, ITile? newContent)
     {
-        if (oldContent is IBusyTile previous)
-            previous.PropertyChanged -= OnContentPropertyChanged;
-        if (newContent is IBusyTile current)
-            current.PropertyChanged += OnContentPropertyChanged;
+        if (oldContent is not null)
+            oldContent.PropertyChanged -= OnContentPropertyChanged;
+        if (newContent is not null)
+            newContent.PropertyChanged += OnContentPropertyChanged;
     }
 
     private void OnContentPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(IBusyTile.IsBusy))
             OnPropertyChanged(nameof(IsBusy));
+
+        // Anything at all, and deliberately: what an action's IsEnabled is computed from is the
+        // content's business — a git tile's loading flag, a goal's phase — and a list of the properties
+        // each of them happens to use would be a copy of six classes' internals kept here, out of date
+        // from the first one that changed. Recomputing a list of three records is nothing.
+        RaiseActionsChanged();
     }
 
-    partial void OnContentTypeChanged(TileContentType value) => OnPropertyChanged(nameof(CanDictate));
+    private void RaiseActionsChanged()
+    {
+        OnPropertyChanged(nameof(Actions));
+        OnPropertyChanged(nameof(CanRestart));
+    }
+
+    partial void OnKindIdChanged(string value) => OnPropertyChanged(nameof(CanDictate));
     partial void OnTileNameChanged(string value) => NotifyLayoutChanged();
 
     private readonly TileActivationScope _activationScope;
-    private readonly Func<TileContentType, string, ObservableObject>? _contentFactory;
-    private readonly Func<TileContentType, string>? _nameFactory;
-    private readonly Func<IReadOnlyList<UserShellProfile>>? _profilesProvider;
-    private readonly Func<UserShellProfile, string, ObservableObject>? _profileContentFactory;
+    private readonly TileCatalog? _catalog;
+    private readonly TileContext? _context;
+    private readonly Func<string, string>? _nameFactory;
     private readonly string _workingDirectory;
 
-    public IReadOnlyList<UserShellProfile>? AvailableProfiles { get; private set; }
+    /// <summary>The cards the step on screen is offering, and the kind that asked for them.</summary>
+    public IReadOnlyList<TileSetupOption> SetupOptions { get; private set; } = [];
+
+    private string _setupKindId = TileKindIds.None;
+
+    /// <summary>Every kind a tile can be given, in the order the chooser offers them.</summary>
+    public IReadOnlyList<ITileKind> AvailableKinds =>
+        _catalog?.Entries.Select(e => e.Kind).ToList() ?? [];
+
+    /// <summary>The kind this tile is, or null while it is empty — what the header draws its glyph
+    /// from.</summary>
+    public ITileKind? Kind => _catalog?.Kind(KindId);
+
+    /// <summary>The registry itself, for the one thing only the view can do with it: build the control
+    /// that draws this tile's content.</summary>
+    public TileCatalog? Catalog => _catalog;
 
     public TileActivationScope ActivationScope => _activationScope;
     public Action<TileNodeViewModel>? RootReplaced { get; set; }
@@ -90,25 +142,27 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     public Action<LeafTileNodeViewModel>? ConfigureNewLeaf { get; set; }
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
-    public LeafTileNodeViewModel(TileContentType contentType, ObservableObject? content, string workingDirectory,
+    /// <param name="catalog">Every kind this tile could be given. Null in a test that only ever builds
+    /// tiles by hand.</param>
+    /// <param name="context">What a kind needs in order to build content here. The tile's own identity
+    /// is added to it, because the id is this object's and moves under whatever it holds.</param>
+    public LeafTileNodeViewModel(string kindId, ITile? content, string workingDirectory,
         TileActivationScope activationScope,
-        Func<TileContentType, string, ObservableObject>? contentFactory = null,
-        Func<TileContentType, string>? nameFactory = null,
-        Func<IReadOnlyList<UserShellProfile>>? profilesProvider = null,
-        Func<UserShellProfile, string, ObservableObject>? profileContentFactory = null)
+        TileCatalog? catalog = null,
+        TileContext? context = null,
+        Func<string, string>? nameFactory = null)
     {
-        _contentType = contentType;
+        _kindId = kindId;
         // Assigned to the backing field, so the generated OnContentChanged never runs: a tile built
         // from a saved layout arrives with its content already in hand, and without this it would
         // never follow it. Every other route in goes through the property and is covered there.
         _content = content;
-        WatchContentBusy(null, content);
+        WatchContent(null, content);
         _workingDirectory = workingDirectory;
         _activationScope = activationScope;
-        _contentFactory = contentFactory;
+        _catalog = catalog;
+        _context = context is null ? null : context with { TileId = () => TileId };
         _nameFactory = nameFactory;
-        _profilesProvider = profilesProvider;
-        _profileContentFactory = profileContentFactory;
         _activationScope.ActiveTileChanged += OnActiveTileChanged;
     }
 
@@ -170,11 +224,10 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     [ObservableProperty]
     private bool _isTranscribingDictation;
 
-    /// <summary>Whether to offer the microphone at all: dictation switched on, and a terminal to type
-    /// into. The other tile kinds take dictation through the shortcut, into whatever text box has the
-    /// keyboard — a button in their header would have nowhere to put the words.</summary>
-    public bool CanDictate =>
-        ContentType == TileContentType.Terminal && Dictation is { Speech.Enabled: true };
+    /// <summary>Whether to offer the microphone at all: dictation switched on, and content with
+    /// somewhere to put the words. The other tile kinds take dictation through the shortcut, into
+    /// whatever text box has the keyboard — a button in their header would have nowhere to type.</summary>
+    public bool CanDictate => Content is ITextInputTile && Dictation is { Speech.Enabled: true };
 
     private void OnDictationChanged()
     {
@@ -231,7 +284,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// <para>The content goes with it, and that is deliberate. Disposing a tile and disposing what is
     /// inside it were two calls every teardown had to remember to make — closing one tile made both,
     /// closing a workspace made only the second — which is the same shape of bug as the one above, one
-    /// level down. One call now, and the pair cannot come apart again.</para>
+    /// level down. One call now, and the pair cannot come apart again. It no longer asks whether the
+    /// content happens to be disposable either: every <see cref="ITile"/> is.</para>
     /// <para>Idempotent, because both of those callers still exist: a tile closed by its own command can
     /// be torn down with its workspace a moment later.</para>
     /// </remarks>
@@ -254,13 +308,14 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
         Dictation = null;
 
-        WatchContentBusy(Content, null);
+        var content = Content;
+        WatchContent(content, null);
         // Said out loud, because the content is no longer there to say it: the workspace is still
         // listening to this leaf, and this is the last moment at which it hears anything from it.
         OnPropertyChanged(nameof(IsBusy));
+        RaiseActionsChanged();
 
-        if (Content is IDisposable disposable)
-            disposable.Dispose();
+        content?.Dispose();
     }
 
     public event Action? FocusRequested;
@@ -271,13 +326,21 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
     private void OnActiveTileChanged(LeafTileNodeViewModel active) => IsActive = active == this;
 
+    /// <summary>Does one of the things this tile's content offers, or says why it did not.</summary>
+    /// <remarks>The single route in, so the header, a keyboard shortcut and a paired phone all reach a
+    /// tile the same way and an id nothing offers gets the same answer from all three.</remarks>
+    public Task<TileActionResult> InvokeActionAsync(string id) =>
+        Content is ITileActions actions
+            ? actions.InvokeAsync(id)
+            : Task.FromResult(TileActionResult.Refused("This tile offers nothing to do."));
+
     [RelayCommand]
     private async Task RestartTerminalAsync()
     {
         if (ConfirmAction != null && !await ConfirmAction("Restart shell?"))
             return;
 
-        DoRestartTerminal();
+        await InvokeActionAsync(TileActionIds.Restart);
     }
 
     [RelayCommand]
@@ -286,24 +349,12 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         if (ConfirmAction != null && !await ConfirmAction("Generate new Tile ID and restart shell?"))
             return;
 
+        // The id first, and nothing has to be pushed into the content: it reads this property through
+        // the function its context was built with, so the restart below already launches under the new
+        // session.
         TileId = Guid.NewGuid().ToString();
         NotifyLayoutChanged();
-        DoRestartTerminal();
-    }
-
-    private void DoRestartTerminal()
-    {
-        if (Content is not TerminalTileViewModel tvm) return;
-        if (tvm.CachedControl is not Terminal.Avalonia.TerminalControl tc) return;
-
-        // No Kill() first. Not because it would stall — the restart kills the child itself, and that
-        // call blocks the UI thread for as long as the child takes either way — but because killing
-        // here races the restart: it would leave the launcher waiting on a session that had already
-        // gone, and the previous chain seeing an exit it is entitled to relaunch. Sequencing the kill,
-        // the wait and the start is precisely what RestartAsync exists for, and it serialises
-        // overlapping restarts on top.
-        tvm.TileId = TileId;
-        Services.TileLauncher.Launch(tc, tvm);
+        await InvokeActionAsync(TileActionIds.Restart);
     }
 
     [RelayCommand]
@@ -312,74 +363,73 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     [RelayCommand]
     private void SplitVertical() => Split(Orientation.Vertical);
 
+    /// <summary>
+    /// Takes the kind the user picked, or shows whatever that kind asks for first.
+    /// </summary>
+    /// <remarks>
+    /// Which kinds have a step of their own is the kinds' business, not this class's: it used to know
+    /// that a terminal has profiles, which is the branch on a kind that the registry exists to remove.
+    /// </remarks>
     [RelayCommand]
-    private void SelectContentType(TileContentType type)
+    private void SelectKind(string? kindId)
     {
-        if (ContentType != TileContentType.Empty) return;
+        if (KindId != TileKindIds.None || kindId is not { Length: > 0 }) return;
+        if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
 
-        if (type == TileContentType.Terminal)
+        var options = kind.SetupOptions(context);
+        if (options.Count > 0)
         {
-            var profiles = _profilesProvider?.Invoke();
-            if (profiles != null && profiles.Count > 0)
-            {
-                AvailableProfiles = profiles;
-                OnPropertyChanged(nameof(AvailableProfiles));
-                IsChoosingProfile = true;
-                return;
-            }
+            SetupOptions = options;
+            _setupKindId = kindId;
+            OnPropertyChanged(nameof(SetupOptions));
+            IsChoosingSetup = true;
+            return;
         }
 
-        CreateContentDirect(type);
+        Adopt(kindId, state: null);
+    }
+
+    /// <summary>
+    /// Takes the option the user picked in a kind's own step.
+    /// </summary>
+    /// <remarks>
+    /// The same call as every other way of creating a tile, because choosing an option <em>is</em>
+    /// handing a new tile its initial state — the very thing a saved layout does. Two branches that must
+    /// produce identical results, with nothing checking that they do, is how they drift.
+    /// </remarks>
+    [RelayCommand]
+    private void SelectSetupOption(TileSetupOption option)
+    {
+        var kindId = _setupKindId;
+        CancelSetup();
+        Adopt(kindId, option.State);
     }
 
     [RelayCommand]
-    private void SelectDefaultTerminal()
+    private void CancelSetup()
     {
-        IsChoosingProfile = false;
-        CreateContentDirect(TileContentType.Terminal);
+        IsChoosingSetup = false;
+        SetupOptions = [];
+        _setupKindId = TileKindIds.None;
+        OnPropertyChanged(nameof(SetupOptions));
     }
 
-    [RelayCommand]
-    private void SelectProfile(UserShellProfile profile)
+    /// <summary>Gives an empty tile its content, its kind and its name.</summary>
+    private void Adopt(string kindId, JsonObject? state)
     {
-        IsChoosingProfile = false;
-        var newContent = _profileContentFactory?.Invoke(profile, _workingDirectory);
-        if (newContent == null) return;
+        if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
 
-        if (newContent is TerminalTileViewModel tvm)
-            tvm.TileId = TileId;
-
-        Content = newContent;
-        ContentType = TileContentType.Terminal;
-        TileName = _nameFactory?.Invoke(TileContentType.Terminal) ?? "Terminal";
-        NotifyLayoutChanged();
-    }
-
-    [RelayCommand]
-    private void CancelProfileSelection()
-    {
-        IsChoosingProfile = false;
-    }
-
-    private void CreateContentDirect(TileContentType type)
-    {
-        var newContent = _contentFactory?.Invoke(type, _workingDirectory);
-        if (newContent == null) return;
-
-        if (newContent is TerminalTileViewModel tvm)
-            tvm.TileId = TileId;
-
-        Content = newContent;
-        ContentType = type;
-        TileName = _nameFactory?.Invoke(type) ?? type.ToString();
-        (newContent as IFileContent)?.RenameFile(TileName);
+        Content = kind.Create(context, state);
+        KindId = kindId;
+        TileName = _nameFactory?.Invoke(kindId) ?? kind.DisplayName;
+        (Content as IFileContent)?.RenameFile(TileName);
         NotifyLayoutChanged();
     }
 
     private void Split(Orientation orientation)
     {
-        var newLeaf = new LeafTileNodeViewModel(TileContentType.Empty, null, _workingDirectory,
-            _activationScope, _contentFactory, _nameFactory, _profilesProvider, _profileContentFactory)
+        var newLeaf = new LeafTileNodeViewModel(TileKindIds.None, null, _workingDirectory,
+            _activationScope, _catalog, _context, _nameFactory)
         {
             TileName = ""
         };

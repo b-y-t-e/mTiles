@@ -46,7 +46,7 @@ public class DefaultWorkspaceTests : IDisposable
         var root = layouts.LoadLayout(workspace.Id)?.RootTile;
         Assert.NotNull(root);
         Assert.True(root!.IsLeaf);
-        Assert.Equal(TileContentType.Terminal, root.ContentType);
+        Assert.Equal(TileKindIds.Terminal, root.Kind);
         Assert.False(string.IsNullOrEmpty(root.TileId));
         Assert.Null(root.First);
         Assert.Null(root.Second);

@@ -8,7 +8,6 @@ using Avalonia.Interactivity;
 using AvaloniaEdit;
 using mTiles.Models;
 using mTiles.ViewModels;
-using Terminal.Avalonia;
 
 namespace mTiles.Services.Speech;
 
@@ -119,24 +118,19 @@ internal static class DictationTextSink
     }
 
     /// <summary>
-    /// The tile's terminal, when there is one and its shell is still running.
+    /// The tile's own input surface, when its content has one.
     /// </summary>
     /// <remarks>
-    /// Shared with <see cref="Phone.PhoneKeys"/> for the reason <see cref="WritableTextTarget"/> is, and
-    /// this half shares cleanly: both callers want the same control under the same liveness test, and
-    /// neither wants anything else. A dead terminal is refused rather than typed at — text sent to a
-    /// shell that has exited goes nowhere, and saying so is the difference between the phone showing a
-    /// reason and the user pressing again.
+    /// Shared with <see cref="Phone.PhoneKeys"/> for the reason <see cref="WritableTextTarget"/> is: the
+    /// two are used in one breath, and a key that chose its destination by a different rule than the
+    /// text did would submit an empty prompt in one place while the sentence sat in another.
+    /// <para>It used to reach into the terminal tile's cached control and ask whether the shell was
+    /// still running, which meant everything on this route had to know what a terminal is. The tile
+    /// answers for itself now, and both of its answers can be false — a shell that has exited is refused
+    /// rather than written to, because text sent to it goes nowhere and saying so is the difference
+    /// between the phone showing a reason and the user pressing again.</para>
     /// </remarks>
-    internal static TerminalControl? LiveTerminal(LeafTileNodeViewModel? tile)
-    {
-        if (tile?.Content is not TerminalTileViewModel terminalTile)
-            return null;
-
-        return terminalTile.CachedControl is TerminalControl terminal && terminal.IsRunning
-            ? terminal
-            : null;
-    }
+    internal static ITextInputTile? TileInput(LeafTileNodeViewModel? tile) => tile?.Content as ITextInputTile;
 
     private static bool InsertIntoTextControl(IInputElement? focused, string text)
     {
@@ -183,15 +177,16 @@ internal static class DictationTextSink
     }
 
     private static bool SendToTerminal(LeafTileNodeViewModel? tile, string text, bool submit) =>
-        LiveTerminal(tile) is { } terminal && Type(terminal.SendText, text, submit);
+        TileInput(tile)?.TrySendText(text, submit) == true;
 
     /// <summary>
     /// Hands the payload to whatever types into a shell, adding the carriage return if one was asked for.
     /// </summary>
     /// <remarks>
-    /// <para>Split from resolving the terminal so it can be tested: this is the only branch in the
+    /// <para>Split from resolving the destination so it can be tested: this is the only branch in the
     /// feature that can <em>run a command</em>, and until this seam existed it had no test at all —
-    /// <see cref="Compose"/> never touches <c>\r</c>, so nothing that tested composing came near it.</para>
+    /// <see cref="Compose"/> never touches <c>\r</c>, so nothing that tested composing came near it. The
+    /// tile's own <c>TrySendText</c> does exactly this with the shell it holds.</para>
     /// <para>The return goes on separately and only when asked. <see cref="Sanitize"/> has already turned
     /// every control character in the transcript into a space, so this is the one <c>\r</c> that can
     /// reach the child, and it is there because the user asked for it rather than because a model heard
