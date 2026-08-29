@@ -138,30 +138,31 @@ public class AiProcessRunnerTests
 
 
     [Fact]
-    public void Claudes_turn_limit_is_a_runaway_guard_rather_than_a_budget()
+    public void Claude_is_given_no_turn_limit_at_all()
     {
-        // It used to be 20, which was an arbitrary number of mine and reachable in ordinary work: a few
-        // files read, a skill loaded, then edits. Worse, with plain text output there was no way to tell
-        // "I finished" from "I ran out of turns", so a run cut off half way through an implementation
-        // looked exactly like a completed one.
+        // Twice now a number of mine has cut a real implementation off: 20, raised to 200, and the 200
+        // was reached half way through one. Every ceiling here is a guess about how long somebody
+        // else's task takes, applied to work already in their files — and being able to *report* the
+        // truncation, which the stream does, does not make it less of a truncation.
         //
-        // Removing it altogether left the other end — nothing bounding a run but the Pause button, on a
-        // tile meant to be left alone for hours. What makes a ceiling acceptable again is that the
-        // stream says when it is hit: error_max_turns arrives as a result line marked as an error.
+        // Which leaves one run unbounded, and that is the accepted risk: the attempt budget bounds how
+        // many runs a goal gets rather than how long one lasts, RunPlainAsync has no wall-clock timeout
+        // on purpose, and Pause is the whole of the stop. Not "the user can set a ceiling in their
+        // settings" — measured against Claude Code 2.1.251, maxTurns is a hidden CLI flag, an agent
+        // file's front matter and an SDK option, and settings.json has no equivalent. A ceiling that is
+        // hit is still read as an error rather than as an answer (see below), for anyone who adds one.
         var psi = new ProcessStartInfo();
         new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true);
 
-        var at = psi.ArgumentList.IndexOf("--max-turns");
-        Assert.True(at >= 0);
-        Assert.True(int.Parse(psi.ArgumentList[at + 1]) >= 100,
-            "a ceiling low enough to reach in ordinary work is the bug this replaced");
+        Assert.DoesNotContain("--max-turns", psi.ArgumentList);
     }
 
     [Fact]
     public async Task Running_out_of_turns_is_reported_as_an_error_rather_than_as_an_answer()
     {
-        // The whole reason a ceiling is tolerable now. Read as an answer, a truncated run becomes a
-        // plan or an implementation that stops mid-thought and is reviewed as if it were finished.
+        // This tile asks for no ceiling, but the user's own settings can carry one — and read as an
+        // answer, a truncated run becomes a plan or an implementation that stops mid-thought and is
+        // reviewed as if it were finished.
         var (answer, failed, _) = await Drain(Said,
             """{"type":"result","subtype":"error_max_turns","is_error":true,"result":"turn limit"}""");
 

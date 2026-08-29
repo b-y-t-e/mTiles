@@ -170,14 +170,22 @@ public sealed class ClaudeToolRunner : IAiToolRunner
     /// The command line, and one flag that is deliberately absent.
     /// </summary>
     /// <remarks>
-    /// <para><b>No <c>--max-turns</c>.</b> It used to be there at 20, which was my number and an
-    /// arbitrary one, and it was doing harm two ways. An agent that reads a few files, loads a skill and
-    /// then edits spends turns quickly, so twenty was reachable in ordinary work — and with
-    /// <c>--output-format text</c> there is no way to tell "I finished" from "I ran out of turns". A run
-    /// cut off half way through an implementation looked exactly like a completed one: it went to
-    /// review, the review found unfinished work, and the next attempt started from a state nobody had
-    /// named. Turns are the wrong unit anyway. What bounds this tile is its attempt budget and the Pause
-    /// button, both of which are about the work rather than about the tool's inner loop.</para>
+    /// <para><b>No <c>--max-turns</c>, at any number.</b> It was 20, then 200, and both were my numbers
+    /// rather than anything about the work. An agent that reads a few files, loads a skill and then
+    /// edits spends turns quickly, so a ceiling is reachable in ordinary work: the 200 was hit half way
+    /// through a real implementation, which is the failure the 20 was raised for. Reporting the stop
+    /// honestly — <c>error_max_turns</c> arrives as a result line marked as an error, and
+    /// <see cref="ParseLine"/> reports it as one — makes a truncated run visible, but a visible
+    /// truncation is still a truncation, and the tile is meant to be left alone for hours. Turns are
+    /// the wrong unit for this: what they count is the tool's inner loop, and what the user cares about
+    /// is the work.</para>
+    /// <para><b>Which leaves one run with no ceiling of any kind, and that is the accepted risk rather
+    /// than something covered elsewhere.</b> The attempt budget bounds how many runs a goal gets, not
+    /// how long one lasts, and <see cref="RunPlainAsync"/> deliberately has no wall-clock timeout — so
+    /// Pause is the whole of the stop. Not "the user can set one in their settings": measured against
+    /// Claude Code 2.1.251, <c>maxTurns</c> is a hidden CLI flag, a field in an agent file's front
+    /// matter and an SDK option, and <c>settings.json</c> has no equivalent at all. The only ceiling
+    /// available for this run is the flag on this line, which is exactly the one being refused.</para>
     /// <para><c>--verbose</c> is not optional with <c>stream-json</c>: print mode refuses the pair
     /// without it.</para>
     /// </remarks>
@@ -215,30 +223,7 @@ public sealed class ClaudeToolRunner : IAiToolRunner
         if (!streaming) return;
 
         psi.ArgumentList.Add("--verbose");
-
-        // Only on the streaming path, and that is the whole argument for having it at all: the ceiling
-        // is tolerable because error_max_turns arrives as a result line marked as an error and is
-        // reported as one. Without the stream there is nothing to read it from, so hitting the limit
-        // would again be indistinguishable from finishing — the failure this replaced. A plain run is
-        // therefore left unbounded rather than bounded invisibly.
-        psi.ArgumentList.Add("--max-turns");
-        psi.ArgumentList.Add(RunawayTurns.ToString());
     }
-
-    /// <summary>
-    /// A ceiling on the agent's own loop, set where it should never be reached.
-    /// </summary>
-    /// <remarks>
-    /// <para>Not the twenty this used to be. Twenty was reachable in ordinary work — a few files read,
-    /// a skill loaded, then edits — so it cut real implementations short, and with plain text output
-    /// there was no way to tell that from finishing. Removing it altogether left the other end: nothing
-    /// bounds a run but the Pause button, and the tile is meant to be left alone for hours.</para>
-    /// <para>What makes a ceiling acceptable again is that the stream says when it is hit:
-    /// <c>error_max_turns</c> arrives as a result line marked as an error, which
-    /// <see cref="ParseLine"/> reports as one instead of as an answer. The failure that mattered was
-    /// never the limit — it was a truncated run being read as a finished one.</para>
-    /// </remarks>
-    private const int RunawayTurns = 200;
 
     public IReadOnlyList<AiOutputChunk> ParseLine(string line)
     {
