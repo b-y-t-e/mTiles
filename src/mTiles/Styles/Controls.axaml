@@ -396,6 +396,34 @@
         <Setter Property="Foreground" Value="{DynamicResource AccentDefault}" />
     </Style>
 
+    <!-- ======== WORKSPACE BUSY SPINNER (something is working in there) ========
+         A turning arc rather than a dot. A static dot beside a name says only that a state is on, and
+         the state this reports is *movement* — a build running, an agent mid-run — so the marker moves
+         too. Small and in the accent, the same colour the dot had: it sits next to a name it must not
+         outweigh.
+
+         The animation hangs off a second class rather than off the base one, so it exists only while
+         the row is busy. A style that matched always would keep an infinite animation ticking on every
+         hidden spinner in the list — one per workspace, for the whole session. -->
+    <Style Selector="mi|MaterialIcon.workspace-busy">
+        <Setter Property="Width" Value="11" />
+        <Setter Property="Height" Value="11" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentDefault}" />
+    </Style>
+    <Style Selector="mi|MaterialIcon.workspace-busy.spinning">
+        <Style.Animations>
+            <Animation Duration="0:0:1.1" IterationCount="INFINITE" Easing="LinearEasing">
+                <KeyFrame Cue="0%">
+                    <Setter Property="RotateTransform.Angle" Value="0" />
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="RotateTransform.Angle" Value="360" />
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
     <!-- ======== WORKSPACE META (the branch, under the name) ========
          Plain text, not a chip. A chip is the language this application uses for the rare exception —
          the AI tool that is NOT FOUND, the database tile's Error — and it works because you see one at

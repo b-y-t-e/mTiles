@@ -165,14 +165,15 @@
                                             </Button>
                                             <!-- A light, not a label: it comes and goes many times in a
                                                  session and a word appearing beside a name would move
-                                                 the name every time something printed. -->
+                                                 the name every time something printed. It turns, because
+                                                 what it reports is work in progress and a still mark
+                                                 cannot tell that apart from a state left switched on. -->
                                             <mi:MaterialIcon DockPanel.Dock="Right"
-                                                             Kind="Circle"
-                                                             Width="7" Height="7"
+                                                             Kind="Loading"
+                                                             Classes="workspace-busy"
+                                                             Classes.spinning="{Binding IsBusy}"
                                                              Margin="4,0"
-                                                             VerticalAlignment="Center"
                                                              IsVisible="{Binding IsBusy}"
-                                                             Foreground="{DynamicResource AccentDefault}"
                                                              ToolTip.Placement="Right"
                                                              ToolTip.Tip="Working" />
                                             <TextBlock Text="{Binding Name}" FontWeight="Medium"
