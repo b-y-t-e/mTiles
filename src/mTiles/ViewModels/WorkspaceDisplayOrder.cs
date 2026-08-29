@@ -15,7 +15,8 @@ public static class WorkspaceDisplayOrder
     /// <remarks>
     /// <para><see cref="WorkspaceItemViewModel.Name"/> deliberately, not <c>Workspace.Name</c>: a
     /// workspace that is shown under an alias sorts where that alias reads. The home directory is
-    /// called <c>Home</c> and belongs under H, not under the login the folder happens to carry — a list
+    /// called <c>Home directory</c> and belongs under H, not under the login the folder happens to
+    /// carry — a list
     /// ordered by a name nobody can see is a list whose order looks like no order at all, and it costs
     /// the user the one thing an alphabetical list gives them, which is knowing where to look before
     /// they look. Any alias <see cref="WorkspaceDisplayName"/> grows is covered by the same line.</para>

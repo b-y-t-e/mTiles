@@ -177,17 +177,16 @@
                                                              ToolTip.Placement="Right"
                                                              ToolTip.Tip="Working" />
                                             <!-- The home directory says which one it is twice: the
-                                                 name it is given, and the glyph in front of it. A
-                                                 folder actually called "Home" is an ordinary thing to
-                                                 have, so the word alone only hints; docked left because
-                                                 it belongs to the name rather than competing with the
-                                                 two glyphs on the right for what is left of the row. -->
+                                                 name it is given, and the glyph in front of it. A row
+                                                 in a list of folders is read as a folder, so the words
+                                                 alone can be taken for one somebody made; docked left
+                                                 because it belongs to the name rather than competing
+                                                 with the two glyphs on the right for what is left of
+                                                 the row. -->
                                             <mi:MaterialIcon DockPanel.Dock="Left"
                                                              Kind="Home"
                                                              Classes="workspace-home"
-                                                             IsVisible="{Binding IsHome}"
-                                                             ToolTip.Placement="Right"
-                                                             ToolTip.Tip="Your home directory" />
+                                                             IsVisible="{Binding IsHome}" />
                                             <TextBlock Text="{Binding Name}" FontWeight="Medium"
                                                        TextTrimming="CharacterEllipsis"
                                                        VerticalAlignment="Center"

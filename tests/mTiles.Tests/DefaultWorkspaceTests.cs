@@ -127,14 +127,14 @@ public class DefaultWorkspaceTests : IDisposable
     public void Only_the_home_directory_wears_the_home_glyph()
     {
         // The row says which directory it is twice — the name and the glyph — and both read the path,
-        // so a folder the user happens to have called "Home" gets the word and not the mark.
+        // so a folder the user happens to have named the same gets the words and not the mark.
         var home = new WorkspaceItemViewModel(new Workspace
         {
             Id = "home", Name = "andrz", DirectoryPath = SpecialDirectories.Home
         });
         var namesake = new WorkspaceItemViewModel(new Workspace
         {
-            Id = "namesake", Name = "Home", DirectoryPath = _dir
+            Id = "namesake", Name = WorkspaceDisplayName.Home, DirectoryPath = _dir
         });
 
         Assert.True(home.IsHome);

@@ -1,4 +1,4 @@
-using mTiles.Services;
+﻿using mTiles.Services;
 
 namespace mTiles.ViewModels;
 
@@ -18,7 +18,10 @@ namespace mTiles.ViewModels;
 public static class WorkspaceDisplayName
 {
     /// <summary>What the user's own directory is called on screen.</summary>
-    public const string Home = "Home";
+    /// <remarks>Two words rather than one. "Home" alone is a name a user's own folder could plausibly
+    /// carry, so as a row in a list of folders it reads as one of them; saying what kind of thing it is
+    /// leaves no such reading, and matches the words the tooltip and the settings use for it.</remarks>
+    public const string Home = "Home directory";
 
     public static string For(string storedName, string directoryPath) =>
         SpecialDirectories.IsHome(directoryPath) ? Home : storedName;

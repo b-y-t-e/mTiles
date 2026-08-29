@@ -72,9 +72,9 @@ public partial class WorkspaceItemViewModel : ObservableObject
     public string DirectoryPath => Workspace.DirectoryPath;
 
     /// <summary>Whether this row is the user's own directory.</summary>
-    /// <remarks>The name it shows is a word every other row could also be called — a folder named
-    /// "Home" is an ordinary thing to have — so the row carries the glyph as well: together they say
-    /// which directory this is, where either alone only hints at it. Same rule as
+    /// <remarks>The name it shows is words any other row could also be called — a row in a list of
+    /// folders is read as a folder — so the row carries the glyph as well: together they say which
+    /// directory this is, where either alone only hints at it. Same rule as
     /// <see cref="Name"/>, asked of the path rather than of the stored name.</remarks>
     public bool IsHome => SpecialDirectories.IsHome(DirectoryPath);
 
