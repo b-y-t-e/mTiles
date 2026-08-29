@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using mTiles.Models;
 
 namespace mTiles.Services;
@@ -9,6 +9,17 @@ public sealed class WorkspaceService
     private List<Workspace> _workspaces = [];
 
     public IReadOnlyList<Workspace> Workspaces => _workspaces;
+
+    /// <summary>Whether this machine has a stored workspace list at all.</summary>
+    /// <remarks>
+    /// Not the same question as an empty <see cref="Workspaces"/>, and the difference is the user's
+    /// list: <see cref="Load"/> answers every read failure — a file another instance or a virus scanner
+    /// has locked, a write truncated by a power cut — with an empty list, so "there is nothing here"
+    /// and "we could not tell" look identical from outside. Anything that would *write* on the strength
+    /// of the list being empty has to ask this instead, or it overwrites the very file it could not
+    /// read. An emptied list is also a decision the user made, and the file records it.
+    /// </remarks>
+    public bool HasStoredList => File.Exists(_filePath);
 
     public WorkspaceService() : this(null) { }
 

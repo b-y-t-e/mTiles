@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
+using mTiles.Services;
 
 namespace mTiles.ViewModels;
 
@@ -27,7 +28,12 @@ public partial class WorkspaceItemViewModel : ObservableObject
     private bool? _hasRepository;
 
     /// <summary>The one state the row offers to do something about.</summary>
-    public bool HasNoRepository => HasRepository == false;
+    /// <remarks>
+    /// Not every directory without a repository gets the offer: the user's home directory, the root of
+    /// a drive and the system directories are places where <c>git init</c> is a mistake rather than a
+    /// missing step, so their rows say nothing instead (<see cref="SpecialDirectories.AllowsRepository"/>).
+    /// </remarks>
+    public bool HasNoRepository => HasRepository == false && SpecialDirectories.AllowsRepository(DirectoryPath);
 
     /// <summary>Whether something is running in this workspace right now.</summary>
     /// <remarks>Set from outside — the row is told, it does not look. Only workspaces that have been
@@ -57,8 +63,20 @@ public partial class WorkspaceItemViewModel : ObservableObject
     }
 
     public string Id => Workspace.Id;
-    public string Name => Workspace.Name;
+
+    /// <summary>What this workspace is called in the panel.</summary>
+    /// <remarks>Read through <see cref="WorkspaceDisplayName"/> rather than straight off the model, so
+    /// the home directory shows a name instead of the login. The stored name is untouched.</remarks>
+    public string Name => WorkspaceDisplayName.For(Workspace.Name, Workspace.DirectoryPath);
+
     public string DirectoryPath => Workspace.DirectoryPath;
+
+    /// <summary>Whether this row is the user's own directory.</summary>
+    /// <remarks>The name it shows is a word every other row could also be called — a folder named
+    /// "Home" is an ordinary thing to have — so the row carries the glyph as well: together they say
+    /// which directory this is, where either alone only hints at it. Same rule as
+    /// <see cref="Name"/>, asked of the path rather than of the stored name.</remarks>
+    public bool IsHome => SpecialDirectories.IsHome(DirectoryPath);
 
     public string Initials
     {

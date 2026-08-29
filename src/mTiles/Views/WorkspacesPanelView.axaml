@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
@@ -176,6 +176,18 @@
                                                              IsVisible="{Binding IsBusy}"
                                                              ToolTip.Placement="Right"
                                                              ToolTip.Tip="Working" />
+                                            <!-- The home directory says which one it is twice: the
+                                                 name it is given, and the glyph in front of it. A
+                                                 folder actually called "Home" is an ordinary thing to
+                                                 have, so the word alone only hints; docked left because
+                                                 it belongs to the name rather than competing with the
+                                                 two glyphs on the right for what is left of the row. -->
+                                            <mi:MaterialIcon DockPanel.Dock="Left"
+                                                             Kind="Home"
+                                                             Classes="workspace-home"
+                                                             IsVisible="{Binding IsHome}"
+                                                             ToolTip.Placement="Right"
+                                                             ToolTip.Tip="Your home directory" />
                                             <TextBlock Text="{Binding Name}" FontWeight="Medium"
                                                        TextTrimming="CharacterEllipsis"
                                                        VerticalAlignment="Center"

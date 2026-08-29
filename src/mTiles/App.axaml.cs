@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -31,6 +31,10 @@ public partial class App : Application
         _settingsService = new SettingsService();
         var workspaceService = new WorkspaceService();
         var persistenceService = new PersistenceService();
+
+        // Before the main window, because that is what reads the list and picks which workspace to
+        // open — seeded afterwards, the first run would still show an empty canvas.
+        DefaultWorkspace.SeedFirstRun(workspaceService, persistenceService);
 
         _dbManager = new DatabaseServiceManager(_settingsService);
         if (_settingsService.Settings.Database.Enabled)

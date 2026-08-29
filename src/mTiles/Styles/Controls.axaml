@@ -1,4 +1,4 @@
-<Styles xmlns="https://github.com/avaloniaui"
+﻿<Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:mi="using:Material.Icons.Avalonia"
         xmlns:ae="using:AvaloniaEdit">
@@ -394,6 +394,21 @@
     </Style>
     <Style Selector="Button.workspace-star.is-favorite">
         <Setter Property="Foreground" Value="{DynamicResource AccentDefault}" />
+    </Style>
+
+    <!-- ======== WORKSPACE HOME GLYPH (the user's own directory) ========
+         Leading, not trailing. The star and the working light are docked on the right and are the two
+         glyphs a 240px row can spare there; this one belongs to the name rather than competing with it,
+         so it goes in front of it and takes its width off the side the name is read from.
+
+         Faint and at the branch icon's size: it names the row, it does not decorate it, and it must not
+         outweigh the word standing next to it. -->
+    <Style Selector="mi|MaterialIcon.workspace-home">
+        <Setter Property="Width" Value="12" />
+        <Setter Property="Height" Value="12" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Margin" Value="0,0,5,0" />
+        <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
     </Style>
 
     <!-- ======== WORKSPACE BUSY SPINNER (something is working in there) ========
