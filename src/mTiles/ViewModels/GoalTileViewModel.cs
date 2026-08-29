@@ -241,11 +241,16 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// <c>IsRunning</c>, so a composer shown there is a box that accepts text and does nothing with it
     /// — and the one thing it did do, silently, was hold the text that a finishing detection then
     /// overwrote.</para>
-    /// <para>Still up in Implement and Review when the run is stopped, where there is nothing to send
-    /// but the tile answers with what to do instead. That sentence is the point: a phase with no
-    /// composer and no explanation is a tile that has stopped responding.</para>
+    /// <para><b>And not in Implement or Review at all</b>, which is where a stopped run sits. There is
+    /// nothing for it to send there — <c>Submit</c>'s own case for those two phases hands the text back
+    /// and says the run is stopped — so it was a box that accepted typing and answered with a sentence.
+    /// It was kept on the reasoning that a phase with no composer and no explanation is a tile that has
+    /// stopped responding, and that reasoning was right about the explanation and wrong about the box:
+    /// the explanation is now a labelled Resume under the transcript, which says the same thing and can
+    /// be pressed.</para>
     /// </remarks>
-    public bool ShowComposer => !IsRunning && !ShowQuestions && !ShowApproval;
+    public bool ShowComposer =>
+        !IsRunning && !ShowQuestions && !ShowApproval && !GoalWorkflowEngine.IsMidRun(CurrentPhase);
 
     /// <summary>What the plan block's one button does, which follows the box under it. A user who has typed
     /// a correction is not asking to approve, and a button labelled "Approve" that sends their
@@ -748,6 +753,35 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     private void ToggleCriteria() => ShowCriteria = !ShowCriteria;
 
     /// <summary>
+    /// The catch of last resort for all four ways into a run, and the pause that goes with it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Saying what went wrong was only half of it. The four callers all reach a working phase and
+    /// then hand off to the loop, and an exception coming back out of one left the tile in
+    /// <c>Implement</c> with nothing implementing, not running and <b>not paused</b> — so
+    /// <see cref="ShowResume"/> was false, the composer stands down in that phase because it has
+    /// nothing to send, and the finished-run actions all want <c>Summary</c>. Nothing on the tile could
+    /// be pressed but <b>+</b>, which throws the goal away. An approved plan and an hour of transcript
+    /// behind one unexpected exception.</para>
+    /// <para>Pausing is what every <em>expected</em> failure already does — see
+    /// <c>HandleNonAnswerAsync</c>, where a tool that could not be launched or answered with nothing
+    /// pauses so the user can fix it and click Resume — and there is no reason an unexpected one should
+    /// leave the tile in a state the expected ones are careful to avoid.</para>
+    /// <para>Only where Resume has something to run (<see cref="GoalTilePolicy.CanResume"/>). A pause
+    /// in <c>Goal</c> or <c>Summary</c> is the bug the other way round: the strip would label the tile
+    /// "Paused. Click Resume to continue." over a Resume with no case to enter, and keep saying it
+    /// after a restart. Those two phases have the composer, which is the way on.</para>
+    /// </remarks>
+    private async Task StoppedByErrorAsync(string what, Exception ex)
+    {
+        Trace.TraceWarning($"{what}: {ex.Message}");
+        await AddMessageAsync(GoalMessageRole.System, $"Unexpected error: {ex.Message}", CurrentPhase);
+
+        if (GoalTilePolicy.CanResume(CurrentPhase))
+            PauseAndWait();
+    }
+
+    /// <summary>
     /// Gives a run that ran out of attempts as many more as the attempts field says, and carries on.
     /// <para>Re-entered at the <b>implementation</b>, not at the review. The last thing this run did was
     /// review, and starting there again would spend an AI run re-judging a working tree nothing has
@@ -810,8 +844,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning($"Goal continue error: {ex.Message}");
-            await AddMessageAsync(GoalMessageRole.System, $"Unexpected error: {ex.Message}", CurrentPhase);
+            await StoppedByErrorAsync("Goal continue error", ex);
         }
     }
 
@@ -899,21 +932,20 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
     /// </remarks>
     public bool HasFinishedRunActions => ShowResume || CanReReview || CanCommit || CanContinue;
 
-    /// <summary>
-    /// Whether Resume is on screen — in the conversation and in the header, which ask the same
-    /// question and must not answer it differently.
-    /// </summary>
+    /// <summary>Whether Resume is on screen.</summary>
     /// <remarks>
-    /// <para><b>In the conversation, because that is where everything else this tile asks for is
-    /// answered.</b> The transcript ends with "This run is stopped. Click Resume to continue it" and
-    /// the only Resume on screen was a 13px play glyph in a strip of six at the far end of the tile,
-    /// while the questions, the plan, Continue and Commit are all labelled buttons in the flow. The
-    /// header keeps its copy for when the transcript is scrolled away.</para>
-    /// <para><b>The phase is part of the question, not a detail of the flow's copy.</b> The header used
-    /// to ask <c>IsPaused</c> on its own, which is reachable in a phase <see cref="ResumeAsync"/> has
-    /// nothing to run: closing a tile mid-detection pauses it in <c>Goal</c>, so the reopened tile
-    /// showed an enabled ▶ that only cleared the pause. Two controls for one command asking two
-    /// different questions is how that survives, so both read this.</para>
+    /// <para><b>In the conversation, and only there, because that is where everything else this tile
+    /// asks for is answered.</b> The transcript ends with "This run is stopped. Click Resume to
+    /// continue it", and the only Resume on screen was a 13px play glyph in a strip of six at the far
+    /// end of the tile, while the questions, the plan, Continue and Commit are all labelled buttons in
+    /// the flow. The glyph is gone rather than kept as a second route: an unlabelled duplicate at the
+    /// opposite end of the tile is a thing to explain, not a fallback. Pause stays in the header,
+    /// because what it interrupts is happening now and must be reachable however far the transcript is
+    /// scrolled.</para>
+    /// <para><b>The phase is part of the question.</b> The header asked <c>IsPaused</c> on its own,
+    /// which is true in a phase <see cref="ResumeAsync"/> has nothing to run: closing a tile
+    /// mid-detection pauses it in <c>Goal</c>, so the reopened tile showed an enabled ▶ whose only
+    /// effect was to clear the pause. That is what one property for one command is for.</para>
     /// <para>Not while a round of questions or a plan is up. Resume re-runs the phase, which in Clarify
     /// or Plan means asking again — beside an unanswered round that would be a second button doing
     /// something different to the one the block is for, and answering resumes anyway
@@ -975,8 +1007,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning($"Goal detection error: {ex.Message}");
-            await AddMessageAsync(GoalMessageRole.System, $"Unexpected error: {ex.Message}", CurrentPhase);
+            await StoppedByErrorAsync("Goal detection error", ex);
         }
 
         RefreshDetectAvailability();
@@ -1312,8 +1343,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning($"Goal workflow error: {ex.Message}");
-            await AddMessageAsync(GoalMessageRole.System, $"Unexpected error: {ex.Message}", CurrentPhase);
+            await StoppedByErrorAsync("Goal workflow error", ex);
         }
     }
 
@@ -2865,8 +2895,7 @@ public partial class GoalTileViewModel : ObservableObject, IDisposable, IBusyTil
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning($"Goal resume error: {ex.Message}");
-            await AddMessageAsync(GoalMessageRole.System, $"Unexpected error: {ex.Message}", CurrentPhase);
+            await StoppedByErrorAsync("Goal resume error", ex);
         }
     }
 

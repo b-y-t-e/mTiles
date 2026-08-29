@@ -863,6 +863,45 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
+    [Fact]
+    public void A_run_that_dies_of_an_unexpected_exception_leaves_something_to_press()
+    {
+        OnUiThread(async () =>
+        {
+            using var vm = NewTile();
+
+            // Straight to the loop: no questions, a plan, and the plan approved.
+            var before = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult<AiOutput>(
+                before++ == 0 ? NoMoreQuestions : "1. Do the thing.");
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Plan, vm.CurrentPhase);
+
+            // Thrown from outside the AI call, which RunAiAsync catches and turns into a pause of its
+            // own. This one comes out of the tree read, where nothing catches it, and lands in the
+            // catch of last resort — which used to say what happened and nothing else.
+            WorktreeReader.Factory = (_, _) => throw new InvalidOperationException("git is on fire");
+
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Contains(vm.Messages, m => m.Text.Contains("git is on fire"));
+
+            // The state the tile is left in is the point. Implement, nothing running and — until this
+            // was fixed — not paused either: no composer (it has nothing to send in that phase), no
+            // Resume (it wants a pause), and the finished-run actions all want Summary. The only
+            // control left was +, which throws the goal away.
+            Assert.True(GoalWorkflowEngine.IsMidRun(vm.CurrentPhase));
+            Assert.False(vm.IsRunning);
+            Assert.True(vm.IsPaused);
+            Assert.True(vm.ShowResume);
+            Assert.True(vm.HasFinishedRunActions);
+        });
+    }
+
     /// <summary>Drives a whole run: the three answers before the loop, then one warning per review with
     /// a title that moves, so the reviews never look identical and the no-progress stop stays out of the
     /// way. Counts the implementations, which is what a budget is a budget of.</summary>

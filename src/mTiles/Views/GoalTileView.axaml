@@ -505,7 +505,14 @@
             <Setter Property="Orientation" Value="Horizontal" />
             <Setter Property="HorizontalAlignment" Value="Right" />
             <Setter Property="Spacing" Value="6" />
-            <Setter Property="Margin" Value="10,8,10,0" />
+            <!-- The composer's left edge, and a wider right one — the only asymmetry in this column
+                 and the only row that earns it. Avalonia draws the scroller's bar over the content and
+                 widens it to about fourteen pixels under the pointer; everything else here is a long
+                 box or a paragraph, whose edge being covered for a moment reads as a scrollbar passing
+                 over it, while a small button's covered edge reads as a button that has been cut. The
+                 lane is here and not on the whole column, which would push the composer, the ask
+                 blocks and every message off their own right edge to fix one row. -->
+            <Setter Property="Margin" Value="4,8,18,0" />
         </Style>
 
         <!-- One question, being asked or already answered — the space that separates it from the next.
@@ -818,21 +825,12 @@
                             ToolTip.Tip="Pause">
                         <mi:MaterialIcon Kind="Pause" Width="13" Height="13" />
                     </Button>
-                    <!-- Visible as soon as the run is paused, but not usable until it has actually
-                         stopped: cancelling takes as long as the tool takes to die, and a click in
-                         that window used to start a second loop alongside the one still unwinding.
-                         Both halves are the view model's, and the same two the button in the
-                         conversation reads — this one used to ask IsPaused on its own, which is true
-                         in phases ResumeAsync has nothing to run, so a tile closed mid-detection came
-                         back showing an enabled play glyph that only cleared the pause. -->
-                    <Button Classes="tile-btn"
-                            Command="{Binding ResumeCommand}"
-                            IsVisible="{Binding ShowResume}"
-                            IsEnabled="{Binding CanResume}"
-                            ToolTip.Tip="Resume">
-                        <mi:MaterialIcon Kind="Play" Width="13" Height="13"
-                                         Foreground="{DynamicResource AccentHover}" />
-                    </Button>
+                    <!-- No Resume here. It was this strip's play glyph for a long time, and once the
+                         same command became a labelled button at the end of the conversation the glyph
+                         was a second, unlabelled route to it, thirteen pixels wide at the opposite end
+                         of the tile from the sentence that names it. Pause stays: it is the one of the
+                         pair that has to be reachable while the transcript is scrolled anywhere at all,
+                         because what it interrupts is happening now. -->
                     <Button Classes="tile-btn"
                             Command="{Binding NewGoalCommand}"
                             IsEnabled="{Binding !IsRunning}"
@@ -1200,51 +1198,6 @@
                 </DockPanel>
             </Border>
 
-            <!-- ======== What to do with a finished run ========
-                 One row, and no sentence in it. Each of these used to be its own strip with its own line
-                 of prose — "The attempts ran out.", "This run's changes are not committed." — and a
-                 third would have made three sentences stacked above the composer, each restating the
-                 summary message printed directly above them. The summary already says why the run
-                 stopped and what is outstanding; a bar that repeats it is the same fault the status
-                 strip's four idle labels had. The tooltips carry what a button does, which is the part
-                 that is not already on screen.
-
-                 Above whatever is asking: they are what to do with the run that has just ended, so
-                 they belong beside its summary rather than under the next thing being typed. The detect
-                 row goes the other way, under the composer, because it is an answer to the box rather
-                 than to the run. -->
-            <StackPanel Classes="chat-actions" IsVisible="{Binding HasFinishedRunActions}">
-                <!-- First, and the only one of these that shows while a run is merely stopped rather
-                     than finished. The transcript's last line says to click Resume; until this button
-                     existed the only Resume on screen was a play glyph in the header's strip, which is
-                     not where anything else this tile asks for is answered. The header keeps its copy
-                     for when the transcript is scrolled away. -->
-                <Button Classes="goal-action primary"
-                        Command="{Binding ResumeCommand}"
-                        IsVisible="{Binding ShowResume}"
-                        IsEnabled="{Binding CanResume}"
-                        Content="Resume"
-                        ToolTip.Tip="Pick the stopped run up where it left off" />
-                <!-- Judge the tree again against the same goal. It does not re-derive the goal: the
-                     reason to press this is that something has just been fixed by hand next door, and
-                     working the goal out afresh from a changed tree answers a different question. -->
-                <Button Classes="goal-action"
-                        Command="{Binding ReReviewCommand}"
-                        IsVisible="{Binding CanReReview}"
-                        Content="Re-review"
-                        ToolTip.Tip="Judge the working tree against the same goal again, changing nothing" />
-                <Button Classes="goal-action"
-                        Command="{Binding CommitWorkCommand}"
-                        IsVisible="{Binding CanCommit}"
-                        Content="Commit"
-                        ToolTip.Tip="Divide this run's own changes into commits and ask before making them" />
-                <Button Classes="goal-action primary"
-                        Command="{Binding ContinueRunCommand}"
-                        IsVisible="{Binding CanContinue}"
-                        Content="{Binding ContinueLabel}"
-                        ToolTip.Tip="Carry on into the implement and review loop, keeping the conversation" />
-            </StackPanel>
-
             <!-- ======== The ask: questions ========
                  The last block in the conversation while a round is being answered, and the only one
                  there: the composer stands down, because two boxes asking for the same thing with
@@ -1413,6 +1366,54 @@
                 </DockPanel>
             </Border>
 
+            <!-- ======== What to do with a finished run ========
+                 One row, and no sentence in it. Each of these used to be its own strip with its own line
+                 of prose — "The attempts ran out.", "This run's changes are not committed." — and a
+                 third would have made three sentences stacked above the composer, each restating the
+                 summary message printed directly above them. The summary already says why the run
+                 stopped and what is outstanding; a bar that repeats it is the same fault the status
+                 strip's four idle labels had. The tooltips carry what a button does, which is the part
+                 that is not already on screen.
+
+                 Under the composer, with the detect row, and that is a correction. They sat above
+                 whatever was asking — the reasoning being that they are what to do with the run that
+                 just ended, so they belong beside its summary. What that produced on screen was a
+                 Resume floating between the transcript and a box it had nothing to do with, and two
+                 rows of buttons in one column with the input wedged between them. Everything the tile
+                 offers is now in one place, under the box: the buttons are read as a group, and the
+                 composer keeps the position it has in every chat window. -->
+            <StackPanel Classes="chat-actions" IsVisible="{Binding HasFinishedRunActions}">
+                <!-- First, and the only one of these that shows while a run is merely stopped rather
+                     than finished. The transcript's last line says to click Resume; until this button
+                     existed the only Resume on screen was a play glyph in the header's strip, which is
+                     not where anything else this tile asks for is answered. That glyph is gone — this
+                     is the whole of Resume now. -->
+                <Button Classes="goal-action primary"
+                        Command="{Binding ResumeCommand}"
+                        IsVisible="{Binding ShowResume}"
+                        IsEnabled="{Binding CanResume}"
+                        Content="Resume"
+                        ToolTip.Tip="Pick the stopped run up where it left off" />
+                <!-- Judge the tree again against the same goal. It does not re-derive the goal: the
+                     reason to press this is that something has just been fixed by hand next door, and
+                     working the goal out afresh from a changed tree answers a different question. -->
+                <Button Classes="goal-action"
+                        Command="{Binding ReReviewCommand}"
+                        IsVisible="{Binding CanReReview}"
+                        Content="Re-review"
+                        ToolTip.Tip="Judge the working tree against the same goal again, changing nothing" />
+                <Button Classes="goal-action"
+                        Command="{Binding CommitWorkCommand}"
+                        IsVisible="{Binding CanCommit}"
+                        Content="Commit"
+                        ToolTip.Tip="Divide this run's own changes into commits and ask before making them" />
+                <Button Classes="goal-action primary"
+                        Command="{Binding ContinueRunCommand}"
+                        IsVisible="{Binding CanContinue}"
+                        Content="{Binding ContinueLabel}"
+                        ToolTip.Tip="Carry on into the implement and review loop, keeping the conversation" />
+            </StackPanel>
+
             <!-- ======== The other way in ========
                  Directly *under* the composer, and last in the conversation: the composer's own
                  placeholder is the alternative being offered — type a goal, or have one read out of
@@ -1422,8 +1423,8 @@
                  wanted next and only when git says there is something uncommitted to read — see
                  CanDetectGoal.
 
-                 The finished-run actions stay above, and the two are not the same kind of row: those
-                 say what to do with the run that has just ended, so they belong beside its summary.
+                 Directly under the finished-run actions, which are the other row of the same kind:
+                 both say what the tile is offering, and both stand where the offer is read.
 
                  No sentence saying there are uncommitted changes: the row is shown only when there are,
                  so it was a line spent restating why it was on screen. The tooltips say what the two
