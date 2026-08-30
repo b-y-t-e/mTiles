@@ -278,12 +278,12 @@ public sealed class TileLayoutMigrationTests : IDisposable
         Assert.Equal(Orientation.Horizontal, topLeft.Orientation);
         Assert.Equal(0.6, topLeft.SplitRatio);
 
-        // The terminal: its name, its identity, its profile — and the view model its kind builds.
+        // The terminal: its name, its identity, its shell — and the view model its kind builds.
         var terminal = Leaf(topLeft.First, TileKindIds.Terminal, "tile-terminal", "Terminal#SwiftFox");
         // Which tile was active, which is what the shortcut and a phone aim at when the workspace opens.
         Assert.Same(terminal, workspace.ActiveTile);
         var terminalContent = Assert.IsType<TerminalTileViewModel>(terminal.Content);
-        Assert.Equal(ProfileId, terminalContent.UserProfileId);
+        Assert.Equal("PowerShell", terminalContent.Shell.DisplayName);
         // Read through the tile it belongs to rather than copied into the content, which is what makes a
         // new session and a drag-and-drop swap need no re-stamping.
         Assert.Equal("tile-terminal", terminalContent.TileId);
@@ -538,6 +538,36 @@ public sealed class TileLayoutMigrationTests : IDisposable
         Assert.Null(note.TodoFilePath);
         Assert.Null(note.GoalFilePath);
         Assert.Null(note.ShellName);
+    }
+
+    /// <summary>
+    /// An agent tile degrades to a terminal rather than to nothing.
+    /// </summary>
+    /// <remarks>The one kind that answers with a legacy name that is not its own, and deliberately: an
+    /// agent tile <em>is</em> a terminal running an agent, so a build Velopack has rolled back opens it
+    /// as a plain shell — on the shell it was running, which is the other half and the reason the state
+    /// carries a <c>shellName</c> this build never reads. Read as an empty tile it would be the tile
+    /// itself gone from the layout; degraded, what is lost is a conversation.</remarks>
+    [Fact]
+    public void An_agent_tile_is_read_as_a_terminal_by_a_build_that_never_had_one()
+    {
+        var older = AsOlderBuildReadsIt(new TileNode
+        {
+            IsLeaf = true, Kind = TileKindIds.Agent, TileId = "a", TileName = "Agent#1",
+            Settings = new JsonObject
+            {
+                ["agentInstanceId"] = "an-instance",
+                ["shellName"] = "PowerShell",
+            },
+        });
+
+        Assert.Equal(TileContentType.Terminal, older.ContentType);
+        Assert.Equal("PowerShell", older.ShellName);
+        Assert.Equal("Agent#1", older.TileName);
+
+        // And not a shell profile it never had: an older build matching this against its own profiles
+        // would launch whatever happened to share the id.
+        Assert.Null(older.UserProfileId);
     }
 
     /// <summary>A kind that build never had is written as no kind at all.</summary>

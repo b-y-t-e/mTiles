@@ -1,4 +1,4 @@
-﻿using mTiles.Models;
+﻿using mTiles.Services.Shells;
 using mTiles.ViewModels;
 
 namespace mTiles.Services.Tiles;
@@ -42,20 +42,6 @@ public sealed record TileContext(
     /// </remarks>
     public Func<string> TileId { get; init; } = static () => "";
 
-    /// <summary>
-    /// The shell profiles a new tile may be started from — the workspace's own filtered list, which
-    /// leaves out a profile whose AI tool is not installed.
-    /// </summary>
-    /// <remarks>
-    /// A function rather than a list, because the answer changes while a workspace is open: a profile
-    /// added in Settings, or a tool installed since the last time anything asked. Only
-    /// <see cref="ITileKind.SetupOptions"/> reads it — restoring a saved tile looks its profile up in
-    /// the settings unfiltered, because a tile that was running one must come back running it whatever
-    /// the detector says today. The default offers none, which is the right answer for a context built
-    /// without a workspace behind it.
-    /// </remarks>
-    public Func<IReadOnlyList<UserShellProfile>> AvailableProfiles { get; init; } = static () => [];
-
     private readonly ShellCache _shellCache = new();
 
     /// <summary>
@@ -72,10 +58,10 @@ public sealed record TileContext(
     /// terminal the user adds by hand, and a workspace stays open for days: cached outright, a shell
     /// installed this afternoon would be missing from the chooser until the application was restarted,
     /// which is not a connection anybody would make. Thirty seconds is what
-    /// <c>WorkspaceViewModel.GetAvailableProfiles</c> already caches its own detection for, and the two
-    /// answer the same question about the same machine.</para>
+    /// <c>AiAgentCatalog.Locate</c> holds its own scan for, and the two answer the same kind of
+    /// question about the same machine.</para>
     /// </remarks>
-    public IReadOnlyList<ShellProfile> Shells => _shellCache.Get();
+    public IReadOnlyList<ShellInstallation> Shells => _shellCache.Get();
 
     /// <summary>What the context remembers of the last detection, shared by every copy of it.</summary>
     /// <remarks>A class rather than a pair of fields, because a record's <c>with</c> copies fields by
@@ -87,17 +73,17 @@ public sealed record TileContext(
         public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(30);
 
         private readonly Lock _gate = new();
-        private IReadOnlyList<ShellProfile>? _shells;
+        private IReadOnlyList<ShellInstallation>? _shells;
         private DateTime _detectedAt;
 
-        public IReadOnlyList<ShellProfile> Get()
+        public IReadOnlyList<ShellInstallation> Get()
         {
             lock (_gate)
             {
                 if (_shells is not null && DateTime.UtcNow - _detectedAt < Ttl)
                     return _shells;
 
-                _shells = ShellDetector.Detect();
+                _shells = ShellTerminalCatalog.Detect();
                 _detectedAt = DateTime.UtcNow;
                 return _shells;
             }

@@ -1,10 +1,12 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Shells;
 using mTiles.Services.Speech;
 
 namespace mTiles.ViewModels;
@@ -13,11 +15,13 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     ITileActions, ITextInputTile, IProcessTile
 {
     /// <inheritdoc />
-    public string KindId => TileKindIds.Terminal;
+    /// <remarks>Virtual for the one kind that is this tile with a different source of scripts — see
+    /// <see cref="AgentTileViewModel"/>. Everything a shell tile does, an agent tile does identically;
+    /// what differs is where its commands come from and what it calls itself in the layout.</remarks>
+    public virtual string KindId => TileKindIds.Terminal;
 
     public string WorkingDirectory { get; }
-    public ShellProfile Shell { get; }
-    public string? UserProfileId { get; }
+    public ShellInstallation Shell { get; }
 
     /// <summary>Where the tile's identity is read from — see <see cref="TileId"/>.</summary>
     private readonly Func<string>? _tileId;
@@ -40,10 +44,20 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// </remarks>
     public string TileId => _tileId?.Invoke() ?? "";
 
-    /// <summary>What this tile was created to run. Only a fallback for when the profile it came from
-    /// has since been deleted — <see cref="ResolveCurrentScripts"/> prefers the profile's current
-    /// scripts, so editing a profile takes effect without recreating the tile.</summary>
+    /// <summary>What this tile was created to run.</summary>
+    /// <remarks>Nothing but a bare interactive shell for a shell tile — the scripts that used to come
+    /// from a profile are an agent's own commands now, and an agent tile answers with them by overriding
+    /// <see cref="ResolveCurrentScripts"/>. Kept as a constructor argument because a test drives the
+    /// launch chain through it.</remarks>
     private readonly LaunchScripts _ownScripts;
+
+    /// <summary>A command typed into this tile once, at its first launch, and never again.</summary>
+    /// <remarks>What puts one here is the install command an agent's <c>InstallPlan</c> names, agreed
+    /// to once in a dialog that showed it. <see cref="ResolveCurrentScripts"/> <em>consumes</em> it, so
+    /// Restart shell — a button that promises a fresh shell and nothing else — does not run somebody's
+    /// package manager a second time. Saving it was already refused; being asked at every launch is the
+    /// same grant by the other route.</remarks>
+    private string? _pendingStartupScript;
 
     [ObservableProperty]
     private string _fontFamily;
@@ -54,6 +68,46 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
 
     [ObservableProperty]
     private TerminalTheme _theme;
+
+    /// <summary>
+    /// Why this tile is not running anything, in words the user can act on — empty while there is no
+    /// such reason, which is every ordinary launch.
+    /// </summary>
+    /// <remarks><b>A launch that cannot be made as configured is refused rather than made differently.</b>
+    /// The one thing that sets this today is an agent instance asking for a model that cannot be
+    /// resolved: starting anyway would run the session on some other model without saying so, which is
+    /// the whole reason <c>AiModelChoice.FirstLoaded</c> exists. Written by
+    /// <see cref="PrepareForLaunchAsync"/>, read by <c>TileLauncher</c> — which starts nothing while it
+    /// is set — and shown over the tile's own content by <c>TerminalTileView</c>.</remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLaunchProblem))]
+    private string _launchProblem = "";
+
+    /// <summary>Whether there is a reason to show instead of a terminal.</summary>
+    /// <remarks>A property rather than a converter on the string: two views would otherwise each spell
+    /// "is this empty" for themselves.</remarks>
+    public bool HasLaunchProblem => LaunchProblem.Length > 0;
+
+    /// <summary>
+    /// What this tile had to be launched <em>as</em>, when that is not what it was configured as.
+    /// </summary>
+    /// <remarks><b>Not a <see cref="LaunchProblem"/>: this one launches.</b> The difference is whether
+    /// there is a way to carry on that is faithful to what the user asked for — a model that cannot be
+    /// resolved has none, while an agent instance that has been deleted leaves a tile that can still run
+    /// its agent. Set once, when the tile is built (<c>AgentTileKind</c>), rather than at every launch:
+    /// it is an answer about the layout, not about the session, and a line that came back on every
+    /// restart would be a warning nobody could put down. Dismissible for the same reason — the tile
+    /// underneath is running.</remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLaunchNotice))]
+    private string _launchNotice = "";
+
+    /// <summary>Whether there is something to say above a tile that is nonetheless working.</summary>
+    public bool HasLaunchNotice => LaunchNotice.Length > 0;
+
+    /// <summary>Puts the notice away. It is not asked again, and nothing about the tile changes.</summary>
+    [RelayCommand]
+    private void DismissLaunchNotice() => LaunchNotice = "";
 
     private readonly SettingsService _settingsService;
 
@@ -109,6 +163,33 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// a terminal that has moved on.</summary>
     private IDisposable? _launchSession;
 
+    /// <summary>Which launch of this tile is the current one, and whether the tile is still there to
+    /// launch into at all.</summary>
+    /// <remarks>A counter rather than a flag, because "is this still my launch" has two ways of being
+    /// false and both are reachable while a launch is waiting on something slow: the tile was closed,
+    /// or the user pressed Restart shell. Written from the dispatcher only, but read through
+    /// <see cref="Volatile"/> so an awaited continuation cannot see a stale word.</remarks>
+    private int _launchGeneration;
+
+    private volatile bool _disposed;
+
+    /// <summary>Claims this tile for a launch that is starting now, and gives it the token it is known
+    /// by. Every earlier launch stops being the current one at this call.</summary>
+    internal int BeginLaunch() => Interlocked.Increment(ref _launchGeneration);
+
+    /// <summary>
+    /// Whether the launch that took <paramref name="generation"/> may still start a session in this
+    /// tile.
+    /// </summary>
+    /// <remarks>Asked after anything a launch awaits, which is the whole point: an agent's preparation
+    /// is a real model call taking up to a minute, and in that window the tile can be closed or
+    /// relaunched. Without this, a cancelled preparation still finished normally, started a session in a
+    /// terminal that had already been disposed of, and left the chain owning a tile whose
+    /// <see cref="Dispose"/> had already run — a shell nothing can ever stop. Two launches at once is
+    /// the same fault by the other route.</remarks>
+    internal bool IsCurrentLaunch(int generation) =>
+        !_disposed && Volatile.Read(ref _launchGeneration) == generation;
+
     /// <summary>Hands this tile over to a new launch, stopping whatever was running it. Pass null to
     /// stop without starting anything.</summary>
     internal void ReplaceLaunchSession(IDisposable? launch)
@@ -131,16 +212,16 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
         }
     }
 
-    public TerminalTileViewModel(string workingDirectory, ShellProfile? shell, SettingsService settingsService,
-        LaunchScripts? scripts = null, string? userProfileId = null, Func<string>? tileId = null)
+    public TerminalTileViewModel(string workingDirectory, ShellInstallation? shell, SettingsService settingsService,
+        LaunchScripts? scripts = null, Func<string>? tileId = null, string? oneTimeStartup = null)
     {
+        _pendingStartupScript = string.IsNullOrWhiteSpace(oneTimeStartup) ? null : oneTimeStartup;
         _settingsService = settingsService;
         _tileId = tileId;
         var s = _settingsService.Settings;
         WorkingDirectory = workingDirectory;
-        Shell = shell ?? ShellDetector.ResolveDefault(s);
+        Shell = shell ?? ShellTerminalCatalog.ResolveDefault(s);
         _ownScripts = scripts ?? LaunchScripts.None;
-        UserProfileId = userProfileId;
         _theme = TerminalTheme.GetByName(s.ColorThemeName);
         _fontFamily = s.TerminalFontFamily;
         _fontSize = s.TerminalFontSize;
@@ -256,23 +337,57 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     private Terminal.Avalonia.TerminalControl? LiveTerminal =>
         CachedControl is Terminal.Avalonia.TerminalControl { IsRunning: true } control ? control : null;
 
-    /// <summary>The scripts as the profile defines them <em>now</em> — edited settings take effect on
-    /// the next launch, without recreating the tile.</summary>
-    public LaunchScripts ResolveCurrentScripts()
+    /// <summary>What this tile launches, asked at every launch rather than captured once.</summary>
+    /// <remarks>A shell tile runs a shell; the question only has an interesting answer for an agent
+    /// tile, which overrides this so that an instance edited in Settings takes effect on the next
+    /// restart.</remarks>
+    public virtual LaunchScripts ResolveCurrentScripts()
     {
-        if (UserProfileId == null)
-            return _ownScripts;
-
-        var profile = _settingsService.Settings.ShellProfiles
-            .FirstOrDefault(p => p.Id == UserProfileId);
-        if (profile == null)
-            return _ownScripts;
-
-        return LaunchScripts.FromProfile(profile.StartupScript, profile.FallbackScript);
+        if (_pendingStartupScript is not { } once) return _ownScripts;
+        _pendingStartupScript = null;
+        return _ownScripts with { Startup = once };
     }
+
+    /// <summary>
+    /// The variables this tile's commands run with, where a <c>null</c> value <b>unsets</b> one.
+    /// </summary>
+    /// <remarks>Nothing for a shell — a tile the user opened runs in the environment they have — and
+    /// what an agent tile puts here is a provider's address and key. That route rather than the startup
+    /// script, because a script is typed into a live prompt and lands in the scrollback and in the
+    /// shell's history file.</remarks>
+    public virtual IReadOnlyDictionary<string, string?>? LaunchEnvironment => null;
+
+    /// <summary>
+    /// Anything that has to happen <em>before</em> the tile's commands are resolved, on the launch
+    /// that is about to run.
+    /// </summary>
+    /// <remarks>Nothing for a shell, which is why this answers with a completed task and
+    /// <see cref="TileLauncher"/> carries straight on when it does. What needs it is an agent whose
+    /// conversation has to be brought into being before the command that resumes it can be written —
+    /// agy's pre-create — and doing that here rather than in the launcher keeps the launcher from
+    /// knowing which kinds of tile have sessions.</remarks>
+    public virtual Task PrepareForLaunchAsync() => Task.CompletedTask;
+
+    /// <summary>The tile's commands have been started.</summary>
+    /// <param name="startedAt">When, which is what a capture that reads a file left behind needs in
+    /// order not to adopt a session some other tile created earlier.</param>
+    public virtual void OnLaunched(DateTimeOffset startedAt) { }
+
+    /// <summary>What a derived tile has to let go of, before the shell underneath it is ended.</summary>
+    /// <remarks>A hook rather than a virtual <see cref="Dispose"/>: the order of the steps below is the
+    /// whole of why this method is careful, and an override that forgot to call the base would take a
+    /// tile's shell with it. Guarded with the rest, so a derived tile's failure cannot cost the
+    /// terminal its disposal.</remarks>
+    protected virtual void OnDisposing() { }
 
     public void Dispose()
     {
+        // First of all, and before anything that can be awaited elsewhere: a launch still waiting on
+        // its preparation asks this before it starts anything, and a tile that is going away must
+        // answer no from the moment it starts going rather than from the moment it has gone.
+        _disposed = true;
+
+        Attempt(OnDisposing, "Tearing down the tile's own work failed");
         _settingsService.SettingsChanged -= OnSettingsChanged;
         // Before the terminal goes: disposing it kills the child, and a launch chain still watching
         // would answer that exit by starting a shell nothing can ever show or close again. Guarded like

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using mTiles.Models;
 
@@ -99,7 +99,7 @@ internal sealed class TolerantGoalPhaseConverter : TolerantEnumOrDefaultConverte
 }
 
 /// <summary>
-/// A permission mode this build does not know reads as <see cref="AiPermissionMode.Auto"/>.
+/// A permission mode this build does not know reads as <see cref="AiBehaviour.Auto"/>.
 /// </summary>
 /// <remarks>
 /// <para>The stakes here are higher than anywhere else this converter is used, and that is the reason
@@ -111,13 +111,26 @@ internal sealed class TolerantGoalPhaseConverter : TolerantEnumOrDefaultConverte
 /// <para>And the way an unknown word gets in here is not exotic: pick <c>bypassPermissions</c>, let
 /// Velopack roll the installation back a version, and the name in the file is one the running build has
 /// never heard of. Exactly the downgrade the goal file was given this protection for.</para>
-/// <para><see cref="AiPermissionMode.Auto"/> because it is what an installation that has never been
+/// <para><see cref="AiBehaviour.Auto"/> because it is what an installation that has never been
 /// configured runs at: an unreadable answer degrades to the default rather than to a mode the user
 /// might never have chosen, and it is never <em>more</em> permissive than what it replaces.</para>
 /// </remarks>
-internal sealed class TolerantAiPermissionModeConverter : TolerantEnumOrDefaultConverter<AiPermissionMode>
+internal sealed class TolerantAiBehaviourConverter : TolerantEnumOrDefaultConverter<AiBehaviour>
 {
-    protected override AiPermissionMode Fallback => AiPermissionMode.Auto;
+    protected override AiBehaviour Fallback => AiBehaviour.Auto;
+}
+
+/// <summary>
+/// A behaviour an <c>AiAgentInstance</c> was saved with that this build does not know reads as
+/// <see cref="AiBehaviour.ToolDefault"/> — no flag at all.
+/// </summary>
+/// <remarks>The instance's own default rather than the settings file's <c>Auto</c>, because an answer
+/// that cannot be read must never come back more permissive than the one it replaced: that is the same
+/// rule <c>AiBehaviours.RoundDown</c> applies at launch, and here it also happens to be what a row
+/// nobody has been asked about is seeded with.</remarks>
+internal sealed class TolerantAiInstanceBehaviourConverter : TolerantEnumOrDefaultConverter<AiBehaviour>
+{
+    protected override AiBehaviour Fallback => AiBehaviour.ToolDefault;
 }
 
 /// <summary>An effort level this build has never heard of reads as <see cref="AiEffort.High"/> — the

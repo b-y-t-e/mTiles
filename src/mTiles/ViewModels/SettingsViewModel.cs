@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Avalonia.Data.Converters;
 using Avalonia.Threading;
@@ -7,14 +7,13 @@ using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Database;
+using mTiles.Services.Shells;
 
 namespace mTiles.ViewModels;
 
 public partial class SettingsViewModel : ObservableObject
 {
-    public static string CustomShellOption => "Custom...";
     public static string[] ColorThemeNames { get; } = TerminalTheme.BuiltIn.Select(t => t.Name).ToArray();
-    private static readonly string[] KnownShellNames = ["Git Bash", "PowerShell", "CMD", "bash", "zsh", "fish"];
 
     private readonly SettingsService _settingsService;
     private readonly DatabaseServiceManager? _dbManager;
@@ -22,43 +21,39 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedTab;
 
+    /// <summary>The hint in an empty API-key or password field, and the warning under it where this
+    /// platform cannot encrypt what it stores. Both come from <see cref="SecretStorage"/>, so the field
+    /// and the sentence beside it cannot promise different things.</summary>
+    public static string SecretFieldHint => SecretStorage.KeyFieldHint;
+
+    public static bool ShowsPlainSecretWarning => SecretStorage.HasWarning;
+
+    public static string SecretStorageWarning => SecretStorage.Warning ?? "";
+
+    /// <summary>Why the export leaves every secret blank — which is true either way, but for a
+    /// different reason once there is no encryption to be bound to this machine.</summary>
+    public static string ExportSecretsNote => SecretStorage.IsEncrypted
+        ? "API keys and database passwords are not exported — they are encrypted for this machine and "
+          + "would not work anywhere else. An import keeps the ones already set up here."
+        : "API keys and database passwords are not exported — a file meant to be shared must not carry "
+          + "them. An import keeps the ones already set up here.";
+
     public bool IsGeneralTab => SelectedTab == SettingsTabs.General;
-    public bool IsProfilesTab => SelectedTab == SettingsTabs.Profiles;
-    public bool IsAiToolsTab => SelectedTab == SettingsTabs.AiTools;
     public bool IsDatabaseTab => SelectedTab == SettingsTabs.Database;
     public bool IsSpeechTab => SelectedTab == SettingsTabs.Speech;
 
     partial void OnSelectedTabChanged(int oldValue, int newValue)
     {
         OnPropertyChanged(nameof(IsGeneralTab));
-        OnPropertyChanged(nameof(IsProfilesTab));
-        OnPropertyChanged(nameof(IsAiToolsTab));
+        OnPropertyChanged(nameof(IsAiTab));
         OnPropertyChanged(nameof(IsDatabaseTab));
         OnPropertyChanged(nameof(IsSpeechTab));
         if (newValue == SettingsTabs.Speech)
             LoadSpeechOptions();
-        if (newValue == SettingsTabs.Profiles)
-            LoadAiToolOptions();
-        if (newValue == SettingsTabs.AiTools && !_aiToolsLoaded)
-            _ = LoadAiToolsSafeAsync();
         if (newValue == SettingsTabs.Database)
             RefreshDatabaseSettings();
         if (oldValue == SettingsTabs.Database && newValue != SettingsTabs.Database && _dbManager != null)
             _dbManager.StateChanged -= OnDbManagerStateChanged;
-    }
-
-    private void LoadAiToolOptions()
-    {
-        var s = _settingsService.Settings;
-        var aiTools = AiToolDetector.Detect(s.CustomAiToolPaths, s.CustomAiTools);
-        var sorted = aiTools
-            .OrderByDescending(t => t.IsInstalled)
-            .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase);
-
-        AiToolOptions.Clear();
-        AiToolOptions.Add(new ComboOption("", "(none)", true));
-        foreach (var t in sorted)
-            AiToolOptions.Add(new ComboOption(t.BinaryName, t.Name, t.IsInstalled));
     }
 
     [RelayCommand]
@@ -96,21 +91,10 @@ public partial class SettingsViewModel : ObservableObject
         await ShowError("Third-party notices", message);
     }
 
-    public static string[] ShellTypeNames { get; } = Enum.GetNames<ShellType>();
-
     public static readonly FuncValueConverter<DbSourceType, bool> IsManualSourceConverter = new(source =>
         source == DbSourceType.Manual);
 
-    public static readonly FuncValueConverter<string, string> ShellTypeConverter = new(shellName =>
-    {
-        if (string.IsNullOrEmpty(shellName)) return "";
-        var t = ShellDetector.GetTypeByName(shellName);
-        return t != ShellType.Other ? $"({t})" : "";
-    });
-
     public ObservableCollection<string> ShellOptions { get; } = [];
-    public ObservableCollection<ComboOption> ProfileShellOptions { get; } = [];
-    public ObservableCollection<UserShellProfile> ShellProfiles { get; } = [];
 
     [ObservableProperty]
     private string _colorThemeName;
@@ -128,19 +112,7 @@ public partial class SettingsViewModel : ObservableObject
     private double _fontSize;
 
     [ObservableProperty]
-    private string _selectedShell;
-
-    [ObservableProperty]
-    private string _customShellPath;
-
-    [ObservableProperty]
-    private string _customShellArgs;
-
-    [ObservableProperty]
-    private bool _isCustomShell;
-
-    [ObservableProperty]
-    private string _customShellType;
+    private string _selectedShell = "";
 
     [ObservableProperty]
     private bool _gitIgnoreWorkspaceDir;
@@ -165,39 +137,33 @@ public partial class SettingsViewModel : ObservableObject
 
     private CancellationTokenSource? _gitDetectCts;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsEditingAnything))]
-    private bool _isEditingProfile;
-
-    /// <summary>Whether one of the three entry forms is open, and the overlay with it.</summary>
-    /// <remarks>
-    /// The three cannot be open at once — each is entered from a different tab — so this is an or, not
-    /// a state machine. It exists so the overlay has one thing to bind to and the forms keep the flags
-    /// they already had: the commands that open and close them are untouched by the move out of the
-    /// list.
-    /// </remarks>
-    public bool IsEditingAnything => IsEditingProfile || IsEditingAiTool || IsEditingManualConnection;
+    /// <summary>Whether the entry form is open, and the overlay with it.</summary>
+    /// <remarks>Three forms share it — the manual database connection, an agent instance and a
+    /// provider instance — and only ever one at a time: two of them true would draw two forms stacked
+    /// in one overlay.</remarks>
+    public bool IsEditingAnything =>
+        IsEditingManualConnection || IsEditingAgentInstance || IsEditingProviderInstance;
 
     /// <summary>Raised when a form opens, so the view can put the caret in it.</summary>
     public event Action? EditingStarted;
 
     /// <summary>
-    /// Opens one of the three forms, and only one.
+    /// Opens one of the forms, and only one.
     /// </summary>
     /// <remarks>
-    /// They cannot be reached at once today — each is entered from a different tab — but they share one
-    /// overlay, and two of them true would draw two forms stacked in it. Cheaper to make the invariant
-    /// true here than to find out from a screenshot that it was not.
+    /// They share a single overlay, and two of them true would draw two forms stacked in it. Cheaper
+    /// to keep the invariant in one place than to find out from a screenshot that a form has arrived
+    /// without it — which is what the AI page's two would otherwise have done.
     /// </remarks>
     private void BeginEditing(ref bool flag)
     {
-        IsEditingProfile = false;
-        IsEditingAiTool = false;
         IsEditingManualConnection = false;
+        IsEditingAgentInstance = false;
+        IsEditingProviderInstance = false;
         flag = true;
-        OnPropertyChanged(nameof(IsEditingProfile));
-        OnPropertyChanged(nameof(IsEditingAiTool));
         OnPropertyChanged(nameof(IsEditingManualConnection));
+        OnPropertyChanged(nameof(IsEditingAgentInstance));
+        OnPropertyChanged(nameof(IsEditingProviderInstance));
         OnPropertyChanged(nameof(IsEditingAnything));
         EditingStarted?.Invoke();
     }
@@ -205,102 +171,10 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>Closes whichever form is open, discarding it — what Escape and the scrim do.</summary>
     public void CancelEditing()
     {
-        if (IsEditingProfile) CancelEditProfileCommand.Execute(null);
-        if (IsEditingAiTool) CancelEditAiToolCommand.Execute(null);
         if (IsEditingManualConnection) CancelEditManualConnectionCommand.Execute(null);
+        if (IsEditingAgentInstance) CancelEditAgentInstanceCommand.Execute(null);
+        if (IsEditingProviderInstance) CancelEditProviderInstanceCommand.Execute(null);
     }
-
-    [ObservableProperty]
-    private string _editProfileName = "";
-
-    [ObservableProperty]
-    private ComboOption? _editProfileShell;
-
-    [ObservableProperty]
-    private string _editProfileScript = "";
-
-    [ObservableProperty]
-    private string _editProfileFallbackScript = "";
-
-    [ObservableProperty]
-    private ComboOption? _editProfileAiTool;
-
-    /// <summary>
-    /// Shown while editing a profile whose commands will not be run by the shell it names, because that
-    /// shell is <c>cmd</c>.
-    /// </summary>
-    /// <remarks>
-    /// The substitution is silent everywhere else — a line in a log file the user has no reason to open.
-    /// It is also the one place where this application overrules a setting somebody made, and for a
-    /// hand-written <c>cmd</c> profile it is a real regression: <c>%VAR%</c>, <c>&amp;&amp;</c> and the
-    /// builtins stop working. Saying so where the setting is made is the difference between a decision
-    /// and a surprise.
-    /// </remarks>
-    [ObservableProperty]
-    private bool _editProfileShellIsSubstituted;
-
-    partial void OnEditProfileShellChanged(ComboOption? value) => RefreshProfileShellNotice();
-    partial void OnEditProfileFallbackScriptChanged(string value) => RefreshProfileShellNotice();
-
-    /// <summary>
-    /// Works out which shell the profile being edited would actually get. The blank name is the case
-    /// that matters and the easy one to miss — it means "the default shell", which may itself be
-    /// <c>cmd</c>, so picking a shell from the list is not the only way to end up there.
-    /// </summary>
-    private void RefreshProfileShellNotice()
-    {
-        var name = EditProfileShell?.Value ?? "";
-        var type = string.IsNullOrEmpty(name)
-            ? ShellDetector.ResolveDefault(_settingsService.Settings).Type
-            : ShellDetector.GetTypeByName(name);
-
-        EditProfileShellIsSubstituted = CommandsRunElsewhere(
-            LaunchScripts.FromProfile(EditProfileScript, EditProfileFallbackScript), type);
-    }
-
-    /// <summary>
-    /// Whether this profile's commands will be run by something other than the shell it names.
-    /// </summary>
-    /// <remarks>
-    /// A function of its two inputs rather than of the machine, so it can be read in a table test:
-    /// asking <see cref="ShellDetector"/> inside would make the only possible test depend on which
-    /// shells the agent running it happens to have installed — <c>cmd</c> among them.
-    /// <para>Only for a profile that actually runs commands. Without a fallback the tile starts its
-    /// shell interactively, <c>cmd</c> is left alone, and the warning would simply be untrue.</para>
-    /// </remarks>
-    internal static bool CommandsRunElsewhere(LaunchScripts scripts, ShellType shellType) =>
-        scripts.RunsCommandChain && shellType == ShellType.Cmd;
-
-    public ObservableCollection<ComboOption> AiToolOptions { get; } = [];
-
-    private UserShellProfile? _editingProfile;
-
-    private bool _aiToolsLoaded;
-
-    public ObservableCollection<AiToolViewModel> AiTools { get; } = [];
-
-    [ObservableProperty]
-    private bool _isLoadingAiTools;
-
-    public Func<Task<string?>>? BrowseAiToolFile { get; set; }
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsEditingAnything))]
-    private bool _isEditingAiTool;
-
-    [ObservableProperty]
-    private string _editAiToolName = "";
-
-    [ObservableProperty]
-    private string _editAiToolBinary = "";
-
-    [ObservableProperty]
-    private string _editAiToolVersionArgs = "--version";
-
-    [ObservableProperty]
-    private string _editAiToolPath = "";
-
-    private UserAiTool? _editingAiTool;
 
     // Database sub-tabs
     [ObservableProperty] private int _dbSubTab;
@@ -462,45 +336,34 @@ public partial class SettingsViewModel : ObservableObject
         _terminalFontSize = s.TerminalFontSize;
         _fontFamily = s.FontFamily;
         _fontSize = s.FontSize;
-        _customShellPath = s.CustomShellPath;
-        _customShellArgs = s.CustomShellArgs;
-        _customShellType = s.CustomShellType.ToString();
         _gitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
         _gitPath = s.GitPath;
 
         _ = DetectGitAsync();
 
-        var detected = ShellDetector.Detect();
-        var detectedNames = new HashSet<string>(detected.Select(s => s.Name), StringComparer.OrdinalIgnoreCase);
-        ProfileShellOptions.Add(new ComboOption("", "(default)", true));
+        LoadDefaultShell();
+        LoadAiInstances();
+    }
+
+    /// <summary>Fills the shell list and marks the stored default in it.</summary>
+    /// <remarks>The <em>field</em>, for the reason <c>InitializeSpeech</c> gives: the setter writes the
+    /// selection back to settings, and this method only ever reads them — which is what lets an import
+    /// use it too.</remarks>
+    private void LoadDefaultShell()
+    {
+        var detected = ShellTerminalCatalog.Detect();
+        ShellOptions.Clear();
         foreach (var shell in detected)
-        {
-            ShellOptions.Add(shell.Name);
-            ProfileShellOptions.Add(new ComboOption(shell.Name, shell.Name, true));
-        }
-        foreach (var name in KnownShellNames)
-        {
-            if (!detectedNames.Contains(name))
-                ProfileShellOptions.Add(new ComboOption(name, name, false));
-        }
-        ShellOptions.Add(CustomShellOption);
+            ShellOptions.Add(shell.DisplayName);
 
-        if (!string.IsNullOrEmpty(s.CustomShellPath))
-        {
-            _selectedShell = CustomShellOption;
-            _isCustomShell = true;
-        }
-        else if (!string.IsNullOrEmpty(s.DefaultShellName) && ShellOptions.Contains(s.DefaultShellName))
-        {
-            _selectedShell = s.DefaultShellName;
-        }
-        else
-        {
-            _selectedShell = ShellOptions.Count > 1 ? ShellOptions[0] : CustomShellOption;
-        }
-
-        foreach (var p in s.ShellProfiles)
-            ShellProfiles.Add(p);
+#pragma warning disable MVVMTK0034
+        _selectedShell = ShellTerminalCatalog.ResolveDefault(_settingsService.Settings, detected).DisplayName;
+        // The resolver answers with a shell even when nothing was detected, and a selection the list
+        // does not contain is a combo box that shows nothing at all — which reads as "no default shell"
+        // on the one machine where saying which one is being guessed at matters most.
+        if (!ShellOptions.Contains(_selectedShell))
+            ShellOptions.Add(_selectedShell);
+#pragma warning restore MVVMTK0034
     }
 
     partial void OnColorThemeNameChanged(string value) { _settingsService.Settings.ColorThemeName = value; _settingsService.NotifyChanged(); }
@@ -559,223 +422,12 @@ public partial class SettingsViewModel : ObservableObject
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://git-scm.com") { UseShellExecute = true });
     }
 
+    /// <summary>The list shows what a shell is called, and so does the settings file — the display
+    /// name rather than the id, for the rollback reason profiles and layouts store one too.</summary>
     partial void OnSelectedShellChanged(string value)
     {
-        IsCustomShell = value == CustomShellOption;
-        if (IsCustomShell)
-        {
-            _settingsService.Settings.DefaultShellName = "";
-        }
-        else
-        {
-            _settingsService.Settings.DefaultShellName = value;
-            _settingsService.Settings.CustomShellPath = "";
-            _settingsService.Settings.CustomShellArgs = "";
-            _settingsService.Settings.CustomShellType = ShellType.Other;
-        }
+        _settingsService.Settings.DefaultShellName = ShellTerminalCatalog.Find(value)?.DisplayName ?? "";
         _settingsService.NotifyChanged();
-    }
-
-    partial void OnCustomShellPathChanged(string value) { _settingsService.Settings.CustomShellPath = value; _settingsService.NotifyChanged(); }
-    partial void OnCustomShellArgsChanged(string value) { _settingsService.Settings.CustomShellArgs = value; _settingsService.NotifyChanged(); }
-    partial void OnCustomShellTypeChanged(string value)
-    {
-        if (Enum.TryParse<ShellType>(value, out var t))
-        {
-            _settingsService.Settings.CustomShellType = t;
-            _settingsService.NotifyChanged();
-        }
-    }
-
-    private ComboOption? FindShellOption(string value) =>
-        ProfileShellOptions.FirstOrDefault(o => o.Value == value)
-        ?? ProfileShellOptions.FirstOrDefault();
-
-    private ComboOption? FindAiToolOption(string? value) =>
-        AiToolOptions.FirstOrDefault(o => o.Value == (value ?? ""))
-        ?? AiToolOptions.FirstOrDefault();
-
-    [RelayCommand]
-    private void AddProfile()
-    {
-        var defaultShellName = IsCustomShell ? "" : SelectedShell;
-        _editingProfile = new UserShellProfile { Name = "New Profile", ShellName = defaultShellName };
-        EditProfileName = _editingProfile.Name;
-        EditProfileShell = FindShellOption(defaultShellName);
-        EditProfileScript = "";
-        EditProfileFallbackScript = "";
-        EditProfileAiTool = FindAiToolOption(null);
-        BeginEditing(ref _isEditingProfile);
-    }
-
-    [RelayCommand]
-    private void EditProfile(UserShellProfile profile)
-    {
-        _editingProfile = profile;
-        EditProfileName = profile.Name;
-        EditProfileShell = FindShellOption(profile.ShellName);
-        EditProfileScript = profile.StartupScript;
-        EditProfileFallbackScript = profile.FallbackScript;
-        EditProfileAiTool = FindAiToolOption(profile.RequiredAiToolBinaryName);
-        BeginEditing(ref _isEditingProfile);
-    }
-
-    [RelayCommand]
-    private void DeleteProfile(UserShellProfile profile)
-    {
-        ShellProfiles.Remove(profile);
-        _settingsService.Settings.ShellProfiles.Remove(profile);
-        if (_editingProfile == profile)
-            IsEditingProfile = false;
-        _settingsService.NotifyChanged();
-    }
-
-    [RelayCommand]
-    private void SaveProfile()
-    {
-        if (_editingProfile == null) return;
-
-        _editingProfile.Name = EditProfileName;
-        _editingProfile.ShellName = EditProfileShell?.Value ?? "";
-        _editingProfile.StartupScript = EditProfileScript;
-        _editingProfile.FallbackScript = EditProfileFallbackScript;
-        _editingProfile.RequiredAiToolBinaryName = string.IsNullOrEmpty(EditProfileAiTool?.Value) ? null : EditProfileAiTool.Value;
-
-        if (!ShellProfiles.Contains(_editingProfile))
-        {
-            ShellProfiles.Add(_editingProfile);
-            _settingsService.Settings.ShellProfiles.Add(_editingProfile);
-        }
-        else
-        {
-            var idx = ShellProfiles.IndexOf(_editingProfile);
-            ShellProfiles.RemoveAt(idx);
-            ShellProfiles.Insert(idx, _editingProfile);
-        }
-
-        IsEditingProfile = false;
-        _editingProfile = null;
-        _settingsService.NotifyChanged();
-    }
-
-    [RelayCommand]
-    private void CancelEditProfile()
-    {
-        IsEditingProfile = false;
-        _editingProfile = null;
-    }
-
-    private async Task LoadAiToolsSafeAsync()
-    {
-        try { await LoadAiToolsAsync(); }
-        catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Failed to load AI tools: {0}", ex.Message); }
-    }
-
-    private async Task LoadAiToolsAsync()
-    {
-        if (_aiToolsLoaded) return;
-        IsLoadingAiTools = true;
-
-        var customPaths = _settingsService.Settings.CustomAiToolPaths;
-        var userTools = _settingsService.Settings.CustomAiTools;
-        var detected = await Task.Run(() => AiToolDetector.Detect(customPaths, userTools));
-        var tools = detected
-            .OrderByDescending(t => t.IsInstalled)
-            .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        await Dispatcher.UIThread.InvokeAsync(() =>
-        {
-            foreach (var tool in tools)
-            {
-                var vm = new AiToolViewModel(tool)
-                {
-                    BrowseFile = BrowseAiToolFile,
-                    OnCustomPathSet = (binaryName, path) =>
-                    {
-                        _settingsService.Settings.CustomAiToolPaths[binaryName] = path;
-                        _settingsService.NotifyChanged();
-                    },
-                    OnDeleteRequested = DeleteAiTool
-                };
-                AiTools.Add(vm);
-            }
-            _aiToolsLoaded = true;
-            IsLoadingAiTools = false;
-        });
-
-        _ = TestAllToolsAsync();
-    }
-
-    [RelayCommand]
-    private async Task RedetectAiToolsAsync()
-    {
-        _aiToolsLoaded = false;
-        AiTools.Clear();
-        await LoadAiToolsAsync();
-    }
-
-    [RelayCommand]
-    private async Task TestAllToolsAsync()
-    {
-        var tasks = AiTools.Where(t => t.IsInstalled).Select(vm => vm.TestCommand.ExecuteAsync(null));
-        await Task.WhenAll(tasks);
-    }
-
-    [RelayCommand]
-    private void AddAiTool()
-    {
-        _editingAiTool = new UserAiTool();
-        EditAiToolName = "";
-        EditAiToolBinary = "";
-        EditAiToolVersionArgs = "--version";
-        EditAiToolPath = "";
-        BeginEditing(ref _isEditingAiTool);
-    }
-
-    [RelayCommand]
-    private void SaveAiTool()
-    {
-        if (_editingAiTool == null || string.IsNullOrWhiteSpace(EditAiToolName) || string.IsNullOrWhiteSpace(EditAiToolBinary))
-            return;
-
-        _editingAiTool.Name = EditAiToolName.Trim();
-        _editingAiTool.BinaryName = EditAiToolBinary.Trim();
-        _editingAiTool.VersionArgs = EditAiToolVersionArgs.Trim();
-        _editingAiTool.CustomPath = EditAiToolPath.Trim();
-
-        if (!_settingsService.Settings.CustomAiTools.Contains(_editingAiTool))
-            _settingsService.Settings.CustomAiTools.Add(_editingAiTool);
-
-        _settingsService.NotifyChanged();
-        IsEditingAiTool = false;
-        _editingAiTool = null;
-
-        _ = ReloadAiToolsAsync();
-    }
-
-    [RelayCommand]
-    private void CancelEditAiTool()
-    {
-        IsEditingAiTool = false;
-        _editingAiTool = null;
-    }
-
-    private void DeleteAiTool(AiToolViewModel vm)
-    {
-        var id = vm.Tool.UserToolId;
-        if (id == null) return;
-
-        _settingsService.Settings.CustomAiTools.RemoveAll(t => t.Id == id);
-        AiTools.Remove(vm);
-        _settingsService.NotifyChanged();
-    }
-
-    private async Task ReloadAiToolsAsync()
-    {
-        _aiToolsLoaded = false;
-        AiTools.Clear();
-        await LoadAiToolsAsync();
     }
 
     /// <summary>

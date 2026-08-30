@@ -16,6 +16,12 @@ public sealed class PersistenceService
     /// no use to anybody and would overwrite the one that is.</remarks>
     private const string PreKindBackupSuffix = ".pre-kind.json";
 
+    /// <summary>What a copy taken before the agent-tile migration is called.</summary>
+    /// <remarks>A second suffix rather than reusing the first: the two migrations are a release apart,
+    /// so by the time this one runs the pre-kind copy is the file as it was two formats ago and is worth
+    /// keeping on its own account. Same rule otherwise — taken once, never overwritten.</remarks>
+    private const string PreAgentsBackupSuffix = ".pre-agents.json";
+
     public PersistenceService() : this(null) { }
 
     /// <param name="workspacesDirectory">Where tile layouts live. Defaults to the user's own directory;
@@ -55,10 +61,23 @@ public sealed class PersistenceService
     /// a reason to refuse to open the workspace, and a second run must not replace the pre-migration
     /// copy with a post-migration one.</para>
     /// </remarks>
-    public void BackupBeforeKindMigration(string workspaceId)
+    public void BackupBeforeKindMigration(string workspaceId) =>
+        BackupOnce(workspaceId, PreKindBackupSuffix);
+
+    /// <summary>
+    /// Keeps this workspace's layout as it was before shell profiles became agents, once.
+    /// </summary>
+    /// <remarks>The same argument as <see cref="BackupBeforeKindMigration"/>, one format later: a tile
+    /// layout is the one thing here a user cannot reconstruct from anything else, and turning a terminal
+    /// leaf into an agent leaf rewrites what a tile <em>is</em>. It fails soft and never overwrites.
+    /// </remarks>
+    public void BackupBeforeAgentMigration(string workspaceId) =>
+        BackupOnce(workspaceId, PreAgentsBackupSuffix);
+
+    private void BackupOnce(string workspaceId, string suffix)
     {
         var filePath = GetFilePath(workspaceId);
-        var backupPath = Path.Combine(_workspacesDir, workspaceId + PreKindBackupSuffix);
+        var backupPath = Path.Combine(_workspacesDir, workspaceId + suffix);
         if (!File.Exists(filePath) || File.Exists(backupPath)) return;
 
         try

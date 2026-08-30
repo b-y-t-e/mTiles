@@ -129,7 +129,7 @@ public class GoalResumeTests
     /// <summary>The save-and-load a restart puts the state through, without touching a disk.</summary>
     private static GoalWorkflowEngine Reload(GoalWorkflowEngine engine)
     {
-        var state = engine.ToState([], "Claude Code");
+        var state = engine.ToState([], "claude-instance", "");
         var reloaded = new GoalWorkflowEngine();
         reloaded.LoadFrom(state);
         return reloaded;

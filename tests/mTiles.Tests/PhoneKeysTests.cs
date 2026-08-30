@@ -3,6 +3,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using AvaloniaEdit;
 using mTiles.Models;
+using mTiles.Services.Shells;
 using mTiles.Services.Phone;
 using mTiles.Services.Speech;
 using mTiles.ViewModels;
@@ -25,13 +26,7 @@ namespace mTiles.Tests;
 /// </remarks>
 public class PhoneKeysTests : IDisposable
 {
-    private static readonly ShellProfile Shell = new()
-    {
-        Name = "fake",
-        ExecutablePath = "fake-shell",
-        Args = ["-l"],
-        Type = ShellType.Bash,
-    };
+    private static readonly ShellInstallation Shell = new(new BashTerminal(), "fake-shell");
 
     private readonly TempSettings _settings = new();
     private readonly List<TerminalControl> _controls = [];

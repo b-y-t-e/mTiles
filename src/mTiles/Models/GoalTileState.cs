@@ -83,12 +83,44 @@ public sealed class GoalTileState
     [JsonConverter(typeof(TolerantGoalPhaseConverter))]
     public GoalPhase CurrentPhase { get; set; }
 
+    /// <summary>
+    /// What this goal was being run by before agents had instances.
+    /// </summary>
+    /// <remarks><b>Read tolerantly for ever, not migrated once.</b> A goal file lives in the workspace
+    /// and travels with a branch, so one written on another machine or on an older branch will still
+    /// carry a tool name years from now. <c>GoalAgents.MatchingToolName</c> is what turns it back into an
+    /// agent; nothing writes it any more.</remarks>
     public string SelectedToolName
     {
         get => _selectedToolName;
         set => _selectedToolName = value ?? "";
     }
     private string _selectedToolName = "";
+
+    /// <summary>Which configured agent carries the goal out — an <c>AiAgentInstance.Id</c>.</summary>
+    /// <remarks>Empty means nothing has been chosen yet, which the tile answers with the first agent
+    /// this machine can run. An id naming an instance that has since been deleted is <em>not</em>
+    /// substituted: the tile says the agent is gone rather than quietly running the goal on another
+    /// model than the one it was planned with.</remarks>
+    public string ExecutionAgentInstanceId
+    {
+        get => _executionAgentInstanceId;
+        set => _executionAgentInstanceId = value ?? "";
+    }
+    private string _executionAgentInstanceId = "";
+
+    /// <summary>Which configured agent reviews the work, or empty for the one that did it.</summary>
+    /// <remarks>Empty is a real answer and the default one — "the same agent" — rather than an absent
+    /// setting, which is why the strip spells it out. A second agent is what makes a review something
+    /// other than the author marking their own work, and it is also why the review phase's permission
+    /// comes from the agent by phase: two agents writing into one worktree is one more than
+    /// <c>GoalBaseline</c> photographed.</remarks>
+    public string ReviewAgentInstanceId
+    {
+        get => _reviewAgentInstanceId;
+        set => _reviewAgentInstanceId = value ?? "";
+    }
+    private string _reviewAgentInstanceId = "";
 
     /// <summary>Unused: the tile chooses a tool, not a model. Kept because removing a key is a
     /// migration, and guarded because it is still deserialised into.</summary>

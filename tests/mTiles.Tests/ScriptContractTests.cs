@@ -1,6 +1,6 @@
 using mTiles.Models;
 using mTiles.Services;
-using mTiles.ViewModels;
+using mTiles.Services.Shells;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -150,140 +150,54 @@ public class ScriptContractTests
     }
 
     // ---- a command → the shell that runs it ------------------------------------
+    // ---- a command → the shell that runs it ------------------------------------
+
+    public static TheoryData<IShellTerminal, string> CommandFlags => new()
+    {
+        { new PowerShellTerminal(), "-Command" },
+        { new GitBashTerminal(), "-c" },
+        { new BashTerminal(), "-c" },
+        { new ZshTerminal(), "-c" },
+        { new FishTerminal(), "-c" },
+    };
 
     [Theory]
-    [InlineData(ShellType.Cmd, "/c")]
-    [InlineData(ShellType.PowerShell, "-Command")]
-    [InlineData(ShellType.Bash, "-c")]
-    [InlineData(ShellType.Zsh, "-c")]
-    [InlineData(ShellType.Other, "-c")]
-    public void A_command_is_wrapped_with_the_flag_its_shell_understands(ShellType type, string flag)
+    [MemberData(nameof(CommandFlags))]
+    public void A_command_is_wrapped_with_the_flag_its_shell_understands(IShellTerminal shell, string flag)
     {
-        var profile = new ShellProfile { ExecutablePath = "shell", Type = type };
-
-        var (executable, args) = ShellCommandLine.For(profile, "echo hi");
+        var (executable, args) = new ShellInstallation(shell, "shell").CommandLineFor("echo hi");
 
         Assert.Equal("shell", executable);
         Assert.Equal([flag, "echo hi"], args);
     }
 
-    /// <summary>
-    /// What <c>cmd.exe</c> actually receives, pinned. It is the one shell that does not parse its
-    /// command line by the <c>CommandLineToArgvW</c> rules the PTY backend quotes with — after
-    /// <c>/c</c> it applies its own, where a quote is not an escape and <c>&amp; | ^ &lt; &gt; %</c>
-    /// keep their meaning. Nothing here works around that; this records the shape so a change to the
-    /// mapping cannot happen by accident, and the limitation stays written down next to it.
-    /// </summary>
-    [Fact]
-    public void A_command_for_cmd_is_passed_through_untouched_quirks_and_all()
-    {
-        var profile = new ShellProfile { ExecutablePath = "cmd.exe", Type = ShellType.Cmd };
-
-        var (executable, args) = ShellCommandLine.For(profile, "claude & echo \"hi\"");
-
-        Assert.Equal("cmd.exe", executable);
-        // Verbatim: no quoting is added here, and none can be — cmd would read added quotes literally.
-        Assert.Equal(["/c", "claude & echo \"hi\""], args);
-    }
-
-    // ---- which shell a chain's commands are given to ---------------------------
-
-    private static ShellProfile ShellOf(ShellType type, string name) =>
-        new() { Name = name, ExecutablePath = name, Type = type };
-
-    private static readonly ShellProfile GitBash = ShellOf(ShellType.Bash, "Git Bash");
-    private static readonly ShellProfile PowerShell = ShellOf(ShellType.PowerShell, "PowerShell");
-    private static readonly ShellProfile Cmd = ShellOf(ShellType.Cmd, "CMD");
-
-    /// <summary>
-    /// A profile's own shell runs its commands, and this is the ordinary case — nothing is second-guessed
-    /// for the sake of it.
-    /// </summary>
-    [Theory]
-    [InlineData(ShellType.PowerShell)]
-    [InlineData(ShellType.Bash)]
-    [InlineData(ShellType.Zsh)]
-    [InlineData(ShellType.Fish)]
-    [InlineData(ShellType.Other)]
-    public void A_chains_commands_run_in_the_shell_the_profile_names(ShellType type)
-    {
-        var shell = ShellOf(type, "chosen");
-
-        Assert.Same(shell, ShellDetector.ResolveForCommands(shell, [PowerShell, GitBash, Cmd]));
-    }
-
-    /// <summary>
-    /// <c>cmd</c> is the exception, because it cannot run what these profiles are made of: it does not
-    /// treat <c>;</c> as a separator, it runs the first line of a multi-line command only, and it parses
-    /// quotes by rules the PTY backend does not write. All measured — and the first of them is what
-    /// reduced the seeded OpenCode profile to a bare shell, its fallback being two commands in one.
-    /// </summary>
-    [Fact]
-    public void A_cmd_profile_has_its_commands_run_by_powershell_instead()
-        => Assert.Same(PowerShell, ShellDetector.ResolveForCommands(Cmd, [GitBash, PowerShell, Cmd]));
-
-    [Fact]
-    public void Without_powershell_a_posix_shell_takes_the_commands()
-        => Assert.Same(GitBash, ShellDetector.ResolveForCommands(Cmd, [Cmd, GitBash]));
-
-    /// <summary>A shell whose flag mapping is only guessed at (<c>-c</c>) still beats the one measured to
-    /// mishandle every command it is handed.</summary>
-    [Fact]
-    public void Any_other_shell_is_preferred_to_cmd()
-    {
-        var unknown = ShellOf(ShellType.Other, "something");
-
-        Assert.Same(unknown, ShellDetector.ResolveForCommands(Cmd, [Cmd, unknown]));
-    }
-
-    /// <summary>With nothing else installed the chain stays on <c>cmd</c> rather than not running: the
-    /// limits are real but partial, and a tile that launches nothing teaches nobody anything.</summary>
-    [Fact]
-    public void With_nothing_else_installed_the_chain_stays_on_cmd()
-        => Assert.Same(Cmd, ShellDetector.ResolveForCommands(Cmd, [Cmd]));
-
-    /// <summary>
-    /// And the profile editor says so, because the substitution overrules a setting the user made and a
-    /// line in a log file is not where they will find that out. Only for a profile that runs commands:
-    /// without a fallback the tile starts its shell interactively, <c>cmd</c> is left alone, and the
-    /// notice would be untrue.
-    /// </summary>
-    [Theory]
-    [InlineData(ShellType.Cmd, "claude", "claude -r", true)]
-    [InlineData(ShellType.Cmd, "claude", null, false)]        // no chain: an interactive cmd, untouched
-    [InlineData(ShellType.Cmd, "claude", "  ", false)]        // a blank fallback is no fallback
-    [InlineData(ShellType.PowerShell, "claude", "claude -r", false)]
-    [InlineData(ShellType.Bash, "claude", "claude -r", false)]
-    public void The_profile_editor_says_when_a_profiles_commands_will_run_elsewhere(
-        ShellType type, string? startup, string? fallback, bool expected)
-        => Assert.Equal(expected, SettingsViewModel.CommandsRunElsewhere(
-            LaunchScripts.FromProfile(startup, fallback), type));
-
-    /// <summary>The seeded OpenCode fallback is two commands joined by <c>;</c>, which is exactly what
-    /// cmd does not understand — so this is the case the substitution exists for, end to end.</summary>
-    [Fact]
-    public void The_opencode_fallback_reaches_a_shell_that_understands_it()
-    {
-        var command = TileScript.Resolve(
-            "opencode import \"${opencodeSessionFile}\" ; opencode --session ses_${tileId}", TileId);
-
-        var (executable, args) = ShellCommandLine.For(
-            ShellDetector.ResolveForCommands(Cmd, [PowerShell, Cmd]), command);
-
-        Assert.Equal("PowerShell", executable);
-        Assert.Equal("-Command", args[0]);
-        Assert.Contains(" ; opencode --session", args[1]);
-    }
-
-    /// <summary>The profile's own arguments are the interactive-startup flags (<c>--login -i</c>), and
+    /// <summary>The shell's own startup arguments are the interactive ones (<c>--login -i</c>), and
     /// this is the non-interactive form — <c>-i</c> with <c>-c</c> asks for both at once.</summary>
     [Fact]
     public void Wrapping_a_command_leaves_the_interactive_startup_flags_out()
     {
-        var profile = new ShellProfile { ExecutablePath = "bash", Args = ["--login", "-i"], Type = ShellType.Bash };
+        var gitBash = new GitBashTerminal();
+        Assert.Equal(["--login", "-i"], gitBash.InteractiveArgs);
 
-        var (_, args) = ShellCommandLine.For(profile, "echo hi");
+        var (_, args) = new ShellInstallation(gitBash, "bash").CommandLineFor("echo hi");
 
         Assert.Equal(["-c", "echo hi"], args);
+    }
+
+    /// <summary>The seeded OpenCode fallback is two commands joined by <c>;</c>, and it has to reach the
+    /// shell with that <c>;</c> intact — the failure that made it worth pinning was a shell that read the
+    /// two as one command and silently ran the first.</summary>
+    [Fact]
+    public void The_opencode_fallback_reaches_the_shell_whole()
+    {
+        var command = TileScript.Resolve(
+            "opencode import \"${opencodeSessionFile}\" ; opencode --session ses_${tileId}", TileId);
+
+        var (executable, args) = new ShellInstallation(new PowerShellTerminal(), "pwsh")
+            .CommandLineFor(command);
+
+        Assert.Equal("pwsh", executable);
+        Assert.Equal("-Command", args[0]);
+        Assert.Contains(" ; opencode --session", args[1]);
     }
 }

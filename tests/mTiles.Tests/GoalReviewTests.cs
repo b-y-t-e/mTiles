@@ -355,7 +355,7 @@ public class GoalReviewParsingTests
             {
                 Role = GoalMessageRole.System, Text = "that tool is gone", AboutThisSession = true,
             },
-        ], "Fake Tool");
+        ], "fake-instance", "");
 
         Assert.Equal("a goal", Assert.Single(state.Messages).Text);
     }

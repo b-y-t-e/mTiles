@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
@@ -80,34 +80,6 @@
                             <ComboBox Classes="setting"
                                       SelectedItem="{Binding SelectedShell}"
                                       ItemsSource="{Binding ShellOptions}" />
-                            <TextBlock FontSize="{DynamicResource FontSm}"
-                                       Foreground="{DynamicResource TextMuted}"
-                                       Margin="2,-4,0,0"
-                                       IsVisible="{Binding !IsCustomShell}"
-                                       Text="{Binding SelectedShell, Converter={x:Static vm:SettingsViewModel.ShellTypeConverter}}" />
-                            <StackPanel Spacing="10" IsVisible="{Binding IsCustomShell}">
-                                <DockPanel>
-                                    <TextBlock Text="Path" Classes="label"
-                                               VerticalAlignment="Center" Width="90" />
-                                    <TextBox Classes="setting"
-                                             Text="{Binding CustomShellPath}"
-                                             PlaceholderText="Path to executable" />
-                                </DockPanel>
-                                <DockPanel>
-                                    <TextBlock Text="Arguments" Classes="label"
-                                               VerticalAlignment="Center" Width="90" />
-                                    <TextBox Classes="setting"
-                                             Text="{Binding CustomShellArgs}"
-                                             PlaceholderText="Arguments (optional)" />
-                                </DockPanel>
-                                <DockPanel>
-                                    <TextBlock Text="Type" Classes="label"
-                                               VerticalAlignment="Center" Width="90" />
-                                    <ComboBox Classes="setting"
-                                              SelectedItem="{Binding CustomShellType}"
-                                              ItemsSource="{x:Static vm:SettingsViewModel.ShellTypeNames}" />
-                                </DockPanel>
-                            </StackPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -321,267 +293,189 @@
                     </Border>
                 </StackPanel>
 
-            </StackPanel>
-
-            <!-- ═══════════════ TAB: Profiles ═══════════════ -->
-            <StackPanel Spacing="12" Margin="20,16,20,24"
-                        IsVisible="{Binding IsProfilesTab}">
-
-                <!-- Header. The action that adds to a list belongs *above* it, beside the heading:
-                     below, it moves every time the list changes length and ends up off screen exactly
-                     when the list is long enough for the user to want another one. Small, because it is
-                     one of several things on this page and not the point of it. -->
-                <DockPanel Margin="0,0,0,2">
-                    <TextBlock Text="SHELL PROFILES" Classes="section" Margin="0"
-                               VerticalAlignment="Center" />
-                    <Button DockPanel.Dock="Right"
-                            Classes="header-action"
-                            Command="{Binding AddProfileCommand}"
-                            ToolTip.Tip="Add a shell profile">
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                            <mi:MaterialIcon Kind="Plus" Width="12" Height="12" />
-                            <TextBlock Text="Add" />
+                <!-- Settings as a file. On General because what it carries is the whole dialog, not
+                     one page of it. -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="SETTINGS FILE" Classes="section" Margin="0" />
+                    <Border Classes="settings-group">
+                        <StackPanel Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Classes="outlined-sm"
+                                        Command="{Binding ExportSettingsCommand}"
+                                        Content="Export…" />
+                                <Button Classes="outlined-sm"
+                                        Command="{Binding ImportSettingsCommand}"
+                                        Content="Import…" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding ExportSecretsNote}"
+                                       TextWrapping="Wrap"
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}" />
                         </StackPanel>
-                    </Button>
-                </DockPanel>
-
-                <!-- Profile list -->
-                <ItemsControl ItemsSource="{Binding ShellProfiles}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border CornerRadius="{DynamicResource RadiusLg}"
-                                    ClipToBounds="True"
-                                    Margin="0,0,0,3">
-                                <Border Background="{DynamicResource BgSurface}" Padding="0">
-                                    <DockPanel>
-                                        <Border Padding="12,9,10,9">
-                                            <DockPanel>
-                                                <!-- Right: actions -->
-                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                                                            Spacing="2" VerticalAlignment="Center">
-                                                    <Button Classes="tile-btn"
-                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditProfileCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Edit">
-                                                        <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
-                                                    </Button>
-                                                    <Button Classes="tile-btn-close"
-                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteProfileCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Delete">
-                                                        <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
-                                                    </Button>
-                                                </StackPanel>
-
-                                                <!-- Left: info -->
-                                                <StackPanel VerticalAlignment="Center" Spacing="1">
-                                                    <TextBlock Text="{Binding Name}"
-                                                               FontWeight="Medium"
-                                                               Foreground="{DynamicResource TextPrimary}" />
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <TextBlock Text="{Binding ShellName}"
-                                                                   FontSize="{DynamicResource FontXs}"
-                                                                   Foreground="{DynamicResource TextMuted}"
-                                                                   FontFamily="{DynamicResource UiFontFamily}" />
-                                                        <TextBlock FontSize="{DynamicResource FontXs}"
-                                                                   Foreground="{DynamicResource TextMuted}"
-                                                                   Opacity="0.6"
-                                                                   Text="{Binding ShellName, Converter={x:Static vm:SettingsViewModel.ShellTypeConverter}}" />
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </DockPanel>
-                                        </Border>
-                                    </DockPanel>
-                                </Border>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <!-- Empty state -->
-                <TextBlock Text="No profiles yet. Add one to quickly launch terminals with a specific shell and startup script."
-                           Foreground="{DynamicResource TextMuted}"
-                           FontSize="{DynamicResource FontSm}"
-                           TextWrapping="Wrap"
-                           Margin="0,4"
-                           IsVisible="{Binding !ShellProfiles.Count}" />
-
-                <!-- Add Profile row -->
-
-                <!-- Edit / Add panel -->
+                    </Border>
+                </StackPanel>
 
             </StackPanel>
 
-            <!-- ═══════════════ TAB: AI Tools ═══════════════ -->
+            <!-- ═══════════════ TAB: AI ═══════════════ -->
             <StackPanel Spacing="12" Margin="20,16,20,24"
-                        IsVisible="{Binding IsAiToolsTab}">
+                        IsVisible="{Binding IsAiTab}">
 
-                <!-- Header -->
-                <DockPanel Margin="0,0,0,2">
-                    <TextBlock Text="AI CODING TOOLS" Classes="section" Margin="0"
-                               VerticalAlignment="Center" />
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
-                        <Button Classes="header-action"
-                                Command="{Binding AddAiToolCommand}"
-                                ToolTip.Tip="Add a tool this list did not find">
+                <StackPanel Spacing="6">
+                    <DockPanel>
+                        <TextBlock Text="AGENTS" Classes="section" Margin="0"
+                                   VerticalAlignment="Center" />
+                        <Button DockPanel.Dock="Right"
+                                Classes="header-action"
+                                Command="{Binding AddAgentInstanceCommand}"
+                                ToolTip.Tip="Another way of running an agent">
                             <StackPanel Orientation="Horizontal" Spacing="5">
                                 <mi:MaterialIcon Kind="Plus" Width="12" Height="12" />
                                 <TextBlock Text="Add" />
                             </StackPanel>
                         </Button>
-                        <Button Classes="header-action"
-                                Command="{Binding RedetectAiToolsCommand}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <mi:MaterialIcon Kind="Magnify" Width="14" Height="14" />
-                                <TextBlock Text="Re-detect" />
-                            </StackPanel>
-                        </Button>
-                        <Button Classes="header-action"
-                                Command="{Binding TestAllToolsCommand}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <mi:MaterialIcon Kind="PlayCircleOutline" Width="14" Height="14" />
-                                <TextBlock Text="Test All" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </DockPanel>
+                    </DockPanel>
 
-                <!-- Loading -->
-                <TextBlock Text="Scanning for AI tools..."
-                           Foreground="{DynamicResource TextMuted}"
-                           FontSize="{DynamicResource FontSm}"
-                           IsVisible="{Binding IsLoadingAiTools}" />
+                    <ItemsControl ItemsSource="{Binding AgentInstances}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AiAgentInstanceViewModel">
+                                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
+                                        Margin="0,0,0,3">
+                                    <Border Background="{DynamicResource BgSurface}" Padding="12,8">
+                                        <DockPanel>
+                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                        Spacing="4" VerticalAlignment="Center">
+                                                <Button Classes="outlined-sm"
+                                                        IsVisible="{Binding CanBeInstalled}"
+                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).InstallAgentCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="Install…"
+                                                        ToolTip.Tip="Shows the command, then runs it in a terminal tile" />
+                                                <Button Classes="tile-btn"
+                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditAgentInstanceCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Edit">
+                                                    <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
+                                                </Button>
+                                                <Button Classes="tile-btn-close"
+                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteAgentInstanceCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Delete">
+                                                    <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
+                                                </Button>
+                                            </StackPanel>
 
-                <!-- Tool list -->
-                <ItemsControl ItemsSource="{Binding AiTools}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border CornerRadius="{DynamicResource RadiusLg}"
-                                    ClipToBounds="True"
-                                    Margin="0,0,0,3">
-                                <Border Background="{DynamicResource BgSurface}"
-                                        Padding="0">
-                                    <DockPanel>
-                                        <!-- Left status strip -->
-                                        <Panel DockPanel.Dock="Left" Width="3">
-                                            <Border Background="{DynamicResource StatusSuccess}"
-                                                    IsVisible="{Binding IsInstalled}" />
-                                            <Border Background="{DynamicResource BorderSubtle}"
-                                                    IsVisible="{Binding !IsInstalled}" />
-                                        </Panel>
-
-                                        <!-- Content area -->
-                                        <Border Padding="12,9,10,9">
-                                            <DockPanel>
-                                                <!-- Right: actions -->
-                                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                                                            Spacing="2" VerticalAlignment="Center">
-                                                    <!-- Status badge: Custom path -->
+                                            <StackPanel VerticalAlignment="Center" Spacing="0">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontWeight="Medium"
+                                                               Foreground="{DynamicResource TextPrimary}" />
+                                                    <TextBlock Text="{Binding AgentName}"
+                                                               FontSize="{DynamicResource FontXs}"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource TextMuted}" />
+                                                    <!-- A chip because it is the rare exception: most
+                                                         rows are installed and say nothing at all. -->
                                                     <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                            Padding="6,2"
-                                                            Background="{DynamicResource StatusSuccessSubtle}"
-                                                            IsVisible="{Binding IsCustomPath}">
-                                                        <TextBlock Text="CUSTOM" FontSize="9"
+                                                            Padding="4,0"
+                                                            VerticalAlignment="Center"
+                                                            IsVisible="{Binding !IsInstalled}"
+                                                            Background="{DynamicResource StatusMutedSubtle}">
+                                                        <TextBlock Text="NOT INSTALLED" FontSize="8"
                                                                    FontWeight="SemiBold"
-                                                                   LetterSpacing="0.8"
-                                                                   Foreground="{DynamicResource StatusSuccessText}" />
+                                                                   Foreground="{DynamicResource DangerText}" />
                                                     </Border>
-                                                    <!-- Status badge: Not Found -->
+                                                    <!-- The other reason a row is not offered on a
+                                                         tile, and the one nothing else can say. -->
                                                     <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                            Padding="6,2"
-                                                            Background="{DynamicResource StatusMutedSubtle}"
-                                                            IsVisible="{Binding !IsInstalled}">
-                                                        <TextBlock Text="NOT FOUND" FontSize="9"
+                                                            Padding="4,0"
+                                                            VerticalAlignment="Center"
+                                                            IsVisible="{Binding IsIncompatible}"
+                                                            ToolTip.Tip="{Binding IncompatibleNote}"
+                                                            Background="{DynamicResource StatusMutedSubtle}">
+                                                        <TextBlock Text="INCOMPATIBLE" FontSize="8"
                                                                    FontWeight="SemiBold"
-                                                                   LetterSpacing="0.8"
-                                                                   Foreground="{DynamicResource TextMuted}" />
+                                                                   Foreground="{DynamicResource DangerText}" />
                                                     </Border>
-                                                    <!-- Delete (user-defined only) -->
-                                                    <Button Classes="tile-btn-close"
-                                                            Command="{Binding DeleteCommand}"
-                                                            IsVisible="{Binding IsUserDefined}"
-                                                            ToolTip.Tip="Remove custom tool">
-                                                        <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
-                                                    </Button>
-                                                    <!-- Browse -->
-                                                    <Button Classes="tile-btn"
-                                                            Command="{Binding BrowsePathCommand}"
-                                                            ToolTip.Tip="Set custom path">
-                                                        <mi:MaterialIcon Kind="DotsHorizontal" Width="13" Height="13" />
-                                                    </Button>
-                                                    <!-- Open folder -->
-                                                    <Button Classes="tile-btn"
-                                                            Command="{Binding OpenFolderCommand}"
-                                                            IsVisible="{Binding IsInstalled}"
-                                                            ToolTip.Tip="Open folder">
-                                                        <mi:MaterialIcon Kind="FolderOutline" Width="13" Height="13" />
-                                                    </Button>
-                                                    <!-- Website -->
-                                                    <Button Classes="tile-btn"
-                                                            Command="{Binding OpenUrlCommand}"
-                                                            IsVisible="{Binding HasUrl}"
-                                                            ToolTip.Tip="{Binding Url}">
-                                                        <mi:MaterialIcon Kind="OpenInNew" Width="13" Height="13" />
-                                                    </Button>
-                                                    <!-- Test -->
-                                                    <Button Classes="tile-btn"
-                                                            Command="{Binding TestCommand}"
-                                                            IsEnabled="{Binding IsInstalled}"
-                                                            ToolTip.Tip="Test tool">
-                                                        <mi:MaterialIcon Kind="PlayCircleOutline" Width="13" Height="13" />
-                                                    </Button>
                                                 </StackPanel>
-
-                                                <!-- Left: info -->
-                                                <StackPanel VerticalAlignment="Center" Spacing="1">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <TextBlock Text="{Binding Name}"
-                                                                   FontWeight="Medium"
-                                                                   Foreground="{DynamicResource TextPrimary}" />
-                                                        <TextBlock Text="{Binding DetectedVersion}"
-                                                                   FontSize="{DynamicResource FontSm}"
-                                                                   Foreground="{DynamicResource TextMuted}"
-                                                                   Opacity="0.8"
-                                                                   VerticalAlignment="Center"
-                                                                   IsVisible="{Binding DetectedVersion, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                        <TextBlock Text="testing..."
-                                                                   FontSize="{DynamicResource FontSm}"
-                                                                   Foreground="{DynamicResource AccentDefault}"
-                                                                   FontStyle="Italic"
-                                                                   VerticalAlignment="Center"
-                                                                   IsVisible="{Binding IsTesting}" />
-                                                    </StackPanel>
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <TextBlock Text="{Binding BinaryName}"
-                                                                   FontSize="{DynamicResource FontXs}"
-                                                                   Foreground="{DynamicResource TextMuted}"
-                                                                   FontFamily="{DynamicResource UiFontFamily}" />
-                                                        <TextBlock Text="·"
-                                                                   FontSize="{DynamicResource FontXs}"
-                                                                   Foreground="{DynamicResource TextFaint}"
-                                                                   VerticalAlignment="Center"
-                                                                   IsVisible="{Binding ExecutablePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                        <TextBlock Text="{Binding ExecutablePath}"
-                                                                   FontSize="{DynamicResource FontXs}"
-                                                                   Foreground="{DynamicResource TextMuted}"
-                                                                   Opacity="0.6"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   ToolTip.Tip="{Binding ExecutablePath}"
-                                                                   IsVisible="{Binding ExecutablePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </DockPanel>
-                                        </Border>
-                                    </DockPanel>
+                                                <TextBlock Text="{Binding Summary}"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
                                 </Border>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
 
-                <!-- Add Custom Tool row -->
+                <StackPanel Spacing="6">
+                    <DockPanel>
+                        <TextBlock Text="PROVIDERS" Classes="section" Margin="0"
+                                   VerticalAlignment="Center" />
+                        <Button DockPanel.Dock="Right"
+                                Classes="header-action"
+                                Command="{Binding AddProviderInstanceCommand}"
+                                ToolTip.Tip="A key and an address an agent can be pointed at">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="Plus" Width="12" Height="12" />
+                                <TextBlock Text="Add" />
+                            </StackPanel>
+                        </Button>
+                    </DockPanel>
 
-                <!-- Edit custom tool form -->
+                    <TextBlock IsVisible="{Binding HasNoProviderInstances}"
+                               Text="Nothing configured — every agent runs on whatever account it is logged in as. Add one to run an agent through OpenRouter, z.ai, or a server on this machine."
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource FontXs}"
+                               Foreground="{DynamicResource TextMuted}" />
+
+                    <ItemsControl ItemsSource="{Binding ProviderInstances}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AiProviderInstanceViewModel">
+                                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
+                                        Margin="0,0,0,3">
+                                    <Border Background="{DynamicResource BgSurface}" Padding="12,8">
+                                        <DockPanel>
+                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                        Spacing="2" VerticalAlignment="Center">
+                                                <Button Classes="tile-btn"
+                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditProviderInstanceCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Edit">
+                                                    <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
+                                                </Button>
+                                                <Button Classes="tile-btn-close"
+                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteProviderInstanceCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Delete">
+                                                    <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
+                                                </Button>
+                                            </StackPanel>
+
+                                            <StackPanel VerticalAlignment="Center" Spacing="0">
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontWeight="Medium"
+                                                           Foreground="{DynamicResource TextPrimary}" />
+                                                <TextBlock Text="{Binding Summary}"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Text="A key reaches the agent through its process environment, and an agent has a shell tool — it is not a secret from whoever is using this machine."
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource FontXs}"
+                               Foreground="{DynamicResource TextMuted}" />
+                </StackPanel>
 
             </StackPanel>
 
@@ -1341,134 +1235,188 @@
                     <Panel Margin="18,16">
                         <!-- No chrome of its own: the overlay it sits in is the card. A bordered box
                              inside a bordered box is the nesting the design rules exist to stop. -->
-                        <Border IsVisible="{Binding IsEditingProfile}">
-                            <StackPanel Spacing="12">
-                                <TextBlock Text="PROFILE" Classes="section" Margin="0,0,0,2" />
+                        <Border IsVisible="{Binding IsEditingAgentInstance}">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="AGENT INSTANCE" Classes="section" Margin="0,0,0,2" />
                                 <DockPanel>
                                     <TextBlock Text="Name" Classes="label"
                                                VerticalAlignment="Center" Width="90" />
                                     <TextBox Classes="setting"
-                                             Text="{Binding EditProfileName}"
-                                             PlaceholderText="Profile name" />
+                                             Text="{Binding EditAgentName}"
+                                             PlaceholderText="what you call it" />
                                 </DockPanel>
                                 <DockPanel>
-                                    <TextBlock Text="Shell" Classes="label"
+                                    <TextBlock Text="Agent" Classes="label"
                                                VerticalAlignment="Center" Width="90" />
-                                    <ComboBox Classes="setting"
-                                              SelectedItem="{Binding EditProfileShell}"
-                                              ItemsSource="{Binding ProfileShellOptions}"
-                                              ItemTemplate="{StaticResource ComboOptionTemplate}" />
+                                    <ComboBox ItemsSource="{Binding AgentNames}"
+                                              SelectedItem="{Binding EditAgentAgentName}"
+                                              MinWidth="200" />
                                 </DockPanel>
                                 <DockPanel>
-                                    <TextBlock Text="AI Tool" Classes="label"
+                                    <TextBlock Text="Provider" Classes="label"
                                                VerticalAlignment="Center" Width="90" />
-                                    <ComboBox Classes="setting"
-                                              SelectedItem="{Binding EditProfileAiTool}"
-                                              ItemsSource="{Binding AiToolOptions}"
-                                              ItemTemplate="{StaticResource ComboOptionTemplate}" />
+                                    <ComboBox ItemsSource="{Binding ProviderChoices}"
+                                              SelectedItem="{Binding EditAgentProvider}"
+                                              MinWidth="200" />
                                 </DockPanel>
-                                <TextBlock IsVisible="{Binding EditProfileShellIsSubstituted}"
-                                           FontSize="{DynamicResource FontXs}"
-                                           Foreground="{DynamicResource DangerText}"
+                                <DockPanel>
+                                    <TextBlock Text="Model" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <Button DockPanel.Dock="Right" Classes="outlined-sm"
+                                            Command="{Binding LoadAgentModelsCommand}"
+                                            Content="List"
+                                            Margin="6,0,0,0"
+                                            ToolTip.Tip="Ask the provider what it serves" />
+                                    <!-- Completion rather than a drop-down: a provider's list runs to
+                                         hundreds, which is a search box, not a combo. -->
+                                    <AutoCompleteBox Text="{Binding EditAgentModel}"
+                                                     ItemsSource="{Binding ModelSuggestions}"
+                                                     FilterMode="Contains"
+                                                     MinimumPrefixLength="0"
+                                                     PlaceholderText="empty = the agent's own choice" />
+                                </DockPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Fast model" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <!-- The same completion as Model above, over the same list: it takes
+                                         a model id from the same provider, so a field that could not
+                                         complete one was the pair disagreeing about what it holds. -->
+                                    <AutoCompleteBox Text="{Binding EditAgentFastModel}"
+                                                     ItemsSource="{Binding ModelSuggestions}"
+                                                     FilterMode="Contains"
+                                                     MinimumPrefixLength="0"
+                                                     PlaceholderText="for the small, frequent calls (optional)" />
+                                </DockPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Behaviour" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <ComboBox ItemsSource="{Binding BehaviourLabels}"
+                                              SelectedItem="{Binding EditAgentBehaviour}"
+                                              MinWidth="200" />
+                                </DockPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Effort" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <ComboBox ItemsSource="{Binding EffortLabels}"
+                                              SelectedItem="{Binding EditAgentEffort}"
+                                              MinWidth="200" />
+                                </DockPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Extra args" Classes="label"
+                                               VerticalAlignment="Top" Width="90" Margin="0,6,0,0" />
+                                    <TextBox Classes="setting"
+                                             Text="{Binding EditAgentExtraArgs}"
+                                             AcceptsReturn="True"
+                                             MinHeight="54"
+                                             PlaceholderText="one per line" />
+                                </DockPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                                    <Button Classes="accent"
+                                            Command="{Binding SaveAgentInstanceCommand}"
+                                            Content="Save"
+                                            Padding="16,5" />
+                                    <Button Classes="toolbar"
+                                            Command="{Binding CancelEditAgentInstanceCommand}"
+                                            Content="Cancel"
+                                            Padding="12,5" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border IsVisible="{Binding IsEditingProviderInstance}">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="PROVIDER" Classes="section" Margin="0,0,0,2" />
+                                <DockPanel>
+                                    <TextBlock Text="Name" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <TextBox Classes="setting"
+                                             Text="{Binding EditProviderName}"
+                                             PlaceholderText="what you call it" />
+                                </DockPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Service" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <ComboBox ItemsSource="{Binding ProviderKinds}"
+                                              SelectedItem="{Binding EditProviderKind}"
+                                              MinWidth="200" />
+                                </DockPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Address" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <TextBox Classes="setting"
+                                             Text="{Binding EditProviderBaseUrl}"
+                                             PlaceholderText="empty = the service's own address" />
+                                </DockPanel>
+                                <DockPanel IsVisible="{Binding EditProviderNeedsKey}">
+                                    <TextBlock Text="API key" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <TextBox Classes="setting"
+                                             Text="{Binding EditProviderApiKey}"
+                                             PasswordChar="●"
+                                             PlaceholderText="{Binding SecretFieldHint}" />
+                                </DockPanel>
+                                <TextBlock IsVisible="{Binding ShowsProviderKeyWarning}"
+                                           Text="{Binding SecretStorageWarning}"
                                            TextWrapping="Wrap"
-                                           Margin="0,-2,0,0"
-                                           Text="This profile runs commands, and cmd cannot run them correctly — they will be run by PowerShell (or Git Bash) instead, so %VAR%, &amp;&amp; and the cmd builtins will not work in them. The tile's interactive shell is unchanged." />
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="Startup Script" Classes="label" />
-                                    <TextBox Classes="setting"
-                                             Text="{Binding EditProfileScript}"
-                                             AcceptsReturn="True"
-                                             TextWrapping="Wrap"
-                                             MinHeight="72"
-                                             MaxHeight="140"
-                                             PlaceholderText="Commands to run after shell starts..." />
-                                    <StackPanel Margin="2,2,0,0" Spacing="1">
-                                        <TextBlock FontSize="{DynamicResource FontXs}"
-                                                   Foreground="{DynamicResource TextMuted}"
-                                                   Opacity="0.7"
-                                                   TextWrapping="Wrap"
-                                                   Text="Variables, in both scripts:" />
-                                        <TextBlock FontSize="{DynamicResource FontXs}"
-                                                   Foreground="{DynamicResource TextMuted}"
-                                                   Opacity="0.7"
-                                                   TextWrapping="Wrap"
-                                                   Text="${tileId} — unique tile identifier" />
-                                        <TextBlock FontSize="{DynamicResource FontXs}"
-                                                   Foreground="{DynamicResource TextMuted}"
-                                                   Opacity="0.7"
-                                                   TextWrapping="Wrap"
-                                                   Text="&quot;${opencodeSessionFile}&quot; — session document for `opencode import`; keep the quotes, the path contains spaces" />
-                                    </StackPanel>
-                                </StackPanel>
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="Fallback Script" Classes="label" />
-                                    <TextBox Classes="setting"
-                                             Text="{Binding EditProfileFallbackScript}"
-                                             AcceptsReturn="True"
-                                             TextWrapping="Wrap"
-                                             MinHeight="48"
-                                             MaxHeight="100"
-                                             PlaceholderText="Runs if startup script fails (process exits quickly)..." />
-                                </StackPanel>
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource DangerText}" />
+                                <TextBlock IsVisible="{Binding !EditProviderNeedsKey}"
+                                           Text="This server has no authentication — anyone who can reach it can use it."
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
+                                <DockPanel>
+                                    <TextBlock Text="Timeout" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <NumericUpDown Classes="setting"
+                                                   Value="{Binding EditProviderTimeout}"
+                                                   Minimum="1" Maximum="600" Increment="5" />
+                                </DockPanel>
+                                <CheckBox IsVisible="{Binding EditProviderIsLocal}"
+                                          IsChecked="{Binding SearchLocalNetwork}"
+                                          Content="Also look on this network when discovering" />
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                                     <Button Classes="accent"
-                                            Command="{Binding SaveProfileCommand}"
+                                            Command="{Binding SaveProviderInstanceCommand}"
                                             Content="Save"
                                             Padding="16,5" />
+                                    <Button Classes="outlined"
+                                            Command="{Binding TestProviderCommand}"
+                                            IsEnabled="{Binding !IsTestingProvider}"
+                                            Content="Test"
+                                            Padding="12,5" />
+                                    <Button Classes="outlined"
+                                            Command="{Binding LoadProviderModelsCommand}"
+                                            IsEnabled="{Binding !IsTestingProvider}"
+                                            Content="Models"
+                                            Padding="12,5" />
+                                    <Button Classes="outlined"
+                                            IsVisible="{Binding EditProviderIsLocal}"
+                                            Command="{Binding DiscoverProviderCommand}"
+                                            IsEnabled="{Binding !IsTestingProvider}"
+                                            Content="Discover"
+                                            Padding="12,5" />
                                     <Button Classes="toolbar"
-                                            Command="{Binding CancelEditProfileCommand}"
+                                            Command="{Binding CancelEditProviderInstanceCommand}"
                                             Content="Cancel"
                                             Padding="12,5" />
                                 </StackPanel>
+                                <TextBlock Text="{Binding EditProviderTestResult}"
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontSm}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           IsVisible="{Binding EditProviderTestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <!-- What the provider answered, so Models proves the address and the
+                                     key rather than only counting. Scrolled, because a hosted list runs
+                                     to hundreds and would otherwise push Save off the form. -->
+                                <ScrollViewer MaxHeight="140"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding ModelSuggestions}" />
+                                </ScrollViewer>
                             </StackPanel>
                         </Border>
-                        <!-- No chrome of its own: the overlay it sits in is the card. A bordered box
-                             inside a bordered box is the nesting the design rules exist to stop. -->
-                        <Border IsVisible="{Binding IsEditingAiTool}">
-                            <StackPanel Spacing="12">
-                                <TextBlock Text="NEW CUSTOM TOOL" Classes="section" Margin="0,0,0,2" />
-                                <DockPanel>
-                                    <TextBlock Text="Name" Classes="label"
-                                               VerticalAlignment="Center" Width="90" />
-                                    <TextBox Classes="setting"
-                                             Text="{Binding EditAiToolName}"
-                                             PlaceholderText="Display name" />
-                                </DockPanel>
-                                <DockPanel>
-                                    <TextBlock Text="Binary" Classes="label"
-                                               VerticalAlignment="Center" Width="90" />
-                                    <TextBox Classes="setting"
-                                             Text="{Binding EditAiToolBinary}"
-                                             PlaceholderText="Command name" />
-                                </DockPanel>
-                                <DockPanel>
-                                    <TextBlock Text="Version Args" Classes="label"
-                                               VerticalAlignment="Center" Width="90" />
-                                    <TextBox Classes="setting"
-                                             Text="{Binding EditAiToolVersionArgs}"
-                                             PlaceholderText="--version" />
-                                </DockPanel>
-                                <DockPanel>
-                                    <TextBlock Text="Path" Classes="label"
-                                               VerticalAlignment="Center" Width="90" />
-                                    <TextBox Classes="setting"
-                                             Text="{Binding EditAiToolPath}"
-                                             PlaceholderText="Optional — leave empty for PATH" />
-                                </DockPanel>
-                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-                                    <Button Classes="accent"
-                                            Command="{Binding SaveAiToolCommand}"
-                                            Content="Save"
-                                            Padding="16,5" />
-                                    <Button Classes="toolbar"
-                                            Command="{Binding CancelEditAiToolCommand}"
-                                            Content="Cancel"
-                                            Padding="12,5" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-                        <!-- No chrome of its own: the overlay it sits in is the card. A bordered box
-                             inside a bordered box is the nesting the design rules exist to stop. -->
+
                         <Border IsVisible="{Binding IsEditingManualConnection}">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="CONNECTION" Classes="section" Margin="0,0,0,2" />

@@ -843,11 +843,17 @@
                      has to give way, and a StackPanel measures its children with infinite width, so
                      TextTrimming there is inert and a long phase is cut off mid-letter instead. -->
                 <DockPanel>
+                    <!-- The execution agent, and only that one, is in the strip. Five controls do not
+                         fit a narrow tile, and of the five this is the one whose value has to be
+                         readable at a glance: which agent is writing into this repository. The
+                         reviewer is a once-per-goal setting and lives in the panel below. -->
                     <ComboBox DockPanel.Dock="Left"
                               Classes="goal-tool"
-                              ItemsSource="{Binding AvailableTools}"
-                              SelectedItem="{Binding SelectedToolName}"
-                              ToolTip.Tip="AI tool" />
+                              ItemsSource="{Binding AvailableAgents}"
+                              SelectedValue="{Binding ExecutionAgentInstanceId}"
+                              SelectedValueBinding="{Binding InstanceId}"
+                              DisplayMemberBinding="{Binding Label}"
+                              ToolTip.Tip="Which agent carries the goal out. Configured agents this machine can run — the CLI installed, and the provider it names still configured." />
                     <!-- Beside the tool because it is a fact about the tool, and because this is where
                          somebody looks after a run that was refused. The default is auto: without a
                          mode the tool inherits the user's own Claude Code settings, and the factory
@@ -933,6 +939,20 @@
              "VERDICT: PASS" anywhere in the review. -->
         <Border DockPanel.Dock="Top" Classes="criteria" IsVisible="{Binding ShowCriteria}">
             <StackPanel>
+                <!-- A once-per-goal setting, so it is in the panel rather than the strip. A second
+                     agent is what makes a review something other than the author marking their own
+                     work; "same as execution" is the default and a real answer, which is why it is a
+                     row in the list rather than an empty box. The review's permission comes from the
+                     agent by phase, so a reviewer is read-only unless the criteria oblige it to build
+                     and test — see AiUsage. -->
+                <TextBlock Classes="crit-title" Text="reviewed by" />
+                <ComboBox Classes="goal-tool" Margin="0,0,0,6" MinWidth="160"
+                          ItemsSource="{Binding ReviewAgentChoices}"
+                          SelectedValue="{Binding ReviewAgentInstanceId}"
+                          SelectedValueBinding="{Binding InstanceId}"
+                          DisplayMemberBinding="{Binding Label}"
+                          ToolTip.Tip="Which agent reviews the work. A different one is a second opinion; the same one is the author marking their own work." />
+
                 <TextBlock Classes="crit-title" Text="done when" />
 
                 <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" Margin="0,0,0,4">

@@ -22,6 +22,15 @@ public static class TileKindIds
     public const string Database = "database";
     public const string Goal = "goal";
 
+    /// <summary>An AI agent in a tile, run from an <c>AiAgentInstance</c> rather than from a shell
+    /// profile the user has to write.</summary>
+    /// <remarks>Nothing is added to <see cref="TileContentType"/> for it — that enum is closed and is
+    /// the record of what is already on people's disks. What <see cref="ToLegacy"/> answers instead is
+    /// <c>terminal</c>, so a build Velopack has rolled back opens the leaf as a plain shell rather than
+    /// as an empty tile: an agent tile <em>is</em> a terminal, and degrading it is a conversation lost
+    /// where reading it as empty is the tile itself lost.</remarks>
+    public const string Agent = "agent";
+
     /// <summary>A tile that has not been given content yet.</summary>
     /// <remarks>
     /// <b>Empty is not a kind.</b> It is the absence of one, and it stays that way: the chooser and its
@@ -58,8 +67,14 @@ public static class TileKindIds
     /// have.</para>
     /// </remarks>
     public static TileContentType? ToLegacy(string? kind) =>
-        Enum.GetValues<TileContentType>()
-            .Where(type => type != TileContentType.Empty)
-            .Cast<TileContentType?>()
-            .FirstOrDefault(type => FromLegacy(type!.Value) == kind);
+        // The one kind that answers with a name that is not its own, and deliberately: an agent tile is
+        // a terminal running an agent, so a rolled-back build that reads it as a plain terminal on the
+        // same shell degrades it rather than losing it. The alternative — no legacy name — is the leaf
+        // read as empty, which is a conversation and a tile gone from the layout.
+        kind == Agent
+            ? TileContentType.Terminal
+            : Enum.GetValues<TileContentType>()
+                .Where(type => type != TileContentType.Empty)
+                .Cast<TileContentType?>()
+                .FirstOrDefault(type => FromLegacy(type!.Value) == kind);
 }

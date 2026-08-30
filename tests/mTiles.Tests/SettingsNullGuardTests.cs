@@ -168,7 +168,8 @@ public class SettingsNullGuardTests
             .OrderBy(name => name, StringComparer.Ordinal);
 
         Assert.Equal(
-            ["AppSettings.LastWorkspaceId", "UserShellProfile.RequiredAiToolBinaryName"],
+            ["AppSettings.LastWorkspaceId", "AppSettings.LegacyCustomShellArgs",
+             "AppSettings.LegacyCustomShellPath", "UserShellProfile.RequiredAiToolBinaryName"],
             nullable);
     }
 

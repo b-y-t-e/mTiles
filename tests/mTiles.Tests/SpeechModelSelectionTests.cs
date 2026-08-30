@@ -54,7 +54,7 @@ public class SpeechModelSelectionTests : IDisposable
         var dictation = new DictationService(settings.Service, capture ?? new SilentCapture(), store: store,
             dispatch: action => action());
 
-        var tab = new SettingsViewModel(settings.Service, dictation: dictation) { SelectedTab = 4 };
+        var tab = new SettingsViewModel(settings.Service, dictation: dictation) { SelectedTab = SettingsTabs.Speech };
         return (tab, settings);
     }
 

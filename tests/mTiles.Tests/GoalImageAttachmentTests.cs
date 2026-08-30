@@ -148,11 +148,11 @@ public class GoalImageAttachmentTests : IDisposable
         var engine = WithImages("fix [Image #1]", @"C:\shots\one.png");
 
         var reloaded = new GoalWorkflowEngine();
-        reloaded.LoadFrom(engine.ToState([], "Claude Code"));
+        reloaded.LoadFrom(engine.ToState([], "claude-instance", ""));
 
         // Through the file, not just through the object: a resumed run whose markers no longer resolve
         // sends the tool to open a path the prompt has stopped naming.
-        var written = JsonSerializer.Serialize(engine.ToState([], "Claude Code"), JsonDefaults.Options);
+        var written = JsonSerializer.Serialize(engine.ToState([], "claude-instance", ""), JsonDefaults.Options);
         var read = JsonSerializer.Deserialize<GoalTileState>(written, JsonDefaults.Options)!;
 
         Assert.Equal(@"C:\shots\one.png", reloaded.AttachedImages.Single().Path);

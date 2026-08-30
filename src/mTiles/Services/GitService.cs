@@ -354,8 +354,8 @@ public sealed partial class GitService(string workingDirectory, string gitPath =
 
         if (OperatingSystem.IsWindows())
         {
-            var found = ShellDetector.FindExecutable("git.exe")
-                        ?? ShellDetector.FindExecutable("git.cmd");
+            var found = ExecutableFinder.OnPath("git.exe")
+                        ?? ExecutableFinder.OnPath("git.cmd");
             if (found != null) return found;
 
             var wellKnown = new[]
@@ -374,7 +374,7 @@ public sealed partial class GitService(string workingDirectory, string gitPath =
         }
         else
         {
-            var found = ShellDetector.FindExecutable("git");
+            var found = ExecutableFinder.OnPath("git");
             if (found != null) return found;
         }
 

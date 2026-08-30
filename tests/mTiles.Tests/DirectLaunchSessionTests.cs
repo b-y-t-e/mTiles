@@ -3,6 +3,7 @@ using Avalonia.Headless;
 using Avalonia.Threading;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Shells;
 using mTiles.ViewModels;
 using Terminal.Avalonia;
 using Terminal.Pty;
@@ -17,13 +18,7 @@ namespace mTiles.Tests;
 /// </summary>
 public class DirectLaunchSessionTests
 {
-    private static readonly ShellProfile Shell = new()
-    {
-        Name = "fake",
-        ExecutablePath = "fake-shell",
-        Args = ["-l"],
-        Type = ShellType.Bash,
-    };
+    internal static readonly ShellInstallation Shell = new(new BashTerminal(), "fake-shell");
 
     /// <summary>
     /// The chain's real thresholds are seconds to minutes; these are the same rules at a speed a test
@@ -142,46 +137,6 @@ public class DirectLaunchSessionTests
                 Assert.Equal(1, previous.Disposals);        // handed over before anything else
                 await WaitUntil(() => spawned.Count == 1, "the profile's chain starts");
                 Assert.Equal("fake-shell -c claude", CommandOf(spawned[0]));
-            }
-            finally
-            {
-                tile.Dispose();
-            }
-        });
-
-    /// <summary>
-    /// A profile whose shell is <c>cmd</c> has its commands run by something else — and this asserts it
-    /// where it counts, on what was actually spawned. The rule itself is unit-tested in
-    /// <c>ScriptContractTests</c>; what could still be wrong here is the wiring, and it silently was:
-    /// resolving a replacement shell and then handing the old one to <c>ShellCommandLine</c> compiles,
-    /// passes every test of the rule, and leaves the behaviour exactly as broken as before.
-    /// </summary>
-    [Fact]
-    public void A_cmd_profiles_commands_are_not_spawned_through_cmd()
-        => OnUiThread(async () =>
-        {
-            using var settings = new TempSettings();
-            var (control, spawned) = NewTerminal();
-            var cmd = new ShellProfile
-            {
-                Name = "CMD", ExecutablePath = @"C:\Windows\System32\cmd.exe", Type = ShellType.Cmd,
-            };
-            var tile = new TerminalTileViewModel("", cmd, settings.Service,
-                LaunchScripts.FromProfile("opencode import \"x\" ; opencode", "fallback"),
-                tileId: () => RealTileId);
-
-            try
-            {
-                TileLauncher.Launch(control, tile);
-
-                await WaitUntil(() => spawned.Count == 1, "the profile's chain starts");
-                var launched = CommandOf(spawned[0]);
-                // Whatever this machine has — PowerShell here, a POSIX shell on a Linux agent — the one
-                // thing it must not be is the shell measured to mishandle every command it is given.
-                Assert.DoesNotContain("cmd.exe", launched, StringComparison.OrdinalIgnoreCase);
-                Assert.DoesNotContain(" /c ", launched);
-                // And the command itself travelled intact: the `;` that cmd would have swallowed.
-                Assert.Contains("opencode import \"x\" ; opencode", launched);
             }
             finally
             {
@@ -625,6 +580,94 @@ public class DirectLaunchSessionTests
             Assert.Equal("fake-shell -l", CommandOf(spawned[1]));
             Assert.True(control.IsRunning);
         });
+
+    /// <summary>
+    /// A tile closed while it is being prepared does not then start a session in itself.
+    /// </summary>
+    /// <remarks>Preparation is a real wait — an agent whose conversation has to be created first is a
+    /// model call with a minute's timeout — and closing the tile cancels the capture, which ends the
+    /// preparation <em>normally</em>. Without the guard the launch carried straight on: a session
+    /// started in a disposed terminal, and a chain owned by a tile whose <c>Dispose</c> had already
+    /// run, which nothing is left to stop.
+    /// </remarks>
+    [Fact]
+    public void A_tile_closed_while_it_is_preparing_never_starts()
+        => OnUiThread(async () =>
+        {
+            using var settings = new TempSettings();
+            var (control, spawned) = NewTerminal();
+            var tile = new SlowlyPreparedTile(settings.Service);
+
+            TileLauncher.Launch(control, tile);
+            await Drain();
+            Assert.Empty(spawned);                 // still preparing
+
+            tile.Dispose();
+            tile.FinishPreparing();
+            await Task.Delay(50);
+            await Drain();
+
+            Assert.Empty(spawned);
+        });
+
+    /// <summary>
+    /// A restart during preparation leaves one chain, not two.
+    /// </summary>
+    /// <remarks>The same missing guard by the other route: "Restart shell" is reachable while the first
+    /// launch is still waiting, and both would then have started into one terminal — which is the two
+    /// competing chains the launcher was made a single call to prevent.</remarks>
+    [Fact]
+    public void A_restart_during_preparation_leaves_only_the_newer_launch()
+        => OnUiThread(async () =>
+        {
+            using var settings = new TempSettings();
+            var (control, spawned) = NewTerminal();
+            var tile = new SlowlyPreparedTile(settings.Service);
+
+            try
+            {
+                TileLauncher.Launch(control, tile);
+                await Drain();
+
+                var first = tile.Preparation;
+                TileLauncher.Launch(control, tile);    // the user presses Restart shell
+                await Drain();
+
+                // The second launch's own preparation finishes first, and then the abandoned one.
+                tile.FinishPreparing();
+                await WaitUntil(() => spawned.Count == 1, "the newer launch starts");
+                first.TrySetResult();
+                await Task.Delay(50);
+                await Drain();
+
+                Assert.Single(spawned);
+            }
+            finally
+            {
+                tile.Dispose();
+            }
+        });
+
+    /// <summary>A tile whose preparation finishes when the test says so — what an agent creating its
+    /// conversation looks like from the launcher's side.</summary>
+    private sealed class SlowlyPreparedTile(SettingsService settings)
+        : TerminalTileViewModel("", DirectLaunchSessionTests.Shell, settings,
+            LaunchScripts.FromProfile("echo hi", null),
+            tileId: () => RealTileId)
+    {
+        /// <summary>The preparation the launcher is currently waiting on, so a test can release an
+        /// abandoned one separately from the launch that replaced it.</summary>
+        public TaskCompletionSource Preparation { get; private set; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override Task PrepareForLaunchAsync()
+        {
+            Preparation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return Preparation.Task;
+        }
+
+        public void FinishPreparing() => Preparation.TrySetResult();
+    }
 }
 
 public class TestApp : Application

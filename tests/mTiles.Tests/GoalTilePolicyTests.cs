@@ -53,7 +53,7 @@ public class GoalTilePolicyTests
         var reloaded = new GoalWorkflowEngine();
         reloaded.LoadFrom(engine.ToState(
             [new GoalMessage { Role = GoalMessageRole.Assistant, Text = "implemented", Phase = GoalPhase.Implement }],
-            "Claude Code"));
+            "claude-instance", ""));
 
         // The tile comes back offering to carry on rather than claiming to work.
         Assert.True(reloaded.IsPaused);

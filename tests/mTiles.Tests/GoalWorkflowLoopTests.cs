@@ -1,6 +1,7 @@
 using Avalonia.Headless;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Agents;
 using mTiles.ViewModels;
 using Xunit;
 
@@ -37,6 +38,10 @@ public class GoalWorkflowLoopTests : IDisposable
         // nothing — the same reason WorktreeReader is stubbed above. The baseline itself is pinned in
         // GoalBaselineTests, against a repository that exists.
         GoalBaseline.Factory = (_, _) => Task.FromResult(GoalBaselineResult.None);
+
+        // One agent, always available. Without this the loop passes by doing nothing on any machine
+        // with no AI CLI installed, which is most build agents.
+        GoalAgents.Factory = _ => [FakeChoice("Fake Tool")];
     }
 
     /// <summary>
@@ -56,6 +61,7 @@ public class GoalWorkflowLoopTests : IDisposable
         GoalTileViewModel.AiRunnerFactory = null;
         WorktreeReader.Factory = null;
         GoalBaseline.Factory = null;
+        GoalAgents.Factory = null;
         try { Directory.Delete(_dir, recursive: true); } catch { /* not a test failure */ }
     }
 
@@ -92,13 +98,16 @@ public class GoalWorkflowLoopTests : IDisposable
             Thread.Sleep(10);
     }
 
-    private static UserAiTool FakeTool() => new()
-    {
-        Id = Guid.NewGuid().ToString(),
-        Name = "Fake Tool",
-        BinaryName = "fake-tool",
-        CustomPath = typeof(GoalWorkflowLoopTests).Assembly.Location,
-    };
+    /// <summary>An agent this machine can "run": a stub, pointed at a file that certainly exists.</summary>
+    /// <remarks>Nothing ever starts it — <see cref="GoalTileViewModel.AiRunnerFactory"/> stands in front
+    /// — but the tile refuses to run a phase whose agent it cannot find, so the path has to be real.
+    /// </remarks>
+    private sealed class FakeAgent : StubAgent;
+
+    private static GoalAgentChoice FakeChoice(string name) => new(
+        new AiAgentInstance { Id = name, AgentId = "stub", Name = name },
+        new FakeAgent(),
+        typeof(GoalWorkflowLoopTests).Assembly.Location);
 
     /// <summary>
     /// A tile with a tool it will agree to run.
@@ -110,7 +119,6 @@ public class GoalWorkflowLoopTests : IDisposable
     private GoalTileViewModel NewTile()
     {
         var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-        settings.Settings.CustomAiTools.Add(FakeTool());
 
         var vm = new GoalTileViewModel(_dir, settings)
         {
@@ -118,8 +126,7 @@ public class GoalWorkflowLoopTests : IDisposable
             ConfirmAction = _ => Task.FromResult(true)
         };
 
-        vm.SelectedToolName = "Fake Tool";
-        Assert.Contains("Fake Tool", vm.AvailableTools);
+        Assert.Equal("Fake Tool", vm.ExecutionAgent?.Label);
         return vm;
     }
 
@@ -440,12 +447,10 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             AnswerWith("And another thing?");
 
             var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
             var path = first.FilePath;
 
             first.InputText = "a goal";
@@ -472,10 +477,8 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
             var path = first.FilePath;
 
             // Clarify decides on its own that it has nothing left to ask, so the tile moves to Plan by
@@ -606,12 +609,10 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             AnswerWith("Which files?");
 
             var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
             var path = first.FilePath;
 
             first.InputText = "a goal";
@@ -1095,12 +1096,10 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             AnswerWith("```json\n{\"questions\":[{\"question\":\"Which file?\"}]}\n```");
 
             var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
             var path = first.FilePath;
 
             first.InputText = "a goal";
@@ -1128,14 +1127,12 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             var review = "```json\n{\"goalMet\":false,\"findings\":[" +
                          "{\"severity\":\"blocker\",\"title\":\"Unacceptable\"}," +
                          "{\"severity\":\"suggestion\",\"title\":\"Rename\"}]}\n```";
 
             var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
             first.Criteria.MaxIterations = 1;
             var path = first.FilePath;
 
@@ -1191,12 +1188,10 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             // Prose, not JSON: parsed as unstructured, so the review is counted but has no findings —
             // which is also the shape of a goal file written before findings were kept.
             var vm = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            vm.SelectedToolName = "Fake Tool";
             vm.Criteria.MaxIterations = 1;
 
             AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it",
@@ -1270,13 +1265,11 @@ public class GoalWorkflowLoopTests : IDisposable
                 Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
 
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             using var vm = new GoalTileViewModel(_dir, settings)
             {
                 ConfirmAction = _ => Task.FromResult(true),
             };
-            vm.SelectedToolName = "Fake Tool";
             vm.Criteria.MaxIterations = 1;
             vm.Criteria.CommitWhenDone = on;
 
@@ -1316,13 +1309,11 @@ public class GoalWorkflowLoopTests : IDisposable
                 Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
 
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             using var vm = new GoalTileViewModel(_dir, settings)
             {
                 ConfirmAction = _ => Task.FromResult(true),
             };
-            vm.SelectedToolName = "Fake Tool";
             vm.Criteria.CommitWhenDone = true;
 
             // Detect & review: work out the goal from the tree, judge it, stop.
@@ -1353,10 +1344,8 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             var vm = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            vm.SelectedToolName = "Fake Tool";
             vm.Criteria.MaxIterations = 1;
             var path = vm.FilePath;
 
@@ -1657,7 +1646,6 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             AnswerWith("""
                 {"questions":[{"question":"Which file?","why":"Two candidates.",
@@ -1665,7 +1653,6 @@ public class GoalWorkflowLoopTests : IDisposable
                 """);
 
             var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
             var path = first.FilePath;
             first.InputText = "a goal";
             await first.SubmitCommand.ExecuteAsync(null);
@@ -2026,13 +2013,11 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             string path;
             var asked = 0;
 
             var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
-            first.SelectedToolName = "Fake Tool";
             path = first.FilePath;
 
             GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
@@ -2080,7 +2065,6 @@ public class GoalWorkflowLoopTests : IDisposable
         OnUiThread(async () =>
         {
             var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            settings.Settings.CustomAiTools.Add(FakeTool());
 
             // Stubbed like every other run here. Without it the tile falls back to whatever real tool is
             // installed on the machine — the default selection is "Claude Code" — and submitting a goal
@@ -2262,7 +2246,9 @@ public class GoalWorkflowLoopTests : IDisposable
             // goal over it threw away everything the session held.
             Assert.NotEqual(GoalPhase.Summary, vm.CurrentPhase);
             Assert.True(vm.IsPaused);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("The AI tool failed"));
+            // Named, not "the AI tool": a goal can run two agents and a failure has to say which of
+            // them reported it.
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Fake Tool failed: the tool exploded"));
         });
     }
 

@@ -65,10 +65,17 @@ internal static partial class RejectedFlag
     /// both sides of the Atlantic.
     /// </summary>
     /// <remarks>
-    /// The word <c>option</c> is what keeps this off a warning about a <em>value</em>: "Unknown
-    /// --effort value 'bogus' — ignoring it" is a run that carried on and produced an answer.
+    /// <para>The noun after the rejection is what keeps this off a warning about a <em>value</em>:
+    /// "Unknown --effort value 'bogus' — ignoring it" is a run that carried on and produced an
+    /// answer.</para>
+    /// <para><b>Two nouns, because not every setting this application passes is an option.</b> codex
+    /// takes its effort as a config key — <c>-c model_reasoning_effort=high</c> — so a refusal there
+    /// reads "unknown config key", never "unknown option", and the whole of <see cref="Named"/> would
+    /// miss it. The flag being blamed in that case is the key rather than the <c>-c</c> that carried
+    /// it, which is why <c>CodexAgent</c> names the key.</para>
     /// </remarks>
-    [GeneratedRegex(@"(unknown|unrecognized|unrecognised|invalid|not recognized)\s+option",
+    [GeneratedRegex(
+        @"(unknown|unrecognized|unrecognised|invalid|not recognized)\s+(option|config\w*|key)",
         RegexOptions.IgnoreCase)]
     private static partial Regex RejectsFlag();
 

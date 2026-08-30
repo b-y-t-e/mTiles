@@ -582,7 +582,8 @@ public sealed partial class GoalWorkflowEngine
         : IsMidRun(CurrentPhase) ? GoalStageDisplay.Short(CurrentPhase, IterationCount, MaxIter)
         : "";
 
-    public GoalTileState ToState(List<GoalMessage> messages, string toolName) => new()
+    public GoalTileState ToState(List<GoalMessage> messages, string executionAgentInstanceId,
+        string reviewAgentInstanceId) => new()
     {
         OriginalGoal = OriginalGoal,
         ClarificationHistory = [..ClarificationHistory],
@@ -590,7 +591,8 @@ public sealed partial class GoalWorkflowEngine
         ApprovedPlan = ApprovedPlan,
         ProposedPlan = ProposedPlan,
         CurrentPhase = CurrentPhase,
-        SelectedToolName = toolName,
+        ExecutionAgentInstanceId = executionAgentInstanceId,
+        ReviewAgentInstanceId = reviewAgentInstanceId,
         IterationCount = IterationCount,
         LastStopReason = LastStopReason,
         BaselineRef = BaselineRef,

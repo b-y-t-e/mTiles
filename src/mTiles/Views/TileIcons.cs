@@ -23,11 +23,15 @@ internal static class TileIcons
     public static MaterialIconKind Kind(string? iconId) => iconId switch
     {
         "console" => MaterialIconKind.Console,
+        "powershell" => MaterialIconKind.Powershell,
+        "bash" => MaterialIconKind.Bash,
+        "fish" => MaterialIconKind.Fish,
         "note" => MaterialIconKind.NoteEditOutline,
         "checklist" => MaterialIconKind.CheckboxMarkedOutline,
         "source-branch" => MaterialIconKind.SourceBranch,
         "database" => MaterialIconKind.DatabaseOutline,
         "goal" => MaterialIconKind.BullseyeArrow,
+        "robot" => MaterialIconKind.RobotOutline,
         "script-outline" => MaterialIconKind.ScriptOutline,
         "restart" => MaterialIconKind.Restart,
         "refresh" => MaterialIconKind.Refresh,

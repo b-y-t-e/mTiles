@@ -1,6 +1,9 @@
 using System.Text.Json;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Agents;
+using mTiles.Services.Providers;
+using mTiles.Services.Shells;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -16,6 +19,10 @@ namespace mTiles.Tests;
 public sealed class OpenCodeSessionTests
 {
     private const string TileId = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed";
+
+    /// <summary>The shell the tile's commands are composed for. Nothing here needs quoting, so which
+    /// one it is does not change what is asserted.</summary>
+    private static readonly IShellTerminal Shell = new PowerShellTerminal();
 
     private static JsonElement Info(string tileId = TileId, string workingDirectory = @"D:\work\repo")
     {
@@ -231,20 +238,22 @@ public sealed class OpenCodeSessionTests
     /// </summary>
     /// <remarks>
     /// Everything above tests the pieces; this is the only thing that tests that they were assembled
-    /// into a working profile. Without it the production scripts are two string literals nothing reads:
-    /// change opencode's prefix in <see cref="OpenCodeSession.IdFor"/>, or rename the token, or fix a
-    /// typo in the seeded command, and the build stays green while every OpenCode tile quietly starts a
-    /// fresh conversation — the exact failure this feature exists to prevent, and an invisible one,
-    /// because a tile that resumes nothing looks like a tile that was never used.
+    /// into a working pair of commands. Without it the agent's scripts are two string literals nothing
+    /// reads: change opencode's prefix in <see cref="OpenCodeSession.IdFor"/>, rename the token, or make
+    /// a typo, and the build stays green while every OpenCode tile quietly starts a fresh conversation —
+    /// the exact failure this feature exists to prevent, and an invisible one, because a tile that
+    /// resumes nothing looks like a tile that was never used.
+    /// <para>Asked of the agent rather than of a seeded shell profile, which is where these commands
+    /// used to live. The profiles are gone; the commands are <c>OpenCodeAgent</c>'s own.</para>
     /// </remarks>
     [Fact]
-    public void The_seeded_profile_resolves_to_commands_the_rest_of_this_code_agrees_with()
+    public void The_agents_commands_are_ones_the_rest_of_this_code_agrees_with()
     {
-        using var settings = new TempSettings();
-        var profile = Assert.Single(settings.Service.Settings.ShellProfiles, p => p.Name == "OpenCode");
+        var agent = new OpenCodeAgent();
 
         var commands = DirectLaunchSession.BuildCommands(
-            LaunchScripts.FromProfile(profile.StartupScript, profile.FallbackScript), TileId);
+            agent.Interactive(AgentRuntime.For(new AppSettings(), new AiAgentInstance()),
+                agent.SessionIdForTile(TileId), Shell), TileId);
 
         // Startup resumes the session this tile's id names — the id as OpenCodeSession spells it, not as
         // a literal in the settings happens to spell it.
@@ -257,17 +266,17 @@ public sealed class OpenCodeSessionTests
             commands[1]);
     }
 
-    /// <summary>And the launcher writes that document for that profile: the token in the shipped script
-    /// is what <see cref="OpenCodeSession.PrepareIfReferenced"/> looks for, spelled the same way.</summary>
+    /// <summary>And the launcher writes that document for it: the token in the agent's own script is
+    /// what <see cref="OpenCodeSession.PrepareIfReferenced"/> looks for, spelled the same way.</summary>
     [Fact]
-    public void The_seeded_profile_is_one_the_launcher_writes_a_document_for()
+    public void The_agents_commands_are_ones_the_launcher_writes_a_document_for()
     {
-        using var settings = new TempSettings();
         using var temp = new TempDirectory();
-        var profile = Assert.Single(settings.Service.Settings.ShellProfiles, p => p.Name == "OpenCode");
+        var agent = new OpenCodeAgent();
 
         OpenCodeSession.PrepareIfReferenced(
-            LaunchScripts.FromProfile(profile.StartupScript, profile.FallbackScript),
+            agent.Interactive(AgentRuntime.For(new AppSettings(), new AiAgentInstance()),
+                agent.SessionIdForTile(TileId), Shell),
             TileId, @"D:\work\repo", temp.Path);
 
         Assert.True(File.Exists(OpenCodeSession.DocumentPath(TileId, temp.Path)));

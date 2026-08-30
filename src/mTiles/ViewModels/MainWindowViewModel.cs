@@ -122,6 +122,20 @@ public partial class MainWindowViewModel : ObservableObject
         _workspacesPanel = new WorkspacesPanelViewModel(workspaceService, settingsService);
         _settings = new SettingsViewModel(settingsService, dbManager, dictation);
 
+        // An install command runs in a tile, and only this object knows which workspace is open. Null
+        // when there is none, which the settings page answers by showing the command instead of
+        // running it — never by running it somewhere the user cannot see.
+        _settings.RunInstallPlan = plan =>
+        {
+            if (CurrentWorkspace is not { } workspace) return Task.FromResult(false);
+
+            workspace.OpenTileBesideActive(TileKindIds.Terminal, new System.Text.Json.Nodes.JsonObject
+            {
+                [TerminalTileKind.StartupScriptKey] = plan.CommandLine,
+            });
+            return Task.FromResult(true);
+        };
+
         _updateService.UpdateAvailable += () =>
         {
             IsUpdateAvailable = true;

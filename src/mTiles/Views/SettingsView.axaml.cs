@@ -18,6 +18,11 @@ public partial class SettingsView : UserControl
 
     private SettingsViewModel? _subscribed;
 
+    /// <summary>What an exported settings file is, for both pickers — one definition, so the dialog
+    /// that writes it and the one that reads it back cannot disagree about the extension.</summary>
+    private static readonly FilePickerFileType SettingsFileType =
+        new("Settings") { Patterns = ["*.json"] };
+
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
         if (_subscribed != null)
@@ -52,21 +57,6 @@ public partial class SettingsView : UserControl
                 var box = MsgBox.GetMessageBoxStandard(title, message, ButtonEnum.Ok, Icon.Warning);
                 await box.ShowWindowDialogAsync(window);
             };
-            vm.BrowseAiToolFile = async () =>
-            {
-                var topLevel = TopLevel.GetTopLevel(this);
-                if (topLevel == null) return null;
-
-                var files = await topLevel.StorageProvider.OpenFilePickerAsync(
-                    new FilePickerOpenOptions
-                    {
-                        Title = "Select AI tool executable",
-                        AllowMultiple = false
-                    });
-
-                return files.Count > 0 ? files[0].TryGetLocalPath() : null;
-            };
-
             vm.BrowseGitFile = async () =>
             {
                 var topLevel = TopLevel.GetTopLevel(this);
@@ -77,6 +67,37 @@ public partial class SettingsView : UserControl
                     {
                         Title = "Select git executable",
                         AllowMultiple = false
+                    });
+
+                return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+            };
+            vm.BrowseSaveFile = async suggested =>
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return null;
+
+                var file = await topLevel.StorageProvider.SaveFilePickerAsync(
+                    new FilePickerSaveOptions
+                    {
+                        Title = "Export settings",
+                        SuggestedFileName = suggested,
+                        DefaultExtension = "json",
+                        FileTypeChoices = [SettingsFileType],
+                    });
+
+                return file?.TryGetLocalPath();
+            };
+            vm.BrowseOpenFile = async () =>
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return null;
+
+                var files = await topLevel.StorageProvider.OpenFilePickerAsync(
+                    new FilePickerOpenOptions
+                    {
+                        Title = "Import settings",
+                        AllowMultiple = false,
+                        FileTypeFilter = [SettingsFileType],
                     });
 
                 return files.Count > 0 ? files[0].TryGetLocalPath() : null;

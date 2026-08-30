@@ -304,28 +304,8 @@ internal sealed class SelfSignedCertificateSource(string? directory = null) : IP
     /// <para>The mode only applies to a file being <em>created</em>, so the narrowing afterwards is kept
     /// for the case where one was already there with wider permissions.</para>
     /// </remarks>
-    private static void WritePrivateFile(string path, byte[] contents)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            // Nothing to set: the file inherits the ACL of %APPDATA%, which grants the owner and
-            // administrators and nobody else.
-            File.WriteAllBytes(path, contents);
-            return;
-        }
-
-        using (var file = new FileStream(path, new FileStreamOptions
-        {
-            Mode = FileMode.Create,
-            Access = FileAccess.Write,
-            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
-        }))
-        {
-            file.Write(contents);
-        }
-
-        ProtectPrivateFile(path);
-    }
+    private static void WritePrivateFile(string path, byte[] contents) =>
+        PrivateFile.WriteAllBytes(path, contents);
 
     /// <summary>
     /// Takes the private key file out of reach of other users on this machine.
@@ -337,20 +317,7 @@ internal sealed class SelfSignedCertificateSource(string? directory = null) : IP
     /// no gain. On Unix the default is <c>umask</c>-dependent and routinely group- or world-readable, so
     /// there the narrowing is real.
     /// </remarks>
-    internal static void ProtectPrivateFile(string path)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        try
-        {
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        }
-        catch (Exception ex)
-        {
-            Trace.TraceWarning("Could not restrict permissions on '{0}': {1}", path, ex.Message);
-        }
-    }
+    internal static void ProtectPrivateFile(string path) => PrivateFile.Protect(path);
 }
 
 /// <summary>Takes the best certificate any source can produce.</summary>

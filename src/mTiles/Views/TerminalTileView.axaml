@@ -3,5 +3,43 @@
              xmlns:vm="using:mTiles.ViewModels"
              x:Class="mTiles.Views.TerminalTileView"
              x:DataType="vm:TerminalTileViewModel">
-    <!-- TerminalControl created in code-behind for caching -->
+    <Panel>
+        <!-- TerminalControl created in code-behind for caching -->
+        <ContentControl x:Name="TerminalHost" />
+
+        <!-- Why nothing was launched. A refused launch leaves an empty tile, and an empty tile with no
+             words in it is the silent failure this exists to end. -->
+        <Border IsVisible="{Binding HasLaunchProblem}"
+                VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                Background="{DynamicResource BgSurface}"
+                BorderBrush="{DynamicResource DangerText}"
+                BorderThickness="0,0,0,1"
+                Padding="12,10">
+            <TextBlock Text="{Binding LaunchProblem}"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource DangerText}" />
+        </Border>
+
+        <!-- What the tile had to be launched as. It *is* running underneath, so this can be put away —
+             and it is drawn on the accent rather than the danger colour, because nothing failed. -->
+        <Border IsVisible="{Binding HasLaunchNotice}"
+                VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                Background="{DynamicResource BgSurface}"
+                BorderBrush="{DynamicResource AccentOutline}"
+                BorderThickness="0,0,0,1"
+                Padding="12,10">
+            <DockPanel LastChildFill="True">
+                <Button DockPanel.Dock="Right"
+                        Command="{Binding DismissLaunchNoticeCommand}"
+                        Classes="outlined-sm"
+                        Margin="12,0,0,0"
+                        VerticalAlignment="Top"
+                        Content="Dismiss" />
+                <TextBlock Text="{Binding LaunchNotice}"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextPrimary}" />
+            </DockPanel>
+        </Border>
+    </Panel>
 </UserControl>

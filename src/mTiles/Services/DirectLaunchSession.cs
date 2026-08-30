@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Avalonia.Threading;
 using mTiles.Models;
+using mTiles.Services.Shells;
 using Terminal.Avalonia;
 
 namespace mTiles.Services;
@@ -21,37 +22,38 @@ internal sealed class DirectLaunchSession : IDisposable
 {
     private readonly TerminalControl _terminal;
     private readonly string _workingDir;
-    private readonly ShellProfile _shell;
-
-    /// <summary>What the chain's commands are run by, which is <see cref="_shell"/> unless that is
-    /// <c>cmd.exe</c> — see <see cref="ShellDetector.ResolveForCommands(ShellProfile)"/>. The two are
-    /// separate fields because the interactive shell at the end of the chain must stay the one the user
-    /// chose; only the commands move.</summary>
-    private readonly ShellProfile _commandShell;
+    private readonly ShellInstallation _shell;
 
     private readonly IReadOnlyList<string> _commands;
     private readonly ChainPolicy _policy;
+
+    /// <summary>The variables every command in this chain runs with, where a <c>null</c> value unsets
+    /// one. The route a provider's key takes: a startup script is typed into a live prompt, so it lands
+    /// in the scrollback and in the shell's history file, and a key must never go that way.</summary>
+    private readonly IReadOnlyDictionary<string, string?>? _environment;
 
     /// <summary>Cancelled by <see cref="Dispose"/>. Every wait in the chain takes it, so stopping is
     /// immediate rather than "at the next checkpoint" — a chain waiting on a tool that runs for hours
     /// would otherwise hold the tile's teardown for exactly that long.</summary>
     private readonly CancellationTokenSource _stopped = new();
 
-    private DirectLaunchSession(TerminalControl terminal, string workingDir, ShellProfile shell,
-        ShellProfile commandShell, IReadOnlyList<string> commands, ChainPolicy policy)
+    private DirectLaunchSession(TerminalControl terminal, string workingDir, ShellInstallation shell,
+        IReadOnlyList<string> commands, ChainPolicy policy,
+        IReadOnlyDictionary<string, string?>? environment)
     {
+        _environment = environment;
         policy.Validate();
         _policy = policy;
         _terminal = terminal;
         _workingDir = workingDir;
         _shell = shell;
-        _commandShell = commandShell;
         _commands = commands;
     }
 
     /// <summary>Starts the chain and returns the handle that owns it. Dispose it to stop relaunching.</summary>
-    public static DirectLaunchSession Start(TerminalControl terminal, string workingDir, ShellProfile shell,
-        LaunchScripts scripts, string tileId, ChainPolicy? policy = null)
+    public static DirectLaunchSession Start(TerminalControl terminal, string workingDir, ShellInstallation shell,
+        LaunchScripts scripts, string tileId, ChainPolicy? policy = null,
+        IReadOnlyDictionary<string, string?>? environment = null)
     {
         // Here, where the caller can see it. The chain reaches the control's own thread check only
         // inside a task nobody awaits, so a call from the wrong thread would be caught, traced, and
@@ -59,11 +61,9 @@ internal sealed class DirectLaunchSession : IDisposable
         Dispatcher.UIThread.VerifyAccess();
 
         var commands = BuildCommands(scripts, tileId);
-        var commandShell = ShellDetector.ResolveForCommands(shell);
-        AnnounceCommandShell(shell, commandShell, commands);
 
-        var session = new DirectLaunchSession(terminal, workingDir, shell, commandShell,
-            commands, policy ?? ChainPolicy.Default);
+        var session = new DirectLaunchSession(terminal, workingDir, shell,
+            commands, policy ?? ChainPolicy.Default, environment);
         _ = session.RunGuardedAsync();
         return session;
     }
@@ -73,11 +73,9 @@ internal sealed class DirectLaunchSession : IDisposable
     /// because "blank is no script" is that type's rule to keep — a second copy of it here is a second
     /// chance for the two to disagree, which is the bug the type was introduced to end.
     /// <para><b>A multi-line script is one command, not several.</b> It goes to the shell whole, as
-    /// <c>shell -c "line1\nline2"</c>. Whether the shell then treats the newline as a separator is the
-    /// shell's business, and they differ: <c>bash</c>, <c>zsh</c> and <c>pwsh -Command</c> do, so a
-    /// <c>cd</c> on one line affects the next; <b><c>cmd /c</c> does not</b> — measured, and it silently
-    /// runs the first line only. A multi-line chain script is a POSIX-shell and PowerShell feature, not
-    /// a general one.</para>
+    /// <c>shell -c "line1\nline2"</c>, and every shell in <c>ShellTerminalCatalog</c> treats the newline
+    /// as a separator, so a <c>cd</c> on one line affects the next. That is not a general property of
+    /// shells — it is why the one that does not is not in the catalog.</para>
     /// <para>The interactive path does the opposite — <see cref="ShellStarter.BuildStartupInput"/> types
     /// one line at a time — because there a person's keyboard is being simulated at a live prompt. The
     /// asymmetry is real and deliberate.</para>
@@ -90,52 +88,6 @@ internal sealed class DirectLaunchSession : IDisposable
         if (scripts.Fallback is { } fallback)
             commands.Add(TileScript.Resolve(fallback.Trim(), tileId));
         return commands;
-    }
-
-    /// <summary>
-    /// Says what the chain is about to run its commands in, whenever that is not what the profile asked
-    /// for — and says so louder when nothing could be found to replace <c>cmd</c> with.
-    /// </summary>
-    /// <remarks>
-    /// <para>A <b>warning</b>, not a note, and deliberately so. The profile's shell is a setting the user
-    /// made, and for a hand-written <c>cmd</c> profile the substitution is a real regression rather than
-    /// a harmless improvement: <c>%VAR%</c> stops expanding, <c>set FOO=bar</c> and the other builtins
-    /// are gone, and <c>&amp;&amp;</c> — which <c>cmd</c> understands — is a <em>parser error</em> in
-    /// Windows PowerShell 5.1, so a command that used to work now fails before it starts. That is worth
-    /// interrupting somebody's log for; the seeded AI profiles, which is what this exists for, are
-    /// unaffected.</para>
-    /// <para>Traced rather than shown, because it must not block a launch — but at a level that can be
-    /// found, since this is where "my profile stopped working after an update" is answered.</para>
-    /// </remarks>
-    private static void AnnounceCommandShell(ShellProfile shell, ShellProfile commandShell,
-        IReadOnlyList<string> commands)
-    {
-        if (shell.Type != ShellType.Cmd)
-            return;
-
-        // Asked of the two shells rather than of their identity: `ResolveForCommands` returning the very
-        // same instance is how it happens to say "unchanged" today, and a future one that returned an
-        // equal copy would silently turn this warning off.
-        if (commandShell.Type != ShellType.Cmd)
-        {
-            Trace.TraceWarning(
-                "This profile's shell is '{0}', which cannot run chain commands correctly, so its {1} "
-                + "command(s) will be run by '{2}' instead — %VAR%, && and the cmd builtins will not "
-                + "work in them. The tile's interactive shell is unchanged.",
-                shell.Name, commands.Count, commandShell.Name);
-            return;
-        }
-
-        // Left on cmd because there was nothing else installed. Now the old limits apply again, and the
-        // multi-line one is the only one detectable by looking at a string: cmd /c runs the first line
-        // and discards the rest, measured. The line count, not the lines — a profile script is where
-        // people keep tokens.
-        Trace.TraceWarning(
-            "This profile's shell is '{0}' and no PowerShell or POSIX shell was found to run its "
-            + "commands instead, so the known limits apply: `;` is not a separator, quoting differs, and "
-            + "of {1} command(s) any multi-line one runs its first line only ({2}).",
-            shell.Name, commands.Count,
-            string.Join(", ", commands.Select((c, i) => $"#{i + 1}: {c.Split('\n').Length} line(s)")));
     }
 
     private async Task RunGuardedAsync()
@@ -172,14 +124,15 @@ internal sealed class DirectLaunchSession : IDisposable
             if (_terminal.IsDisposed) return;
 
             var command = _commands[index];
-            var (exe, args) = ShellCommandLine.For(_commandShell, command);
+            var (exe, args) = _shell.CommandLineFor(command);
             int session;
             try
             {
                 // The id comes from the start itself. Reading SessionId afterwards answers "what is
                 // running now", and what this chain needs is "what did I start" — the two differ the
                 // moment anything else touches the terminal.
-                session = await ShellStarter.StartAsync(_terminal, _workingDir, exe, args, cancellationToken: stop);
+                session = await ShellStarter.StartAsync(_terminal, _workingDir, exe, args,
+                    environment: _environment, cancellationToken: stop);
             }
             catch (Exception ex) when (ex is not (OperationCanceledException or ObjectDisposedException))
             {
@@ -261,8 +214,8 @@ internal sealed class DirectLaunchSession : IDisposable
         if (_terminal.IsDisposed) return;
         try
         {
-            await ShellStarter.StartAsync(_terminal, _workingDir, _shell.ExecutablePath, _shell.Args,
-                cancellationToken: stop);
+            await ShellStarter.StartAsync(_terminal, _workingDir, _shell.ExecutablePath,
+                _shell.InteractiveArgs, environment: _environment, cancellationToken: stop);
         }
         catch (Exception ex) when (ex is not (OperationCanceledException or ObjectDisposedException))
         {
@@ -272,7 +225,7 @@ internal sealed class DirectLaunchSession : IDisposable
             // directory that has gone look identical from the tile, which shows whatever the previous
             // command left on screen — or nothing at all, if the first command failed to spawn too.
             Trace.TraceError("The tile has no shell: starting '{0}' {1} in '{2}' failed: {3}",
-                _shell.ExecutablePath, string.Join(' ', _shell.Args), _workingDir, ex);
+                _shell.ExecutablePath, string.Join(' ', _shell.InteractiveArgs), _workingDir, ex);
         }
     }
 

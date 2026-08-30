@@ -68,10 +68,6 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private readonly TileActivationScope _activationScope = new();
 
-    private HashSet<string>? _cachedAiToolBinaries;
-    private DateTime _detectionCacheTime;
-    private static readonly TimeSpan DetectionCacheTtl = TimeSpan.FromSeconds(30);
-
     /// <summary>Every name this workspace has given a tile, by kind id.</summary>
     /// <remarks>A dictionary rather than a field per kind: five fields meant five parameters on the
     /// allocator and a five-armed <c>else if</c> reading them back out of a saved layout, and a seventh
@@ -95,10 +91,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         _settingsService = settingsService;
         _dictation = dictation;
         _catalog = catalog;
-        _tileContext = new TileContext(WorkingDirectory, settingsService, ScheduleSave, openSettings)
-        {
-            AvailableProfiles = GetAvailableProfiles
-        };
+        _tileContext = new TileContext(WorkingDirectory, settingsService, ScheduleSave, openSettings);
 
         _serializer = new TileTreeSerializer(
             _catalog,
@@ -111,6 +104,12 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         if (state?.RootTile != null)
         {
             RememberSavedNames(state.RootTile);
+
+            // Before the tree is built, because it rewrites what a leaf *is*: an AI CLI that was a
+            // shell profile becomes an agent tile. Without it this stage takes the profiles away and
+            // every AI tile anybody has comes back as a bare shell.
+            var becameAgents = AgentTileMigration.Apply(state.RootTile, settingsService.Settings);
+
             var load = _serializer.Deserialize(state.RootTile, ScheduleSave);
             RootTile = load.Root;
             _lastActiveLeaf = load.ActiveLeaf;
@@ -122,9 +121,16 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             // nothing to take a copy ahead of either.
             _savingWouldLoseATile = load.HasUnknownKind;
 
-            if (load.NeedsSave && !_savingWouldLoseATile)
+            if ((load.NeedsSave || becameAgents) && !_savingWouldLoseATile)
             {
                 persistenceService.BackupBeforeKindMigration(workspace.Id);
+
+                // A second copy, and only when this migration is the one that ran. The file on disk is
+                // still the pre-migration one at this point — nothing has been written yet — so both
+                // copies are of what the user had.
+                if (becameAgents)
+                    persistenceService.BackupBeforeAgentMigration(workspace.Id);
+
                 ScheduleSave();
             }
         }
@@ -142,36 +148,6 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         // as well is the arrangement the whole fix was about removing: two lists to keep in step.
         ConfigureLeafCallbacks(leaf);
         return leaf;
-    }
-
-    private IReadOnlyList<UserShellProfile> GetAvailableProfiles()
-    {
-        var profiles = _settingsService.Settings.ShellProfiles;
-        if (profiles.Count == 0) return profiles;
-
-        if (!profiles.Any(p => !string.IsNullOrEmpty(p.RequiredAiToolBinaryName)))
-            return profiles;
-
-        var now = DateTime.UtcNow;
-        if (now - _detectionCacheTime > DetectionCacheTtl)
-        {
-            _detectionCacheTime = now;
-            _cachedAiToolBinaries = null;
-        }
-
-        _cachedAiToolBinaries ??= new HashSet<string>(
-            AiToolDetector.Detect(
-                _settingsService.Settings.CustomAiToolPaths,
-                _settingsService.Settings.CustomAiTools)
-            .Where(t => t.IsInstalled).Select(t => t.BinaryName),
-            StringComparer.OrdinalIgnoreCase);
-
-        return profiles.Where(p =>
-        {
-            if (!string.IsNullOrEmpty(p.RequiredAiToolBinaryName))
-                return _cachedAiToolBinaries.Contains(p.RequiredAiToolBinaryName);
-            return true;
-        }).ToList();
     }
 
     public TileActivationScope ActivationScope => _activationScope;
@@ -209,6 +185,20 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     /// <summary>Puts the keyboard back in this workspace — any tile will do, and one has to.</summary>
     public void FocusActiveTile() => ResolveActiveTile(orAnyTile: true)?.RequestFocus();
+
+    /// <summary>
+    /// Opens a tile of <paramref name="kindId"/> beside whichever tile is in use, and focuses it.
+    /// </summary>
+    /// <remarks>What Settings uses to run an agent's install command where the user can watch it: the
+    /// command writes outside every directory this application owns, so it belongs in a tile with its
+    /// own scrollback rather than in a process nobody can see. Beside the active tile rather than in
+    /// place of it — nothing the user is working in is taken away — and any tile will do when the
+    /// workspace has no active one, because one has to.</remarks>
+    public void OpenTileBesideActive(string kindId, System.Text.Json.Nodes.JsonObject? state)
+    {
+        var host = ResolveActiveTile(orAnyTile: true);
+        host?.OpenBeside(kindId, state).RequestFocus();
+    }
 
     private static IEnumerable<LeafTileNodeViewModel> EnumerateLeaves(TileNodeViewModel? node)
     {

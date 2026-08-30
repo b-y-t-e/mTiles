@@ -1,562 +1,55 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
-using System.Text.Json;
 using mTiles.Models;
+using mTiles.Services.Agents;
 
 namespace mTiles.Services;
 
-/// <summary>What one piece of a tool's output is.</summary>
-public enum AiChunkKind
-{
-    /// <summary>Words the tool wrote. Kept, and joined in order, as the fallback answer.</summary>
-    Text,
-
-    /// <summary>The tool's own final text — its answer, in preference to this side's reassembly.
-    /// </summary>
-    Result,
-
-    /// <summary>What it is doing this second: a file, a command, a skill. Shown and thrown away.
-    /// </summary>
-    Activity,
-
-    /// <summary>The tool saying it failed. Never the answer while there is one, and never silently
-    /// dropped either.</summary>
-    Error,
-
-    /// <summary>A tool call the tool was refused permission for. Counted rather than shown: one of
-    /// these is normal — an agent asking for something it does not need — and a run made entirely of
-    /// them is the tile's own permission mode being wrong, which is what the count is for.</summary>
-    Denied,
-}
-
-public sealed class AiOutputChunk
-{
-    public AiChunkKind Kind { get; init; } = AiChunkKind.Text;
-    public string Content { get; init; } = "";
-}
-
 /// <summary>
-/// What a run produced, and whether the tool said it failed.
+/// Running an agent headlessly: one process, its prompt, and everything it printed.
 /// </summary>
 /// <remarks>
-/// The flag is separate from the text because they answer different questions and the loop needs both.
-/// It used to be text alone, so a run that ended in <c>error_max_turns</c> or a refused API key came
-/// back as a non-empty string and was judged <c>Answered</c> — the failure adopted as the plan, or as
-/// the review, and acted on. Throwing the text away instead would have been the other half of the same
-/// mistake: a failed implementation has usually already written files, and what it managed to say about
-/// them is the only account of what is now in the worktree.
+/// What is left here after the agents moved out is the part that is the same for all of them —
+/// starting the child, deciding whether the prompt goes on the command line or down standard input,
+/// draining both pipes without deadlocking, and killing the tree when the tile is paused. Which flags
+/// the child gets, and what its output means, are the agent's (<see cref="IAiAgent"/>).
 /// </remarks>
-public readonly record struct AiOutput(string Text, bool Failed, int PermissionDenials = 0)
-{
-    /// <summary>A run that said something and did not fail. Named rather than implicit: a conversion
-    /// from string would set <c>Failed</c> to false silently, and that bit is the whole of what this
-    /// type was introduced to stop being decided by accident.</summary>
-    public static AiOutput Answered(string text) => new(text, Failed: false);
-
-    /// <summary>A run the tool said had failed, keeping whatever it managed to say.</summary>
-    public static AiOutput Failure(string text) => new(text, Failed: true);
-
-    /// <summary>
-    /// A bare string is an answer that did not fail.
-    /// </summary>
-    /// <remarks>
-    /// Kept for the tests, which stand in for a tool a few dozen times over and mean "it answered this"
-    /// every time. Nothing in the application converts a string any more — every producer here names
-    /// <see cref="Answered"/> or <see cref="Failure"/>, so the bit this type exists to carry is chosen
-    /// rather than defaulted wherever it actually matters.
-    /// </remarks>
-    public static implicit operator AiOutput(string text) => Answered(text);
-}
-
-public interface IAiToolRunner
-{
-    /// <summary>
-    /// The flag this tool is given for the effort asked of it, and the one it is given for the
-    /// permission mode — or null where nothing is passed for that setting.
-    /// <para>Two methods rather than two properties, because the answer depends on the setting: see the
-    /// last paragraph below.</para>
-    /// </summary>
-    /// <remarks>
-    /// <para><b>Here rather than in <see cref="AiEfforts"/> or <see cref="AiPermissionModes"/>, because
-    /// the spelling is the tool's and not this application's.</b> Those two hard-coded
-    /// <c>--effort</c> and <c>--permission-mode</c> — Claude Code's words — so a <c>pi</c> older than
-    /// <c>--thinking</c> answered <c>error: unknown option '--thinking'</c>, matched neither, and the
-    /// user was told only that "the AI tool reported a failure" over a usage message about a flag they
-    /// had never typed. That is the exact failure <see cref="RejectedFlag"/> exists to prevent, and it
-    /// came back the moment a second tool was given a second spelling.</para>
-    /// <para>Both are named together because recognising one needs the other: a usage message is only
-    /// worth acting on when it mentions one of them alone, which is what tells "too old for this flag"
-    /// from "the command line was wrong in some other way".</para>
-    /// <para><b>Asked for the run that happened, not for the tool in general.</b> Every runner here
-    /// adds its flags conditionally — Claude Code passes none for the mode the tool already defaults
-    /// to, Antigravity passes its one flag only on bypass — so a matcher told the tool's flag
-    /// unconditionally reads a usage message as "the flag was refused" over a flag that was never on
-    /// the command line. For Antigravity that is not a corner: its effort flag is null, which leaves the
-    /// weaker rule (a usage message naming the flag) with nothing to disambiguate against, and every
-    /// failure of <c>agy</c> that prints its usage would advise a user on <em>Auto</em> to stop passing
-    /// something they were not passing.</para>
-    /// </remarks>
-    string? EffortFlagFor(AiEffort effort) => null;
-
-    /// <inheritdoc cref="EffortFlagFor"/>
-    string? PermissionFlagFor(AiPermissionMode permission) => null;
-
-    // No model parameter — each tool uses its own default model.
-    // Tools support many providers so there's no way to build a universal model list.
-    // If tools add a model listing command in the future, we can re-add model selection.
-    /// <param name="permission">How much the tool may do without asking. Optional, and defaulted to
-    /// <see cref="AiPermissionMode.Auto"/> rather than to "pass nothing", because "pass nothing" is
-    /// the behaviour that made a headless run refuse every edit on a machine whose Claude Code is at
-    /// its factory ask-first default. A tool with no such flag ignores it.</param>
-    /// <param name="effort">How hard the tool is asked to think. Defaulted to
-    /// <see cref="AiEffort.High"/> rather than to the tool's own, because a goal run is left alone and
-    /// an attempt spent on a shallow answer costs as much of the budget as a careful one. A second
-    /// parameter every runner but one ignores, spelled the same way <paramref name="permission"/> is:
-    /// one flag for one CLI does not earn an options object, and two shapes for the same idea would.
-    /// </param>
-    void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto,
-        AiEffort effort = AiEffort.High);
-
-    /// <summary>
-    /// Whether this tool can report what it is doing as it does it.
-    /// </summary>
-    /// <remarks>
-    /// Opt-in per tool, like <see cref="AcceptsPromptOnStdin"/> and for the same reason: it is a claim
-    /// about somebody else's CLI. A tool that does not stream is run exactly as it was before and its
-    /// output read at the end.
-    /// </remarks>
-    bool SupportsStreaming => false;
-
-    /// <summary>
-    /// Whether this tool reads its prompt from standard input when the prompt is left off the command
-    /// line.
-    /// <para>Opt-in, and false by default, because it is a claim about somebody else's CLI. Windows
-    /// caps a command line at 32 767 characters — 8 191 through the <c>.cmd</c> shim npm installs — and
-    /// a prompt carrying a diff passes that easily, at which point <c>Process.Start</c> throws and the
-    /// tile can only offer to try again and fail identically. Stdin removes the limit, but a tool that
-    /// does <em>not</em> read stdin would sit waiting for input that never comes, so this is turned on
-    /// per tool, by somebody who has checked, rather than assumed for all four.</para>
-    /// </summary>
-    bool AcceptsPromptOnStdin => false;
-
-    /// <summary>
-    /// Everything one line of the tool's output says, in the order it says it.
-    /// </summary>
-    /// <remarks>
-    /// A list rather than one chunk, because a single assistant message carries both prose and tool
-    /// calls — "let me look at the cart" and then the Read. Returning one meant choosing, and choosing
-    /// the tool call threw the sentence away: invisible while the run ends with a result line, and the
-    /// whole of what is left when it does not — which is exactly the interrupted run, where what it
-    /// managed to say is all there is to show for it.
-    /// </remarks>
-    IReadOnlyList<AiOutputChunk> ParseLine(string line);
-}
-
-public sealed class ClaudeToolRunner : IAiToolRunner
-{
-    public string? EffortFlagFor(AiEffort effort) => AiEfforts.Flag(effort) is null ? null : "--effort";
-
-    public string? PermissionFlagFor(AiPermissionMode permission) =>
-        AiPermissionModes.Flag(permission) is null ? null : "--permission-mode";
-
-    /// <summary><c>claude -p</c> with no prompt after it reads the prompt from standard input.</summary>
-    public bool AcceptsPromptOnStdin => true;
-
-    public bool SupportsStreaming => true;
-
-    /// <summary>
-    /// The command line, and one flag that is deliberately absent.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>No <c>--max-turns</c>, at any number.</b> It was 20, then 200, and both were my numbers
-    /// rather than anything about the work. An agent that reads a few files, loads a skill and then
-    /// edits spends turns quickly, so a ceiling is reachable in ordinary work: the 200 was hit half way
-    /// through a real implementation, which is the failure the 20 was raised for. Reporting the stop
-    /// honestly — <c>error_max_turns</c> arrives as a result line marked as an error, and
-    /// <see cref="ParseLine"/> reports it as one — makes a truncated run visible, but a visible
-    /// truncation is still a truncation, and the tile is meant to be left alone for hours. Turns are
-    /// the wrong unit for this: what they count is the tool's inner loop, and what the user cares about
-    /// is the work.</para>
-    /// <para><b>Which leaves one run with no ceiling of any kind, and that is the accepted risk rather
-    /// than something covered elsewhere.</b> The attempt budget bounds how many runs a goal gets, not
-    /// how long one lasts, and <see cref="RunPlainAsync"/> deliberately has no wall-clock timeout — so
-    /// Pause is the whole of the stop. Not "the user can set one in their settings": measured against
-    /// Claude Code 2.1.251, <c>maxTurns</c> is a hidden CLI flag, a field in an agent file's front
-    /// matter and an SDK option, and <c>settings.json</c> has no equivalent at all. The only ceiling
-    /// available for this run is the flag on this line, which is exactly the one being refused.</para>
-    /// <para><c>--verbose</c> is not optional with <c>stream-json</c>: print mode refuses the pair
-    /// without it.</para>
-    /// </remarks>
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto,
-        AiEffort effort = AiEffort.High)
-    {
-        // No prompt argument: `claude -p` with nothing after it reads it from standard input, which
-        // AiProcessRunner writes. `prompt` is unused here for exactly that reason.
-        psi.ArgumentList.Add("-p");
-
-        // Said out loud rather than inherited. Without it the run takes whatever mode the user's own
-        // Claude Code settings are in, and the factory default is to ask — which a `-p` run cannot do,
-        // so every edit is refused and the implementation writes nothing. ToolDefault is the way back
-        // to that inheritance for somebody who wants it, and it is the only mode that adds no flag.
-        if (AiPermissionModes.Flag(permission) is { } mode)
-        {
-            psi.ArgumentList.Add("--permission-mode");
-            psi.ArgumentList.Add(mode);
-        }
-
-        // Measured: an unrecognised *value* is forgiving here — the tool warns and uses its own
-        // default — but an unrecognised *flag* is not, and a Claude Code from before --effort existed
-        // runs nothing at all. AiEfforts.LooksLikeRejectedEffort is what turns that into a sentence
-        // naming the way out rather than "the AI tool reported a failure".
-        if (AiEfforts.Flag(effort) is { } level)
-        {
-            psi.ArgumentList.Add("--effort");
-            psi.ArgumentList.Add(level);
-        }
-
-        psi.ArgumentList.Add("--output-format");
-        psi.ArgumentList.Add(streaming ? "stream-json" : "text");
-
-        if (!streaming) return;
-
-        psi.ArgumentList.Add("--verbose");
-    }
-
-    public IReadOnlyList<AiOutputChunk> ParseLine(string line)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(line);
-            var root = doc.RootElement;
-
-            if (!root.TryGetProperty("type", out var typeProp))
-                return [];
-
-            var type = typeProp.GetString() ?? "";
-
-            if (type == "assistant" && root.TryGetProperty("message", out var msg)
-                && msg.TryGetProperty("content", out var contentArr)
-                && contentArr.ValueKind == JsonValueKind.Array)
-            {
-                // Both halves, in the order the message wrote them. This used to return the tool call
-                // and drop the prose, on the grounds that the answer comes from the result line anyway
-                // — true until the run is interrupted, which is the one case where what it managed to
-                // say is all there is.
-                var said = new List<AiOutputChunk>();
-
-                foreach (var block in contentArr.EnumerateArray())
-                {
-                    if (block.TryGetProperty("text", out var text)
-                        && text.GetString() is { Length: > 0 } prose)
-                        said.Add(new AiOutputChunk { Kind = AiChunkKind.Text, Content = prose });
-
-                    if (Activity(block) is { Length: > 0 } doing)
-                        said.Add(new AiOutputChunk { Kind = AiChunkKind.Activity, Content = doing });
-                }
-
-                if (said.Count > 0) return said;
-            }
-
-            // A refused tool call comes back as a user turn carrying the tool_result, not as an error
-            // line, so nothing above this ever saw one: the run looked like an agent that read some
-            // files and decided to change nothing. Counted here so the tile can tell "it declined the
-            // work" from "it was not allowed to do the work" — the two produce an identical worktree.
-            if (type == "user" && root.TryGetProperty("message", out var userMsg)
-                && userMsg.TryGetProperty("content", out var userContent)
-                && userContent.ValueKind == JsonValueKind.Array)
-            {
-                var refused = userContent.EnumerateArray().Count(IsPermissionDenial);
-                if (refused > 0)
-                    return Enumerable.Repeat(
-                        new AiOutputChunk { Kind = AiChunkKind.Denied, Content = "" }, refused).ToList();
-            }
-
-            if (type == "content_block_delta" && root.TryGetProperty("delta", out var delta)
-                && delta.TryGetProperty("text", out var deltaText))
-            {
-                return [new AiOutputChunk { Kind = AiChunkKind.Text, Content = deltaText.GetString() ?? "" }];
-            }
-
-            if (type == "result")
-            {
-                // Asked before the text is taken, because the text is there either way. A result line
-                // carrying is_error is the tool saying this is what went wrong, not what it produced —
-                // and read as an answer it becomes a plan, an implementation, or a review that nobody
-                // wrote. The error path keeps it out of the answer unless there is nothing else.
-                var failed = root.TryGetProperty("is_error", out var isError)
-                             && isError.ValueKind == JsonValueKind.True;
-
-                if (root.TryGetProperty("subtype", out var subtype)
-                    && (subtype.GetString() ?? "").StartsWith("error", StringComparison.OrdinalIgnoreCase))
-                    failed = true;
-
-                var text = root.TryGetProperty("result", out var result) ? result.GetString() ?? "" : "";
-
-                if (failed)
-                    return [new AiOutputChunk
-                    {
-                        Kind = AiChunkKind.Error,
-                        Content = text.Length > 0 ? text : "Claude returned an error.",
-                    }];
-
-                if (text.Length > 0)
-                    return [new AiOutputChunk { Kind = AiChunkKind.Result, Content = text }];
-            }
-
-            return [];
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
-
-    /// <summary>
-    /// Whether one block of a user turn is the harness saying a tool call was not allowed.
-    /// </summary>
-    /// <remarks>
-    /// <para>Matched on the words, because there is no field that says so: a denial arrives as an
-    /// ordinary <c>tool_result</c> with <c>is_error</c> set, which is also what a failed command or a
-    /// missing file looks like. The error flag is therefore the gate and the wording is the test, and
-    /// both halves are needed — the wording alone would count an agent quoting the sentence.</para>
-    /// <para>Two spellings, because the harness has used both. Getting this wrong is cheap in one
-    /// direction and not the other: a missed denial only leaves the old, unhelpful message in place,
-    /// while a false one would tell a user their permission mode is wrong when it is not. Hence the
-    /// narrow phrases rather than the word "permission" on its own.</para>
-    /// <para>There was a third test here — "permission" and "denied" anywhere in the same result —
-    /// as a catch-all, and it was the exact failure the paragraph above forbids, written one line
-    /// below it. Those two words appear together in <c>Permission denied (publickey)</c> from a git
-    /// push, in <c>bash: ./x: Permission denied</c>, and in <c>EACCES: permission denied, open</c> from
-    /// node — every one of them an ordinary <c>tool_result</c> with <c>is_error</c> set, and every one
-    /// of them a real failure of the work rather than a refusal by the harness. It turned "your ssh key
-    /// is not loaded" into "mTiles was not allowed to touch a file; change the permission mode", which
-    /// sends the user to a setting that will not help. A new spelling by the harness costs a missed
-    /// denial and the old message; a guess costs the user the diagnosis.</para>
-    /// </remarks>
-    private static bool IsPermissionDenial(JsonElement block)
-    {
-        if (!block.TryGetProperty("type", out var kind) || kind.GetString() != "tool_result") return false;
-        if (!block.TryGetProperty("is_error", out var isError) || isError.ValueKind != JsonValueKind.True)
-            return false;
-
-        var text = block.TryGetProperty("content", out var content) ? Flatten(content) : "";
-
-        return text.Contains("requested permissions", StringComparison.OrdinalIgnoreCase)
-               || text.Contains("permission to use", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>A tool_result's content, which is a string in the simple case and a list of blocks in
-    /// the other. Both shapes are the harness's, not a choice this side gets to make.</summary>
-    private static string Flatten(JsonElement content) => content.ValueKind switch
-    {
-        JsonValueKind.String => content.GetString() ?? "",
-        JsonValueKind.Array => string.Join(" ", content.EnumerateArray()
-            .Select(b => b.ValueKind == JsonValueKind.Object && b.TryGetProperty("text", out var t)
-                ? t.GetString() ?? ""
-                : "")),
-        _ => "",
-    };
-
-    /// <summary>
-    /// One tool call, in the fewest words that still say what is happening.
-    /// </summary>
-    /// <remarks>
-    /// The tool's name alone is nearly useless — "Edit" tells you it is editing something — and the
-    /// whole input is a JSON object nobody wants in a status strip. What is worth a line is the name
-    /// and the one field that says which thing: the file, the command, the skill.
-    /// </remarks>
-    private static string Activity(JsonElement block)
-    {
-        if (!block.TryGetProperty("type", out var kind) || kind.GetString() != "tool_use") return "";
-        if (!block.TryGetProperty("name", out var nameProp)) return "";
-
-        var name = nameProp.GetString() ?? "";
-        if (name.Length == 0) return "";
-
-        if (!block.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object)
-            return name;
-
-        foreach (var field in Subjects)
-            if (input.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String
-                && value.GetString() is { Length: > 0 } subject)
-                return $"{name} {Shorten(subject)}";
-
-        return name;
-    }
-
-    /// <summary>The field that says what a tool call is about, in the order worth trying. A path comes
-    /// before a pattern because "Grep src/Goal" reads better than "Grep TODO", and a command near the
-    /// end because it is the one that is usually long; description is last, as the fallback for a tool
-    /// that names nothing else.</summary>
-    private static readonly string[] Subjects =
-        ["file_path", "path", "notebook_path", "skill", "pattern", "url", "command", "description"];
-
-    /// <summary>One line's worth, with the useful end kept: a path is told apart by its last segment,
-    /// not its first, so this trims from the left and marks it.</summary>
-    private static string Shorten(string subject)
-    {
-        var flat = subject.ReplaceLineEndings(" ").Trim();
-        if (flat.Length <= 48) return flat;
-
-        // By rune, not by char. A path with an emoji or anything else outside the basic plane is two
-        // chars for one character, and cutting at 47 of them splits the pair and leaves a lone
-        // surrogate on the status strip — the distinction CommandDisplay.Visible already spells out a
-        // few files away.
-        var runes = flat.EnumerateRunes().ToList();
-        return "\u2026" + string.Concat(runes.Skip(Math.Max(0, runes.Count - 47)));
-    }
-}
-
-public sealed class CodexToolRunner : IAiToolRunner
-{
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto,
-        AiEffort effort = AiEffort.High)
-    {
-        psi.ArgumentList.Add("exec");
-        psi.ArgumentList.Add(prompt);
-    }
-
-    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
-}
-
-public sealed class OpenCodeToolRunner : IAiToolRunner
-{
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto,
-        AiEffort effort = AiEffort.High)
-    {
-        psi.ArgumentList.Add("run");
-        psi.ArgumentList.Add(prompt);
-    }
-
-    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
-}
-
-public sealed class PiToolRunner : IAiToolRunner
-{
-    public string? EffortFlagFor(AiEffort effort) =>
-        AiEfforts.Flag(effort) is null ? null : "--thinking";
-
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto,
-        AiEffort effort = AiEffort.High)
-    {
-        psi.ArgumentList.Add("-p");
-        psi.ArgumentList.Add(prompt);
-        psi.ArgumentList.Add("--mode");
-        psi.ArgumentList.Add("text");
-
-        // Measured against `pi --help`: `--thinking off|minimal|low|medium|high|xhigh|max`. Every level
-        // AiEffort names exists there under the same word, so the map is the identity and the tile's
-        // setting means here what it means for Claude Code. `off` and `minimal` are pi's alone and are
-        // deliberately not offered: a Goal run is left alone, and the tile has no level below `low`.
-        //
-        // pi has no permission flag of its own — `--approve` is about trusting project-local files, not
-        // about tool calls — so `permission` goes unused rather than being mapped to something adjacent.
-        if (AiEfforts.Flag(effort) is { } level)
-        {
-            psi.ArgumentList.Add("--thinking");
-            psi.ArgumentList.Add(level);
-        }
-    }
-
-    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
-}
-
-/// <summary>
-/// Google's Antigravity CLI.
-/// </summary>
-/// <remarks>
-/// <para>Measured, and it needed a runner of its own rather than the generic fallback: a bare
-/// positional argument does not start a print run, it opens the interactive session and <b>hangs</b> —
-/// which, on a path with no wall-clock timeout, is a Goal tile that never comes back.
-/// <c>agy --print &lt;prompt&gt;</c> answers on stdout and exits 0.</para>
-/// <para><c>--dangerously-skip-permissions</c> is the only permission control it has, so only
-/// <see cref="AiPermissionMode.BypassPermissions"/> maps to anything. The three finer modes pass no
-/// flag rather than being rounded up to it — asking for "auto" and getting "nothing is asked about at
-/// all" is the one direction this must never round.</para>
-/// <para><b>No effort flag.</b> Antigravity spends its effort through the model name — the catalogue
-/// is <c>gemini-3.7-flash-high</c>, <c>-medium</c>, <c>-low</c> — so a level would have to rewrite
-/// whatever model the user has configured, which is a larger claim than this setting makes anywhere
-/// else. It is left alone.</para>
-/// </remarks>
-public sealed class AntigravityToolRunner : IAiToolRunner
-{
-    public string? PermissionFlagFor(AiPermissionMode permission) =>
-        permission == AiPermissionMode.BypassPermissions ? "--dangerously-skip-permissions" : null;
-
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto,
-        AiEffort effort = AiEffort.High)
-    {
-        if (permission == AiPermissionMode.BypassPermissions)
-            psi.ArgumentList.Add("--dangerously-skip-permissions");
-
-        psi.ArgumentList.Add("--print");
-        psi.ArgumentList.Add(prompt);
-    }
-
-    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
-}
-
-/// <summary>
-/// What an unrecognised tool gets: the prompt as a plain first argument, and no claim about stdin.
-/// <para>The fallback used to be <see cref="ClaudeToolRunner"/>, which was survivable while that ran
-/// everything on the command line and became a hang when it moved to standard input — a custom tool
-/// was launched with Claude's flags, no prompt anywhere on its command line, and a pipe it had never
-/// agreed to read. Passing the prompt as an argument is the one thing every CLI here does.</para>
-/// </summary>
-public sealed class GenericToolRunner : IAiToolRunner
-{
-    public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-        AiPermissionMode permission = AiPermissionMode.Auto,
-        AiEffort effort = AiEffort.High) =>
-        psi.ArgumentList.Add(prompt);
-
-    public IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
-        string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
-}
-
 public static class AiProcessRunner
 {
-    private static readonly ConcurrentDictionary<string, IAiToolRunner> Runners = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["claude"] = new ClaudeToolRunner(),
-        ["codex"] = new CodexToolRunner(),
-        ["opencode"] = new OpenCodeToolRunner(),
-        ["pi"] = new PiToolRunner(),
-        ["agy"] = new AntigravityToolRunner()
-    };
-
-    public static IAiToolRunner GetRunner(string toolBinary) =>
-        Runners.GetValueOrDefault(toolBinary) ?? new GenericToolRunner();
+    /// <summary>
+    /// The agent a binary name refers to, and a bare-prompt fallback for one nothing is known about.
+    /// </summary>
+    /// <remarks>By binary name rather than by agent id because that is what the caller has — the two
+    /// happen to be the same string for all five, which is a coincidence of naming and not something to
+    /// rely on, so it is asked of the catalog rather than assumed.</remarks>
+    public static IAiAgent GetRunner(string toolBinary) =>
+        AiAgentCatalog.All.FirstOrDefault(
+            agent => agent.BinaryName.Equals(toolBinary, StringComparison.OrdinalIgnoreCase))
+        ?? new GenericAgent(toolBinary);
 
     private static readonly TimeSpan ProcessExitTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// Refuses a prompt the operating system could not carry, with a message saying so.
-    /// <para>The prompt is passed as a command-line argument by every runner here, and Windows caps a
+    /// <para>The prompt is passed as a command-line argument by every agent here, and Windows caps a
     /// command line at 32 767 characters — 8 191 through a <c>.cmd</c> shim, which is what npm installs.
     /// Over the limit <c>Process.Start</c> throws a <see cref="System.ComponentModel.Win32Exception"/>
     /// whose text says nothing about length, so the tile reported that the tool had failed and offered
     /// to try again, which could only fail identically. This says what actually happened.</para>
     /// </summary>
-    private static void GuardPromptLength(string executablePath, string prompt)
+    private static void GuardPromptLength(
+        string executablePath, string prompt, AiAgentInstance? instance)
     {
-        if (PromptBudget(executablePath) is not { } budget) return;
+        if (PromptBudget(executablePath, instance: instance) is not { } budget) return;
 
         if (budget <= 0)
             throw new InvalidOperationException(
-                $"The path to this tool is {executablePath.Length} characters, which leaves no room on " +
-                "a command line for a prompt. Move the tool somewhere shorter.");
+                $"The path to this tool is {executablePath.Length} characters" +
+                (ExtraArgsLength(instance) > 0
+                    ? $" and its extra arguments another {ExtraArgsLength(instance)}"
+                    : "") +
+                ", which leaves no room on a command line for a prompt. Move the tool somewhere " +
+                "shorter, or shorten the instance's extra arguments.");
 
         var quoted = CommandLineLength.Quoted(prompt);
         if (quoted <= budget) return;
@@ -580,10 +73,92 @@ public static class AiProcessRunner
     /// blocks be trimmed to fit instead, which costs the tool some context and costs the user nothing.
     /// </para>
     /// <para>The arithmetic itself is <see cref="CommandLineLength"/>'s; what this adds is the one thing
-    /// only a runner knows — whether the prompt is going on a command line at all.</para>
+    /// only an agent knows — whether the prompt is going on a command line at all.</para>
     /// </summary>
-    public static int? PromptBudget(string executablePath, IAiToolRunner? runner = null) =>
-        runner?.AcceptsPromptOnStdin == true ? null : CommandLineLength.Budget(executablePath);
+    public static int? PromptBudget(
+        string executablePath, IAiAgent? agent = null, AiAgentInstance? instance = null)
+    {
+        if (agent?.AcceptsPromptOnStdin == true) return null;
+        if (CommandLineLength.Budget(executablePath) is not { } budget) return null;
+
+        return Math.Max(0, budget - ExtraArgsLength(instance));
+    }
+
+    /// <summary>
+    /// What the instance's own <see cref="AiAgentInstance.ExtraArgs"/> will take off the same command
+    /// line, quoted as they will be written and with the space in front of each.
+    /// </summary>
+    /// <remarks>Part of the budget rather than of the slack <see cref="CommandLineLength.Budget"/>
+    /// keeps back: that slack is a fixed 256 characters for the agent's own flags, while these are
+    /// user-typed and unbounded — a couple of <c>--add-dir</c> entries with long paths pushed the argv
+    /// past the limit after the guard had already passed it, which is the opaque
+    /// <see cref="System.ComponentModel.Win32Exception"/> the guard exists to prevent.</remarks>
+    private static int ExtraArgsLength(AiAgentInstance? instance) =>
+        instance is null
+            ? 0
+            : instance.ExtraArgs
+                .Where(argument => !string.IsNullOrWhiteSpace(argument))
+                .Sum(argument => CommandLineLength.Quoted(argument) + 1);
+
+    /// <summary>
+    /// What this agent will actually be run with, once what was asked for has been fitted to what it
+    /// supports for this <paramref name="usage"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>The one place the two rounding rules are applied, so that they are a fact about every run
+    /// rather than a rule each agent has to remember. Without it <c>SupportedBehaviours</c> and
+    /// <c>SupportedEfforts</c> are documentation: a mode an agent does not have reaches its command
+    /// line, and the run fails on a flag the user never typed.</para>
+    /// <para>Asked by the failure path too, so "was the flag we passed refused" is asked about the
+    /// flag that was passed rather than the one the strip shows.</para>
+    /// </remarks>
+    /// <param name="instance">The configured instance being run, or null while a caller still resolves
+    /// its agent by binary name — see <see cref="AiAgentCatalog.SeedInstanceFor"/>.</param>
+    public static (AiBehaviour Behaviour, AiEffort Effort) Fit(
+        IAiAgent agent,
+        AiUsage usage,
+        AiBehaviour behaviour,
+        AiEffort effort,
+        AiAgentInstance? instance = null)
+    {
+        var configured = instance ?? AiAgentCatalog.SeedInstanceFor(agent);
+
+        return (AiBehaviours.RoundDown(behaviour, agent.SupportedBehaviours(configured, usage)),
+            AiEfforts.RoundToNearest(effort, agent.SupportedEfforts(configured, usage)));
+    }
+
+    /// <summary>
+    /// Puts the instance's own <see cref="AiAgentInstance.ExtraArgs"/> on the command line of a
+    /// headless run, in front of the prompt when the prompt is the last positional argument.
+    /// </summary>
+    /// <remarks>
+    /// <para>Here rather than in each agent, for the reason <c>AiAgent.Interactive</c> composes them
+    /// rather than leaving them to six classes: an instance's settings apply wherever the instance is
+    /// used, and the tile already honoured these while every goal run on the same instance ignored
+    /// them — so <c>--add-dir</c> worked in the agent tile and silently did nothing in a goal.</para>
+    /// <para><b>Where they go is the agent's answer</b> (<see cref="IAiAgent.ExtraArgsIndex"/>), not a
+    /// rule worked out here. "In front of the last argument when it equals the prompt" is right for the
+    /// agents that pass the prompt as a bare positional — an option after a positional is a parse this
+    /// application does not get to decide — and wrong for agy, whose prompt is the value of its own
+    /// <c>--print</c>: an argument slipped between the two became that flag's value and left the prompt
+    /// as a stray positional.</para>
+    /// <para>Blank entries are dropped, as they are for the interactive command: the field is a
+    /// multi-line text box, so an empty line in it is a keystroke rather than an argument.</para>
+    /// </remarks>
+    private static void AddExtraArgs(
+        IList<string> arguments, AiAgentInstance? instance, string prompt, IAiAgent agent)
+    {
+        if (instance is null) return;
+
+        var extra = instance.ExtraArgs
+            .Where(argument => !string.IsNullOrWhiteSpace(argument))
+            .ToList();
+        if (extra.Count == 0) return;
+
+        var at = Math.Clamp(agent.ExtraArgsIndex([.. arguments], prompt), 0, arguments.Count);
+        foreach (var argument in extra)
+            arguments.Insert(at++, argument);
+    }
 
     /// <summary>
     /// Runs the tool once and returns everything it printed.
@@ -601,7 +176,7 @@ public static class AiProcessRunner
     /// </remarks>
     /// <param name="onActivity">
     /// Called with a few words about what the tool is doing, as it does it, when the tool can say —
-    /// see <see cref="IAiToolRunner.SupportsStreaming"/>. <b>Called from the thread draining the child's
+    /// see <see cref="IAiAgent.SupportsStreaming"/>. <b>Called from the thread draining the child's
     /// output</b>, so anything touching the UI marshals for itself.
     /// <para>Passing one is what turns streaming on. Without it the tool is run exactly as it was and
     /// its output read at the end, which is what the tools that cannot stream always do.</para>
@@ -610,19 +185,26 @@ public static class AiProcessRunner
         string executablePath,
         string prompt,
         string workingDirectory,
-        IAiToolRunner runner,
-        AiPermissionMode permission = AiPermissionMode.Auto,
+        IAiAgent agent,
+        AiUsage usage,
+        AiBehaviour behaviour = AiBehaviour.Auto,
         AiEffort effort = AiEffort.High,
         Action<string>? onActivity = null,
         Action<int>? onStarted = null,
+        AiAgentInstance? instance = null,
+        IReadOnlyDictionary<string, string?>? environment = null,
+        string model = "",
         CancellationToken ct = default)
     {
-        if (!runner.AcceptsPromptOnStdin)
-            GuardPromptLength(executablePath, prompt);
+        (behaviour, effort) = Fit(agent, usage, behaviour, effort, instance);
 
-        var streaming = onActivity != null && runner.SupportsStreaming;
+        if (!agent.AcceptsPromptOnStdin)
+            GuardPromptLength(executablePath, prompt, instance);
+
+        var streaming = onActivity != null && agent.SupportsStreaming;
 
         var psi = CreateProcessStartInfo(executablePath, workingDirectory);
+        ApplyEnvironment(psi, environment);
 
         // **Always redirected, whether or not the prompt goes down it.** Left inherited, a tool that
         // decides to be interactive waits on this application's own standard input, which in a windowed
@@ -630,8 +212,8 @@ public static class AiProcessRunner
         // that deliberately has no wall-clock timeout, and the tile waits for ever.
         //
         // This is not hypothetical and not about one tool: a bare positional prompt is what
-        // `GenericToolRunner` passes, and a bare positional prompt is measured to open an interactive
-        // session rather than a print run on at least one of the CLIs here. Every tool without a runner
+        // `GenericAgent` passes, and a bare positional prompt is measured to open an interactive
+        // session rather than a print run on at least one of the CLIs here. Every tool without an agent
         // of its own — every custom AI tool a user adds, and any tool whose entry is removed — takes
         // that path. Closing the pipe below turns "waits for input that will never come" into
         // end-of-input, which is a tool that exits and says something.
@@ -641,7 +223,11 @@ public static class AiProcessRunner
         // out with `--effort high` whatever the strip said, the combo box was decoration, and — worse —
         // a Claude Code from before that flag existed rejected it on every goal with no way for the
         // user to turn it off, because choosing "tool default" changed nothing that got this far.
-        runner.ConfigureProcess(psi, prompt, streaming, permission, effort);
+        // The model too, by the same argument as the effort: an instance configured to run a
+        // provider's model had that setting reach nothing at all on four agents out of five, so the run
+        // went out on the CLI's own default — to an address that usually does not serve it.
+        agent.ConfigureProcess(psi, prompt, streaming, usage, behaviour, effort, model);
+        AddExtraArgs(psi.ArgumentList, instance, prompt, agent);
 
         using var process = new Process { StartInfo = psi };
         process.Start();
@@ -655,7 +241,7 @@ public static class AiProcessRunner
         // prompt large enough to fill the pipe: this side blocks writing the rest of it while the child
         // blocks writing output nobody is draining, which is the size of prompt stdin exists for.
         var stdoutTask = streaming
-            ? ReadStreamAsync(process.StandardOutput, runner, onActivity!)
+            ? ReadStreamAsync(process.StandardOutput, agent, onActivity!)
             : ReadToEndAsync(process.StandardOutput);
         var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
 
@@ -667,7 +253,7 @@ public static class AiProcessRunner
             try { process.Kill(entireProcessTree: true); } catch { }
         });
 
-        if (runner.AcceptsPromptOnStdin)
+        if (agent.AcceptsPromptOnStdin)
         {
             await WritePromptAsync(process, prompt);
         }
@@ -724,7 +310,7 @@ public static class AiProcessRunner
     /// below can be read off a string in a test instead of needing a tool installed to state them.
     /// </param>
     internal static async Task<AiOutput> ReadStreamAsync(
-        TextReader output, IAiToolRunner runner, Action<string> onActivity)
+        TextReader output, IAiAgent agent, Action<string> onActivity)
     {
         var text = new StringBuilder();
         string? result = null;
@@ -733,7 +319,7 @@ public static class AiProcessRunner
 
         while (await output.ReadLineAsync() is { } line)
         {
-            foreach (var chunk in runner.ParseLine(line))
+            foreach (var chunk in agent.ParseLine(line))
             {
                 switch (chunk.Kind)
                 {
@@ -836,6 +422,26 @@ public static class AiProcessRunner
         catch (OperationCanceledException)
         {
             try { process.Kill(entireProcessTree: true); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Puts an instance's own environment on a run — its provider's address, its key, its model.
+    /// </summary>
+    /// <remarks><b>A null value unsets</b>, which is the same contract <c>PtyOptions.Environment</c>
+    /// carries for the tile launch paths, and it exists for the same reason: on a machine that exports a
+    /// global <c>ANTHROPIC_API_KEY</c>, a block that could only add would leave the inherited key beside
+    /// our token and the run would go out on somebody else's account without a word.
+    /// <para>Never the prompt or a command line: a key on either is a key in a log.</para></remarks>
+    private static void ApplyEnvironment(ProcessStartInfo psi,
+        IReadOnlyDictionary<string, string?>? environment)
+    {
+        if (environment is null) return;
+
+        foreach (var (name, value) in environment)
+        {
+            if (value is null) psi.Environment.Remove(name);
+            else psi.Environment[name] = value;
         }
     }
 

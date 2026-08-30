@@ -34,13 +34,12 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
     /// <summary>Whether "New session" means anything here.</summary>
     /// <remarks>
-    /// It generates a fresh <see cref="TileId"/> and restarts, and the id is only ever <em>used</em> by a
-    /// profile script that puts <c>${tileId}</c> on a command line — so on a tile running a plain shell
-    /// the command would restart the shell and claim to have done something else. The one place left
-    /// where this class knows what a terminal is, and it is about the tile's own identity rather than
-    /// about anything the content can do.
+    /// It generates a fresh <see cref="TileId"/> and restarts, and the id is only ever <em>used</em> as
+    /// an agent's conversation — so on a tile running a plain shell the command would restart the shell
+    /// and claim to have done something else. The one place left where this class knows what its content
+    /// is, and it is about the tile's own identity rather than about anything the content can do.
     /// </remarks>
-    public bool HasProfile => Content is TerminalTileViewModel { UserProfileId: not null };
+    public bool HasSession => Content is AgentTileViewModel;
 
     /// <summary>What the tile's own header and a paired phone may ask its content to do.</summary>
     /// <remarks>Empty for content that offers nothing, so no caller has to ask whether there is a list
@@ -71,7 +70,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     partial void OnContentChanged(ITile? oldValue, ITile? newValue)
     {
         WatchContent(oldValue, newValue);
-        OnPropertyChanged(nameof(HasProfile));
+        OnPropertyChanged(nameof(HasSession));
         OnPropertyChanged(nameof(IsBusy));
         RaiseActionsChanged();
     }
@@ -433,7 +432,25 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         NotifyLayoutChanged();
     }
 
-    private void Split(Orientation orientation)
+    /// <summary>
+    /// Opens a tile of <paramref name="kindId"/> beside this one, and answers with it.
+    /// </summary>
+    /// <remarks>An empty tile takes the content itself rather than splitting: a tile with nothing in it
+    /// is a place for a tile, and splitting one leaves an empty half nobody asked for.</remarks>
+    public LeafTileNodeViewModel OpenBeside(string kindId, JsonObject? state)
+    {
+        if (KindId == TileKindIds.None)
+        {
+            Adopt(kindId, state);
+            return this;
+        }
+
+        var leaf = Split(Orientation.Horizontal);
+        leaf.Adopt(kindId, state);
+        return leaf;
+    }
+
+    private LeafTileNodeViewModel Split(Orientation orientation)
     {
         var newLeaf = new LeafTileNodeViewModel(TileKindIds.None, null, _workingDirectory,
             _activationScope, _catalog, _context, _nameFactory)
@@ -484,6 +501,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         }
 
         NotifyLayoutChanged();
+        return newLeaf;
     }
 
     [RelayCommand]

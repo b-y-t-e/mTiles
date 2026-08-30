@@ -1,6 +1,8 @@
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Agents;
 using Xunit;
+using static mTiles.Tests.TestUsage;
 
 namespace mTiles.Tests;
 
@@ -26,10 +28,10 @@ public class GoalEffortTests
 
         // Measured against `claude --effort`: low, medium, high, xhigh, max.
         Assert.Equal(["low", "medium", "high", "xhigh", "max"],
-            AiEfforts.All.Select(AiEfforts.Flag).Where(f => f != null));
+            AiEfforts.All.Select(AiEfforts.Name).Where(f => f != null));
 
         // One level passes no flag at all, which is the way out on a Claude Code older than the option.
-        Assert.Null(AiEfforts.Flag(AiEffort.ToolDefault));
+        Assert.Null(AiEfforts.Name(AiEffort.ToolDefault));
         Assert.Equal("tool default", AiEfforts.Label(AiEffort.ToolDefault));
 
         // A label round-trips, and an unrecognised one is the default rather than an exception while a
@@ -87,22 +89,21 @@ public class GoalEffortTests
         const string refusedThinking = "error: unknown option '--thinking'";
 
         Assert.True(AiEfforts.LooksLikeRejectedEffort(refusedThinking,
-            pi.EffortFlagFor(AiEffort.High), pi.PermissionFlagFor(AiPermissionMode.Auto)));
+            pi.EffortFlagFor(AiEffort.High, Implementing), pi.BehaviourFlagFor(AiBehaviour.Auto, Implementing)));
 
         // The same output against the tool that was never given that flag says nothing.
         Assert.False(AiEfforts.LooksLikeRejectedEffort(refusedThinking,
-            claude.EffortFlagFor(AiEffort.High), claude.PermissionFlagFor(AiPermissionMode.Auto)));
+            claude.EffortFlagFor(AiEffort.High, Implementing), claude.BehaviourFlagFor(AiBehaviour.Auto, Implementing)));
     }
 
     /// <summary>
     /// A flag the run did not pass cannot have been refused by it.
     /// </summary>
     /// <remarks>
-    /// Antigravity passes <c>--dangerously-skip-permissions</c> only on bypass and has no effort flag
-    /// at all — so on <em>Auto</em> there is nothing of ours on its command line. With the flag named
-    /// unconditionally, and no second flag to disambiguate against, every failure of <c>agy</c> that
-    /// printed its usage was read as a refusal of a flag that was never passed, and the user was told
-    /// to stop passing it.
+    /// Antigravity passes nothing of ours on <c>ToolDefault</c>, which is the setting that exists for
+    /// exactly that. With the flag named unconditionally, every failure of <c>agy</c> that printed its
+    /// usage was read as a refusal of a flag that was never passed, and the user was told to stop
+    /// passing it.
     /// </remarks>
     [Fact]
     public void A_flag_the_run_did_not_pass_is_not_reported_as_refused()
@@ -114,25 +115,32 @@ public class GoalEffortTests
             "usage: agy [options]",
             "  --dangerously-skip-permissions");
 
-        Assert.Null(agy.PermissionFlagFor(AiPermissionMode.Auto));
-        Assert.False(AiPermissionModes.LooksLikeRejectedMode(usage,
-            agy.PermissionFlagFor(AiPermissionMode.Auto), agy.EffortFlagFor(AiEffort.High)));
+        Assert.Null(agy.BehaviourFlagFor(AiBehaviour.ToolDefault, Implementing));
+        Assert.False(AiBehaviours.LooksLikeRejectedMode(usage,
+            agy.BehaviourFlagFor(AiBehaviour.ToolDefault, Implementing),
+            agy.EffortFlagFor(AiEffort.High, Implementing)));
 
-        // On bypass the flag really is passed — and a usage dump is *still* not evidence it was
-        // refused. agy has no second flag, so "the usage names this flag alone" is unanswerable: its
-        // usage names every flag it has, and it prints usage for any bad argument at all. A tool with
-        // one flag would otherwise blame that flag for every failure it ever had.
+        // On bypass the flag really is passed, and agy now passes an effort flag beside it — so "the
+        // usage names this flag alone" is a question the text can answer, and a dump naming only the
+        // one we passed is evidence. That is a change: while agy was thought to have no effort flag
+        // there was nothing to compare against and the rule had to be withdrawn.
         Assert.Equal("--dangerously-skip-permissions",
-            agy.PermissionFlagFor(AiPermissionMode.BypassPermissions));
-        Assert.False(AiPermissionModes.LooksLikeRejectedMode(usage,
-            agy.PermissionFlagFor(AiPermissionMode.BypassPermissions),
-            agy.EffortFlagFor(AiEffort.High)));
+            agy.BehaviourFlagFor(AiBehaviour.BypassPermissions, Implementing));
+        Assert.True(AiBehaviours.LooksLikeRejectedMode(usage,
+            agy.BehaviourFlagFor(AiBehaviour.BypassPermissions, Implementing),
+            agy.EffortFlagFor(AiEffort.High, Implementing)));
+
+        // And a dump that names both is not: that is agy printing everything it takes, which it does
+        // for any bad argument at all.
+        Assert.False(AiBehaviours.LooksLikeRejectedMode(usage + Environment.NewLine + "  --effort",
+            agy.BehaviourFlagFor(AiBehaviour.BypassPermissions, Implementing),
+            agy.EffortFlagFor(AiEffort.High, Implementing)));
 
         // An error line naming the flag is a different matter: that is the tool saying so itself.
-        Assert.True(AiPermissionModes.LooksLikeRejectedMode(
+        Assert.True(AiBehaviours.LooksLikeRejectedMode(
             "error: unknown option '--dangerously-skip-permissions'",
-            agy.PermissionFlagFor(AiPermissionMode.BypassPermissions),
-            agy.EffortFlagFor(AiEffort.High)));
+            agy.BehaviourFlagFor(AiBehaviour.BypassPermissions, Implementing),
+            agy.EffortFlagFor(AiEffort.High, Implementing)));
     }
 
     /// <summary>The flags a runner names are the ones it actually puts on the command line.</summary>
@@ -142,25 +150,51 @@ public class GoalEffortTests
     /// the explanation of its failure is wrong.
     /// </remarks>
     [Theory]
-    [InlineData("claude", AiPermissionMode.Auto)]
-    [InlineData("claude", AiPermissionMode.BypassPermissions)]
-    [InlineData("pi", AiPermissionMode.Auto)]
-    [InlineData("agy", AiPermissionMode.Auto)]
-    [InlineData("agy", AiPermissionMode.BypassPermissions)]
-    public void A_runner_names_exactly_the_flags_it_passes(string binary, AiPermissionMode permission)
+    [InlineData("claude", AiBehaviour.Auto)]
+    [InlineData("claude", AiBehaviour.BypassPermissions)]
+    [InlineData("claude", AiBehaviour.ToolDefault)]
+    [InlineData("pi", AiBehaviour.Auto)]
+    [InlineData("opencode", AiBehaviour.BypassPermissions)]
+    [InlineData("codex", AiBehaviour.Auto)]
+    [InlineData("agy", AiBehaviour.Auto)]
+    [InlineData("agy", AiBehaviour.BypassPermissions)]
+    [InlineData("agy", AiBehaviour.ToolDefault)]
+    public void A_runner_names_exactly_the_flags_it_passes(string binary, AiBehaviour permission)
     {
-        var runner = AiProcessRunner.GetRunner(binary);
+        var agent = AiProcessRunner.GetRunner(binary);
 
         var psi = new System.Diagnostics.ProcessStartInfo("x");
-        runner.ConfigureProcess(psi, "the prompt", streaming: false, permission, AiEffort.High);
+        agent.ConfigureProcess(psi, "the prompt", streaming: false, Implementing, permission,
+            AiEffort.High);
 
-        Assert.Equal(psi.ArgumentList.Contains("--effort") || psi.ArgumentList.Contains("--thinking"),
-            runner.EffortFlagFor(AiEffort.High) is not null);
+        AssertNamedFlagIsOnTheCommandLine(
+            agent.EffortFlagFor(AiEffort.High, Implementing),
+            agent.EffortArgs(AiEffort.High, Implementing), psi.ArgumentList);
 
-        Assert.Equal(
-            psi.ArgumentList.Contains("--permission-mode")
-            || psi.ArgumentList.Contains("--dangerously-skip-permissions"),
-            runner.PermissionFlagFor(permission) is not null);
+        AssertNamedFlagIsOnTheCommandLine(
+            agent.BehaviourFlagFor(permission, Implementing),
+            agent.BehaviourArgs(permission, Implementing), psi.ArgumentList);
+    }
+
+    /// <summary>
+    /// The token an agent names as blameable is one it really put on the command line, and it names
+    /// nothing when it passed nothing.
+    /// </summary>
+    /// <remarks>Matched as a substring of an argument rather than as a whole one, because codex's
+    /// effort is a config key inside <c>model_reasoning_effort=high</c> rather than an argument of its
+    /// own — which is the whole reason the fragment and the blameable token are asked for
+    /// separately.</remarks>
+    private static void AssertNamedFlagIsOnTheCommandLine(
+        string? named, IReadOnlyList<string> fragment, IEnumerable<string> arguments)
+    {
+        if (fragment.Count == 0)
+        {
+            Assert.Null(named);
+            return;
+        }
+
+        Assert.NotNull(named);
+        Assert.Contains(arguments, argument => argument.Contains(named, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -183,12 +217,12 @@ public class GoalEffortTests
             "usage: pi [options]",
             "  --thinking <level>");
 
-        Assert.Null(pi.PermissionFlagFor(AiPermissionMode.Auto));
+        Assert.Null(pi.BehaviourFlagFor(AiBehaviour.Auto, Implementing));
         Assert.False(AiEfforts.LooksLikeRejectedEffort(usage,
-            pi.EffortFlagFor(AiEffort.High), pi.PermissionFlagFor(AiPermissionMode.Auto)));
+            pi.EffortFlagFor(AiEffort.High, Implementing), pi.BehaviourFlagFor(AiBehaviour.Auto, Implementing)));
 
         // Said outright, it still counts.
         Assert.True(AiEfforts.LooksLikeRejectedEffort("error: unknown option '--thinking'",
-            pi.EffortFlagFor(AiEffort.High), pi.PermissionFlagFor(AiPermissionMode.Auto)));
+            pi.EffortFlagFor(AiEffort.High, Implementing), pi.BehaviourFlagFor(AiBehaviour.Auto, Implementing)));
     }
 }

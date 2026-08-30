@@ -17,8 +17,18 @@ internal static class ShellStarter
     /// next shell. The control owns both of those — we only fill in <c>${tileId}</c>.</para>
     /// </summary>
     /// <returns>The id of the session this started — the only reliable way to recognise it later.</returns>
+    /// <param name="environment">Extra variables for the child process, merged over the parent's, where
+    /// a <c>null</c> value <em>removes</em> the variable rather than setting it.
+    /// <para>The route anything secret takes, and the reason this parameter exists at all: a startup
+    /// script is <em>typed into a live prompt</em>, so it lands in the scrollback and in the shell's
+    /// history file. The unset half is what lets an agent instance authenticate through
+    /// <c>ANTHROPIC_AUTH_TOKEN</c> on a machine that exports a global <c>ANTHROPIC_API_KEY</c>: a block
+    /// that could only add would leave the inherited key in place, which is the one misconfiguration
+    /// this has to be able to prevent. <c>IShellTerminal.UnsetEnv</c> stays for what has to happen
+    /// inside an already-running shell.</para></param>
     public static Task<int> StartAsync(TerminalControl terminal, string workingDirectory,
         string executable, IReadOnlyList<string> args, string? startupScript = null, string tileId = "",
+        IReadOnlyDictionary<string, string?>? environment = null,
         CancellationToken cancellationToken = default)
         => terminal.RestartAsync(
             new PtyOptions
@@ -26,6 +36,7 @@ internal static class ShellStarter
                 Command = executable,
                 Arguments = args,
                 WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? null : workingDirectory,
+                Environment = environment,
             },
             BuildStartupInput(startupScript, tileId),
             cancellationToken);

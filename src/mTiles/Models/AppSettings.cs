@@ -10,11 +10,62 @@ public sealed class AppSettings
     public string FontFamily { get; set; } = AppDefaults.FontFamily;
     public double FontSize { get; set; } = AppDefaults.FontSize;
     public string ColorThemeName { get; set; } = AppDefaults.ColorThemeName;
+    /// <summary>
+    /// The shell a new terminal starts in — an <c>IShellTerminal.Id</c>, empty for "whatever this
+    /// machine has".
+    /// </summary>
+    /// <remarks>The key keeps its name because renaming one is a migration, and the value it used to
+    /// hold — a display name — is still read: <c>ShellTerminalCatalog.Find</c> matches both, so a
+    /// settings file written before the ids existed still selects the same shell. <c>CMD</c> matches
+    /// nothing and falls to the default, which is what removing it means.</remarks>
     public string DefaultShellName { get; set; } = "";
-    public string CustomShellPath { get; set; } = "";
-    public string CustomShellArgs { get; set; } = "";
-    public ShellType CustomShellType { get; set; } = ShellType.Other;
 
+    /// <summary>
+    /// The <see cref="DefaultShellName"/> this build has already said it does not know.
+    /// </summary>
+    /// <remarks>
+    /// So the warning is said once instead of on every launch, <b>without the name itself being
+    /// thrown away</b>. A name this build cannot match is not necessarily a name that is wrong: it is
+    /// also what a shell added by a newer version looks like after a Velopack rollback, or what a
+    /// settings file copied from a better-equipped machine looks like. Clearing it would make the older
+    /// build the one that decides, permanently, for the newer one — the trap
+    /// <c>TolerantAiBehaviourConverter</c> and <c>TileNode</c>'s dual write exist to avoid. So the
+    /// value stays and this remembers that it was mentioned; a name that becomes known again clears
+    /// this, so the same loss is reported again if it ever comes back.
+    /// </remarks>
+    public string ReportedUnknownShellName { get; set; } = "";
+
+    /// <summary>
+    /// The shell somebody nominated by path, from a build that let them — read once, so the loss is
+    /// reported rather than silent.
+    /// </summary>
+    /// <remarks>
+    /// <para>A shell is now a class in <c>Services/Shells/</c>, so a path to an arbitrary binary has
+    /// nowhere to go: nothing in the catalog knows how to quote for it, how to run one command in it, or
+    /// how to unset a variable in it. There is no answer to carry forward, which is what makes this
+    /// different from <see cref="LegacyGitHideMTerminalDir"/> — the value cannot be honoured, only
+    /// mentioned. <c>SettingsService.MigrateLegacySettings</c> writes it to the log and drops it, so the
+    /// user who nominated <c>nushell</c> and now lands in PowerShell has somewhere to read why.</para>
+    /// <para>Nullable and never written back: it exists to be read from a file an older version wrote.</para>
+    /// </remarks>
+    [JsonPropertyName("CustomShellPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyCustomShellPath { get; set; }
+
+    /// <summary>The arguments that went with <see cref="LegacyCustomShellPath"/>, logged beside it so
+    /// what is quoted back to the user is the whole of what they had set.</summary>
+    [JsonPropertyName("CustomShellArgs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyCustomShellArgs { get; set; }
+
+    /// <summary>
+    /// The shell profiles this application used to have.
+    /// </summary>
+    /// <remarks><b>Read, never written to and never seeded.</b> Profiles are gone — an AI CLI in a shell
+    /// is an agent tile now — but the list is still what says which of somebody's existing terminal
+    /// tiles were one, so <c>AgentTileMigration</c> reads it once per workspace and the key stays in the
+    /// file until that migration is deleted a release from now. Removing it sooner would turn every AI
+    /// tile anybody has into a bare shell.</remarks>
     public List<UserShellProfile> ShellProfiles
     {
         get => _shellProfiles;
@@ -22,18 +73,33 @@ public sealed class AppSettings
     }
     private List<UserShellProfile> _shellProfiles = [];
 
-    public Dictionary<string, string> CustomAiToolPaths
+    /// <summary>
+    /// Every configured way of running an agent, one seeded per agent on first use.
+    /// </summary>
+    /// <remarks>Global rather than per workspace: a key and a model are facts about this machine, and
+    /// duplicating them per workspace would mean rotating a key in six places. A tile stores the
+    /// instance's id, so an instance deleted here leaves a tile that falls back rather than a tile that
+    /// cannot load.</remarks>
+    public List<AiAgentInstance> AiAgentInstances
     {
-        get => _customAiToolPaths;
-        set => _customAiToolPaths = value ?? [];
+        get => _aiAgentInstances;
+        set => _aiAgentInstances = value ?? [];
     }
-    private Dictionary<string, string> _customAiToolPaths = [];
-    public List<UserAiTool> CustomAiTools
+    private List<AiAgentInstance> _aiAgentInstances = [];
+
+    /// <summary>
+    /// Every configured way of reaching a provider — a key, an address, a name.
+    /// </summary>
+    /// <remarks>Not seeded: an agent's own configuration is what a first run uses, and it needs no
+    /// key, no address and no row here. A provider instance exists exactly when somebody has set one
+    /// up, which is what keeps an empty list meaning "nothing has been configured" rather than
+    /// "six services, none of which work".</remarks>
+    public List<AiProviderInstance> AiProviderInstances
     {
-        get => _customAiTools;
-        set => _customAiTools = value ?? [];
+        get => _aiProviderInstances;
+        set => _aiProviderInstances = value ?? [];
     }
-    private List<UserAiTool> _customAiTools = [];
+    private List<AiProviderInstance> _aiProviderInstances = [];
 
     public DatabaseSettings Database
     {
@@ -56,21 +122,14 @@ public sealed class AppSettings
     }
     private PhoneSettings _phone = new();
 
-    public Dictionary<string, string> GoalDefaultModels
-    {
-        get => _goalDefaultModels;
-        set => _goalDefaultModels = value ?? [];
-    }
-    private Dictionary<string, string> _goalDefaultModels = [];
-
     /// <summary>
-    /// How much the Goal tile's AI runs may do without asking — see <see cref="AiPermissionMode"/>.
+    /// How much the Goal tile's AI runs may do without asking — see <see cref="AiBehaviour"/>.
     /// <para>Here rather than in the goal file so that it cannot travel with a branch, and one setting
     /// for every Goal tile rather than one each: it describes this machine's appetite for unattended
     /// edits, which does not change from tile to tile.</para>
     /// </summary>
-    [JsonConverter(typeof(TolerantAiPermissionModeConverter))]
-    public AiPermissionMode GoalPermissionMode { get; set; } = AiPermissionMode.Auto;
+    [JsonConverter(typeof(TolerantAiBehaviourConverter))]
+    public AiBehaviour GoalPermissionMode { get; set; } = AiBehaviour.Auto;
 
     /// <summary>
     /// How hard the Goal tile's AI runs are asked to think — see <see cref="AiEffort"/>.

@@ -1,10 +1,12 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Agents;
+using mTiles.Services.Providers;
 
 namespace mTiles.ViewModels;
 
@@ -19,7 +21,7 @@ namespace mTiles.ViewModels;
 /// places something arrives from elsewhere, and there are only three:</para>
 /// <list type="bullet">
 /// <item>the debounce timer, which fires <c>SaveState</c> on a pool thread;</item>
-/// <item><c>RediscoverSelectedToolAsync</c>, which walks PATH on a pool thread and marshals back before
+/// <item><c>RediscoverAgentsAsync</c>, which walks PATH on a pool thread and marshals back before
 /// touching <c>AvailableTools</c>;</item>
 /// <item><c>RefreshDetectAvailability</c>, which asks git in the background and marshals back before
 /// setting <c>HasUncommittedChanges</c>.</item>
@@ -110,7 +112,9 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// tile is closed and the store must not be asked for anything more.</summary>
     private bool _disposed;
 
-    private List<AiToolInfo>? _cachedTools;
+    /// <summary>The agents this machine can run, as of the last scan. Rebuilt rather than kept in step:
+    /// the scan itself is cached for half a minute in <c>AiAgentCatalog.Locate</c>.</summary>
+    private IReadOnlyList<GoalAgentChoice> _availableAgents = [];
 
     [ObservableProperty] private string _inputText = "";
 
@@ -127,7 +131,17 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
     [ObservableProperty] private GoalPhase _currentPhase = GoalPhase.Goal;
     [ObservableProperty] private bool _isRunning;
-    [ObservableProperty] private string _selectedToolName = "Claude Code";
+
+    /// <summary>Which configured agent carries the goal out. An <c>AiAgentInstance.Id</c>, not a
+    /// name.</summary>
+    [ObservableProperty] private string _executionAgentInstanceId = "";
+
+    /// <summary>Which configured agent reviews it, or empty for the one that did the work.</summary>
+    /// <remarks>Empty is the default and a real answer, which is why the chooser spells it out rather
+    /// than leaving a blank row: "the same agent" is what a goal does unless somebody asks for a second
+    /// opinion.</remarks>
+    [ObservableProperty] private string _reviewAgentInstanceId = "";
+
     /// <summary>What the strip says, which for every idle state is nothing — see
     /// <c>GoalWorkflowEngine.GetPhaseLabel</c>. Empty is the correct initial value for the same reason
     /// it is the correct steady one: a tile that has just been built is waiting for a goal, and the
@@ -505,10 +519,49 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
     [RelayCommand]
     private void CloseFindings() => OpenBadge = null;
-    public ObservableCollection<string> AvailableTools { get; } = [];
+    /// <summary>The agents the strip offers to carry the goal out.</summary>
+    /// <remarks>Only what this machine can actually run — an instance whose CLI is not installed, or
+    /// whose provider has been deleted, is left out rather than shown greyed. Choosing something that
+    /// cannot start is a run that fails after the prompt has been built.</remarks>
+    public ObservableCollection<GoalAgentChoice> AvailableAgents { get; } = [];
+
+    /// <summary>What the review chooser offers: the same agents, plus "the one doing the work".</summary>
+    /// <remarks>Its own type rather than a null in the agent list: the empty id is a real option and the
+    /// default one, and a null row in a bound list is an empty line the user reads as a broken entry.
+    /// </remarks>
+    public ObservableCollection<GoalReviewerChoice> ReviewAgentChoices { get; } = [];
 
     /// <summary>The permission modes the strip offers, as words.</summary>
-    public IReadOnlyList<string> AvailablePermissionModes { get; } = AiPermissionModes.Labels;
+    /// <remarks>
+    /// <para><see cref="AiBehaviours.Headless"/> and not the full vocabulary: every run this strip
+    /// governs is headless, and the three modes left out of that list are the three a run with nobody
+    /// to ask cannot carry out — see the remarks there.</para>
+    /// <para>Narrowed again by what the execution agent actually has, exactly as the chooser in
+    /// Settings is. Offering opencode "auto" — a gate it has no flag for — stored a mode that
+    /// <c>AiProcessRunner.Fit</c> rounds away to <see cref="AiBehaviour.ToolDefault"/>, so the run went
+    /// out asking for permission nobody was there to give while the strip said it would not. The floor
+    /// is meant to be reached by a stored value, never by a word somebody was offered.</para>
+    /// </remarks>
+    public IReadOnlyList<string> AvailablePermissionModes =>
+        [.. OfferedBehaviours.Select(AiBehaviours.Label)];
+
+    /// <summary>The modes behind <see cref="AvailablePermissionModes"/>.</summary>
+    /// <remarks>Asked under the implementing phase, because that is the one phase whose permission
+    /// comes from this strip at all: the phases that write nothing take theirs from the agent, by
+    /// phase. An agent that supports none of the headless modes still gets
+    /// <see cref="AiBehaviour.ToolDefault"/> — a chooser with no rows says nothing.</remarks>
+    private IReadOnlyList<AiBehaviour> OfferedBehaviours
+    {
+        get
+        {
+            if (ExecutionAgent is not { } choice) return AiBehaviours.Headless;
+
+            var supported = choice.Agent.SupportedBehaviours(
+                choice.Instance, AiUsage.Headless(GoalPhase.Implement));
+            var offered = AiBehaviours.Headless.Where(supported.Contains).ToList();
+            return offered.Count > 0 ? offered : [AiBehaviour.ToolDefault];
+        }
+    }
 
     /// <summary>The effort levels the strip offers.</summary>
     public IReadOnlyList<string> AvailableEfforts => AiEfforts.Labels;
@@ -550,10 +603,14 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// </remarks>
     public string PermissionModeLabel
     {
-        get => AiPermissionModes.Label(_settingsService.Settings.GoalPermissionMode);
+        // Rounded into what the strip offers, so a mode stored by a newer build — or left behind by an
+        // older one that offered "accept edits" — shows as the mode a run would actually use rather
+        // than leaving the combo box blank on a word it does not contain.
+        get => AiBehaviours.Label(
+            AiBehaviours.RoundDown(_settingsService.Settings.GoalPermissionMode, OfferedBehaviours));
         set
         {
-            var mode = AiPermissionModes.FromLabel(value);
+            var mode = AiBehaviours.FromLabel(value);
             if (mode == _settingsService.Settings.GoalPermissionMode) return;
 
             // One mode is asked about, once, and the asymmetry is the point: this tile already refuses
@@ -564,7 +621,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             //
             // Deliberately not a repeat: it is a setting, so once chosen it stays chosen. And the
             // question is asked *before* the write, so a refusal leaves the setting exactly as it was.
-            if (mode == AiPermissionMode.BypassPermissions)
+            if (mode == AiBehaviour.BypassPermissions)
             {
                 // Discarded rather than awaited, because a property setter cannot await — and the task
                 // catches everything itself, so nothing is left unobserved. The setting is written only
@@ -602,7 +659,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
             if (agreed)
             {
-                _settingsService.Settings.GoalPermissionMode = AiPermissionMode.BypassPermissions;
+                _settingsService.Settings.GoalPermissionMode = AiBehaviour.BypassPermissions;
                 _settingsService.NotifyChanged();
             }
         }
@@ -631,7 +688,6 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
-    private AiToolInfo? _resolvedTool;
 
     /// <summary>
     /// How a prompt is actually run. Replaced by a test so the phase machine can be driven without a
@@ -648,7 +704,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// While this returned a string that path could only be reached at the level of the stream reader,
     /// which is the half that does not decide anything.
     /// </remarks>
-    internal static Func<AiToolInfo, string, string, CancellationToken, Task<AiOutput>>? AiRunnerFactory { get; set; }
+    internal static Func<GoalAgentChoice, string, string, CancellationToken, Task<AiOutput>>? AiRunnerFactory { get; set; }
 
     public string FilePath => _filePath;
 
@@ -673,7 +729,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         // criteria underneath it since; doing it here as well suggested a symmetry that is not there.
         Criteria = NewCriteriaEditor();
 
-        DetectTools();
+        DetectAgents();
         RefreshDetectAvailability();
     }
 
@@ -687,87 +743,152 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         WatchQuestions();
         Criteria = NewCriteriaEditor();
 
-        DetectTools();
+        DetectAgents();
         LoadState();
         Criteria.Reload();
         RefreshDetectAvailability();
     }
 
-    // ── Tool detection ──────────────────────────────────
+    // ── Agent detection ─────────────────────────────────
 
-    /// <summary>What the combo box shows when there is nothing to show. Named because it is added in
-    /// one place and has to be taken away again in another.</summary>
-    private const string NoToolsPlaceholder = "(no AI tools detected)";
-
-    private List<AiToolInfo> GetCachedTools()
+    /// <summary>
+    /// Rebuilds the list of agents this machine can run, and settles which two this goal uses.
+    /// </summary>
+    /// <remarks>
+    /// <para>Called when the tile is built and when the user asks for another look. <b>Nothing is
+    /// substituted mid-run</b>: a chosen agent that has since disappeared leaves the choice standing and
+    /// the run says so, because the alternative — quietly moving the goal onto whatever else is
+    /// installed — is what the tool list used to do, and it changed the model a plan was written for
+    /// without saying a word.</para>
+    /// </remarks>
+    private void DetectAgents()
     {
-        return _cachedTools ??= AiToolDetector.Detect(
-            _settingsService.Settings.CustomAiToolPaths,
-            _settingsService.Settings.CustomAiTools);
-    }
+        _availableAgents = GoalAgents.Available(_settingsService.Settings);
 
-    private void DetectTools()
-    {
-        _cachedTools = null;
-        var tools = GetCachedTools();
+        AvailableAgents.Clear();
+        foreach (var choice in _availableAgents)
+            AvailableAgents.Add(choice);
 
-        AvailableTools.Clear();
-        foreach (var t in tools.Where(t => t.IsInstalled))
-            AvailableTools.Add(t.Name);
+        ReviewAgentChoices.Clear();
+        // "The agent doing the work" first: it is the default, and a default below five other rows is
+        // one the user has to go looking for.
+        ReviewAgentChoices.Add(GoalReviewerChoice.SameAsExecution);
+        foreach (var choice in _availableAgents)
+            ReviewAgentChoices.Add(GoalReviewerChoice.For(choice));
 
-        if (AvailableTools.Count == 0)
-            AvailableTools.Add(NoToolsPlaceholder);
+        // Only when nothing has been chosen. A goal reopened on a machine where its agent is missing
+        // keeps naming the agent it was planned with, which is what lets the tile say so.
+        if (ExecutionAgentInstanceId.Length == 0 && _availableAgents.Count > 0)
+            ExecutionAgentInstanceId = _availableAgents[0].InstanceId;
 
-        _resolvedTool = tools.FirstOrDefault(t => t.Name == SelectedToolName && t.IsInstalled)
-                        ?? tools.FirstOrDefault(t => t.IsInstalled);
-
-        if (_resolvedTool != null)
-            SelectedToolName = _resolvedTool.Name;
+        OnPropertyChanged(nameof(ExecutionAgent));
+        OnPropertyChanged(nameof(ReviewAgent));
+        AnnounceOfferedBehaviours();
     }
 
     /// <summary>
-    /// Scans again for the tool the user has chosen, without disturbing anything else.
-    /// <para>Deliberately not <see cref="DetectTools"/>, which is a first-run routine: it clears
-    /// <see cref="AvailableTools"/> — resetting the selection of the combo box bound to it, which
-    /// writes back through the binding — and, finding the chosen tool still absent, falls back to any
-    /// other installed one. Called mid-run, that silently swapped the tool a goal was being carried out
-    /// with. Here nothing is removed and nothing is substituted: if the tool is still not there, the
-    /// run says so, which is the truth.</para>
-    /// <para>The scan itself walks PATH and several home directories, so it goes to a background thread
-    /// rather than stopping the one drawing the tile.</para>
+    /// Looks again for the agents on this machine, without disturbing what the goal has chosen.
     /// </summary>
-    private async Task RediscoverSelectedToolAsync()
+    /// <remarks>The scan walks <c>PATH</c> and several home directories per agent, so it goes to a
+    /// background thread rather than stopping the one drawing the tile. Its answer is put back on the UI
+    /// thread, because the two collections above are bound to combo boxes.</remarks>
+    private async Task RediscoverAgentsAsync()
     {
         var settings = _settingsService.Settings;
-        var tools = await Task.Run(() =>
-            AiToolDetector.Detect(settings.CustomAiToolPaths, settings.CustomAiTools));
+        var found = await Task.Run(() => GoalAgents.Available(settings));
 
-        _cachedTools = tools;
-
-        // Back on the UI thread before touching AvailableTools: it is bound to a combo box, and after
-        // the await above this is whatever thread the continuation landed on. The rest of the class
-        // asks the same question rather than assuming (AddMessageAsync, SaveState).
         await Post(() =>
         {
-            var installed = tools.Where(t => t.IsInstalled).Select(t => t.Name).ToList();
+            _availableAgents = found;
 
-            // The placeholder goes as soon as there is something real, or the list offers "(no AI tools
-            // detected)" next to a working tool and lets the user pick it.
-            if (installed.Count > 0)
-                AvailableTools.Remove(NoToolsPlaceholder);
+            foreach (var choice in found.Where(c => AvailableAgents.All(a => a.InstanceId != c.InstanceId)))
+            {
+                AvailableAgents.Add(choice);
+                ReviewAgentChoices.Add(GoalReviewerChoice.For(choice));
+            }
 
-            foreach (var name in installed.Where(name => !AvailableTools.Contains(name)))
-                AvailableTools.Add(name);
+            if (ExecutionAgentInstanceId.Length == 0 && found.Count > 0)
+                ExecutionAgentInstanceId = found[0].InstanceId;
+
+            OnPropertyChanged(nameof(ExecutionAgent));
+            OnPropertyChanged(nameof(ReviewAgent));
+            AnnounceOfferedBehaviours();
         });
-
-        _resolvedTool = tools.FirstOrDefault(t => t.Name == SelectedToolName && t.IsInstalled);
     }
 
-    partial void OnSelectedToolNameChanged(string value)
+    /// <summary>The agent carrying the goal out, or null when the one it names is not here.</summary>
+    public GoalAgentChoice? ExecutionAgent => GoalAgents.WithId(_availableAgents, ExecutionAgentInstanceId);
+
+    /// <summary>The agent reviewing the work: the one chosen for it, or the one doing the work.</summary>
+    /// <remarks>Falling back to the execution agent rather than to nothing is what makes an empty
+    /// <see cref="ReviewAgentInstanceId"/> mean "the same agent" everywhere, including in the message a
+    /// failure prints — the one place two agents most need telling apart. It is the fallback for an
+    /// empty id and for nothing else: an id naming a reviewer that is no longer available answers null,
+    /// so the run stops and says so, rather than quietly handing the review to the agent whose own work
+    /// is being reviewed.</remarks>
+    public GoalAgentChoice? ReviewAgent =>
+        ReviewAgentInstanceId.Length == 0
+            ? ExecutionAgent
+            : GoalAgents.WithId(_availableAgents, ReviewAgentInstanceId);
+
+    /// <summary>
+    /// Which agent runs this phase.
+    /// </summary>
+    /// <remarks>Only the review is somebody else's job. Clarifying, planning, implementing and
+    /// summarising are one train of thought and splitting them across two models would mean a plan
+    /// written by one agent being carried out by another that never saw the questions.</remarks>
+    private GoalAgentChoice? AgentFor(GoalPhase phase) =>
+        phase == GoalPhase.Review ? ReviewAgent : ExecutionAgent;
+
+    /// <summary>What the transcript says when the agent a phase needs is not here.</summary>
+    /// <remarks>Two agents, two absences: a missing review agent is a setting the user chose and can
+    /// change in the strip, while a missing execution agent on a machine with none at all is an install.
+    /// Told apart because the way out is different.</remarks>
+    private string MissingAgentMessage(GoalPhase phase) =>
+        _availableAgents.Count == 0
+            ? "No AI agent available. Install Claude Code, codex, opencode, pi or agy, then "
+              + TryAgain()
+            : phase == GoalPhase.Review && ReviewAgentInstanceId.Length > 0
+                ? "The agent chosen to review this work is not available. Pick another reviewer in the "
+                  + "strip above, then " + TryAgain()
+                : "The agent chosen for this goal is not available. Pick another one in the strip "
+                  + "above, then " + TryAgain();
+
+    /// <summary>What a message calls the agent that just failed.</summary>
+    /// <remarks>Two agents mean two ways to fail, and "the AI tool reported a failure" over a run split
+    /// between two of them names neither.</remarks>
+    private string NameOf(GoalPhase phase) =>
+        AgentFor(phase) is { } choice
+            ? phase == GoalPhase.Review && ReviewAgentInstanceId.Length > 0
+                ? $"The review agent ({choice.Label})"
+                : choice.Label
+            : "The AI tool";
+
+    partial void OnExecutionAgentInstanceIdChanged(string value)
     {
-        var tools = GetCachedTools();
-        _resolvedTool = tools.FirstOrDefault(t => t.Name == value && t.IsInstalled);
+        OnPropertyChanged(nameof(ExecutionAgent));
+        OnPropertyChanged(nameof(ReviewAgent));
+        AnnounceOfferedBehaviours();
+        SaveStateSoon();
     }
+
+    /// <summary>Puts the permission strip back in step with the agent now carrying the goal out.</summary>
+    /// <remarks>The label as well as the list: a mode the previous agent had and this one has not must
+    /// not stay selected on a chooser that no longer offers it — the same rule the Settings form
+    /// follows. Nothing is written, because the setting is shared by every Goal tile and this tile
+    /// changing agent is not the user changing their mind about permission.</remarks>
+    private void AnnounceOfferedBehaviours()
+    {
+        OnPropertyChanged(nameof(AvailablePermissionModes));
+        OnPropertyChanged(nameof(PermissionModeLabel));
+    }
+
+    partial void OnReviewAgentInstanceIdChanged(string value)
+    {
+        OnPropertyChanged(nameof(ReviewAgent));
+        SaveStateSoon();
+    }
+
 
     // ── Completion criteria ─────────────────────────────
 
@@ -2301,19 +2422,33 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// </summary>
     private readonly record struct AiRun(GoalRunVerdict Verdict, string? Text);
 
+    /// <summary>
+    /// What the agent is being asked to do right now: the phase, and whether the criteria oblige it to
+    /// establish the project's health itself.
+    /// </summary>
+    /// <remarks>One property rather than two <c>AiUsage.Headless(CurrentPhase)</c> calls, because the
+    /// second of them decides which flag a failure is blamed on and a run judged under a usage it was
+    /// not launched with names the wrong one. The health half is what keeps the review out of a
+    /// read-only sandbox: it is told to run this project's own build and tests, and a build writes.
+    /// </remarks>
+    private AiUsage CurrentUsage =>
+        AiUsage.Headless(CurrentPhase,
+            _engine.Criteria.RequireBuild || _engine.Criteria.RequireTestsPass);
+
     private async Task<AiRun> RunAiAsync(string prompt)
     {
-        // Looked for again before giving up. Detection runs once, when the tile is built, so a tool
+        var phase = CurrentPhase;
+
+        // Looked for again before giving up. Detection runs once, when the tile is built, so an agent
         // installed after that stayed invisible for the life of the tile — and the message telling the
         // user to install it and click Resume then sent them round the same loop for ever.
-        if (_resolvedTool?.ExecutablePath == null)
-            await RediscoverSelectedToolAsync();
+        if (AgentFor(phase) is null)
+            await RediscoverAgentsAsync();
 
-        if (_resolvedTool?.ExecutablePath == null)
+        if (AgentFor(phase) is not { } chosen)
         {
             await AddMessageAsync(GoalMessageRole.System,
-                "No AI tool available. Install Claude Code or another supported tool, then " + TryAgain(),
-                CurrentPhase);
+                MissingAgentMessage(phase), phase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, toolMissing: true), null);
         }
 
@@ -2332,13 +2467,40 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
         try
         {
+            // The instance, the provider and the model it runs on, worked out once for this call: the
+            // environment and the command line both need it, and asking twice is two answers waiting to
+            // disagree.
+            //
+            // The model is *resolved* here, by the same rule the agent tile launches under
+            // (AgentModelResolver): an instance asking for the first loaded model would otherwise run
+            // with no model at all while the environment still pointed at the local server, and a model
+            // named on an agent that cannot be told one would be dropped without a word. Both are the
+            // silent substitution the sentinel exists to prevent, so both refuse the run and say which
+            // agent it was.
+            var (resolvedModel, modelProblem) = await AgentModelResolver.ResolveAsync(
+                _settingsService.Settings, chosen.Agent, chosen.Instance, token);
+
+            if (modelProblem is not null)
+            {
+                await AddMessageAsync(GoalMessageRole.System,
+                    $"{chosen.Label} was not run: {modelProblem}", phase);
+                return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
+            }
+
+            var runtime =
+                AgentRuntime.For(_settingsService.Settings, chosen.Instance, resolvedModel);
+
             var result = AiRunnerFactory is { } run
-                ? await run(_resolvedTool, prompt, _workingDirectory, token)
+                ? await run(chosen, prompt, _workingDirectory, token)
                 : await AiProcessRunner.RunPlainAsync(
-                    _resolvedTool.ExecutablePath,
+                    chosen.ExecutablePath,
                     prompt,
                     _workingDirectory,
-                    AiProcessRunner.GetRunner(_resolvedTool.BinaryName),
+                    chosen.Agent,
+                    // Which phase, not just "headless". It is what lets the agent run the phases that
+                    // write nothing read-only whatever the strip says — decision 9 — which is the only
+                    // thing standing between a review agent and the worktree it is judging.
+                    CurrentUsage,
                     // Read at the moment of the run, not when the tile was built: a user who changes
                     // the mode because a run was refused expects the next attempt to use the new one.
                     _settingsService.Settings.GoalPermissionMode,
@@ -2361,6 +2523,17 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                         PostFireAndForget(() => SetActivityIfRunning(doing));
                     },
                     onStarted: processId => Volatile.Write(ref _childProcessId, processId),
+                    // The instance's own provider, key and model — the whole reason a goal can be run
+                    // by "Claude Code on GLM 5.3 via OpenRouter" rather than by whatever the CLI is
+                    // logged in as. A null value unsets, which is what stands between an inherited
+                    // global key and a run on somebody else's account.
+                    environment: chosen.Agent.EnvFor(runtime),
+                    instance: chosen.Instance,
+                    // The same instance's model, on the command line for the four agents that are told
+                    // one that way. Never the sentinel: `RequestedModel` is empty where the choice has
+                    // not been resolved, which is the agent's own model rather than a name no provider
+                    // has.
+                    model: runtime.RequestedModel,
                     ct: token);
 
             _lastRunDenials = result.PermissionDenials;
@@ -2385,26 +2558,38 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                 // the tools' own words — Claude Code's `--effort` is pi's `--thinking` — so a matcher
                 // holding one spelling recognised one tool's refusal and left every other tool's as a
                 // bare failure over a usage message about a flag the user never typed.
-                var runner = AiProcessRunner.GetRunner(_resolvedTool.BinaryName);
+                var agent = chosen.Agent;
 
-                // The settings this run was launched with, so the question is "was the flag we passed
-                // refused" and not "does this tool have such a flag at all". Every runner adds its
-                // flags conditionally, and a matcher told about one that was never on the command line
-                // reads any usage message as a refusal of it.
-                var effortFlag = runner.EffortFlagFor(_settingsService.Settings.GoalEffort);
-                var permissionFlag =
-                    runner.PermissionFlagFor(_settingsService.Settings.GoalPermissionMode);
+                // The settings this run was launched with, and the phase it ran in, so the question is
+                // "was the flag we passed refused" and not "does this tool have such a flag at all".
+                // Every agent adds its flags conditionally — a read-only phase passes a different mode
+                // from the one the strip shows — and a matcher told about one that was never on the
+                // command line reads any usage message as a refusal of it.
+                var usage = CurrentUsage;
 
-                var cause = AiPermissionModes.LooksLikeRejectedMode(
+                // Fitted the same way the run was, or the question is asked about a mode this agent
+                // never had: an agent that rounds "auto" down to no flag at all passes nothing, and a
+                // matcher told to look for `--permission-mode` would read its next usage message as a
+                // refusal of a flag that was never on the command line.
+                var (behaviour, effort) = AiProcessRunner.Fit(agent, usage,
+                    _settingsService.Settings.GoalPermissionMode,
+                    _settingsService.Settings.GoalEffort,
+                    chosen.Instance);
+
+                var effortFlag = agent.EffortFlagFor(effort, usage);
+                var permissionFlag = agent.BehaviourFlagFor(behaviour, usage);
+
+                var cause = AiBehaviours.LooksLikeRejectedMode(
                     result.Text, permissionFlag, effortFlag)
-                    ? $"{AiPermissionModes.RejectedModeAdvice} "
+                    ? $"{AiBehaviours.RejectedModeAdvice} "
                     : AiEfforts.LooksLikeRejectedEffort(
                         result.Text, effortFlag, permissionFlag)
                         ? $"{AiEfforts.RejectedEffortAdvice} "
                         : "";
 
                 await AddMessageAsync(GoalMessageRole.System,
-                    $"The AI tool reported a failure. {cause}{Capitalised(TryAgain())}\n\n{result.Text}",
+                    $"{NameOf(CurrentPhase)} reported a failure. {cause}"
+                    + $"{Capitalised(TryAgain())}\n\n{result.Text}",
                     CurrentPhase);
                 return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
             }
@@ -2424,7 +2609,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         catch (Exception ex)
         {
             await AddMessageAsync(GoalMessageRole.System,
-                $"The AI tool failed: {ex.Message}. {Capitalised(TryAgain())}", CurrentPhase);
+                $"{NameOf(CurrentPhase)} failed: {ex.Message}. {Capitalised(TryAgain())}", CurrentPhase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
         }
         finally
@@ -2669,7 +2854,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// How many characters of prompt the chosen tool can be handed on a command line, or null when
     /// there is no such limit.
     /// <para>Asked before every prompt is built rather than once, because the tool can change under a
-    /// run — <c>RediscoverSelectedToolAsync</c> can find one mid-loop — and because the answer depends
+    /// run — <c>RediscoverAgentsAsync</c> can find one mid-loop — and because the answer depends
     /// on the executable's own path length. Null when a test has replaced the runner: there is no
     /// command line in that case either.</para>
     /// </summary>
@@ -2678,8 +2863,11 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         // A test has replaced the runner: there is no command line to fit.
         if (AiRunnerFactory != null) return null;
 
-        if (_resolvedTool?.ExecutablePath is { } path)
-            return AiProcessRunner.PromptBudget(path, AiProcessRunner.GetRunner(_resolvedTool.BinaryName));
+        if (AgentFor(CurrentPhase) is { } chosen)
+            // The instance too, because its own extra arguments go on the same command line: a prompt
+            // fitted to the whole of it is refused by the guard the moment `--add-dir <long path>` is
+            // set on the row, and refused identically on every Resume.
+            return AiProcessRunner.PromptBudget(chosen.ExecutablePath, chosen.Agent, chosen.Instance);
 
         // No tool resolved *yet* — and RunAiAsync scans again before giving up, so one may well be found
         // a moment from now. The prompt is already built by then and cannot be rebuilt, so answering
@@ -3088,8 +3276,9 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         // "collection was modified", and a transient race then lit the permanent "this tile could not
         // save its state" for a tile that saves perfectly well.
         Snapshot = () => Dispatcher.UIThread.CheckAccess()
-            ? _engine.ToState([..Messages], SelectedToolName)
-            : Dispatcher.UIThread.Invoke(() => _engine.ToState([..Messages], SelectedToolName)),
+            ? _engine.ToState([..Messages], ExecutionAgentInstanceId, ReviewAgentInstanceId)
+            : Dispatcher.UIThread.Invoke(
+                () => _engine.ToState([..Messages], ExecutionAgentInstanceId, ReviewAgentInstanceId)),
 
         // Into the transcript, from whichever thread the write failed on.
         Report = text => PostFireAndForget(() => Say(text)),
@@ -3114,14 +3303,22 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             CurrentPhase = state.CurrentPhase;
             IsPaused = _engine.IsPaused;
 
-            // Assigned only when it names a tool that is here. Anything else — a name that has since
-            // been uninstalled, or the empty string a state written before a tool was ever chosen
-            // carries — runs OnSelectedToolNameChanged, finds nothing, and clears the working tool
-            // DetectTools has just picked.
+            // The agents this goal was chosen to run on, kept whether or not they are here: a goal that
+            // names a missing agent must say so rather than be moved onto whatever else is installed,
+            // which is exactly what the tool list used to do.
             var savedTool = state.SelectedToolName;
-            var savedToolIsGone = savedTool.Length > 0 && !AvailableTools.Contains(savedTool);
-            if (savedTool.Length > 0 && !savedToolIsGone)
-                SelectedToolName = savedTool;
+            var restored = state.ExecutionAgentInstanceId.Length > 0
+                ? state.ExecutionAgentInstanceId
+                // A goal file written before agents had instances, and one that will keep arriving: a
+                // goal travels with a branch, so this is read for ever rather than migrated once.
+                : GoalAgents.MatchingToolName(_availableAgents, savedTool)?.InstanceId ?? "";
+
+            if (restored.Length > 0)
+                ExecutionAgentInstanceId = restored;
+
+            ReviewAgentInstanceId = state.ReviewAgentInstanceId;
+
+            var savedAgentIsGone = restored.Length > 0 && ExecutionAgent is null;
 
             foreach (var m in state.Messages)
                 Messages.Add(m);
@@ -3135,15 +3332,15 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
             // After the transcript, not before it: a note about this session belongs at the end of the
             // session, and said first it sat above everything the user had ever typed into this tile.
-            if (savedToolIsGone)
-                // The substitute is read from _resolvedTool, not from SelectedToolName: that property
-                // holds the "(no AI tools detected)" placeholder when nothing is installed, and naming
-                // it offered the placeholder as the tool that would be used instead.
-                Say(_resolvedTool != null
-                    ? $"The tool this goal was using ({savedTool}) is not installed. " +
-                      $"{_resolvedTool.Name} will be used instead."
-                    : $"The tool this goal was using ({savedTool}) is not installed, and " +
-                      "no other AI tool was found. Install one and click Resume.",
+            // Said, and nothing swapped. Naming a substitute here was the old behaviour and it is the
+            // thing this stage removes: a goal planned by one model being carried out by another,
+            // announced once in a transcript nobody rereads.
+            if (savedAgentIsGone)
+                Say(_availableAgents.Count > 0
+                    ? "The agent this goal was using is not available. Choose another one in the strip "
+                      + "above, then click Resume."
+                    : "The agent this goal was using is not available, and no other agent was found. "
+                      + "Install one and click Resume.",
                     aboutThisSession: true);
 
             PhaseLabel = _engine.GetPhaseLabel();

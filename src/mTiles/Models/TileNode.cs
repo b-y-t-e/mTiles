@@ -116,10 +116,14 @@ public sealed class TileNode
         }
     }
 
+    /// <summary>The shell an older build would run this leaf in.</summary>
+    /// <remarks>Echoed for an agent tile as well, and that is the other half of its rollback: without a
+    /// shell name beside the <c>terminal</c> content type, the degraded tile would open on whatever
+    /// this machine's default happens to be rather than on the one it was running.</remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ShellName
     {
-        get => Echo(TileKindIds.Terminal, "shellName");
+        get => Echo(TileKindIds.Terminal, "shellName") ?? Echo(TileKindIds.Agent, "shellName");
         set => Adopt("shellName", value);
     }
 

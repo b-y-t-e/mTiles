@@ -1,7 +1,9 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Agents;
 using Xunit;
+using static mTiles.Tests.TestUsage;
 
 namespace mTiles.Tests;
 
@@ -22,23 +24,24 @@ public class AiProcessRunnerTests
     /// <c>ConfigureProcess</c> ends the call before <c>Process.Start</c> with the values already
     /// captured, which is the whole of what is being asked.
     /// </remarks>
-    private sealed class RecordingRunner : IAiToolRunner
+    private sealed class RecordingRunner : StubAgent
     {
-        public AiPermissionMode Permission { get; private set; } = (AiPermissionMode)(-1);
+        public AiBehaviour Permission { get; private set; } = (AiBehaviour)(-1);
         public AiEffort Effort { get; private set; } = (AiEffort)(-1);
 
         public sealed class Stop : Exception;
 
-        public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-            AiPermissionMode permission = AiPermissionMode.Auto,
-            AiEffort effort = AiEffort.High)
+        public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+            AiUsage usage,
+            AiBehaviour behaviour = AiBehaviour.Auto,
+            AiEffort effort = AiEffort.High, string model = "")
         {
-            Permission = permission;
+            Permission = behaviour;
             Effort = effort;
             throw new Stop();
         }
 
-        public IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
+        public override IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
     }
 
     /// <summary>
@@ -59,11 +62,11 @@ public class AiProcessRunnerTests
         var runner = new RecordingRunner();
 
         await Assert.ThrowsAsync<RecordingRunner.Stop>(() => AiProcessRunner.RunPlainAsync(
-            "some-tool", "the prompt", Path.GetTempPath(), runner,
-            permission: AiPermissionMode.AcceptEdits,
+            "some-tool", "the prompt", Path.GetTempPath(), runner, Implementing,
+            behaviour: AiBehaviour.AcceptEdits,
             effort: AiEffort.Low));
 
-        Assert.Equal(AiPermissionMode.AcceptEdits, runner.Permission);
+        Assert.Equal(AiBehaviour.AcceptEdits, runner.Permission);
         Assert.Equal(AiEffort.Low, runner.Effort);
     }
 
@@ -84,7 +87,7 @@ public class AiProcessRunnerTests
     public void The_effort_goes_out_as_the_flag_the_tool_knows(AiEffort effort, string expected)
     {
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true, effort: effort);
+        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: true, Implementing, effort: effort);
 
         var at = psi.ArgumentList.IndexOf("--effort");
         Assert.True(at >= 0, "the effort flag is not on the command line");
@@ -95,7 +98,7 @@ public class AiProcessRunnerTests
     public void The_tools_own_effort_is_asked_for_by_passing_no_flag()
     {
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: false,
+        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing,
             effort: AiEffort.ToolDefault);
 
         Assert.DoesNotContain("--effort", psi.ArgumentList);
@@ -104,16 +107,16 @@ public class AiProcessRunnerTests
     [Fact]
     public void An_unknown_tool_gets_its_prompt_as_an_argument_and_claims_nothing_about_stdin()
     {
-        // The fallback used to be ClaudeToolRunner, which was survivable while everything went on the
+        // The fallback used to be ClaudeAgent, which was survivable while everything went on the
         // command line and became a hang when Claude moved to stdin: a custom tool was launched with
         // Claude's flags, no prompt anywhere on its command line, and a pipe it never agreed to read.
         var runner = AiProcessRunner.GetRunner("some-tool-nobody-here-knows");
 
-        Assert.IsType<GenericToolRunner>(runner);
+        Assert.IsType<GenericAgent>(runner);
         Assert.False(runner.AcceptsPromptOnStdin);
 
         var psi = new ProcessStartInfo();
-        runner.ConfigureProcess(psi, "the prompt", streaming: false);
+        runner.ConfigureProcess(psi, "the prompt", streaming: false, Implementing);
 
         Assert.Contains("the prompt", psi.ArgumentList);
     }
@@ -122,7 +125,7 @@ public class AiProcessRunnerTests
     public void Claude_leaves_the_prompt_off_the_command_line_because_it_reads_stdin()
     {
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: false);
+        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing);
 
         Assert.DoesNotContain("the prompt", psi.ArgumentList);
         Assert.Contains("-p", psi.ArgumentList);
@@ -130,10 +133,10 @@ public class AiProcessRunnerTests
         // And it is the only one that opted in. Opting in is a claim about somebody else's CLI, and a
         // tool that does not read stdin sits waiting for input that never arrives.
         // Through the interface: the default lives there, so asking the concrete type would not see it.
-        Assert.True(((IAiToolRunner)new ClaudeToolRunner()).AcceptsPromptOnStdin);
-        Assert.False(((IAiToolRunner)new CodexToolRunner()).AcceptsPromptOnStdin);
-        Assert.False(((IAiToolRunner)new OpenCodeToolRunner()).AcceptsPromptOnStdin);
-        Assert.False(((IAiToolRunner)new PiToolRunner()).AcceptsPromptOnStdin);
+        Assert.True(((IAiAgent)new ClaudeAgent()).AcceptsPromptOnStdin);
+        Assert.False(((IAiAgent)new CodexAgent()).AcceptsPromptOnStdin);
+        Assert.False(((IAiAgent)new OpenCodeAgent()).AcceptsPromptOnStdin);
+        Assert.False(((IAiAgent)new PiAgent()).AcceptsPromptOnStdin);
     }
 
 
@@ -152,7 +155,7 @@ public class AiProcessRunnerTests
         // file's front matter and an SDK option, and settings.json has no equivalent. A ceiling that is
         // hit is still read as an error rather than as an answer (see below), for anyone who adds one.
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true);
+        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: true, Implementing);
 
         Assert.DoesNotContain("--max-turns", psi.ArgumentList);
     }
@@ -175,7 +178,7 @@ public class AiProcessRunnerTests
     public void Streaming_asks_for_json_and_for_the_verbosity_it_requires()
     {
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true);
+        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: true, Implementing);
 
         Assert.Contains("stream-json", psi.ArgumentList);
 
@@ -186,7 +189,7 @@ public class AiProcessRunnerTests
         // And only where it is asked for. The plain path is what the tile used for a year and what the
         // other three tools still use.
         var plain = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(plain, "the prompt", streaming: false);
+        new ClaudeAgent().ConfigureProcess(plain, "the prompt", streaming: false, Implementing);
         Assert.Contains("text", plain.ArgumentList);
         Assert.DoesNotContain("--verbose", plain.ArgumentList);
     }
@@ -197,11 +200,11 @@ public class AiProcessRunnerTests
         // Like AcceptsPromptOnStdin, this is a claim about somebody else's CLI, so it is opted into per
         // tool by somebody who has checked. A tool wrongly marked as streaming is run with flags it does
         // not understand.
-        Assert.True(((IAiToolRunner)new ClaudeToolRunner()).SupportsStreaming);
-        Assert.False(((IAiToolRunner)new CodexToolRunner()).SupportsStreaming);
-        Assert.False(((IAiToolRunner)new OpenCodeToolRunner()).SupportsStreaming);
-        Assert.False(((IAiToolRunner)new PiToolRunner()).SupportsStreaming);
-        Assert.False(((IAiToolRunner)new GenericToolRunner()).SupportsStreaming);
+        Assert.True(((IAiAgent)new ClaudeAgent()).SupportsStreaming);
+        Assert.False(((IAiAgent)new CodexAgent()).SupportsStreaming);
+        Assert.False(((IAiAgent)new OpenCodeAgent()).SupportsStreaming);
+        Assert.False(((IAiAgent)new PiAgent()).SupportsStreaming);
+        Assert.False(((IAiAgent)new GenericAgent("some-tool")).SupportsStreaming);
     }
 
     [Theory]
@@ -219,7 +222,7 @@ public class AiProcessRunnerTests
     {
         var line = """{"type":"assistant","message":{"content":[""" + block + """]}}""";
 
-        var chunk = Assert.Single(new ClaudeToolRunner().ParseLine(line));
+        var chunk = Assert.Single(new ClaudeAgent().ParseLine(line));
 
         Assert.Equal(AiChunkKind.Activity, chunk.Kind);
         Assert.Equal(expected, chunk.Content);
@@ -236,7 +239,7 @@ public class AiProcessRunnerTests
             /Cart.cs"}}]}}
             """.Trim();
 
-        var chunk = Assert.Single(new ClaudeToolRunner().ParseLine(line));
+        var chunk = Assert.Single(new ClaudeAgent().ParseLine(line));
 
         Assert.EndsWith("Cart.cs", chunk.Content);
         Assert.True(chunk.Content.Length < 60, chunk.Content);
@@ -254,7 +257,7 @@ public class AiProcessRunnerTests
               {"type":"tool_use","name":"Read","input":{"file_path":"src/Cart.cs"}}]}}
             """;
 
-        var chunks = new ClaudeToolRunner().ParseLine(line);
+        var chunks = new ClaudeAgent().ParseLine(line);
 
         Assert.Equal(2, chunks.Count);
         Assert.Equal(AiChunkKind.Text, chunks[0].Kind);
@@ -340,7 +343,7 @@ public class AiProcessRunnerTests
     {
         var doing = new List<string>();
         var output = await AiProcessRunner.ReadStreamAsync(
-            new StringReader(string.Join("\n", lines)), new ClaudeToolRunner(), doing.Add);
+            new StringReader(string.Join("\n", lines)), new ClaudeAgent(), doing.Add);
         return (output.Text, output.Failed, doing);
     }
 
@@ -412,6 +415,37 @@ public class AiProcessRunnerTests
     }
 
     [Fact]
+    public void The_instance_own_extra_arguments_are_measured_against_the_same_command_line()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        // ExtraArgs is a multi-line box of user-typed text and it goes on the same command line as the
+        // prompt, in front of it. Measured without them, a prompt that passed the guard still overflowed
+        // once a couple of `--add-dir <long path>` entries had been added — and Process.Start threw the
+        // opaque Win32Exception the guard exists to turn into a sentence.
+        var instance = new AiAgentInstance
+        {
+            ExtraArgs = ["--add-dir", new string('p', 2_000), "--add-dir", new string('q', 2_000)]
+        };
+
+        var withoutArgs = AiProcessRunner.PromptBudget("tool.cmd");
+        var withArgs = AiProcessRunner.PromptBudget("tool.cmd", instance: instance);
+
+        Assert.NotNull(withoutArgs);
+        Assert.True(withArgs < withoutArgs - 4_000);
+
+        var prompt = new string('x', withoutArgs!.Value - 100);
+
+        // Fits on its own...
+        Assert.IsNotType<InvalidOperationException>(
+            Record.Exception(() => Run("tool.cmd", prompt)));
+
+        // ...and is refused, by length rather than by Process.Start, once the arguments are counted too.
+        var ex = Assert.Throws<InvalidOperationException>(() => Run("tool.cmd", prompt, instance));
+        Assert.Contains("command line", ex.Message);
+    }
+
+    [Fact]
     public void A_tool_that_reads_stdin_is_not_measured_at_all()
     {
         // The whole point of stdin: there is no command line to overflow.
@@ -420,7 +454,7 @@ public class AiProcessRunnerTests
         // this test would launch the real thing with a 200 KB prompt and wait for it.
         var ex = Record.Exception(() =>
             AiProcessRunner.RunPlainAsync("mtiles-no-such-tool.cmd", new string('x', 200_000), ".",
-                    new ClaudeToolRunner())
+                    new ClaudeAgent(), Implementing)
                 .GetAwaiter().GetResult());
 
         Assert.IsNotType<InvalidOperationException>(ex);
@@ -429,7 +463,7 @@ public class AiProcessRunnerTests
     [Fact]
     public void A_tool_that_reads_stdin_has_no_budget_to_fit_and_the_prompt_is_left_whole()
     {
-        Assert.Null(AiProcessRunner.PromptBudget("claude.cmd", new ClaudeToolRunner()));
+        Assert.Null(AiProcessRunner.PromptBudget("claude.cmd", new ClaudeAgent()));
 
         var whole = new GoalPromptBuilder().BuildReview("the goal", new string('d', 20_000), budget: null);
         Assert.Contains("dddd", whole);
@@ -438,17 +472,17 @@ public class AiProcessRunnerTests
     // ── Permission mode ─────────────────────────────────
 
     [Theory]
-    [InlineData(AiPermissionMode.Auto, "auto")]
-    [InlineData(AiPermissionMode.AcceptEdits, "acceptEdits")]
-    [InlineData(AiPermissionMode.BypassPermissions, "bypassPermissions")]
-    public void Claude_is_told_what_it_may_do_without_asking(AiPermissionMode mode, string expected)
+    [InlineData(AiBehaviour.Auto, "auto")]
+    [InlineData(AiBehaviour.AcceptEdits, "acceptEdits")]
+    [InlineData(AiBehaviour.BypassPermissions, "bypassPermissions")]
+    public void Claude_is_told_what_it_may_do_without_asking(AiBehaviour mode, string expected)
     {
         // The tile used to pass nothing, so a run inherited whatever the user's own Claude Code
         // settings said — and the factory default there is to ask, which a `-p` run has nobody to do.
         // Every edit was refused, the implementation wrote no files, and the tile reported "the last
         // attempt changed no files": a true sentence about the wrong thing.
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: true, permission: mode);
+        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: true, Implementing, behaviour: mode);
 
         var at = psi.ArgumentList.IndexOf("--permission-mode");
         Assert.True(at >= 0);
@@ -461,8 +495,8 @@ public class AiProcessRunnerTests
         // The way back to what this did before the setting existed, for somebody whose Claude Code
         // configuration already says something deliberate.
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: false,
-            permission: AiPermissionMode.ToolDefault);
+        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing,
+            behaviour: AiBehaviour.ToolDefault);
 
         Assert.DoesNotContain("--permission-mode", psi.ArgumentList);
     }
@@ -474,7 +508,7 @@ public class AiProcessRunnerTests
         // inherited ask-first mode in place for every caller that forgets — which is every caller
         // written before the parameter existed.
         var psi = new ProcessStartInfo();
-        new ClaudeToolRunner().ConfigureProcess(psi, "the prompt", streaming: false);
+        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing);
 
         Assert.Contains("auto", psi.ArgumentList);
     }
@@ -483,10 +517,76 @@ public class AiProcessRunnerTests
     public void A_tool_with_no_such_flag_ignores_the_mode()
     {
         var psi = new ProcessStartInfo();
-        new GenericToolRunner().ConfigureProcess(psi, "the prompt", streaming: false,
-            permission: AiPermissionMode.BypassPermissions);
+        new GenericAgent("some-tool").ConfigureProcess(psi, "the prompt", streaming: false, Implementing,
+            behaviour: AiBehaviour.BypassPermissions);
 
         Assert.Equal(["the prompt"], psi.ArgumentList);
+    }
+
+    /// <summary>
+    /// An agent whose command line ends in the prompt, and which keeps the object it was handed so a
+    /// test can read what the runner put on it after the agent had finished.
+    /// </summary>
+    /// <remarks>It does not throw, unlike <see cref="RecordingRunner"/>: what is being asserted is added
+    /// <em>after</em> <c>ConfigureProcess</c> returns. The run then dies on <c>Process.Start</c>, which
+    /// needs no PATH and leaves the arguments intact.</remarks>
+    private sealed class PositionalPromptAgent : StubAgent
+    {
+        public ProcessStartInfo? Started { get; private set; }
+
+        public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+            AiUsage usage, AiBehaviour behaviour = AiBehaviour.Auto,
+            AiEffort effort = AiEffort.High, string model = "")
+        {
+            psi.ArgumentList.Add("run");
+            psi.ArgumentList.Add(prompt);
+            Started = psi;
+        }
+    }
+
+    /// <summary>
+    /// The instance's own arguments reach a headless run, in front of the prompt.
+    /// </summary>
+    /// <remarks>
+    /// The tile honoured <c>ExtraArgs</c> and every goal run on the same instance ignored them, so an
+    /// instance carrying <c>--add-dir</c> worked in the agent tile and silently did not in a goal — a
+    /// setting that is present, saved and does nothing. In front of the prompt because four agents pass
+    /// the prompt as their last positional argument, and how an option after a positional parses is
+    /// somebody else's CLI's decision.
+    /// </remarks>
+    [Fact]
+    public async Task The_instances_extra_arguments_reach_a_headless_run()
+    {
+        var agent = new PositionalPromptAgent();
+        var instance = new AiAgentInstance { ExtraArgs = ["--add-dir", "  ", "/tmp/repo"] };
+
+        await Assert.ThrowsAnyAsync<Exception>(() => AiProcessRunner.RunPlainAsync(
+            "no-such-binary-mtiles-test", "the prompt", Path.GetTempPath(), agent, Implementing,
+            instance: instance));
+
+        Assert.Equal(["run", "--add-dir", "/tmp/repo", "the prompt"], agent.Started!.ArgumentList);
+    }
+
+    /// <summary>
+    /// On agy the instance's arguments go in front of <c>--print</c>, not between it and the prompt.
+    /// </summary>
+    /// <remarks>
+    /// agy's prompt is the value of its own <c>--print</c>, so the rule that is right for the four
+    /// agents passing a bare positional splits a flag from its value here: agy reads the first extra
+    /// argument as what to print and the prompt is left as a stray positional. Which is why the
+    /// position is the agent's answer rather than the runner's.
+    /// </remarks>
+    [Fact]
+    public void On_agy_the_extra_arguments_go_in_front_of_the_print_flag()
+    {
+        var agy = new AntigravityAgent();
+        var psi = new ProcessStartInfo();
+        agy.ConfigureProcess(psi, "the prompt", streaming: false, Implementing);
+
+        var at = agy.ExtraArgsIndex([.. psi.ArgumentList], "the prompt");
+
+        Assert.Equal(psi.ArgumentList.IndexOf("--print"), at);
+        Assert.Equal("--print", psi.ArgumentList[at]);
     }
 
     // ── Refused tool calls ──────────────────────────────
@@ -501,7 +601,7 @@ public class AiProcessRunnerTests
 
         var output = await AiProcessRunner.ReadStreamAsync(
             new StringReader(string.Join("\n", [Said, denied, denied, Result])),
-            new ClaudeToolRunner(), _ => { });
+            new ClaudeAgent(), _ => { });
 
         Assert.Equal(2, output.PermissionDenials);
 
@@ -518,7 +618,7 @@ public class AiProcessRunnerTests
         const string failed = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"error: no such file or directory"}]}}""";
 
         var output = await AiProcessRunner.ReadStreamAsync(
-            new StringReader(failed), new ClaudeToolRunner(), _ => { });
+            new StringReader(failed), new ClaudeAgent(), _ => { });
 
         Assert.Equal(0, output.PermissionDenials);
     }
@@ -543,7 +643,7 @@ public class AiProcessRunnerTests
             + """}]}}""";
 
         var output = await AiProcessRunner.ReadStreamAsync(
-            new StringReader(json), new ClaudeToolRunner(), _ => { });
+            new StringReader(json), new ClaudeAgent(), _ => { });
 
         Assert.Equal(0, output.PermissionDenials);
     }
@@ -555,15 +655,16 @@ public class AiProcessRunnerTests
         const string denied = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":[{"type":"text","text":"Claude requested permissions to use Edit, but you haven't granted it yet."}]}]}}""";
 
         var output = await AiProcessRunner.ReadStreamAsync(
-            new StringReader(denied), new ClaudeToolRunner(), _ => { });
+            new StringReader(denied), new ClaudeAgent(), _ => { });
 
         Assert.Equal(1, output.PermissionDenials);
     }
 
     /// <summary>Starts a run and lets the guard throw before anything is launched. Whatever happens
     /// after that — no such executable — is not what these are asking about.</summary>
-    private static void Run(string executable, string prompt) =>
-        AiProcessRunner.RunPlainAsync(executable, prompt, ".", new GenericToolRunner())
+    private static void Run(string executable, string prompt, AiAgentInstance? instance = null) =>
+        AiProcessRunner.RunPlainAsync(executable, prompt, ".", new GenericAgent("some-tool"), Implementing,
+                instance: instance)
             .GetAwaiter().GetResult();
 
     // ── Standard input is always closed ─────────────────
@@ -571,11 +672,12 @@ public class AiProcessRunnerTests
     // ── The running tool is nameable ────────────────────
 
     /// <summary>A runner that turns the run into a process which starts and exits at once.</summary>
-    private sealed class ExitingRunner : IAiToolRunner
+    private sealed class ExitingRunner : StubAgent
     {
-        public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-            AiPermissionMode permission = AiPermissionMode.Auto,
-            AiEffort effort = AiEffort.High)
+        public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+            AiUsage usage,
+            AiBehaviour behaviour = AiBehaviour.Auto,
+            AiEffort effort = AiEffort.High, string model = "")
         {
             psi.ArgumentList.Clear();
             if (OperatingSystem.IsWindows())
@@ -590,7 +692,7 @@ public class AiProcessRunnerTests
             }
         }
 
-        public IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
+        public override IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
     }
 
     /// <summary>
@@ -613,7 +715,7 @@ public class AiProcessRunnerTests
         int? started = null;
 
         await AiProcessRunner.RunPlainAsync(
-            shell, "the prompt", Path.GetTempPath(), new ExitingRunner(),
+            shell, "the prompt", Path.GetTempPath(), new ExitingRunner(), Implementing,
             onStarted: processId => started = processId);
 
         Assert.NotNull(started);
@@ -622,23 +724,24 @@ public class AiProcessRunnerTests
     }
 
     /// <summary>Captures the <see cref="ProcessStartInfo"/> and stops before anything is launched.</summary>
-    private sealed class StartInfoRunner(bool acceptsStdin) : IAiToolRunner
+    private sealed class StartInfoRunner(bool acceptsStdin) : StubAgent
     {
         public ProcessStartInfo? Captured { get; private set; }
 
-        public bool AcceptsPromptOnStdin => acceptsStdin;
+        public override bool AcceptsPromptOnStdin => acceptsStdin;
 
         public sealed class Stop : Exception;
 
-        public void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
-            AiPermissionMode permission = AiPermissionMode.Auto,
-            AiEffort effort = AiEffort.High)
+        public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
+            AiUsage usage,
+            AiBehaviour behaviour = AiBehaviour.Auto,
+            AiEffort effort = AiEffort.High, string model = "")
         {
             Captured = psi;
             throw new Stop();
         }
 
-        public IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
+        public override IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
     }
 
     /// <summary>
@@ -650,7 +753,7 @@ public class AiProcessRunnerTests
     /// it stops, on a path that deliberately has no wall-clock timeout, and the tile waits for ever
     /// with nothing on screen.</para>
     /// <para>It is the ordinary case rather than a corner: a bare positional prompt is what
-    /// <c>GenericToolRunner</c> passes, and that is measured to open an interactive session rather than
+    /// <c>GenericAgent</c> passes, and that is measured to open an interactive session rather than
     /// a print run on at least one CLI here. Every custom tool a user adds takes that path, and so does
     /// any tool whose own runner is removed.</para>
     /// <para>Redirecting is half of it; the run then closes the pipe at once when there is no prompt to
@@ -666,7 +769,7 @@ public class AiProcessRunnerTests
         var runner = new StartInfoRunner(acceptsStdin);
 
         await Assert.ThrowsAsync<StartInfoRunner.Stop>(() => AiProcessRunner.RunPlainAsync(
-            "some-tool", "the prompt", Path.GetTempPath(), runner));
+            "some-tool", "the prompt", Path.GetTempPath(), runner, Implementing));
 
         Assert.NotNull(runner.Captured);
         Assert.True(runner.Captured!.RedirectStandardInput,

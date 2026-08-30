@@ -32,7 +32,7 @@ public partial class TerminalTileView : UserControl
         if (vm.CachedControl is TerminalControl cached)
         {
             ControlHelper.DetachFromParent(cached);
-            Content = cached;
+            TerminalHost.Content = cached;
             return;
         }
 
@@ -60,7 +60,7 @@ public partial class TerminalTileView : UserControl
         };
 
         vm.AttachControl(terminal);
-        Content = terminal;
+        TerminalHost.Content = terminal;
 
         AttachedToVisualTree += OnceAttached;
 

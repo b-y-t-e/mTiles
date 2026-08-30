@@ -1,7 +1,9 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using mTiles.Models;
+using mTiles.Services.Agents;
+using mTiles.Services.Shells;
 using mTiles.Services.Speech;
 
 namespace mTiles.Services;
@@ -40,7 +42,36 @@ public sealed class SettingsService
             SeedSpeechLanguage();
 
         MigrateLegacySettings();
-        SeedDefaultProfiles();
+        SeedAgentInstances();
+    }
+
+    /// <summary>
+    /// Gives every agent this build knows the one instance it starts life with.
+    /// </summary>
+    /// <remarks>
+    /// <para>Adds what is missing rather than replacing the list, and matches on
+    /// <see cref="AiAgentInstance.AgentId"/>: an agent added by a later version has to arrive on a
+    /// settings file that already has the others, and an instance the user renamed or repointed is
+    /// theirs. Nothing is ever removed here — an instance naming an agent this build does not have is a
+    /// row that finds nothing, and deleting it would let an older build settle the question for a newer
+    /// one, which is the trap <c>TolerantAiBehaviourConverter</c> exists to avoid.</para>
+    /// <para>Seeded whether or not the agent is installed: an instance is configuration, and a row that
+    /// appeared only once somebody had installed something would be a list changing for reasons they
+    /// cannot see. Availability decides what can be <em>chosen</em>, not what exists.</para>
+    /// </remarks>
+    private void SeedAgentInstances()
+    {
+        var known = Settings.AiAgentInstances
+            .Select(instance => instance.AgentId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missing = AiAgentCatalog.SeedInstances()
+            .Where(seed => !known.Contains(seed.AgentId))
+            .ToList();
+        if (missing.Count == 0) return;
+
+        Settings.AiAgentInstances.AddRange(missing);
+        Save();
     }
 
     /// <summary>
@@ -125,11 +156,91 @@ public sealed class SettingsService
             changed = true;
         }
 
-        changed |= MigrateOpenCodeProfile();
-        changed |= RemoveSeededOpenClaudeProfile();
+        changed |= DropCustomShell();
+        changed |= ReportUnknownDefaultShell();
 
         if (changed)
             Save();
+    }
+
+    /// <summary>
+    /// Says out loud that a hand-nominated shell has been dropped, and stops carrying the keys.
+    /// </summary>
+    /// <remarks>
+    /// The only migration here that cannot honour the answer it reads. A shell is a class now — it has
+    /// to know how to quote, how to run one command and how to unset a variable — so a path to an
+    /// arbitrary binary has nowhere to go, and the user lands on the default shell instead. That is a
+    /// setting disappearing, so it is a warning rather than a note: this is where "my terminal opens in
+    /// the wrong shell since the update" is answered. The path is quoted back because it is what the
+    /// user has to re-nominate, and the arguments with it, since together they are the whole of what was
+    /// set.
+    /// </remarks>
+    private bool DropCustomShell()
+    {
+        if (string.IsNullOrWhiteSpace(Settings.LegacyCustomShellPath)
+            && string.IsNullOrWhiteSpace(Settings.LegacyCustomShellArgs))
+            return false;
+
+        Trace.TraceWarning(
+            "The custom shell setting has been removed and your terminals now start in '{0}'. It named "
+            + "'{1}' {2}, which this version cannot run: a shell is one of the known kinds (PowerShell, "
+            + "Git Bash, bash, zsh, fish) because the application has to know how to quote for it and "
+            + "how to run a single command in it.",
+            ShellTerminalCatalog.ResolveDefault(Settings).Shell.DisplayName,
+            Settings.LegacyCustomShellPath,
+            string.IsNullOrWhiteSpace(Settings.LegacyCustomShellArgs)
+                ? "with no arguments"
+                : $"with arguments '{Settings.LegacyCustomShellArgs}'");
+
+        Settings.LegacyCustomShellPath = null;   // read once; the next save drops both keys
+        Settings.LegacyCustomShellArgs = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Says out loud, once, that the default shell named in settings is one this version does not know
+    /// — and leaves the name where it is.
+    /// </summary>
+    /// <remarks>
+    /// <para>The other half of <see cref="DropCustomShell"/>, and the same loss by a different route. A
+    /// shell was not only nominated by path: on Unix the old detection offered whatever <c>$SHELL</c>
+    /// pointed at, of any kind at all, so <c>DefaultShellName</c> can name <c>nu</c>, <c>ksh</c> or
+    /// <c>dash</c> — and on Windows it can name <c>CMD</c>. <c>ShellTerminalCatalog.Find</c> answers
+    /// null to each of those and the call site quietly falls back, which is a setting disappearing
+    /// without a word.</para>
+    /// <para><b>Reported, not dropped.</b> Unlike the custom shell — a path there is nothing in this
+    /// application that could ever run — a *name* this build does not know is also what a shell added
+    /// by a newer version looks like from an installation Velopack has rolled back, and what a settings
+    /// file carried over from another machine looks like. Clearing it would let the older build decide
+    /// for the newer one for good, since going back would no longer find the setting. Saying it once
+    /// costs nothing and loses nothing: <see cref="AppSettings.ReportedUnknownShellName"/> is what
+    /// keeps the warning from returning on every launch.</para>
+    /// </remarks>
+    private bool ReportUnknownDefaultShell()
+    {
+        var named = Settings.DefaultShellName;
+        if (string.IsNullOrWhiteSpace(named) || ShellTerminalCatalog.Find(named) is not null)
+        {
+            // A name that is known again — the newer build is back, or the shell now exists here — must
+            // be reported afresh if it is ever unknown once more.
+            if (Settings.ReportedUnknownShellName.Length == 0) return false;
+            Settings.ReportedUnknownShellName = "";
+            return true;
+        }
+
+        if (Settings.ReportedUnknownShellName.Equals(named, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        Settings.ReportedUnknownShellName = named;
+
+        Trace.TraceWarning(
+            "The default shell setting named '{0}', which this version does not know, so your terminals "
+            + "now start in '{1}'. A shell is one of the known kinds (PowerShell, Git Bash, bash, zsh, "
+            + "fish) because the application has to know how to quote for it and how to run a single "
+            + "command in it.",
+            named, ShellTerminalCatalog.ResolveDefault(Settings).Shell.DisplayName);
+
+        return true;
     }
 
     /// <returns>
@@ -196,6 +307,9 @@ public sealed class SettingsService
                 $"{stem}.bad-{DateTime.Now:yyyyMMdd-HHmmss}{Path.GetExtension(_filePath)}");
 
             File.Copy(_filePath, copy, overwrite: true);
+            // The copy carries whatever secrets the unreadable file did, so it is narrowed like the
+            // original — File.Copy does not carry the mode across on every filesystem.
+            PrivateFile.Protect(copy);
             Trace.TraceWarning("The unreadable settings file was kept as '{0}'.", copy);
 
             // Newest kept, oldest dropped — the interesting one is the first failure, but a name sorts by
@@ -217,157 +331,6 @@ public sealed class SettingsService
     private const int BadCopiesKept = 5;
 
     /// <summary>
-    /// The OpenCode profile's two commands: resume the tile's session, and — when there is none yet —
-    /// create it and resume that. See <see cref="OpenCodeSession"/> for why creating one takes a file.
-    /// <para>Named constants because <see cref="MigrateOpenCodeProfile"/> has to recognise its own
-    /// earlier answer, and comparing against a literal it had copied is how a migration comes to
-    /// overwrite something the user wrote.</para>
-    /// </summary>
-    /// <remarks>Composed through <see cref="OpenCodeSession.IdFor"/> rather than written out, so
-    /// opencode's <c>ses</c> prefix lives in exactly one place. Spelling it here as well was a second
-    /// copy hiding behind a comment that claimed there was only one — and the two disagreeing is not a
-    /// build failure, it is a tile that silently starts a fresh conversation.</remarks>
-    private static readonly string OpenCodeResume =
-        $"opencode --session {OpenCodeSession.IdFor(TileScript.TileIdToken)}";
-
-    /// <inheritdoc cref="OpenCodeResume"/>
-    /// <remarks><c>;</c> rather than <c>&amp;&amp;</c>, so a failed import still gives the resume its
-    /// turn: the session may well exist already and the import be the thing that is broken. It is a
-    /// separator in PowerShell and every POSIX shell, and <em>not</em> in <c>cmd</c> — which is the
-    /// documented limit of running chains there, not a new one.</remarks>
-    private static readonly string OpenCodeCreateThenResume =
-        $"opencode import \"{TileScript.OpenCodeSessionFileToken}\" ; {OpenCodeResume}";
-
-    /// <summary>
-    /// Gives the seeded OpenCode profile its session resume, which seeding alone cannot do: profiles are
-    /// only ever added, never overwritten, so everybody who has run this app before already has an
-    /// "OpenCode" profile and would never see the new one.
-    /// <para>Only when both scripts are still <em>exactly</em> what an earlier version seeded — the old
-    /// pair asked <c>opencode --session ${tileId}</c>, which opencode refuses outright because the id
-    /// lacks its <c>ses</c> prefix, and fell back to a bare <c>opencode</c>. A profile the user has
-    /// touched at all is left alone; this replaces a command that cannot work, not a decision.</para>
-    /// </summary>
-    private bool MigrateOpenCodeProfile()
-    {
-        const string oldStartup = "opencode --session ${tileId}";
-        const string oldFallback = "opencode";
-
-        // Every match, not the first. Seeding cannot produce two profiles of one name, but a user
-        // duplicating one can — and migrating one of a pair while leaving its twin on a command that has
-        // never worked is the kind of half-done that gets reported as "resume works sometimes".
-        var stale = Settings.ShellProfiles.Where(p =>
-            p.Name.Equals("OpenCode", StringComparison.OrdinalIgnoreCase)
-            && p.StartupScript == oldStartup
-            && p.FallbackScript == oldFallback).ToList();
-
-        foreach (var profile in stale)
-        {
-            profile.StartupScript = OpenCodeResume;
-            profile.FallbackScript = OpenCodeCreateThenResume;
-        }
-
-        return stale.Count > 0;
-    }
-
-    /// <summary>
-    /// Takes away the seeded "Open Claude" profile, which nothing can run any more.
-    /// </summary>
-    /// <remarks>
-    /// <para>The tool went out of <c>AiToolDetector.KnownTools</c> and the profile went out of
-    /// <see cref="SeedDefaultProfiles"/> in the same change — but seeding only ever <em>adds</em>, so
-    /// everybody who has run an earlier version still has the profile, and its
-    /// <c>RequiredAiToolBinaryName</c> names a tool detection no longer looks for. That combination is
-    /// the worst of both: the profile can never be offered on an empty tile again, not even to somebody
-    /// who does have <c>openclaude</c> installed, and the only way to be rid of it is to find it in
-    /// Settings and delete it by hand. Removing a seeded entry needs a migration exactly as changing
-    /// one does — <see cref="MigrateOpenCodeProfile"/> is the precedent.</para>
-    /// <para><b>Only when it is untouched</b>, matched on both scripts as well as the name and binary,
-    /// for the same reason that migration matches on both: what is being taken away is an answer this
-    /// application gave, never one the user wrote. A profile they have edited — pointed at a fork, or a
-    /// wrapper of their own on the same binary — is theirs, and stays, dead or not. Every match rather
-    /// than the first, because a user can duplicate a profile and leaving one of a pair is the kind of
-    /// half-done that gets reported as a profile that comes back.</para>
-    /// <para><b>The one cost, stated rather than hidden:</b> the visibility filter only governs the
-    /// empty tile's chooser, so a tile already launched on this profile goes on running it. Taking the
-    /// profile away means such a tile falls back to its <c>ShellName</c> on the next restart — a plain
-    /// shell — which for somebody who genuinely has <c>openclaude</c> installed is a working tile
-    /// changed out from under them. It is still the right way round: leaving it costs everybody else a
-    /// permanent entry they cannot be offered and can only delete by hand, and the fallback here is a
-    /// shell rather than a failure.</para>
-    /// </remarks>
-    private bool RemoveSeededOpenClaudeProfile()
-    {
-        const string seededStartup = "openclaude --resume ${tileId}";
-        const string seededFallback = "openclaude --session-id ${tileId}";
-
-        var removed = Settings.ShellProfiles.RemoveAll(p =>
-            p.Name.Equals("Open Claude", StringComparison.OrdinalIgnoreCase)
-            // Static `string.Equals`, because the property is `string?` and has no initialiser. A
-            // profile read from a file with the key present is saved by `NullToEmptyStringConverter`;
-            // one built in memory, or read from a file written before the key existed, is null — and a
-            // dereference here throws inside `MigrateLegacySettings`, which runs while the main window
-            // is being built. That failure is the one the settings file's own guards exist to prevent:
-            // the application does not start and says nothing about why.
-            && string.Equals(p.RequiredAiToolBinaryName, "openclaude", StringComparison.OrdinalIgnoreCase)
-            && p.StartupScript == seededStartup
-            && p.FallbackScript == seededFallback);
-
-        return removed > 0;
-    }
-
-    private void SeedDefaultProfiles()
-    {
-        var defaults = new List<UserShellProfile>
-        {
-            new()
-            {
-                Name = "Claude Code",
-                ShellName = "",
-                RequiredAiToolBinaryName = "claude",
-                StartupScript = "claude --resume ${tileId}",
-                FallbackScript = "claude --session-id ${tileId}"
-            },
-            new()
-            {
-                Name = "Pi Agent",
-                ShellName = "",
-                RequiredAiToolBinaryName = "pi",
-                StartupScript = "pi --session-id ${tileId}",
-                FallbackScript = "pi --session-id ${tileId}"
-            },
-            new()
-            {
-                Name = "OpenCode",
-                ShellName = "",
-                RequiredAiToolBinaryName = "opencode",
-                StartupScript = OpenCodeResume,
-                FallbackScript = OpenCodeCreateThenResume
-            },
-            new()
-            {
-                Name = "Codex",
-                ShellName = "",
-                RequiredAiToolBinaryName = "codex",
-                StartupScript = "codex resume ${tileId}",
-                FallbackScript = "codex"
-            }
-        };
-
-        var dirty = false;
-        foreach (var profile in defaults)
-        {
-            var exists = Settings.ShellProfiles
-                .Any(p => p.Name.Equals(profile.Name, StringComparison.OrdinalIgnoreCase));
-            if (exists)
-                continue;
-            Settings.ShellProfiles.Add(profile);
-            dirty = true;
-        }
-
-        if (dirty) Save();
-    }
-
-    /// <summary>
     /// Writes the settings out now.
     /// <para>Serialised against itself, because two writers really do meet: the debounce timer fires on
     /// a thread-pool thread while the window closing calls this directly on the UI thread. Two
@@ -377,8 +340,10 @@ public sealed class SettingsService
     public void Save()
     {
         var json = JsonSerializer.Serialize(Settings, JsonDefaults.SettingsOptions);
+        // Owner-only: on Unix this file holds the API keys and database passwords as plain text,
+        // because there is no DPAPI to encrypt them with there.
         lock (_writeLock)
-            File.WriteAllText(_filePath, json);
+            PrivateFile.WriteAllText(_filePath, json);
     }
 
     private readonly Lock _writeLock = new();
@@ -417,6 +382,63 @@ public sealed class SettingsService
             // that do not work, and there is nothing else anywhere to say otherwise.
             Trace.TraceWarning("Saving settings to '{0}' failed: {1}", _filePath, ex);
         }
+    }
+
+    /// <summary>
+    /// Puts a whole settings object in place of the current one — what importing a file does.
+    /// </summary>
+    /// <remarks>
+    /// <para>A replacement rather than a merge, because that is what an imported file <em>is</em>:
+    /// merging would leave the machine holding a mixture nobody chose and no way of saying which half
+    /// came from where.</para>
+    /// <para><b>The secrets on this machine are kept</b>, and that is the one exception the merge rule
+    /// makes. An export carries no keys and no passwords (<see cref="SettingsPortability"/>), so an
+    /// import that took the file literally would silently empty the working key of every provider the
+    /// user already had — a file meant to add configuration removing the only part of it that cannot be
+    /// typed back from memory.</para>
+    /// <para>Everything else reads <see cref="Settings"/> through this object rather than holding the
+    /// object it returned, so a notification is all it takes for the application to be running on the
+    /// new one.</para>
+    /// </remarks>
+    public void Replace(AppSettings settings)
+    {
+        KeepExistingSecrets(settings);
+        Settings = settings;
+        // The same two steps the constructor runs, for the same reason: an imported file can be older
+        // than this build, or hand-written. Without them an agent this build has and the file does not
+        // would have no instance at all — missing from the Agent tile's chooser and from the Goal tile's
+        // list, with nothing on screen saying why, until the application was restarted.
+        MigrateLegacySettings();
+        SeedAgentInstances();
+        NotifyChanged();
+    }
+
+    /// <summary>Carries this machine's keys across an import that brought none.</summary>
+    /// <remarks>Matched by instance id, which is what survives an export: a provider instance or a
+    /// manual database connection the imported file also has keeps the secret already configured for it,
+    /// and one it does not have arrives empty for the user to fill in. Every field
+    /// <see cref="SettingsPortability"/> blanks is restored here — a file exported from this machine and
+    /// imported back into it must leave the machine as it was.</remarks>
+    private void KeepExistingSecrets(AppSettings incoming)
+    {
+        foreach (var provider in incoming.AiProviderInstances.Where(p => p.ApiKey.Length == 0))
+        {
+            if (Settings.AiProviderInstances.FirstOrDefault(existing => existing.Id == provider.Id)
+                is { ApiKey.Length: > 0 } known)
+                provider.ApiKey = known.ApiKey;
+        }
+
+        foreach (var connection in incoming.Database.ManualConnections.Where(c => c.Password.Length == 0))
+        {
+            if (Settings.Database.ManualConnections.FirstOrDefault(existing => existing.Id == connection.Id)
+                is { Password.Length: > 0 } known)
+                connection.Password = known.Password;
+        }
+
+        if (incoming.Database.SqlServer.Password.Length == 0)
+            incoming.Database.SqlServer.Password = Settings.Database.SqlServer.Password;
+        if (incoming.Database.PostgreSql.Password.Length == 0)
+            incoming.Database.PostgreSql.Password = Settings.Database.PostgreSql.Password;
     }
 
     public void NotifyChanged()

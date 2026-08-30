@@ -25,7 +25,7 @@ internal readonly record struct SolidPrinciple(
 /// Its own file, and a table rather than five of everything, because the alternative is the same five
 /// members spelled out in four places — the model, the prompt text, the panel and the tests — where
 /// three of them agreeing and one not is a switch that silently does nothing. The same shape as
-/// <c>AiPermissionModes</c> and <c>SpeechEngines</c>, for the same reason.
+/// <c>AiBehaviours</c> and <c>SpeechEngines</c>, for the same reason.
 /// </remarks>
 internal static class SolidPrincipleCatalog
 {

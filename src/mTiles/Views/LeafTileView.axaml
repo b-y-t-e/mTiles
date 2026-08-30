@@ -100,7 +100,7 @@
                                         </MenuItem>
                                         <MenuItem Header="New session"
                                                   Command="{Binding ResetTileIdCommand}"
-                                                  IsVisible="{Binding HasProfile}">
+                                                  IsVisible="{Binding HasSession}">
                                             <MenuItem.Icon>
                                                 <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
                                             </MenuItem.Icon>

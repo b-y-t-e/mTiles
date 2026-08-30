@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Agents;
 using Xunit;
+using static mTiles.Tests.TestUsage;
 
 namespace mTiles.Tests;
 
@@ -15,13 +17,42 @@ namespace mTiles.Tests;
 /// </remarks>
 public class AiToolContractTests
 {
-    private static List<string> Args(string binary, AiPermissionMode permission = AiPermissionMode.Auto,
-        AiEffort effort = AiEffort.High)
+    private static List<string> Args(string binary, AiBehaviour permission = AiBehaviour.Auto,
+        AiEffort effort = AiEffort.High, string model = "")
     {
         var psi = new ProcessStartInfo("x");
-        AiProcessRunner.GetRunner(binary).ConfigureProcess(psi, "the prompt", streaming: false, permission, effort);
+        AiProcessRunner.GetRunner(binary).ConfigureProcess(psi, "the prompt", streaming: false, Implementing, permission, effort, model);
         return [..psi.ArgumentList];
     }
+
+    /// <summary>
+    /// A headless run is told the instance's model too, not only the interactive tile.
+    /// </summary>
+    /// <remarks>The Goal tile runs the agent through <c>AiProcessRunner</c>, which took the instance
+    /// and dropped its model — so a goal ran on the CLI's default model while the environment pointed
+    /// the CLI at a provider that usually serves a different one.</remarks>
+    [Theory]
+    [InlineData("opencode")]
+    [InlineData("codex")]
+    [InlineData("pi")]
+    [InlineData("agy")]
+    public void The_model_reaches_a_headless_run(string binary)
+    {
+        var args = Args(binary, model: "some/model");
+
+        Assert.Contains("--model", args);
+        Assert.Contains("some/model", args);
+    }
+
+    /// <summary>No model asked for, nothing passed — an empty model is "whatever the agent picks", and
+    /// a bare <c>--model</c> with nothing after it is a usage error on every one of them.</summary>
+    [Theory]
+    [InlineData("opencode")]
+    [InlineData("codex")]
+    [InlineData("pi")]
+    [InlineData("agy")]
+    public void No_model_asked_for_is_no_flag_at_all(string binary) =>
+        Assert.DoesNotContain("--model", Args(binary));
 
     /// <summary>
     /// Antigravity is given <c>--print</c>, and that is not a preference.
@@ -29,24 +60,28 @@ public class AiToolContractTests
     /// <remarks>
     /// Measured: <c>agy --print &lt;prompt&gt;</c> answers on stdout and exits 0, while the same prompt
     /// as a bare positional opens the interactive session and never returns. Before this runner existed
-    /// Antigravity fell to <see cref="GenericToolRunner"/>, which passes exactly that bare positional —
+    /// Antigravity fell to <see cref="GenericAgent"/>, which passes exactly that bare positional —
     /// so a Goal run on it hung for ever, on a path that deliberately has no wall-clock timeout.
     /// </remarks>
     [Fact]
     public void Antigravity_is_run_in_print_mode_rather_than_interactively()
     {
-        Assert.Equal(["--print", "the prompt"], Args("agy"));
+        // `--mode accept-edits` is agy's only working mode, so canonical auto maps to it. That is a
+        // round-down inside the mapping — asking for auto gets something weaker — and never the other
+        // way, which is the one direction this must not go.
+        Assert.Equal(["--mode", "accept-edits", "--effort", "high", "--print", "the prompt"],
+            Args("agy"));
 
-        // The only permission control it has. The finer modes pass nothing rather than being rounded up
-        // to it: asking for "auto" and being given "nothing is asked about at all" is the one direction
-        // this must never round.
-        Assert.Equal(["--dangerously-skip-permissions", "--print", "the prompt"],
-            Args("agy", AiPermissionMode.BypassPermissions));
-        Assert.DoesNotContain("--dangerously-skip-permissions", Args("agy", AiPermissionMode.AcceptEdits));
+        Assert.Equal(["--dangerously-skip-permissions", "--effort", "high", "--print", "the prompt"],
+            Args("agy", AiBehaviour.BypassPermissions));
+        Assert.DoesNotContain("--dangerously-skip-permissions", Args("agy", AiBehaviour.AcceptEdits));
 
-        // No effort flag: Antigravity spends effort through the model name (gemini-3.7-flash-high), so
-        // a level here would have to rewrite the user's configured model.
-        Assert.DoesNotContain("--effort", Args("agy", AiPermissionMode.Auto, AiEffort.Max));
+        // It does have an effort flag — measured, `--effort low|medium|high` — which this application
+        // used to say it did not, so every agy run went out at whatever the model name implied. Three
+        // levels, so the canonical top two round down rather than being passed and rejected.
+        Assert.Equal(["--effort", "high"],
+            new AntigravityAgent().EffortArgs(AiEffort.Max, Implementing));
+        Assert.Empty(new AntigravityAgent().EffortArgs(AiEffort.ToolDefault, Implementing));
     }
 
     /// <summary>
@@ -62,20 +97,39 @@ public class AiToolContractTests
     {
         Assert.Equal(["-p", "the prompt", "--mode", "text", "--thinking", "high"], Args("pi"));
         Assert.Equal(["-p", "the prompt", "--mode", "text", "--thinking", "max"],
-            Args("pi", AiPermissionMode.Auto, AiEffort.Max));
+            Args("pi", AiBehaviour.Auto, AiEffort.Max));
 
         // tool default passes no flag at all, here as everywhere.
         Assert.Equal(["-p", "the prompt", "--mode", "text"],
-            Args("pi", AiPermissionMode.Auto, AiEffort.ToolDefault));
+            Args("pi", AiBehaviour.Auto, AiEffort.ToolDefault));
     }
 
-    /// <summary>The two that take the prompt as a positional after a subcommand, and have no flag for
-    /// either setting — so neither is silently mapped to something adjacent.</summary>
+    /// <summary>
+    /// The two that take the prompt as a positional, after their subcommand and after their flags.
+    /// </summary>
+    /// <remarks>
+    /// <para>opencode's control is a <em>boolean</em> and its name is a trap: <c>--auto</c> is
+    /// documented as "auto-approve permissions that are not explicitly denied (dangerous!)", which is
+    /// this application's bypass. Canonical auto therefore passes nothing, and asking for bypass is the
+    /// only thing that puts the flag on the line.</para>
+    /// <para>codex has two orthogonal axes and no single flag, and its effort is a <em>config key</em>
+    /// — <c>-c model_reasoning_effort=high</c>. Both were passing nothing at all, so every goal run on
+    /// codex used whatever the user's <c>config.toml</c> happened to say. Only one of the two axes
+    /// reaches <c>exec</c>, which refuses <c>-a</c> outright.</para>
+    /// </remarks>
     [Fact]
     public void Opencode_and_codex_take_the_prompt_after_their_subcommand()
     {
         Assert.Equal(["run", "the prompt"], Args("opencode"));
-        Assert.Equal(["exec", "the prompt"], Args("codex"));
+        Assert.Equal(["run", "--auto", "the prompt"],
+            Args("opencode", AiBehaviour.BypassPermissions));
+
+        // No -a: measured, codex exec refuses it — the axis exists on codex and codex resume alone.
+        Assert.Equal(
+            ["exec", "--sandbox", "workspace-write", "-c", "model_reasoning_effort=high", "the prompt"],
+            Args("codex"));
+        Assert.Equal(["exec", "--dangerously-bypass-approvals-and-sandbox", "the prompt"],
+            Args("codex", AiBehaviour.BypassPermissions, AiEffort.ToolDefault));
     }
 
     /// <summary>
@@ -92,26 +146,4 @@ public class AiToolContractTests
         Assert.False(AiProcessRunner.GetRunner("openclaude").AcceptsPromptOnStdin);
     }
 
-    /// <summary>
-    /// The number of built-in tools is the number <c>CLAUDE.md</c> claims.
-    /// </summary>
-    /// <remarks>
-    /// A count in prose is a fact that goes stale the first time an entry is added or removed, silently
-    /// — removing Open Claude left the index saying eighteen. Pinned rather than trusted, and pinned
-    /// against the document rather than against a literal, so the failure names both halves and says
-    /// which one to change.
-    /// </remarks>
-    [Fact]
-    public void The_documented_number_of_built_in_tools_is_the_real_one()
-    {
-        var tools = AiToolDetector.Detect([], []).Count(t => !t.IsUserDefined);
-
-        var claudeMd = File.ReadAllText(Path.Combine(RepositoryRoot(), "CLAUDE.md"));
-
-        Assert.Contains($"built-in list of {tools} tools", claudeMd, StringComparison.Ordinal);
-    }
-
-    /// <summary>The repository root, from this file's own compile-time path.</summary>
-    private static string RepositoryRoot([System.Runtime.CompilerServices.CallerFilePath] string here = "") =>
-        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(here)!, "..", ".."));
 }

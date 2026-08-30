@@ -1,3 +1,4 @@
+﻿using System.Diagnostics;
 using mTiles.Services;
 using Xunit;
 
@@ -45,6 +46,148 @@ public sealed class SettingsMigrationTests : IDisposable
         GivenSettings("""{ "GitHideMTerminalDir": true }""");
 
         Assert.True(new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
+    }
+
+    /// <summary>
+    /// The custom shell cannot be honoured — a shell is a class now — so the least the migration owes
+    /// its user is a line in the log and a settings file that stops carrying a key nothing reads.
+    /// </summary>
+    [Fact]
+    public void A_custom_shell_is_reported_and_dropped()
+    {
+        GivenSettings("""{ "CustomShellPath": "/opt/nu/bin/nu", "CustomShellArgs": "--login" }""");
+
+        var listener = new CapturedTrace();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            var service = new SettingsService(SettingsPath);
+
+            Assert.Null(service.Settings.LegacyCustomShellPath);
+            Assert.Null(service.Settings.LegacyCustomShellArgs);
+            Assert.Contains("/opt/nu/bin/nu", listener.Text);
+            Assert.Contains("--login", listener.Text);
+        }
+        finally { Trace.Listeners.Remove(listener); }
+
+        // Read once: the save the migration triggers is what takes the keys out of the file, so the
+        // next version's reader is not still being handed a setting nothing can act on.
+        Assert.DoesNotContain("CustomShellPath", File.ReadAllText(SettingsPath));
+    }
+
+    /// <summary>
+    /// The same loss by the other route: on Unix the old detection offered whatever <c>$SHELL</c>
+    /// pointed at, so the default could be a shell no class here knows. Falling back to bash without a
+    /// word is the silent version of the custom-shell loss.
+    /// </summary>
+    [Fact]
+    public void A_default_shell_this_version_does_not_know_is_reported()
+    {
+        GivenSettings("""{ "DefaultShellName": "nu" }""");
+
+        var listener = new CapturedTrace();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            var service = new SettingsService(SettingsPath);
+
+            Assert.Contains("nu", listener.Text);
+        }
+        finally { Trace.Listeners.Remove(listener); }
+    }
+
+    /// <summary>
+    /// The name itself is kept, because "this build does not know it" is also what a shell added by a
+    /// newer version looks like after a Velopack rollback. Dropping it would let the older build settle
+    /// the question for the newer one, permanently.
+    /// </summary>
+    [Fact]
+    public void A_default_shell_this_version_does_not_know_is_kept()
+    {
+        GivenSettings("""{ "DefaultShellName": "nu" }""");
+
+        _ = new SettingsService(SettingsPath);
+
+        Assert.Equal("nu", new SettingsService(SettingsPath).Settings.DefaultShellName);
+        Assert.Contains("\"DefaultShellName\": \"nu\"", File.ReadAllText(SettingsPath));
+    }
+
+    /// <summary>Said once, not on every launch — which is what makes keeping the value affordable.</summary>
+    [Fact]
+    public void An_unknown_default_shell_is_not_reported_twice()
+    {
+        GivenSettings("""{ "DefaultShellName": "nu" }""");
+        _ = new SettingsService(SettingsPath);
+
+        var listener = new CapturedTrace();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            _ = new SettingsService(SettingsPath);
+            Assert.DoesNotContain("default shell setting", listener.Text, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { Trace.Listeners.Remove(listener); }
+    }
+
+    /// <summary>A name that becomes known again forgets it was reported, so the same loss is said out
+    /// loud once more if the shell ever disappears from the catalog again.</summary>
+    [Fact]
+    public void A_shell_that_becomes_known_again_clears_the_report()
+    {
+        GivenSettings("""{ "DefaultShellName": "nu" }""");
+        _ = new SettingsService(SettingsPath);
+
+        var service = new SettingsService(SettingsPath);
+        service.Settings.DefaultShellName = "bash";
+        service.Save();
+
+        _ = new SettingsService(SettingsPath);
+
+        Assert.Equal("", new SettingsService(SettingsPath).Settings.ReportedUnknownShellName);
+    }
+
+    /// <summary>A shell the catalog does know survives untouched — including under the display name a
+    /// build without ids wrote, which is the whole reason <c>Find</c> matches both.</summary>
+    [Theory]
+    [InlineData("bash")]
+    [InlineData("PowerShell")]
+    public void A_known_default_shell_is_left_alone(string named)
+    {
+        GivenSettings($$"""{ "DefaultShellName": "{{named}}" }""");
+
+        var listener = new CapturedTrace();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            Assert.Equal(named, new SettingsService(SettingsPath).Settings.DefaultShellName);
+            Assert.DoesNotContain("default shell setting", listener.Text, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { Trace.Listeners.Remove(listener); }
+    }
+
+    /// <summary>A file that never named one is left alone — and, in particular, not saved: every
+    /// migration here is a read of something that is usually absent.</summary>
+    [Fact]
+    public void Settings_without_a_custom_shell_say_nothing()
+    {
+        GivenSettings("""{ "FontSize": 13 }""");
+
+        var listener = new CapturedTrace();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            _ = new SettingsService(SettingsPath);
+            Assert.DoesNotContain("custom shell", listener.Text, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { Trace.Listeners.Remove(listener); }
+    }
+
+    private sealed class CapturedTrace : TraceListener
+    {
+        private readonly System.Text.StringBuilder _text = new();
+        public string Text => _text.ToString();
+        public override void Write(string? message) => _text.Append(message);
+        public override void WriteLine(string? message) => _text.AppendLine(message);
     }
 
     /// <summary>Never having said anything is not the same as having said no: those users get the
@@ -140,17 +283,17 @@ public sealed class SettingsMigrationTests : IDisposable
     }
 
     /// <summary>
-    /// The seeded OpenCode profile learns to resume its session, which seeding alone cannot teach it.
+    /// Nothing seeds, edits or removes a shell profile any more — the list is only read.
     /// </summary>
     /// <remarks>
-    /// Profiles are only ever added and never overwritten, so everybody who has run this app before
-    /// already has an "OpenCode" profile and would never see the new one. The pair being replaced cannot
-    /// work at all: <c>opencode --session ${tileId}</c> hands over an id without opencode's required
-    /// <c>ses</c> prefix, so it was always refused and the tile always fell through to a bare
-    /// <c>opencode</c> with no history.
+    /// It is still what <c>AgentTileMigration</c> matches a saved tile's <c>userProfileId</c> against, so
+    /// touching it here would take somebody's agent tiles with it a launch before the workspace holding
+    /// them is even opened. Three migrations used to run over this list; the assertion that replaced
+    /// them is that a settings file comes back with exactly the profiles it went in with — including a
+    /// broken one, which is now nobody's to fix.
     /// </remarks>
     [Fact]
-    public void The_old_opencode_profile_is_replaced_by_one_that_can_resume()
+    public void The_shell_profiles_in_a_settings_file_are_read_and_never_touched()
     {
         GivenSettings("""
             {
@@ -160,52 +303,25 @@ public sealed class SettingsMigrationTests : IDisposable
             }
             """);
 
-        var profile = Assert.Single(new SettingsService(SettingsPath).Settings.ShellProfiles,
-            p => p.Name == "OpenCode");
+        var profile = Assert.Single(new SettingsService(SettingsPath).Settings.ShellProfiles);
 
-        Assert.Equal("opencode --session ses_${tileId}", profile.StartupScript);
-        Assert.Contains("opencode import", profile.FallbackScript);
-        Assert.Contains("${opencodeSessionFile}", profile.FallbackScript);
+        Assert.Equal("OpenCode", profile.Name);
+        Assert.Equal("opencode --session ${tileId}", profile.StartupScript);
+        Assert.Equal("opencode", profile.FallbackScript);
     }
 
-    /// <summary>
-    /// A profile the user has touched is left exactly as they wrote it.
-    /// </summary>
-    /// <remarks>
-    /// The migration replaces a command that cannot work, not a decision. Somebody who edited either
-    /// script — even to something that also does not work — has said what they want their tile to run,
-    /// and an update is not the moment to overrule them.
-    /// </remarks>
-    [Theory]
-    [InlineData("opencode --continue", "opencode")]
-    [InlineData("opencode --session ${tileId}", "opencode --print-logs")]
-    public void An_opencode_profile_the_user_edited_is_left_alone(string startup, string fallback)
-    {
-        GivenSettings($$"""
-            {
-              "ShellProfiles": [
-                { "Name": "OpenCode", "StartupScript": "{{startup}}", "FallbackScript": "{{fallback}}" }
-              ]
-            }
-            """);
-
-        var profile = Assert.Single(new SettingsService(SettingsPath).Settings.ShellProfiles,
-            p => p.Name == "OpenCode");
-
-        Assert.Equal(startup, profile.StartupScript);
-        Assert.Equal(fallback, profile.FallbackScript);
-    }
-
-    /// <summary>A fresh installation gets the resuming profile from seeding, so the migration has
-    /// nothing to do and the two cannot both fire.</summary>
+    /// <summary>And a fresh installation gets none at all.</summary>
+    /// <remarks>An AI CLI in a shell is an agent tile now, so seeding four profiles would be offering a
+    /// route that no longer leads anywhere — and one the empty tile's chooser could not show.</remarks>
     [Fact]
-    public void A_new_installation_is_seeded_with_the_resuming_opencode_profile()
+    public void A_new_installation_is_seeded_with_no_profiles_and_one_instance_per_agent()
     {
-        var profile = Assert.Single(new SettingsService(SettingsPath).Settings.ShellProfiles,
-            p => p.Name == "OpenCode");
+        var settings = new SettingsService(SettingsPath).Settings;
 
-        Assert.Equal("opencode --session ses_${tileId}", profile.StartupScript);
-        Assert.Contains("${opencodeSessionFile}", profile.FallbackScript);
+        Assert.Empty(settings.ShellProfiles);
+        Assert.Equal(
+            mTiles.Services.Agents.AiAgentCatalog.All.Select(a => a.Id).Order(),
+            settings.AiAgentInstances.Select(i => i.AgentId).Order());
     }
 
     /// <summary>
@@ -346,7 +462,7 @@ public sealed class SettingsMigrationTests : IDisposable
     /// working and where a null is a window that never appears.</para>
     /// </remarks>
     [Theory]
-    [InlineData("""{ "Speech": null, "Database": null, "ShellProfiles": null, "CustomAiTools": null, "CustomAiToolPaths": null, "GoalDefaultModels": null }""")]
+    [InlineData("""{ "Speech": null, "Database": null, "ShellProfiles": null, "AiAgentInstances": null, "AiProviderInstances": null }""")]
     [InlineData("""{ "Speech": { "CustomWords": null }, "Database": { "ManualConnections": null, "SqlServer": null, "PostgreSql": null } }""")]
     public void A_null_section_takes_its_defaults_rather_than_breaking_startup(string json)
     {
@@ -357,9 +473,8 @@ public sealed class SettingsMigrationTests : IDisposable
         Assert.NotNull(settings.Speech);
         Assert.NotNull(settings.Database);
         Assert.NotNull(settings.ShellProfiles);
-        Assert.NotNull(settings.CustomAiTools);
-        Assert.NotNull(settings.CustomAiToolPaths);
-        Assert.NotNull(settings.GoalDefaultModels);
+        Assert.NotNull(settings.AiAgentInstances);
+        Assert.NotNull(settings.AiProviderInstances);
         Assert.NotNull(settings.Speech.CustomWords);
         Assert.NotNull(settings.Database.ManualConnections);
         Assert.NotNull(settings.Database.SqlServer);
@@ -378,8 +493,9 @@ public sealed class SettingsMigrationTests : IDisposable
     /// across seven types, and a list of the ones already found is not a defence against the next one.
     /// These four are chosen for being on the startup path and *not* individually guarded: none of them
     /// had a setter that refused a null before the converter existed.</para>
-    /// <para><c>ColorThemeName</c> is looked up by name during theme setup, <c>GitPath</c> and the shell
-    /// paths are handed to <c>Path</c> and to a process start.</para>
+    /// <para><c>ColorThemeName</c> is looked up by name during theme setup, <c>GitPath</c> is handed to
+    /// <c>Path</c> and to a process start, and <c>DefaultShellName</c> is looked up in the shell
+    /// catalog.</para>
     /// </remarks>
     [Fact]
     public void A_null_string_anywhere_in_the_settings_arrives_empty()
@@ -388,7 +504,7 @@ public sealed class SettingsMigrationTests : IDisposable
             {
               "ColorThemeName": null,
               "GitPath": null,
-              "CustomShellPath": null,
+              "DefaultShellName": null,
               "Database": { "PostgreSql": { "Username": null, "Password": null } }
             }
             """);
@@ -397,7 +513,7 @@ public sealed class SettingsMigrationTests : IDisposable
 
         Assert.Equal("", settings.ColorThemeName);
         Assert.Equal("", settings.GitPath);
-        Assert.Equal("", settings.CustomShellPath);
+        Assert.Equal("", settings.DefaultShellName);
         Assert.Equal("", settings.Database.PostgreSql.Username);
         // The encrypted ones carry their own converter, which wins over the general rule — so they are
         // the last strings that could still have come back null, and they need saying separately.
@@ -410,98 +526,27 @@ public sealed class SettingsMigrationTests : IDisposable
     /// <remarks>
     /// A custom converter for <c>string</c> is used for dictionary <em>keys</em> as well, and one that
     /// does not implement the property-name pair does not quietly fall back — it throws
-    /// <c>NotSupportedException</c> on the first save. <c>CustomAiToolPaths</c> and
-    /// <c>GoalDefaultModels</c> are both <c>Dictionary&lt;string, string&gt;</c>, so getting that wrong
-    /// would have stopped the settings saving at all: a worse failure than the one the converter is for,
-    /// and one that only shows up at run time.
+    /// <c>NotSupportedException</c> on the first save. <c>AiAgentInstance.ExtraEnv</c> is a string-keyed
+    /// dictionary on the startup path, so getting that wrong would stop the settings saving at all: a
+    /// worse failure than the one the converter is for, and one that only shows at run time.
+    /// <para>Its <em>values</em> are nullable, and that is load-bearing rather than incidental: a null
+    /// there means "unset this variable", so a converter that turned it into an empty string would set
+    /// the variable to nothing instead of removing it.</para>
     /// </remarks>
     [Fact]
     public void A_dictionary_of_strings_still_survives_a_save_and_a_load()
     {
         var service = new SettingsService(SettingsPath);
-        service.Settings.CustomAiToolPaths["claude"] = @"C:\tools\claude.exe";
-        service.Settings.GoalDefaultModels["claude"] = "opus";
+        var instance = service.Settings.AiAgentInstances[0];
+        instance.ExtraEnv["ANTHROPIC_BASE_URL"] = "https://example.invalid";
+        instance.ExtraEnv["ANTHROPIC_API_KEY"] = null;
         service.Save();
 
-        var reloaded = new SettingsService(SettingsPath).Settings;
+        var reloaded = new SettingsService(SettingsPath).Settings.AiAgentInstances
+            .First(i => i.Id == instance.Id);
 
-        Assert.Equal(@"C:\tools\claude.exe", reloaded.CustomAiToolPaths["claude"]);
-        Assert.Equal("opus", reloaded.GoalDefaultModels["claude"]);
+        Assert.Equal("https://example.invalid", reloaded.ExtraEnv["ANTHROPIC_BASE_URL"]);
+        Assert.Null(reloaded.ExtraEnv["ANTHROPIC_API_KEY"]);
     }
 
-    // ── The profile for a tool that is gone ─────────────
-
-    private static string OpenClaudeProfile(string startup, string fallback) => $$"""
-    {
-      "ShellProfiles": [
-        {
-          "Id": "11111111-1111-1111-1111-111111111111",
-          "Name": "Open Claude",
-          "ShellName": "",
-          "RequiredAiToolBinaryName": "openclaude",
-          "StartupScript": "{{startup}}",
-          "FallbackScript": "{{fallback}}"
-        }
-      ]
-    }
-    """;
-
-    private const string SeededStartup = "openclaude --resume ${tileId}";
-    private const string SeededFallback = "openclaude --session-id ${tileId}";
-
-    /// <summary>
-    /// The seeded "Open Claude" profile goes when the tool it names does.
-    /// </summary>
-    /// <remarks>
-    /// Seeding only ever adds, so dropping an entry from the defaults leaves it standing for everybody
-    /// who has run an earlier version — and this one names a binary detection no longer looks for, so
-    /// it can never be offered on an empty tile again, not even to somebody who has the tool. Removing
-    /// a seeded entry needs a migration exactly as changing one does.
-    /// </remarks>
-    [Fact]
-    public void The_seeded_profile_for_a_tool_that_was_dropped_is_taken_away()
-    {
-        GivenSettings(OpenClaudeProfile(SeededStartup, SeededFallback));
-
-        var service = new SettingsService(SettingsPath);
-        service.Load();
-
-        Assert.DoesNotContain(service.Settings.ShellProfiles,
-            p => p.Name.Equals("Open Claude", StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>
-    /// A profile the user has edited is theirs, dead tool or not.
-    /// </summary>
-    /// <remarks>
-    /// The same rule the OpenCode migration follows: what is taken away is an answer this application
-    /// gave, never one the user wrote. Somebody who pointed the profile at a fork or at a wrapper of
-    /// their own keeps it, and can delete it themselves.
-    /// </remarks>
-    [Fact]
-    public void A_profile_the_user_edited_is_left_alone()
-    {
-        GivenSettings(OpenClaudeProfile("my-openclaude-wrapper ${tileId}", SeededFallback));
-
-        var service = new SettingsService(SettingsPath);
-        service.Load();
-
-        Assert.Contains(service.Settings.ShellProfiles,
-            p => p.Name.Equals("Open Claude", StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>Nothing else is disturbed, which is the failure a RemoveAll invites.</summary>
-    [Fact]
-    public void The_other_seeded_profiles_stay()
-    {
-        GivenSettings(OpenClaudeProfile(SeededStartup, SeededFallback));
-
-        var service = new SettingsService(SettingsPath);
-        service.Load();
-
-        Assert.Contains(service.Settings.ShellProfiles,
-            p => p.Name.Equals("Claude Code", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(service.Settings.ShellProfiles,
-            p => p.Name.Equals("OpenCode", StringComparison.OrdinalIgnoreCase));
-    }
 }

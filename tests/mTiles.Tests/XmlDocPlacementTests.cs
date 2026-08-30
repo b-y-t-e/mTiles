@@ -102,7 +102,7 @@ public class XmlDocPlacementTests
     /// <remarks>
     /// <para>Renaming a member leaves every <c>&lt;see cref="Type.Member"/&gt;</c> pointing at nothing,
     /// and nothing says so: this project generates no documentation file, so the compiler never
-    /// resolves a <c>cref</c> at all. <c>IAiToolRunner.EffortFlag</c> and <c>PermissionFlag</c> were
+    /// resolves a <c>cref</c> at all. <c>IAiAgent.EffortFlag</c> and <c>PermissionFlag</c> were
     /// both dead this way within a day of becoming <c>…For</c> methods — a comment describing something
     /// that does not exist, in a codebase where the comment carries the reason.</para>
     /// <para><b>Conservative on purpose.</b> Only the simple <c>Type.Member</c> form is checked, only

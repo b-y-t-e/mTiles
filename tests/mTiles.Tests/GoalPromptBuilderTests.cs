@@ -147,6 +147,14 @@ public class GoalPromptBuilderTests
         // The reviewer is told to go and find out, rather than to read it off the diff.
         Assert.Contains("Establish these yourself", all.BuildReview("a goal", null));
 
+        // And, because going and finding out means running a build that writes, it is told in words
+        // what the withdrawn read-only sandbox used to say: run them, change nothing else. The
+        // implementer is not — writing files is the whole of its job.
+        Assert.Contains("do not edit, create or delete any file",
+            all.BuildReview("a goal", null));
+        Assert.DoesNotContain("do not edit, create or delete any file",
+            all.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal")));
+
         var buildOnly = new GoalPromptBuilder(
             () => new GoalCompletionCriteria { RequireTestsPass = false });
         var implement = buildOnly.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal"));

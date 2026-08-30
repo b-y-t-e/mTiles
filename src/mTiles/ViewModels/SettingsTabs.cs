@@ -12,14 +12,16 @@ namespace mTiles.ViewModels;
 /// notice.</para>
 /// <para>Constants rather than an <c>enum</c>, deliberately. The selection is bound as an <c>int</c> to
 /// button command parameters in two AXAML files and to a source-generated observable property; an enum
-/// buys type safety over a value nothing computes — every write is one of these five names — in exchange
+/// buys type safety over a value nothing computes — every write is one of these four names — in exchange
 /// for touching every binding. The numbers were the problem, not the type.</para>
+/// <para>The values are renumbered when a tab goes, rather than left with a hole. Nothing persists a
+/// tab — <c>SelectedTab</c> lives for as long as the dialog does — so a gap would buy compatibility with
+/// nobody and leave the next reader wondering what used to be 1.</para>
 /// </remarks>
 public static class SettingsTabs
 {
     public const int General = 0;
-    public const int Profiles = 1;
-    public const int AiTools = 2;
-    public const int Database = 3;
-    public const int Speech = 4;
+    public const int Ai = 1;
+    public const int Database = 2;
+    public const int Speech = 3;
 }

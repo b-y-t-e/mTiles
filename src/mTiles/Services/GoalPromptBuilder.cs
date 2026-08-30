@@ -108,7 +108,13 @@ public sealed class GoalPromptBuilder
 
         text.Append(review
             ? "A failure these changes caused is an error finding. One that was already failing before " +
-              "them is not: say so in your reasoning and leave it out of the findings.\n"
+              "them is not: say so in your reasoning and leave it out of the findings.\n" +
+              // The reviewer is the only read-only phase that is nonetheless allowed to run
+              // commands, because a build writes and a read-only sandbox would fail the very
+              // check this asks for. This sentence is what stands in for the sandbox that was
+              // withdrawn: it may compile and test, it may not edit.
+              "Running the build and the tests is the only change you may make: do not edit, " +
+              "create or delete any file, and do not commit.\n"
             : "A failure that was already there before you started is not yours to fix: say so in your " +
               "closing line rather than working around it.\n");
 

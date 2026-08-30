@@ -130,6 +130,9 @@ public sealed class PhoneTileActionsTests
             finally { tile.Dispose(); }
         }
 
-        Assert.Equal([TileActionIds.Restart], withheld);
+        // Distinct, because two shipped kinds now run a shell — a terminal and an agent — and both
+        // withhold the same one action. What this pins is which actions a phone never sees, not how
+        // many tiles offer them.
+        Assert.Equal([TileActionIds.Restart], withheld.Distinct());
     }
 }

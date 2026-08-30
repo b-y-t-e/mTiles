@@ -59,6 +59,7 @@
     <SolidColorBrush x:Key="TileAccentGit"      Color="#b07ac4" />
     <SolidColorBrush x:Key="TileAccentDatabase" Color="#4fb0c4" />
     <SolidColorBrush x:Key="TileAccentGoal"     Color="#d98a4f" />
+    <SolidColorBrush x:Key="TileAccentAgent"    Color="#7f8cd6" />
 
     <!-- Goal phase colors -->
     <SolidColorBrush x:Key="GoalPhaseClarify"   Color="#5a7a8a" />

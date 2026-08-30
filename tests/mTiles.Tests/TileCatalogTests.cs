@@ -1,6 +1,7 @@
 ﻿using System.Text.Json.Nodes;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Agents;
 using mTiles.Services.Tiles;
 using mTiles.ViewModels;
 using Xunit;
@@ -185,46 +186,64 @@ public sealed class TileCatalogTests
     /// <summary>
     /// A kind says for itself whether anything must be asked before it is built.
     /// </summary>
-    /// <remarks>The branch the empty tile used to carry: it knew that a terminal has profiles. Every
-    /// other kind answers with nothing, so it is built on the click.</remarks>
+    /// <remarks>The branch the empty tile used to carry: it knew that a terminal has to be asked which
+    /// shell. Every other kind answers with nothing, so it is built on the click.</remarks>
     [Fact]
     public void Only_a_kind_that_asks_for_one_gets_a_setup_step()
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
-        var profile = new UserShellProfile { Name = "Claude Code" };
-        var context = new TileContext(directory.Path, settings.Service)
-        {
-            AvailableProfiles = () => [profile]
-        };
+        var context = new TileContext(directory.Path, settings.Service);
 
         foreach (var entry in TestTiles.Catalog(settings.Service).Entries)
         {
             var options = entry.Kind.SetupOptions(context);
             if (entry.Kind.Id == TileKindIds.Terminal)
             {
-                // The default shell first, carrying no state, then one card per profile.
-                Assert.Equal(2, options.Count);
-                Assert.Null(options[0].State);
-                Assert.Equal(profile.Name, options[1].Label);
-                Assert.Equal(profile.Id, options[1].State?[TerminalTileKind.UserProfileIdKey]?.GetValue<string>());
+                // The default shell first, carrying no state, then one card per detected shell — and
+                // nothing at all when this machine has only one, because a chooser with a single card
+                // is a click that cannot be got wrong. Computed rather than written out for the same
+                // reason as the agents below: how many shells are here is a fact about the machine.
+                if (context.Shells.Count <= 1)
+                {
+                    Assert.Empty(options);
+                }
+                else
+                {
+                    Assert.Equal(context.Shells.Count + 1, options.Count);
+                    Assert.Null(options[0].State);
+                    Assert.Equal(context.Shells.Select(shell => shell.DisplayName),
+                        options.Skip(1).Select(o => o.Label));
+                    Assert.Equal(context.Shells.Select(shell => shell.DisplayName),
+                        options.Skip(1).Select(
+                            o => o.State?[TerminalTileKind.ShellNameKey]?.GetValue<string>()));
+                }
+            }
+            else if (entry.Kind.Id == TileKindIds.Agent)
+            {
+                // One card per agent this machine has, and nothing to ask when it has at most one —
+                // which is why the expectation is computed rather than written out: how many of the
+                // five are installed is a fact about the machine the tests are running on.
+                var available = settings.Service.Settings.AiAgentInstances
+                    .Where(instance => AiAgentCatalog.IsAvailable(instance, settings.Service.Settings))
+                    .ToList();
+
+                if (available.Count <= 1)
+                {
+                    Assert.Empty(options);
+                }
+                else
+                {
+                    Assert.Equal(available.Select(i => i.Name), options.Select(o => o.Label));
+                    Assert.Equal(available.Select(i => i.Id),
+                        options.Select(o => o.State?[AgentTileKind.InstanceIdKey]?.GetValue<string>()));
+                }
             }
             else
             {
                 Assert.Empty(options);
             }
         }
-    }
-
-    /// <summary>Nothing to choose between when the workspace offers no profile: the tile is built on
-    /// the click, as it was before any of this existed.</summary>
-    [Fact]
-    public void A_terminal_asks_nothing_when_there_are_no_profiles()
-    {
-        using var settings = new TempSettings();
-        using var directory = new TempDirectory();
-
-        Assert.Empty(new TerminalTileKind().SetupOptions(new TileContext(directory.Path, settings.Service)));
     }
 
     private static IReadOnlySet<string> Names(params string[] names) =>

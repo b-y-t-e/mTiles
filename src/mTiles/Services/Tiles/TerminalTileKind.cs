@@ -1,5 +1,6 @@
 ﻿using System.Text.Json.Nodes;
 using mTiles.Models;
+using mTiles.Services.Shells;
 using mTiles.ViewModels;
 
 namespace mTiles.Services.Tiles;
@@ -8,19 +9,41 @@ namespace mTiles.Services.Tiles;
 /// A shell in a tile.
 /// </summary>
 /// <remarks>
-/// The kind where one <see cref="Create"/> replaced three: a fresh terminal takes the user's default
-/// shell, one chosen from the profile chooser arrives with <c>userProfileId</c> in its state, and one
-/// restored from disk arrives with the same key plus the shell it was last running. All three read the
-/// same two values out of the same object, so the chooser and the loader can no longer disagree about
-/// what a profile means.
+/// <para>A shell and nothing else. What used to make this kind complicated — a startup script, a
+/// fallback, a required AI binary — was the shell profile, and a profile that started an AI CLI is now
+/// an agent tile (<see cref="AgentTileKind"/>) with the CLI's own commands rather than a script the user
+/// had to write and keep working.</para>
+/// <para>One <see cref="Create"/> for both ways in: a fresh terminal chosen from the shell chooser
+/// arrives with <c>shellName</c> in its state, and one restored from disk arrives with the same key. A
+/// shell that is no longer installed falls through to the default rather than leaving the tile
+/// without one.</para>
 /// </remarks>
 public sealed class TerminalTileKind : TileKind<TerminalTileViewModel>
 {
-    /// <summary>What the layout file calls the profile a tile was created from.</summary>
+    /// <summary>What a layout written before agents existed called the profile a tile was created
+    /// from.</summary>
+    /// <remarks>Nothing here reads it any more — <c>AgentTileMigration</c> does, once, to work out which
+    /// of those tiles were an AI CLI in a shell. Kept as a name rather than a literal because that
+    /// migration and this kind have to agree about the spelling.</remarks>
     public const string UserProfileIdKey = "userProfileId";
 
-    /// <summary>And the shell it was running, as a fallback for when that profile has been deleted.</summary>
+    /// <summary>The shell this tile runs.</summary>
+    /// <remarks>The shell's <em>display</em> name rather than its id, and that is about rollback: a
+    /// build Velopack has rolled back matches this against the names it detected, where <c>Git Bash</c>
+    /// is a match and <c>gitbash</c> is not. Reading is tolerant of both
+    /// (<c>ShellTerminalCatalog.Find</c>).</remarks>
     public const string ShellNameKey = "shellName";
+
+    /// <summary>
+    /// A command typed into the tile the moment it opens.
+    /// </summary>
+    /// <remarks><b>Set when a tile is created, never saved, and run once</b>, which is the whole of its
+    /// lifetime: what puts it there is the install command an agent's <c>InstallPlan</c> names, and
+    /// running that again is not what anybody agreed to in the dialog that showed it. A tile restored
+    /// from disk is a plain shell, and so is this one the moment it has launched — the script is handed
+    /// to the tile as its one-time startup (<c>TerminalTileViewModel</c> consumes it at the first
+    /// launch), so Restart shell and Ctrl+Shift+R start a shell rather than the installer again.</remarks>
+    public const string StartupScriptKey = "startupScript";
 
     public override string Id => TileKindIds.Terminal;
     public override string DisplayName => "Terminal";
@@ -32,61 +55,44 @@ public sealed class TerminalTileKind : TileKind<TerminalTileViewModel>
     public override string NameFor(IReadOnlySet<string> used) => TileNameGenerator.Generate(used);
 
     /// <summary>
-    /// The shell profiles this workspace offers, and the default shell beside them.
+    /// The shells this machine has, with the default named as such.
     /// </summary>
     /// <remarks>
-    /// The one kind with a step before it, and the reason there is a general one: an empty tile no
-    /// longer knows that a terminal has profiles, it asks whichever kind was clicked what it needs
-    /// first. Nothing to ask when there are no profiles — the tile is built on the click, as it always
-    /// was.
+    /// <para>The step is skipped when there is only one shell to offer: a chooser with a single card is
+    /// a click the user has to make and cannot get wrong, which is a click for nothing.</para>
+    /// <para>The default comes first and is a separate card rather than a mark on one of the others,
+    /// because it is a different answer: "whatever Settings says" follows a change made there, where
+    /// picking PowerShell by name does not.</para>
     /// </remarks>
     public override IReadOnlyList<TileSetupOption> SetupOptions(TileContext context)
     {
-        var profiles = context.AvailableProfiles();
-        if (profiles.Count == 0) return [];
+        var shells = context.Shells;
+        if (shells.Count <= 1) return [];
 
-        var options = new List<TileSetupOption>
-        {
-            new("Default shell", IconId, "TextMuted", State: null)
-        };
-        options.AddRange(profiles.Select(profile => new TileSetupOption(
-            profile.Name, "script-outline", "TextMuted",
-            new JsonObject { [UserProfileIdKey] = profile.Id })));
-        return options;
+        return
+        [
+            new TileSetupOption("Default shell", IconId, "TextMuted", State: null),
+            .. shells.Select(shell => new TileSetupOption(
+                shell.DisplayName, shell.Shell.IconId, "TextMuted",
+                new JsonObject { [ShellNameKey] = shell.DisplayName })),
+        ];
     }
 
     protected override TerminalTileViewModel Create(TileContext context, JsonObject? state)
     {
-        var settings = context.Settings.Settings;
-        var profileId = state.String(UserProfileIdKey);
-
-        if (profileId is not null
-            && settings.ShellProfiles.FirstOrDefault(p => p.Id == profileId) is { } profile)
-        {
-            return new TerminalTileViewModel(context.WorkingDirectory,
-                ShellDetector.ResolveFromUserProfile(profile, settings, context.Shells), context.Settings,
-                LaunchScripts.FromProfile(profile.StartupScript, profile.FallbackScript),
-                profile.Id, context.TileId);
-        }
-
-        // The profile is gone, or there never was one. The shell it was last running is the closest
-        // thing to what the user had, and a shell that is no longer installed falls through to the
-        // default rather than leaving the tile without one.
+        // A shell that is no longer installed falls through to the default rather than leaving the tile
+        // without one — which is also the answer for a tile created without the chooser.
         var shellName = state.String(ShellNameKey);
         var shell = shellName is null
             ? null
-            : context.Shells.FirstOrDefault(s =>
-                s.Name.Equals(shellName, StringComparison.OrdinalIgnoreCase));
+            : ShellTerminalCatalog.Resolve(shellName, context.Shells, context.Settings.Settings);
+
+        var startup = state.String(StartupScriptKey);
 
         return new TerminalTileViewModel(context.WorkingDirectory, shell, context.Settings,
-            tileId: context.TileId);
+            tileId: context.TileId, oneTimeStartup: startup);
     }
 
-    protected override JsonObject? Save(TerminalTileViewModel tile)
-    {
-        var state = new JsonObject { [ShellNameKey] = tile.Shell.Name };
-        if (tile.UserProfileId is { Length: > 0 } profileId)
-            state[UserProfileIdKey] = profileId;
-        return state;
-    }
+    protected override JsonObject? Save(TerminalTileViewModel tile) =>
+        new() { [ShellNameKey] = tile.Shell.DisplayName };
 }

@@ -75,7 +75,7 @@ public partial class LeafTileView : UserControl
         // happened when a binding wrote them as well.
         var roomForSession = width >= SessionButtonsNeedWidth;
         RestartButton.IsVisible = roomForSession && _subscribedLeaf?.CanRestart == true;
-        NewSessionButton.IsVisible = roomForSession && _subscribedLeaf?.HasProfile == true;
+        NewSessionButton.IsVisible = roomForSession && _subscribedLeaf?.HasSession == true;
     }
 
     private void OnTilePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
@@ -149,7 +149,7 @@ public partial class LeafTileView : UserControl
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.ShowsActiveOutline)
                  or nameof(LeafTileNodeViewModel.IsActive))
             UpdateActiveIndicator(leaf);
-        else if (e.PropertyName is nameof(LeafTileNodeViewModel.HasProfile)
+        else if (e.PropertyName is nameof(LeafTileNodeViewModel.HasSession)
                  or nameof(LeafTileNodeViewModel.CanRestart))
             ApplyHeaderWidth(TileToolbar.Bounds.Width);
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.IsRecordingDictation)
