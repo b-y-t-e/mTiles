@@ -160,6 +160,43 @@ public abstract class AiProvider : IAiProvider
         }
     }
 
+    /// <summary>
+    /// Posts one JSON body and reads the JSON answer, or null when it could not be had.
+    /// </summary>
+    /// <remarks>The same rules as <see cref="GetJsonAsync"/>, which it mirrors: null rather than an
+    /// exception, the detail traced. Here for the one provider whose per-model answer is a POST —
+    /// Ollama's <c>api/show</c> — rather than a path on the shared client.</remarks>
+    protected async Task<JsonDocument?> PostJsonAsync(AiProviderInstance instance, string path,
+        string jsonBody, CancellationToken ct)
+    {
+        if (BaseUrlFor(instance) is not { } baseUrl)
+            return null;
+
+        try
+        {
+            using var client = ClientFor(instance);
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(baseUrl, path))
+            {
+                Content = new StringContent(jsonBody, System.Text.Encoding.UTF8, "application/json"),
+            };
+            Authenticate(request, instance);
+
+            using var response = await client.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                Trace.TraceWarning("{0} answered {1} for POST {2}.", Id, (int)response.StatusCode, path);
+                return null;
+            }
+
+            return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), default, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            Trace.TraceWarning("Posting to {0} for {1} failed: {2}", Id, path, ex.Message);
+            return null;
+        }
+    }
+
     /// <summary>A client for one call. Short-lived on purpose: these are a handful of user-triggered
     /// requests, not a hot path, and a pooled client would outlive the instance whose address and
     /// timeout it was built from.</summary>
@@ -196,6 +233,7 @@ public abstract class AiProvider : IAiProvider
                     ? label
                     : modelId,
                 SupportedEfforts = EffortsIn(entry),
+                ContextWindowTokens = ContextWindowIn(entry),
             });
         }
         return models;
@@ -222,5 +260,31 @@ public abstract class AiProvider : IAiProvider
         return mentionsReasoning
             ? [AiEffort.Low, AiEffort.Medium, AiEffort.High]
             : [];
+    }
+
+    /// <summary>The context window a model entry carries, or null when it names none.</summary>
+    /// <remarks>OpenRouter's <c>context_length</c> is the spelling the shared OpenAI-shaped reader is
+    /// asked about. Read tolerantly: a field that moved or a value that is not a number is a provider
+    /// that did not say, not a zero — a zero would become an environment variable and a compaction
+    /// threshold of 0.8 tokens.</remarks>
+    private static long? ContextWindowIn(JsonElement model) =>
+        model.TryGetProperty("context_length", out var length)
+        && length.ValueKind == JsonValueKind.Number
+        && length.TryGetInt64(out var tokens)
+            ? tokens
+            : null;
+
+    /// <inheritdoc />
+    /// <remarks><b>The list is the answer for every provider whose listing carries the window.</b>
+    /// Ollama is the exception, which is why this is virtual: its <c>api/tags</c> names models and
+    /// says nothing else about them, and its window is on a per-model <c>api/show</c> call.</remarks>
+    public virtual async Task<long?> ContextWindowAsync(AiProviderInstance instance, string model,
+        CancellationToken ct = default)
+    {
+        if (model.Length == 0) return null;
+
+        var models = await ModelsAsync(instance, ct);
+        return models.FirstOrDefault(m =>
+            string.Equals(m.Id, model, StringComparison.OrdinalIgnoreCase))?.ContextWindowTokens;
     }
 }

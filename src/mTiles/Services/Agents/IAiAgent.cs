@@ -123,6 +123,52 @@ public interface IAiAgent
     IReadOnlyDictionary<string, string?> EnvFor(AgentRuntime runtime);
 
     /// <summary>
+    /// Whether this agent reads the model's context window out of the runtime — the question that
+    /// decides whether one is resolved for a launch at all.
+    /// </summary>
+    /// <remarks><para>Resolving the window is a provider call — for Ollama one per model, for
+    /// OpenRouter a whole catalogue — so it is made only for the agent that will use it. Default
+    /// false: an agent that says nothing about the subject reads none of it.</para>
+    /// <para>Claude Code is the one that does: on a third-party provider its model ids are unknown to
+    /// it and it assumes a context window that can be wrong by half, so
+    /// <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c> is set from the provider's own answer. See
+    /// <c>ModelContextWindow</c>.</para>
+    /// <para><b>No default implementation here, deliberately.</b> A body on the interface member and
+    /// an answer on the concrete class a step below it do not compose: interface mapping resolves
+    /// against the class that lists the interface, and a member declared only on the derived class is
+    /// never reached — the default wins, silently. The default lives on <see cref="AiAgent"/> as a
+    /// <c>virtual</c>, where an override is an override.</para></remarks>
+    bool UsesModelContextWindow { get; }
+
+    /// <summary>
+    /// Whether this CLI has a slot of its own for the small, frequent calls — a second model beside
+    /// the real one.
+    /// </summary>
+    /// <remarks>Measured 2026-08-31, each against its binary and documentation: Claude Code reads
+    /// <c>ANTHROPIC_DEFAULT_HAIKU_MODEL</c> (<c>ANTHROPIC_SMALL_FAST_MODEL</c>, the spelling it used
+    /// to be read through, is deprecated in its favour) and opencode <c>small_model</c> in its config;
+    /// codex, pi and
+    /// agy answer their small calls with the main model or their own pick and offer no setting for
+    /// one. Default false, and the agent-instance form hides the field where it is — a field that
+    /// saves and does nothing is not offered. An agent whose slot exists but only sometimes (opencode
+    /// takes the value where a provider document is written) still answers true and says the limit in
+    /// its own remarks. Not a default interface member, for the reason <see
+    /// cref="UsesModelContextWindow"/> spells out.</remarks>
+    bool UsesFastModel { get; }
+
+    /// <summary>
+    /// Whether the fast-model slot is reached only through a configuration this application writes for
+    /// a declared endpoint — so on an account where nothing is written, the field is not offered.
+    /// </summary>
+    /// <remarks><para>opencode carries its <c>small_model</c> in the generated provider document,
+    /// which exists only where an endpoint is declared — a local server, or a hosted provider given an
+    /// address of its own. On a hosted provider at its published address nothing is written, so a
+    /// value typed there would save and do nothing — and a field that saves and does nothing is not
+    /// offered; the form asks this to know which. Default false: Claude Code reads its slot through
+    /// the environment, which exists at every launch.</para></remarks>
+    bool FastModelNeedsDeclaredEndpoint => false;
+
+    /// <summary>
     /// Whether this CLI can hold more than one login at a time — a second subscription.
     /// </summary>
     /// <remarks><b>An agent that cannot, says so</b>, and the chooser then offers it no sign-ins at

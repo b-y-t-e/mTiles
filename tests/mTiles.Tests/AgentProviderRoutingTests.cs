@@ -311,6 +311,38 @@ public class AgentProviderRoutingTests : IDisposable
     }
 
     /// <summary>
+    /// The small, frequent calls run on the row's model, not on the CLI's own default.
+    /// </summary>
+    /// <remarks>Claude Code's own default small model is an Anthropic id, which a third-party
+    /// provider does not serve — with the variable unset those calls failed while the real ones
+    /// worked. On a provider, an empty Fast model therefore falls back to the same model the real
+    /// calls run on; on the CLI's own account the default exists and the field left empty leaves it
+    /// alone (see <c>ModelContextWindowTests</c>).</remarks>
+    [Fact]
+    public void Claude_small_calls_follow_the_row_model_when_no_fast_model_is_named()
+    {
+        var (settings, instance) = Configured("claude", "openrouter", "sk-test");
+        instance.Model = "z-ai/glm-5.3-flash";
+
+        var environment = Agent("claude").EnvFor(AgentRuntime.For(settings, instance));
+
+        Assert.Equal("z-ai/glm-5.3-flash", environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"]);
+    }
+
+    /// <summary>A Fast model named on the instance still wins over that fallback.</summary>
+    [Fact]
+    public void A_named_fast_model_still_wins()
+    {
+        var (settings, instance) = Configured("claude", "openrouter", "sk-test");
+        instance.Model = "z-ai/glm-5.3-flash";
+        instance.FastModel = "z-ai/glm-5.3-air";
+
+        var environment = Agent("claude").EnvFor(AgentRuntime.For(settings, instance));
+
+        Assert.Equal("z-ai/glm-5.3-air", environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"]);
+    }
+
+    /// <summary>
     /// A sign-in belongs to the agent that runs, not to the id the instance stores.
     /// </summary>
     /// <remarks><b>The other half of the substitution fix, and it was left behind.</b> After a rollback
@@ -420,6 +452,13 @@ public class AgentProviderRoutingTests : IDisposable
 
             Assert.True(File.Exists(path));
             Assert.Equal(path, Agent("opencode").EnvFor(runtime)["OPENCODE_CONFIG"]);
+
+            // And the instance's fast model reaches the file, not just the document builder: the slot
+            // is written where a provider document is, so the whole route — instance to Write to
+            // Document — is what is pinned here.
+            instance.FastModel = "qwen3-4b";
+            Agent("opencode").PrepareToLaunch(runtime);
+            Assert.Contains("small_model", File.ReadAllText(path));
         }
         finally
         {
@@ -475,6 +514,52 @@ public class AgentProviderRoutingTests : IDisposable
     }
 
     /// <summary>
+    /// A named fast model goes into opencode's own <c>small_model</c> slot, qualified and listed.
+    /// </summary>
+    /// <remarks>Qualified because the slot is spelled <c>provider/model</c> and resolves against the
+    /// provider declared here; listed because opencode resolves the slot through the same catalogue,
+    /// and measured in the binary (1.18.18) a <c>small_model</c> the provider does not declare is
+    /// silently discarded rather than refused — the field set and doing nothing.</remarks>
+    [Fact]
+    public void The_generated_config_declares_the_fast_model()
+    {
+        var document = OpenCodeProviderConfig.Document(
+            "lmstudio", "LM Studio", new Uri("http://localhost:1234/v1"), "google/gemma-4-12b",
+            smallModel: "qwen3-4b");
+
+        var parsed = System.Text.Json.Nodes.JsonNode.Parse(document)!.AsObject();
+        Assert.Equal("lmstudio/qwen3-4b", parsed["small_model"]!.GetValue<string>());
+        Assert.NotNull(parsed["provider"]!["lmstudio"]!["models"]!["qwen3-4b"]);
+    }
+
+    /// <summary>No fast model named, no slot written — opencode's own pick answers.</summary>
+    [Fact]
+    public void An_empty_fast_model_writes_no_small_model_slot()
+    {
+        var document = OpenCodeProviderConfig.Document(
+            "lmstudio", "LM Studio", new Uri("http://localhost:1234/v1"), "gemma");
+
+        var parsed = System.Text.Json.Nodes.JsonNode.Parse(document)!.AsObject();
+        Assert.False(parsed.ContainsKey("small_model"));
+    }
+
+    /// <summary>Only the agents whose CLI has a small-model slot offer the field.</summary>
+    /// <remarks>Measured 2026-08-31: Claude Code's <c>ANTHROPIC_DEFAULT_HAIKU_MODEL</c> (the
+    /// <c>ANTHROPIC_SMALL_FAST_MODEL</c> spelling is deprecated in its favour), opencode's
+    /// <c>small_model</c>; codex, pi and agy answered their small calls with the main model or their
+    /// own pick and offer no setting for one — the form hides the field on them.</remarks>
+    [Theory]
+    [InlineData("claude", true)]
+    [InlineData("opencode", true)]
+    [InlineData("codex", false)]
+    [InlineData("pi", false)]
+    [InlineData("agy", false)]
+    public void Only_the_agents_with_a_small_model_slot_offer_the_field(string agentId, bool has)
+    {
+        Assert.Equal(has, Agent(agentId) is { UsesFastModel: true });
+    }
+
+    /// <summary>
     /// The generated document keeps whatever the user already had in theirs.
     /// </summary>
     /// <remarks><c>OPENCODE_CONFIG</c> names <em>the</em> config file rather than an extra one, so a
@@ -516,6 +601,10 @@ public class AgentProviderRoutingTests : IDisposable
 
         var runtime = AgentRuntime.For(settings, instance);
 
+        // The instance form asks the shared rule about the account it holds, so both roads — the
+        // launch and the field's visibility — answer from one statement of the two cases.
+        Assert.True(AgentRuntime.DeclaresEndpoint(
+            AiProviderCatalog.Find("openrouter"), settings.AiProviderInstances[0]));
         Assert.True(runtime.NeedsDeclaredEndpoint);
         Assert.True(OpenCodeProviderConfig.IsNeededFor(runtime));
 

@@ -30,4 +30,20 @@ public sealed record AiModelInfo
     /// is not — see <c>AiProviderCatalog.NarrowEfforts</c>.</para>
     /// </remarks>
     public IReadOnlyList<AiEffort>? SupportedEfforts { get; init; }
+
+    /// <summary>
+    /// The model's context window in tokens, or <c>null</c> for "the provider did not say".
+    /// </summary>
+    /// <remarks>
+    /// <para>The same tri-state rule as <see cref="SupportedEfforts"/>: <c>null</c> is unknown and must
+    /// never become a number, because a number guessed here reaches an agent's environment as a fact.
+    /// OpenRouter answers honestly (<c>context_length</c> per model), LM Studio carries
+    /// <c>max_context_length</c> on its own listing, and Ollama only on a per-model
+    /// <c>api/show</c> call — so the field is filled by whichever of those the caller asked for, and
+    /// stays null where the provider said nothing.</para>
+    /// <para>Read by <c>ModelContextWindow</c>, which turns it into Claude Code's
+    /// <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c> for an instance on a third-party provider — the case
+    /// where the CLI does not know the model and assumes a window that can be wrong by half.</para>
+    /// </remarks>
+    public long? ContextWindowTokens { get; init; }
 }

@@ -78,7 +78,7 @@ public static class OpenCodeProviderConfig
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             PrivateFile.WriteAllText(path, Document(provider.CatalogueId, provider.DisplayName,
                 endpoint, runtime.RequestedModel, UsersOwnConfig(),
-                runtime.Provider?.KeyEnvironmentVariable));
+                runtime.Provider?.KeyEnvironmentVariable, runtime.Instance.FastModel));
             return path;
         }
         catch (Exception ex)
@@ -106,9 +106,23 @@ public static class OpenCodeProviderConfig
     /// <para>The model is listed because opencode resolves <c>provider/model</c> against what the
     /// provider declares, so a model absent from here is refused however well the server serves it. An
     /// instance naming no model declares none, and opencode is then left to its own choice within a
-    /// provider that at least points at the right address.</para></remarks>
+    /// provider that at least points at the right address.</para>
+    /// <para>The fast model, when the instance names one, goes into opencode's own
+    /// <c>small_model</c> slot — spelled <c>provider/model</c> like the main one, against the provider
+    /// declared here, and <em>listed</em> beside it: opencode resolves the slot through the same
+    /// catalogue, and measured in the binary (1.18.18, <c>Provider.getSmallModel</c>) a
+    /// <c>small_model</c> the provider does not declare is not an error but a silent discard — the
+    /// lookup catches <c>ProviderModelNotFoundError</c> and falls back to a cheap pick from the
+    /// provider's own list, which would leave the field set and doing nothing.</para>
+    /// <para><b><c>small_model</c> is overwritten, and that is deliberate — the one global key this
+    /// class writes over somebody's answer.</b> Everywhere else "ours wins on its own key only", but
+    /// the slot is not ours and cannot be scoped to a provider: a <c>small_model</c> from the user's
+    /// own file names <em>their</em> provider, and on a tile running another one it is silently
+    /// discarded by the lookup described above — the field set and doing nothing, one level further
+    /// away. What the instance's row says is what the small calls run on, for the same reason
+    /// Claude Code's row wins over a globally exported model variable.</para></remarks>
     internal static string Document(string providerId, string displayName, Uri baseUrl, string model,
-        JsonObject? theirs = null, string? keyVariable = null)
+        JsonObject? theirs = null, string? keyVariable = null, string smallModel = "")
     {
         var models = new JsonObject();
         if (model.Length > 0)
@@ -122,6 +136,12 @@ public static class OpenCodeProviderConfig
         // asked for.
         var document = theirs ?? [];
         document["$schema"] ??= "https://opencode.ai/config.json";
+
+        if (smallModel.Length > 0)
+        {
+            models[smallModel] = new JsonObject { ["name"] = smallModel };
+            document["small_model"] = $"{providerId}/{smallModel}";
+        }
 
         if (document["provider"] is not JsonObject providers)
         {

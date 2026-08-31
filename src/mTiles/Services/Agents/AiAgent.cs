@@ -62,6 +62,23 @@ public abstract class AiAgent : IAiAgent
     public virtual bool SupportsCustomEndpoint => true;
 
     /// <inheritdoc />
+    /// <remarks>The interface default that is not: the default answers live here, on the one class
+    /// every agent derives from, because a default on the interface member itself is never overridden
+    /// by an answer declared only on a derived class — interface mapping stops at the class that
+    /// lists the interface, and Claude Code's auto-compact gate answered false to the very caller it
+    /// was written for. Virtual here, override in the agent.</remarks>
+    public virtual bool UsesModelContextWindow => false;
+
+    /// <inheritdoc />
+    /// <remarks>Virtual for the reason <see cref="UsesModelContextWindow"/> gives.</remarks>
+    public virtual bool UsesFastModel => false;
+
+    /// <inheritdoc />
+    /// <remarks>False by default: a slot read through the environment exists wherever the CLI does.
+    /// </remarks>
+    public virtual bool FastModelNeedsDeclaredEndpoint => false;
+
+    /// <inheritdoc />
     /// <remarks>False for the agents pointed at a service by address: the model is then just a model.
     /// </remarks>
     public virtual bool NamesProviderInModel => false;

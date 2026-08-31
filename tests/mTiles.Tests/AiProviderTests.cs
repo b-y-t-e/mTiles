@@ -338,6 +338,84 @@ public class AiProviderTests
         Assert.Null(models.Single(m => m.Id == "quiet").SupportedEfforts);
     }
 
+    // ── The context window a model entry carries ────────────────────────────────────────────────
+
+    /// <summary>OpenRouter answers <c>context_length</c> per model, and a model it says nothing about
+    /// answers null — did not say, never zero.</summary>
+    [Fact]
+    public async Task OpenRouter_answers_the_window_where_the_listing_carries_one()
+    {
+        using var _ = new StubHttp("""
+            {"data":[
+              {"id":"z-ai/glm-5.3-flash","context_length":131072},
+              {"id":"quiet"}
+            ]}
+            """);
+
+        var models = await new OpenRouterProvider().ModelsAsync(Instance("openrouter", "sk-test"));
+
+        Assert.Equal(131_072, models.Single(m => m.Id == "z-ai/glm-5.3-flash").ContextWindowTokens);
+        Assert.Null(models.Single(m => m.Id == "quiet").ContextWindowTokens);
+    }
+
+    /// <summary>And the per-model question is answered from the same listing, by id.</summary>
+    [Fact]
+    public async Task OpenRouter_answers_one_models_window_from_the_listing()
+    {
+        using var _ = new StubHttp(
+            """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":131072}]}""");
+
+        var window = await new OpenRouterProvider().ContextWindowAsync(
+            Instance("openrouter", "sk-test"), "z-ai/glm-5.3-flash");
+
+        Assert.Equal(131_072, window);
+    }
+
+    /// <summary>LM Studio's own listing carries <c>max_context_length</c> — the one answer that needs
+    /// no second call.</summary>
+    [Fact]
+    public async Task Lm_studio_answers_the_window_from_its_own_listing()
+    {
+        using var _ = new StubHttp(
+            """{"data":[{"id":"bonsai-27b","state":"loaded","max_context_length":40960}]}""");
+
+        var window = await new LmStudioProvider().ContextWindowAsync(
+            Instance("lmstudio", "", "localhost"), "bonsai-27b");
+
+        Assert.Equal(40_960, window);
+    }
+
+    /// <summary>Ollama's listing names its models and says nothing else, so the question is a POST to
+    /// <c>api/show</c>, and the answer lives under a key named after the architecture.</summary>
+    [Fact]
+    public async Task Ollama_answers_the_window_from_api_show()
+    {
+        using var _ = new StubHttp("""
+            {"model_info":{
+              "general.architecture":"qwen2",
+              "qwen2.context_length":32768
+            }}
+            """);
+
+        var window = await new OllamaProvider().ContextWindowAsync(
+            Instance("ollama", "", "localhost"), "qwen3:8b");
+
+        Assert.Equal(32_768, window);
+    }
+
+    /// <summary>An answer that names no window — an older server, an architecture the key set does not
+    /// cover — is "did not say", which the caller passes through as "set nothing".</summary>
+    [Fact]
+    public async Task Ollama_that_says_nothing_answers_null()
+    {
+        using var _ = new StubHttp("""{"model_info":{"general.architecture":"qwen2"}}""");
+
+        var window = await new OllamaProvider().ContextWindowAsync(
+            Instance("ollama", "", "localhost"), "qwen3:8b");
+
+        Assert.Null(window);
+    }
+
     // ── The "first loaded" sentinel ──────────────────────────────────────────────────────────────
 
     /// <summary>A hosted service cannot say what is loaded, so the sentinel is refused with a reason

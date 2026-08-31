@@ -114,7 +114,7 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
 
     /// <summary>The instance, its provider and the model this launch settled on.</summary>
     private AgentRuntime Runtime =>
-        AgentRuntime.For(_settings.Settings, Instance, _resolvedModel, _agent);
+        AgentRuntime.For(_settings.Settings, Instance, _resolvedModel, _agent, _autoCompactWindow);
 
     /// <summary>
     /// Which agent this tile is, and on what — the line beside its name.
@@ -163,6 +163,16 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
     /// it for this tile.</remarks>
     private string? _resolvedModel;
 
+    /// <summary>
+    /// The auto-compact window resolved for this launch together with the model — already reduced by
+    /// the <see cref="ModelContextWindow"/> rule, whose whole answer it is.
+    /// </summary>
+    /// <remarks>Null sets nothing: an instance with no model, a provider that did not say, or a model
+    /// whose window is too small for the compaction variable's minimum all leave the CLI on its own
+    /// assumption. Read by <see cref="Runtime"/> — and reset with the model, so a launch that fails
+    /// does not hand the next one a window settled for the model before it.</remarks>
+    private long? _autoCompactWindow;
+
     /// <inheritdoc />
     /// <remarks>The provider's address and key, and the model resolved above — never the startup
     /// script, which is typed into a live prompt and kept in the shell's history.</remarks>
@@ -185,6 +195,7 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
     {
         var instance = Instance;
         _resolvedModel = null;
+        _autoCompactWindow = null;
         LaunchProblem = "";
 
         var (model, problem) =
@@ -201,6 +212,11 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
         }
 
         _resolvedModel = model ?? "";
+
+        // The window travels with the model and only for the agent that reads it (ModelContextWindow
+        // gates on that), so no provider is asked for an agent that sets nothing from the answer.
+        _autoCompactWindow = await ModelContextWindow.ResolveAsync(
+            _settings.Settings, _agent, instance, _resolvedModel);
 
         // The header shows the model this launch settled on, and until now that was the instance's
         // stored value — which for the "first loaded" sentinel is not a model name at all. Announced

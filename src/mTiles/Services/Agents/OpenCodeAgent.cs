@@ -138,6 +138,25 @@ public sealed class OpenCodeAgent : AiAgent
     /// <remarks><c>opencode run --help</c>: "model to use in the format of provider/model".</remarks>
     public override string QualifiedModel(AgentRuntime runtime) => WithProviderPrefix(runtime);
 
+    /// <summary>
+    /// opencode has its own slot for the small, frequent calls: <c>small_model</c> in its config.
+    /// </summary>
+    /// <remarks>Measured 2026-08-31 in the 1.18.18 binary (<c>Provider.getSmallModel</c>) and its
+    /// documented schema: the slot is spelled <c>provider/model</c>, and empty it falls back to a
+    /// cheap model <em>picked from the same provider's catalogue</em> — so on a hosted provider the
+    /// field can stay empty without Claude Code's failure mode, whose fallback is a hardcoded
+    /// Anthropic id. It reaches the CLI through the generated provider document
+    /// (<see cref="OpenCodeProviderConfig"/>), which is written only where an endpoint is declared:
+    /// on the user's own configuration this application does not write, so there a named fast model
+    /// has nowhere to go and the CLI's own pick answers.</remarks>
+    public override bool UsesFastModel => true;
+
+    /// <inheritdoc />
+    /// <remarks>The slot lives in the generated provider document, and that document exists only where
+    /// an endpoint is declared — so on a hosted provider at its published address the field would save
+    /// a value nothing reads, and the form hides it instead.</remarks>
+    public override bool FastModelNeedsDeclaredEndpoint => true;
+
     /// <inheritdoc />
     /// <remarks>The prefix is the only place this CLI hears which service to use.</remarks>
     public override bool NamesProviderInModel => true;

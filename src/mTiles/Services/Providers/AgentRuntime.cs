@@ -23,12 +23,20 @@ namespace mTiles.Services.Providers;
 /// <param name="SignIn">The CLI's own login this runs under, or null for the account it is already
 /// signed into. Never set at the same time as <paramref name="Provider"/> — see
 /// <see cref="AgentRuntime.For"/>.</param>
+/// <param name="AutoCompactWindow">The auto-compact window <b>already reduced by the
+/// <c>ModelContextWindow</c> rule</b> — 80% of the model's context, clamped to what the CLI accepts —
+/// resolved for this launch, or null when nobody said. The reduction happens once, in
+/// <c>ModelContextWindow.ResolveAsync</c>, whose whole answer this is: an agent that applied
+/// <c>Window</c> to it again would launch Claude Code at 64% of the context, and one that received the
+/// raw context here would have to reduce it itself — two places for one rule. Resolved before
+/// <see cref="IAiAgent.EnvFor"/> because that call is synchronous.</param>
 public sealed record AgentRuntime(
     AiAgentInstance Instance,
     IAiProvider? Provider,
     AiProviderInstance? ProviderInstance,
     string Model,
-    AiSignIn? SignIn = null)
+    AiSignIn? SignIn = null,
+    long? AutoCompactWindow = null)
 {
     /// <summary>The address for a wire format, or null when nothing configured here serves it.</summary>
     /// <remarks>Null is what tells an agent to leave the environment alone: an agent given no endpoint
@@ -66,10 +74,21 @@ public sealed record AgentRuntime(
     /// <para>Read from the instance rather than the provider because that is where the override lives:
     /// an empty <c>BaseUrl</c> means "wherever the service is", which every agent can reach by
     /// name.</para>
+    /// <para>The two cases are stated in <see cref="DeclaresEndpoint"/> and asked through it, because
+    /// the Settings form asks the same question about the account it holds — an agent whose slot lives
+    /// in a generated document gets its fast-model field exactly where this answers true — and one
+    /// rule asked twice by two copies is a rule that drifts.</para>
     /// </remarks>
-    public bool NeedsDeclaredEndpoint =>
-        Provider is { IsLocal: true }
-        || ProviderInstance is { } instance && instance.BaseUrl.Trim().Length > 0;
+    public bool NeedsDeclaredEndpoint => DeclaresEndpoint(Provider, ProviderInstance);
+
+    /// <summary>
+    /// Whether this provider and its configured instance together declare an endpoint of their own.
+    /// </summary>
+    /// <remarks>Pure, and the one statement of the two cases <see cref="NeedsDeclaredEndpoint"/> and
+    /// the fast-model field's visibility both ask about.</remarks>
+    public static bool DeclaresEndpoint(IAiProvider? provider, AiProviderInstance? instance) =>
+        provider is { IsLocal: true }
+        || instance is { } configured && configured.BaseUrl.Trim().Length > 0;
 
     /// <summary>
     /// What an instance runs as when nothing has resolved a model for it.
@@ -82,7 +101,7 @@ public sealed record AgentRuntime(
     /// comparing against the instance's own id let a stand-in be pointed at another tool's credential
     /// directory and write its own into it.</param>
     public static AgentRuntime For(AppSettings settings, AiAgentInstance instance, string? model = null,
-        IAiAgent? agent = null)
+        IAiAgent? agent = null, long? autoCompactWindow = null)
     {
         // The two are one slot on screen and have to be one slot here: an instance carrying both would
         // point the CLI at a second subscription's directory and then hand it somebody else's API key
@@ -102,6 +121,7 @@ public sealed record AgentRuntime(
             providerInstance is null ? null : AiProviderCatalog.Find(providerInstance.ProviderId),
             providerInstance,
             model ?? instance.Model,
-            signIn);
+            signIn,
+            autoCompactWindow);
     }
 }

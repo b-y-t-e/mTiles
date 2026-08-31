@@ -1410,7 +1410,12 @@
                                                      MinimumPrefixLength="0"
                                                      PlaceholderText="{Binding ModelHint}" />
                                 </DockPanel>
-                                <DockPanel>
+                                <TextBlock IsVisible="{Binding HasModelContext}"
+                                           Text="{Binding ModelContextDisplay}"
+                                           Margin="98,-6,0,0"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
+                                <DockPanel IsVisible="{Binding ShowsFastModel}">
                                     <TextBlock Text="Fast model" Classes="label"
                                                VerticalAlignment="Center" Width="90" />
                                     <!-- The same completion as Model above, over the same list: it takes
@@ -1421,8 +1426,26 @@
                                                      ItemsSource="{Binding ModelSuggestions}"
                                                      FilterMode="Custom"
                                                      MinimumPrefixLength="0"
-                                                     PlaceholderText="for the small, frequent calls (optional)" />
+                                                     PlaceholderText="{Binding FastModelHint}" />
                                 </DockPanel>
+                                <TextBlock IsVisible="{Binding HasFastModelContext}"
+                                           Text="{Binding FastModelContextDisplay}"
+                                           Margin="98,-6,0,0"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
+                                <DockPanel IsVisible="{Binding ShowsAutoCompact}">
+                                    <TextBlock Text="Auto-compact" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <TextBox Classes="setting"
+                                             Text="{Binding EditAgentAutoCompact}"
+                                             PlaceholderText="tokens — empty: read from the model" />
+                                </DockPanel>
+                                <TextBlock IsVisible="{Binding ShowsAutoCompact}"
+                                           Text="Claude Code only. When empty, the launch sets CLAUDE_CODE_AUTO_COMPACT_WINDOW to 80% of the model's context window, read from the provider; a value typed here is used as-is."
+                                           Margin="98,-4,0,0"
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
                                 <DockPanel>
                                     <TextBlock Text="Behaviour" Classes="label"
                                                VerticalAlignment="Center" Width="90" />

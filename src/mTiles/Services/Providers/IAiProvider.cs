@@ -111,4 +111,15 @@ public interface IAiProvider
     /// so what shows it is a searchable field and not a combo box.</remarks>
     Task<IReadOnlyList<AiModelInfo>> ModelsAsync(AiProviderInstance instance,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// One model's context window in tokens, or null when neither the listing nor the provider says.
+    /// </summary>
+    /// <remarks><para>Asked for one model rather than read off <see cref="ModelsAsync"/> because two of
+    /// the providers answer per model: Ollama's listing carries no window at all, only its
+    /// <c>api/show</c> does. The default asks the list; the override asks the model.</para>
+    /// <para><b>Null is "did not say"</b> and is answered, not worked around — a guessed window reaches
+    /// an agent's environment as a fact.</para></remarks>
+    Task<long?> ContextWindowAsync(AiProviderInstance instance, string model,
+        CancellationToken ct = default);
 }

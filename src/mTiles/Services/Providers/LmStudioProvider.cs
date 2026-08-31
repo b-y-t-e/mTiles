@@ -147,6 +147,8 @@ public sealed class LmStudioProvider : AiProvider, ILocalAiProvider
     }
 
     /// <summary>LM Studio's own listing: the OpenAI shape plus a <c>state</c> of <c>loaded</c>.</summary>
+    /// <remarks>The listing also carries <c>max_context_length</c> — the window the model was loaded
+    /// with, which is the one answer to <see cref="ContextWindowAsync"/> that needs no second call.</remarks>
     private static IReadOnlyList<AiModelInfo> ReadWithState(JsonDocument document)
     {
         if (!document.RootElement.TryGetProperty("data", out var data)
@@ -164,6 +166,11 @@ public sealed class LmStudioProvider : AiProvider, ILocalAiProvider
                     DisplayName = modelId,
                     IsLoaded = entry.TryGetProperty("state", out var state)
                                && state.GetString() == "loaded",
+                    ContextWindowTokens = entry.TryGetProperty("max_context_length", out var window)
+                                          && window.ValueKind == JsonValueKind.Number
+                                          && window.TryGetInt64(out var tokens)
+                        ? tokens
+                        : null,
                 });
         }
         return models;

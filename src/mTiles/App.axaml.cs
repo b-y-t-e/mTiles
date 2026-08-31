@@ -134,15 +134,15 @@ public partial class App : Application
     /// </remarks>
     internal static TileCatalog BuildTileCatalog(DatabaseServiceManager databases) =>
         new TileCatalog()
+            // The same view as a terminal, because an agent tile is a terminal: what differs is
+            // where its commands come from, and that is the view model's answer to give.
+            .Register(new AgentTileKind(), tile => new TerminalTileView { DataContext = tile })
             .Register(new TerminalTileKind(), tile => new TerminalTileView { DataContext = tile })
             .Register(new NoteTileKind(), tile => new NoteTileView { DataContext = tile })
             .Register(new TodoTileKind(), tile => new TodoTileView { DataContext = tile })
             .Register(new GitTileKind(), tile => new GitTileView { DataContext = tile })
             .Register(new DatabaseTileKind(databases), tile => new DatabaseTileView { DataContext = tile })
-            .Register(new GoalTileKind(), tile => new GoalTileView { DataContext = tile })
-            // The same view as a terminal, because an agent tile is a terminal: what differs is
-            // where its commands come from, and that is the view model's answer to give.
-            .Register(new AgentTileKind(), tile => new TerminalTileView { DataContext = tile });
+            .Register(new GoalTileKind(), tile => new GoalTileView { DataContext = tile });
 
     /// <summary>Runs one shutdown step, so a failure in it cannot cost the others.</summary>
     private static void Shutdown(string what, Action step)

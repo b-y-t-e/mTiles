@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using mTiles.Models;
 using mTiles.Services.Providers;
@@ -91,7 +92,19 @@ public sealed class ClaudeAgent : AiAgent
         if (runtime.SignIn is not null || runtime.Provider is not null)
         {
             environment["ANTHROPIC_MODEL"] = null;
+            // The deprecated spelling, still read by the CLI, and the alias pins that hold the rest of
+            // the vocabulary: every one of these is a model variable a machine may export, and the
+            // same rule that clears ANTHROPIC_MODEL clears them — what the row says is what runs.
             environment["ANTHROPIC_SMALL_FAST_MODEL"] = null;
+            environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = null;
+            environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = null;
+            environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = null;
+            environment["ANTHROPIC_DEFAULT_FABLE_MODEL"] = null;
+            // And the compaction window is the same question one more time: a machine exporting it
+            // globally would run a session whose provider said nothing about its model on a threshold
+            // inherited from somewhere else — the session running past the model's context by the one
+            // path the unset exists to close.
+            environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = null;
         }
 
         if (runtime.EndpointFor(ApiFlavor.Anthropic) is { } endpoint)
@@ -115,16 +128,75 @@ public sealed class ClaudeAgent : AiAgent
         }
 
         if (runtime.RequestedModel.Length > 0)
+        {
             environment["ANTHROPIC_MODEL"] = runtime.RequestedModel;
 
+            // The aliases are how the CLI reaches for a large model beside the session's own: a
+            // plan-mode upgrade, the auto-mode classifier, everything that asks for opus, sonnet or
+            // fable by name. On a third-party provider those names resolve to Anthropic ids nobody
+            // serves, so the model the session runs on answers for them all. Only there, though: on
+            // the CLI's own account or a subscription every alias resolves to a model that exists,
+            // and a pin here would stand between the user and /model.
+            if (runtime.Provider is not null)
+            {
+                environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] = runtime.RequestedModel;
+                environment["ANTHROPIC_DEFAULT_SONNET_MODEL"] = runtime.RequestedModel;
+                environment["ANTHROPIC_DEFAULT_FABLE_MODEL"] = runtime.RequestedModel;
+            }
+        }
+
+        // The small, frequent calls follow the row: the instance's FastModel where it names one, and —
+        // on a third-party provider only — the same model the real calls run on when it does not. Left
+        // unset there, the CLI answers these calls with its own default small model, an Anthropic id
+        // that provider does not serve, so on OpenRouter every one of them failed while the real ones
+        // worked. Nowhere else, though: on the CLI's own account or a subscription that default exists
+        // and answers, and the fallback here would instead move every background call onto the
+        // session's large model — the very thing "small, frequent" is not. A Fast model typed on the
+        // row is a decision and is handed over wherever the CLI reads it.
         if (runtime.Instance.FastModel.Length > 0)
-            environment["ANTHROPIC_SMALL_FAST_MODEL"] = runtime.Instance.FastModel;
+            environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = runtime.Instance.FastModel;
+        else if (runtime.Provider is not null && runtime.RequestedModel.Length > 0)
+            environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = runtime.RequestedModel;
+
+        // The auto-compact window. On a third-party provider the CLI does not recognise the model id
+        // and assumes a window that can be wrong by half, so the provider's own answer is named here
+        // instead — resolved by ModelContextWindow, whose answer is already the reduced window (80%,
+        // clamped), and is carried by the runtime under that meaning. On the CLI's own account the
+        // resolution stays out of the way, because the CLI knows its models and an empty field is that
+        // configuration's own compaction behaviour. A window typed on the instance is a decision and
+        // is honoured at every launch, whichever account it runs as — the same rule the fast model
+        // follows, and the promise the field's hint makes. Null answers set nothing: an unknown window
+        // is the CLI's own assumption, not a number we made up.
+        if ((runtime.Instance.AutoCompactWindow ?? runtime.AutoCompactWindow) is { } window)
+            environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] =
+                window.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>Through the environment, which is where its base URL and token already go.</summary>
     /// <remarks><c>claude --model</c> exists and is deliberately not used: <c>ANTHROPIC_MODEL</c>
     /// reaches the headless run and the interactive tile by one route instead of two.</remarks>
     public override bool AcceptsModel => true;
+
+    /// <summary>
+    /// The one agent that reads the model's context window: on a third-party provider it assumes a
+    /// window for ids it does not recognise, and the assumption can be wrong by half.
+    /// </summary>
+    /// <remarks>That answer is what spends a provider call on resolving the window at every launch —
+    /// see <c>ModelContextWindow</c> for what the answer becomes, and the gate that keeps the call
+    /// away from the five agents that read none of it.</remarks>
+    public override bool UsesModelContextWindow => true;
+
+    /// <summary>
+    /// The small, frequent calls take a second model here: <c>ANTHROPIC_DEFAULT_HAIKU_MODEL</c>.
+    /// </summary>
+    /// <remarks>Set in <see cref="Configure"/>: the instance's fast model, or — empty, on a
+    /// third-party provider only — the same model the real calls run on. The fallback is the part that
+    /// matters: left unset there, the CLI answered these calls with its own default small model, an
+    /// Anthropic id that provider does not serve, so every one of them failed while the real ones
+    /// worked. On the CLI's own account the default exists and the field left empty leaves it alone.
+    /// Read through the current spelling — <c>ANTHROPIC_SMALL_FAST_MODEL</c> is deprecated in this
+    /// one's favour, measured in the environment-variables reference on 2026-08-31.</remarks>
+    public override bool UsesFastModel => true;
 
     /// <summary>
     /// <c>CLAUDE_CONFIG_DIR</c>, measured 2026-08-30 against Claude Code 2.1.251.

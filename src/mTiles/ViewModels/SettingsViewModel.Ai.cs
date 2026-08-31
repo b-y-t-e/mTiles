@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
@@ -83,16 +84,29 @@ public partial class SettingsViewModel
     [ObservableProperty] private AccountChoice? _editAgentAccount = AccountChoice.Default;
     [ObservableProperty] private string _editAgentModel = "";
     [ObservableProperty] private string _editAgentFastModel = "";
+    [ObservableProperty] private string _editAgentAutoCompact = "";
     [ObservableProperty] private string _editAgentBehaviour = "";
     [ObservableProperty] private string _editAgentEffort = "";
     [ObservableProperty] private string _editAgentExtraArgs = "";
     private AiAgentInstance? _editingAgentInstance;
 
     /// <summary>Whether the agent form can be saved: it needs a name, for the reason the provider
-    /// form does — nothing else identifies the row, and nothing can invent one.</summary>
-    public bool CanSaveAgentInstance => EditAgentName.Trim().Length > 0;
+    /// form does — nothing else identifies the row, and nothing can invent one. A typed auto-compact
+    /// window has to be a number, or Save says nothing about why it did nothing.</summary>
+    public bool CanSaveAgentInstance =>
+        EditAgentName.Trim().Length > 0 && EditAgentAutoCompactIsValid;
+
+    /// <summary>Whether the auto-compact field is either empty or a positive token count.</summary>
+    public bool EditAgentAutoCompactIsValid =>
+        EditAgentAutoCompact.Trim().Length == 0 || ParseAutoCompactWindow(EditAgentAutoCompact) is not null;
+
+    private static long? ParseAutoCompactWindow(string text) =>
+        long.TryParse(text.Trim(), out var value) && value > 0 ? value : null;
 
     partial void OnEditAgentNameChanged(string value) =>
+        OnPropertyChanged(nameof(CanSaveAgentInstance));
+
+    partial void OnEditAgentAutoCompactChanged(string value) =>
         OnPropertyChanged(nameof(CanSaveAgentInstance));
 
     /// <summary>The agents that can be named, by display name — the same spelling the row shows.</summary>
@@ -166,7 +180,70 @@ public partial class SettingsViewModel
         RefreshBehaviourLabels();
         RefreshEffortLabels();
         OnPropertyChanged(nameof(ModelHint));
+        OnPropertyChanged(nameof(ShowsAutoCompact));
+        OnPropertyChanged(nameof(ShowsFastModel));
+        OnPropertyChanged(nameof(FastModelHint));
+        _ = UpdateModelContextAsync(fastModel: false);
+        _ = UpdateModelContextAsync(fastModel: true);
     }
+
+    /// <summary>Whether the Auto-compact field is shown: Claude Code's alone.</summary>
+    /// <remarks>The field is the manual <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c>, and only Claude Code
+    /// reads that — on the other five it would save and do nothing, so it is hidden rather than
+    /// offered. <b>The context readouts under the model fields are a different question and are shown
+    /// for every agent</b> (<see cref="HasModelContext"/>): a model's window is a fact about the model
+    /// whatever reads it, and Claude Code is only the one agent that spends it on an environment
+    /// variable. This remark is not that rule — the two used to be written as one, and a reader
+    /// trusting the sentence over the XAML would have hidden the readouts everywhere.</remarks>
+    public bool ShowsAutoCompact => AgentBeingEdited is { UsesModelContextWindow: true };
+
+    /// <summary>Whether the agent being edited has a slot for the small, frequent calls, and this
+    /// launch would read it.</summary>
+    /// <remarks>codex, pi and agy answer their small calls with the main model or their own pick and
+    /// offer no setting for one — measured 2026-08-31 in each binary and its documentation — so the
+    /// form hides the field on them rather than showing one that would save and do nothing, the rule
+    /// <see cref="ShowsAutoCompact"/> already applies.
+    /// <para><b>And the account is half of the question.</b> opencode's slot lives in the generated
+    /// provider document, which is written only where an endpoint is declared — a local server, or a
+    /// hosted provider given an address of its own. On a hosted provider at its published address a
+    /// typed fast model would save and do nothing, so the field stands down there too
+    /// (<see cref="IAiAgent.FastModelNeedsDeclaredEndpoint"/> is the agent's own answer to which slots
+    /// work that way). The two that reach it name their fallbacks differently, which is what
+    /// <see cref="FastModelHint"/> says.</para></remarks>
+    public bool ShowsFastModel =>
+        AgentBeingEdited is { UsesFastModel: true } agent
+        && (!agent.FastModelNeedsDeclaredEndpoint || TheAccountDeclaresAnEndpoint);
+
+    /// <summary>Whether the chosen account is one a provider document is written for — a local server,
+    /// or a hosted provider the user has given an address of its own.</summary>
+    /// <remarks>The one rule <c>AgentRuntime.NeedsDeclaredEndpoint</c> asks about a launch, asked here
+    /// through the same <see cref="AgentRuntime.DeclaresEndpoint"/> about the account the form holds —
+    /// so a third case added there is added here, and the field cannot stay visible over an account
+    /// the launch stopped writing for.</remarks>
+    private bool TheAccountDeclaresAnEndpoint =>
+        EditAgentAccount is { Kind: AccountKind.Provider } account
+        && ProviderInstances.FirstOrDefault(p => p.Instance.Id == account.Id) is { } row
+        && AgentRuntime.DeclaresEndpoint(row.Provider, row.Instance);
+
+    /// <summary>What the fast-model field asks for, which is not the same question for the two agents
+    /// that have one — nor the same answer for every account.</summary>
+    /// <remarks>Claude Code's empty field follows the Model field <em>where a provider is chosen</em>;
+    /// on its own account or a subscription the CLI's own small model exists and answers, and the
+    /// fallback deliberately does not run there. opencode's own slot falls back to a cheap model picked
+    /// from the provider's catalogue — and takes <b>the bare model id</b>, because the generated
+    /// document writes the <c>provider/</c> prefix itself (<c>OpenCodeProviderConfig.Document</c>); a
+    /// hint asking for <c>provider/model</c> here would be followed to the letter into a slot opencode
+    /// then silently discards. The sibling Model field is the opposite case, and its own hint says so:
+    /// there the qualifier is written by the user because nothing writes it for them. Only these two
+    /// agents reach the field — the others are hidden outright by <see cref="ShowsFastModel"/>.</remarks>
+    public string FastModelHint =>
+        AgentBeingEdited is not { UsesFastModel: true } agent
+            ? ""
+            : agent.FastModelNeedsDeclaredEndpoint
+                ? "the model's own name — the provider is added for you — empty: opencode's own cheap pick"
+                : EditAgentAccount is { Kind: AccountKind.Provider }
+                    ? "for the small, frequent calls — empty: same as Model"
+                    : "for the small, frequent calls — empty: the CLI's own small model";
 
     /// <summary>What the model field asks for, which is not the same question for every agent.</summary>
     /// <remarks>opencode and pi are told which service to use by the model's <em>name</em>, so on an
@@ -180,7 +257,117 @@ public partial class SettingsViewModel
             ? "provider/model, e.g. openrouter/z-ai/glm-5.3-flash"
             : "empty = the agent's own choice";
 
-    partial void OnEditAgentModelChanged(string value) => RefreshEffortLabels();
+    partial void OnEditAgentModelChanged(string value)
+    {
+        RefreshEffortLabels();
+        _ = UpdateModelContextAsync(fastModel: false);
+    }
+
+    partial void OnEditAgentFastModelChanged(string value) =>
+        _ = UpdateModelContextAsync(fastModel: true);
+
+    // ─── Context readouts and the auto-compact fallback ───
+
+    /// <summary>What the model field holds, said in tokens, or empty while nothing is known.</summary>
+    /// <remarks>Shown under the field the moment the model is one the provider describes: it is the
+    /// number the empty auto-compact field would be worked out from, and seeing it is what makes the
+    /// fallback legible instead of a promise.</remarks>
+    public string ModelContextDisplay => _modelContextDisplay;
+    private string _modelContextDisplay = "";
+
+    /// <summary>The same answer for the fast model, which is asked separately and may be a different
+    /// model with a different window.</summary>
+    public string FastModelContextDisplay => _fastModelContextDisplay;
+    private string _fastModelContextDisplay = "";
+
+    public bool HasModelContext => ModelContextDisplay.Length > 0;
+    public bool HasFastModelContext => FastModelContextDisplay.Length > 0;
+
+    /// <summary>Cancels each field's lookup in flight, so a late answer cannot land on a form that has
+    /// moved on to another instance.</summary>
+    private CancellationTokenSource? _modelContextCts;
+    private CancellationTokenSource? _fastModelContextCts;
+
+    /// <summary>
+    /// Says what context window the model in one of the two fields has, as far as anybody can say.
+    /// </summary>
+    /// <remarks><para>Three answers, in order. The list already fetched for the account
+    /// (<see cref="FetchAgentModelsAsync"/>) carries the window for OpenRouter and LM Studio, and
+    /// answering from it is free and instant. A model the list does not describe — Ollama's listing
+    /// names models and says nothing else — is asked directly, once, debounced: this fires on every
+    /// keystroke of an <c>AutoCompleteBox</c>, and a request per keystroke against somebody's server
+    /// is not how the answer is owed. Nobody at all — no provider chosen, a provider that will not
+    /// say — leaves the readout empty rather than guessing.</para>
+    /// <para>Not awaited: it runs from a property setter on the UI thread, and everything below
+    /// already answers rather than throws.</para></remarks>
+    private async Task UpdateModelContextAsync(bool fastModel)
+    {
+        // Cancelled first, before any early return below. Every path here — a cleared field, a hidden
+        // fast field, an answer straight off the model list — replaces the lookup in flight, because
+        // the answers race: a lookup started for one model answering after the field moved on would
+        // otherwise pass the cancellation test and write its number under a field that no longer asks
+        // for it. The exchange is on the field for this form, so opening another instance's form also
+        // cancels what this one has in the air.
+        var source = new CancellationTokenSource();
+        var field = fastModel ? ref _fastModelContextCts : ref _modelContextCts;
+        var previous = Interlocked.Exchange(ref field, source);
+        previous?.Cancel();
+
+        var model = (fastModel ? EditAgentFastModel : EditAgentModel).Trim();
+        var property = fastModel ? nameof(FastModelContextDisplay) : nameof(ModelContextDisplay);
+        var hasProperty = fastModel ? nameof(HasFastModelContext) : nameof(HasModelContext);
+
+        void Display(string text)
+        {
+            if (fastModel) _fastModelContextDisplay = text; else _modelContextDisplay = text;
+            OnPropertyChanged(property);
+            OnPropertyChanged(hasProperty);
+        }
+
+        Display("");
+
+        // The fast field is hidden on the agents that have no slot for one (ShowsFastModel), and a
+        // context readout under a field that is not there is a number with no question. Cleared first,
+        // so switching agents cannot leave the previous form's answer behind it.
+        if (fastModel && !ShowsFastModel) return;
+
+        if (model.Length == 0) return;
+
+        // Free first: whatever the account's model list already says, said now.
+        var listed = _agentModels.FirstOrDefault(info =>
+            string.Equals(info.Id, model, StringComparison.OrdinalIgnoreCase))?.ContextWindowTokens;
+        if (listed is { } known)
+        {
+            Display(ContextSentence(known));
+            return;
+        }
+
+        var configured = EditAgentAccount is { Kind: AccountKind.Provider } account
+            ? ProviderInstances.FirstOrDefault(p => p.Instance.Id == account.Id)
+            : null;
+        if (configured?.Provider is not { } provider)
+            return;
+
+        try
+        {
+            // The debounce: one lookup for the model the field settles on, not one per keystroke.
+            await Task.Delay(400, source.Token);
+
+            var tokens = await provider.ContextWindowAsync(configured.Instance, model, source.Token);
+            if (source.Token.IsCancellationRequested) return;
+
+            Display(tokens is { } answer ? ContextSentence(answer) : "");
+        }
+        catch (OperationCanceledException) when (source.Token.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private static string ContextSentence(long tokens) =>
+        $"{tokens.ToString("N0", CultureInfo.InvariantCulture)} tokens context";
 
     /// <summary>Cancels the model fetch in flight, so a late answer cannot land on a form that has
     /// moved on.</summary>
@@ -205,10 +392,13 @@ public partial class SettingsViewModel
     /// </para></remarks>
     partial void OnEditAgentAccountChanged(AccountChoice? value)
     {
-        // The hint depends on it too: with a provider chosen the qualifier is written for the user
+        // The hints depend on it too: with a provider chosen the qualifier is written for the user
         // (AiAgent.WithProviderPrefix), and asking them for it as well would be the form contradicting
-        // what the launch does.
+        // what the launch does — and the fast-model field's visibility is an account question for the
+        // agent whose slot lives in a generated document.
         OnPropertyChanged(nameof(ModelHint));
+        OnPropertyChanged(nameof(FastModelHint));
+        OnPropertyChanged(nameof(ShowsFastModel));
         _ = LoadAgentModelsAsync();
     }
 
@@ -399,6 +589,15 @@ public partial class SettingsViewModel
         // One per line, because an argument may contain spaces and splitting on them is how a path with
         // one in it becomes two arguments neither of which exists.
         EditAgentExtraArgs = string.Join('\n', instance.ExtraArgs);
+        EditAgentAutoCompact = instance.AutoCompactWindow is { } window
+            ? window.ToString(CultureInfo.InvariantCulture)
+            : "";
+
+        // Asked for outright, and unconditionally - the same rule the model fetch below is given, for
+        // the same reason. Assigning the same model text as the last form's raises no change and so
+        // starts no lookup, and both readouts would show whatever that form's model had answered.
+        _ = UpdateModelContextAsync(fastModel: false);
+        _ = UpdateModelContextAsync(fastModel: true);
 
         // Asked for outright, and unconditionally - the same rule the agent step above is given, for
         // the same reason. AccountChoice is a record, so RefreshAccountChoices assigning the account
@@ -446,6 +645,8 @@ public partial class SettingsViewModel
         instance.DefaultEffort = AiEfforts.FromLabel(EditAgentEffort);
         instance.ExtraArgs = [.. EditAgentExtraArgs
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+        // Empty is the fallback, not a zero: the launch works the window out from the model's context.
+        instance.AutoCompactWindow = ParseAutoCompactWindow(EditAgentAutoCompact);
 
         var list = _settingsService.Settings.AiAgentInstances;
         if (!list.Contains(instance)) list.Add(instance);
@@ -467,6 +668,8 @@ public partial class SettingsViewModel
     private void LeaveAgentForm()
     {
         Interlocked.Exchange(ref _agentModelsCts, null)?.Cancel();
+        Interlocked.Exchange(ref _modelContextCts, null)?.Cancel();
+        Interlocked.Exchange(ref _fastModelContextCts, null)?.Cancel();
         _editingAgentInstance = null;
     }
 
@@ -875,6 +1078,12 @@ public partial class SettingsViewModel
             _agentModels = [];
             ModelSuggestions.Clear();
             RefreshEffortLabels();
+            // And the context readouts go with the list: this is the branch where the account stopped
+            // being a provider — switched to Default, or to a sign-in — which is exactly the moment
+            // nothing is computed from them any more. Every other path of this method clears them
+            // first; this one was the exception.
+            _ = UpdateModelContextAsync(fastModel: false);
+            _ = UpdateModelContextAsync(fastModel: true);
             return;
         }
 
@@ -901,6 +1110,11 @@ public partial class SettingsViewModel
         // What the models say about effort is the other half of the same answer: asking for the list
         // and then offering a level the chosen one refuses is a launch that fails on our own flag.
         RefreshEffortLabels();
+
+        // And what they say about context is the third: the list is where the readouts answer from
+        // when they can, and the fields may already have text in them that arrived before this reply.
+        _ = UpdateModelContextAsync(fastModel: false);
+        _ = UpdateModelContextAsync(fastModel: true);
     }
 
     public static IReadOnlyList<string> ProviderKinds { get; } =

@@ -82,6 +82,41 @@ public sealed class OllamaProvider : AiProvider, ILocalAiProvider
         return document is null ? [] : ReadNames(document, "models");
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para><b>The listing cannot answer this.</b> <c>api/tags</c> names the models it has pulled and
+    /// says nothing else about them, so the base implementation — find the entry in the list — would
+    /// answer null for every model Ollama serves. The window is on <c>api/show</c>, a POST per model,
+    /// whose <c>model_info</c> object carries it under a key named after the architecture:
+    /// <c>qwen2.context_length</c>, <c>llama.context_length</c>. Matched by suffix, because the prefix
+    /// is the model's architecture and not ours to enumerate.</para>
+    /// <para>Null when the server does not answer or names no such key — "did not say", which
+    /// <c>ModelContextWindow</c> passes through as "set nothing" rather than guessing.</para>
+    /// </remarks>
+    public override async Task<long?> ContextWindowAsync(AiProviderInstance instance, string model,
+        CancellationToken ct = default)
+    {
+        if (model.Length == 0) return null;
+
+        using var document = await PostJsonAsync(instance, "api/show",
+            System.Text.Json.JsonSerializer.Serialize(new { model }), ct);
+        if (document?.RootElement.TryGetProperty("model_info", out var info) is not true
+            || info.ValueKind != JsonValueKind.Object)
+            return null;
+
+        foreach (var property in info.EnumerateObject())
+        {
+            if (!property.Name.EndsWith(".context_length", StringComparison.Ordinal)
+                || property.Value.ValueKind != JsonValueKind.Number
+                || !property.Value.TryGetInt64(out var tokens))
+                continue;
+
+            return tokens;
+        }
+
+        return null;
+    }
+
     /// <summary>What it has in memory right now — a different question from what it has pulled, and the
     /// one the "first loaded" sentinel is asking.</summary>
     public async Task<string?> FirstLoadedModelAsync(AiProviderInstance instance,

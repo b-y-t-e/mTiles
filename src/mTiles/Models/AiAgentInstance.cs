@@ -68,8 +68,30 @@ public sealed class AiAgentInstance
     public string Model { get; set; } = "";
 
     /// <summary>The model for the cheap, frequent calls an agent makes beside the real ones, or empty
-    /// for the agent's own choice.</summary>
+    /// to run those calls on <see cref="Model"/>. Only Claude Code and opencode have a slot for one —
+    /// the form hides the field on the rest, whose CLIs answer their small calls with the main model
+    /// or their own pick and offer no setting for it. Empty is the fallback that matters on Claude
+    /// Code: its own default small model is an Anthropic id that does not exist on a third-party
+    /// provider, so on one every such call failed while the real ones worked. On opencode the field
+    /// reaches the CLI where a provider document is written (a declared endpoint); on a hosted
+    /// provider it has nowhere to go, and opencode's own cheap pick answers.</summary>
     public string FastModel { get; set; } = "";
+
+    /// <summary>The auto-compact window typed by hand — <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c> in
+    /// tokens — or null to have the launch work it out from the model's context window.</summary>
+    /// <remarks>
+    /// <para><b>The typed value wins.</b> A number somebody entered is a decision, and the resolution
+    /// from the model's context is the fallback for the field left empty — not the other way round,
+    /// which is how a stored override stops being one. Only Claude Code reads it; other agents ignore
+    /// the field as they ignore <see cref="FastModel"/>.</para>
+    /// <para>Read tolerantly, as <see cref="DefaultEffort"/> is and for the same reason: a value
+    /// written as a string by hand must not be a <c>JsonException</c> that quarantines a settings file
+    /// holding provider keys with it. A value the CLI would refuse anyway — below its documented
+    /// minimum of 100 000 — is passed through rather than corrected here: what somebody typed is what
+    /// they asked for, and the CLI's own clamp is the answer to it.</para>
+    /// </remarks>
+    [JsonConverter(typeof(TolerantNullableInt64Converter))]
+    public long? AutoCompactWindow { get; set; }
 
     /// <summary>How hard this instance thinks unless a tile says otherwise.</summary>
     /// <remarks>Read tolerantly, as <c>AppSettings.GoalEffort</c> is and for the same reason: a level

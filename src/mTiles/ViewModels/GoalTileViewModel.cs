@@ -2540,7 +2540,9 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
             var runtime =
                 AgentRuntime.For(_settingsService.Settings, chosen.Instance, resolvedModel,
-                    chosen.Agent);
+                    chosen.Agent,
+                    await ModelContextWindow.ResolveAsync(
+                        _settingsService.Settings, chosen.Agent, chosen.Instance, resolvedModel ?? ""));
 
             var result = AiRunnerFactory is { } run
                 ? await run(chosen, prompt, _workingDirectory, token)

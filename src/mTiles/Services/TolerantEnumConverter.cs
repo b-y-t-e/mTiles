@@ -141,6 +141,36 @@ internal sealed class TolerantAiEffortConverter : TolerantEnumOrDefaultConverter
     protected override AiEffort Fallback => AiEffort.High;
 }
 
+/// <summary>
+/// A token count the settings file carries as a string — a hand edit, an export that went through
+/// something that quoted it — reads as the number it spells.
+/// </summary>
+/// <remarks>
+/// <para>For <c>AiAgentInstance.AutoCompactWindow</c>, which is a <c>long?</c>: System.Text.Json
+/// accepts a JSON number or null and refuses everything else, so a hand-typed <c>"500000"</c> would be
+/// a <c>JsonException</c> that quarantines the settings file — the failure
+/// <c>TolerantAiEffortConverter</c> exists to prevent, reached by a value rather than a word. Anything
+/// that does not parse, negative included, reads as null: unset, which is the field's own "work it out
+/// from the model", and never a number that was not asked for.</para>
+/// </remarks>
+internal sealed class TolerantNullableInt64Converter : JsonConverter<long?>
+{
+    public override long? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType switch
+        {
+            JsonTokenType.Null => null,
+            JsonTokenType.Number when reader.TryGetInt64(out var value) && value > 0 => value,
+            JsonTokenType.String when long.TryParse(reader.GetString(), out var value) && value > 0 => value,
+            _ => null,
+        };
+
+    public override void Write(Utf8JsonWriter writer, long? value, JsonSerializerOptions options)
+    {
+        if (value is { } number) writer.WriteNumberValue(number);
+        else writer.WriteNullValue();
+    }
+}
+
 /// <summary>A role this build does not know reads as <see cref="GoalMessageRole.System"/>: a line in the
 /// transcript attributed to the tile is the least misleading place to put something whose speaker cannot
 /// be identified, and it is never fed back to a tool as the user's words or the tool's own.</summary>
