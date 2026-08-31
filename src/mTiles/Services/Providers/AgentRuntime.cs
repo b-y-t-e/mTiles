@@ -1,4 +1,5 @@
 using mTiles.Models;
+using mTiles.Services.Agents;
 
 namespace mTiles.Services.Providers;
 
@@ -19,11 +20,15 @@ namespace mTiles.Services.Providers;
 /// configuration — the case that needs no setting up and the one every seeded instance starts in.</param>
 /// <param name="ProviderInstance">The key and the address, beside the provider that reads them.</param>
 /// <param name="Model">The model to ask for, already resolved, or empty for the agent's own choice.</param>
+/// <param name="SignIn">The CLI's own login this runs under, or null for the account it is already
+/// signed into. Never set at the same time as <paramref name="Provider"/> — see
+/// <see cref="AgentRuntime.For"/>.</param>
 public sealed record AgentRuntime(
     AiAgentInstance Instance,
     IAiProvider? Provider,
     AiProviderInstance? ProviderInstance,
-    string Model)
+    string Model,
+    AiSignIn? SignIn = null)
 {
     /// <summary>The address for a wire format, or null when nothing configured here serves it.</summary>
     /// <remarks>Null is what tells an agent to leave the environment alone: an agent given no endpoint
@@ -49,18 +54,54 @@ public sealed record AgentRuntime(
     public string ApiKey => ProviderInstance?.ApiKey ?? "";
 
     /// <summary>
+    /// Whether this run has an address that only the agent's own configuration can carry.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Two cases, not one.</b> A local server is the obvious one — no catalogue names it. The
+    /// other is a hosted provider the user has given an address of its own: a gateway, a proxy, a
+    /// self-hosted mirror. <c>IsLocal</c> alone missed the second, so an opencode instance on
+    /// "OpenRouter via my gateway" was offered by the chooser, launched with only
+    /// <c>OPENROUTER_API_KEY</c>, and went to openrouter.ai — the typed address silently doing
+    /// nothing.</para>
+    /// <para>Read from the instance rather than the provider because that is where the override lives:
+    /// an empty <c>BaseUrl</c> means "wherever the service is", which every agent can reach by
+    /// name.</para>
+    /// </remarks>
+    public bool NeedsDeclaredEndpoint =>
+        Provider is { IsLocal: true }
+        || ProviderInstance is { } instance && instance.BaseUrl.Trim().Length > 0;
+
+    /// <summary>
     /// What an instance runs as when nothing has resolved a model for it.
     /// </summary>
     /// <remarks>The instance's own model verbatim, sentinel and all: a caller that has not resolved
     /// <c>AiModelChoice.FirstLoaded</c> must not have it silently turned into a name, and the launch
     /// path that can resolve it does so and passes the answer in.</remarks>
-    public static AgentRuntime For(AppSettings settings, AiAgentInstance instance, string? model = null)
+    /// <param name="agent">The agent that will really run, where the caller knows it. After a
+    /// substitution that is not the one the instance names — and a sign-in belongs to one tool, so
+    /// comparing against the instance's own id let a stand-in be pointed at another tool's credential
+    /// directory and write its own into it.</param>
+    public static AgentRuntime For(AppSettings settings, AiAgentInstance instance, string? model = null,
+        IAiAgent? agent = null)
     {
-        var providerInstance = AiProviderCatalog.FindInstance(settings, instance.ProviderInstanceId);
+        // The two are one slot on screen and have to be one slot here: an instance carrying both would
+        // point the CLI at a second subscription's directory and then hand it somebody else's API key
+        // and address, so the run would go to the provider and be billed there while every row in the
+        // application said it was running on the subscription. The sign-in wins because it is the more
+        // specific answer — a provider is what an instance falls back to having.
+        var runningAs = agent?.Id ?? instance.AgentId;
+        var signIn = AiSignInStore.Find(settings, instance.SignInId);
+        if (signIn is not null && signIn.AgentId != runningAs) signIn = null;
+
+        var providerInstance = signIn is null
+            ? AiProviderCatalog.FindInstance(settings, instance.ApiAccountId)
+            : null;
+
         return new AgentRuntime(
             instance,
             providerInstance is null ? null : AiProviderCatalog.Find(providerInstance.ProviderId),
             providerInstance,
-            model ?? instance.Model);
+            model ?? instance.Model,
+            signIn);
     }
 }

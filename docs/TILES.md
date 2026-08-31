@@ -90,6 +90,30 @@ public interface IProcessTile : ITile
 }
 ```
 
+### `IDescribedTile` — what the tile is *running*
+
+```csharp
+public interface IDescribedTile : ITile
+{
+    string HeaderNote { get; }
+}
+```
+
+**Beside the name, never instead of it.** The name is the user's — typed, or generated as `Agent#1` —
+and it is what they navigate by. This answers a different question the header could not answer at all:
+two tiles both called `Agent#N` may be Claude Code on a subscription and Codex on OpenRouter, and
+nothing on screen told them apart. `AgentTileViewModel` answers with its instance and the model the
+launch settled on (`Claude Code · glm-5.3-flash`); no other kind implements it yet, and a kind with
+nothing to add simply does not.
+
+Drawn as metadata in the panel's own sense — plain, small, muted — and it is the **first** thing to give
+way when the header runs out of room (`LeafTileView.HeaderNoteNeedsWidth`, wider than either button
+threshold): a button that stands down is still in the overflow menu, while this has nowhere else to be
+shown but is also the one thing nobody is trying to click. The full note is always the tooltip.
+
+Changes arrive through `ITile`'s own change notification, so a tile relaunched on a different instance
+redraws its header without the view knowing why.
+
 ```csharp
 // One class per kind, registered once in App.axaml.cs.
 public interface ITileKind
@@ -110,14 +134,14 @@ public interface ITileKind
 
 Who implements what:
 
-| Kind | `IBusyTile` | `IFileContent` | `ITileActions` | `ITextInputTile` | `ICustomBackgroundTile` | `IProcessTile` |
-|---|---|---|---|---|---|---|
-| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ |
-| Note | | ✔ | | | | |
-| Todo | | ✔ | | | | |
-| Git | | | ✔ Refresh, Commit, Push | | | |
-| Database | | | | | | |
-| Goal | ✔ | | ✔ Continue, Pause, Commit work | | | ✔ |
+| Kind | `IBusyTile` | `IFileContent` | `ITileActions` | `ITextInputTile` | `ICustomBackgroundTile` | `IProcessTile` | `IDescribedTile` |
+|---|---|---|---|---|---|---|---|
+| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ | ✔ Agent tiles only |
+| Note | | ✔ | | | | | |
+| Todo | | ✔ | | | | | |
+| Git | | | ✔ Refresh, Commit, Push | | | | |
+| Database | | | | | | | |
+| Goal | ✔ | | ✔ Continue, Pause, Commit work | | | ✔ | |
 
 `IProcessTile` is the root of a tree and not a process: a terminal knows the shell it spawned and nothing
 about the agent that shell went on to start, which is where the memory actually is. A Goal tile

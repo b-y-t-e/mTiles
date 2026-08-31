@@ -94,15 +94,14 @@ public static class AiAgentCatalog
     /// </remarks>
     public static bool IsAvailable(AiAgentInstance instance, AppSettings settings)
     {
+        // Installed is a fact about the machine; the rest is a fact about the configuration, and lives
+        // in one place so that what the chooser hides and what the row explains cannot disagree - see
+        // AgentAvailability, which was written after they did.
         if (Find(instance.AgentId) is not { } agent || Locate(agent) is null)
             return false;
 
-        if (instance.ProviderInstanceId.Length == 0)
-            return true;
-
-        return AiProviderCatalog.FindInstance(settings, instance.ProviderInstanceId) is { } configured
-               && AiProviderCatalog.Find(configured.ProviderId) is { } provider
-               && AiProviderCatalog.IsCompatible(agent, provider);
+        // The overload taking the agent we have just found, rather than the one that finds it again.
+        return AgentAvailability.Problem(instance, settings, agent) is null;
     }
 
     /// <summary>

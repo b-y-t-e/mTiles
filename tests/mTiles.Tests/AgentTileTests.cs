@@ -238,7 +238,7 @@ public class AgentTileTests
         using var directory = new TempDirectory();
         var instance = settings.Service.Settings.AiAgentInstances[0];
         instance.Model = AiModelChoice.FirstLoaded;
-        instance.ProviderInstanceId = "";
+        instance.ApiAccountId = "";
 
         var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),

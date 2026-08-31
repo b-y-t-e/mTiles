@@ -36,6 +36,20 @@ public sealed class AntigravityAgent : AiAgent
     public override string Id => "agy";
     public override string DisplayName => "Antigravity";
     public override string BinaryName => "agy";
+
+    /// <summary>
+    /// No, and it is the one agent here where that is an answer rather than a gap.
+    /// </summary>
+    /// <remarks><para>Measured 2026-08-30 against agy 1.1.22: it keeps its state in <c>~/.gemini</c>,
+    /// and the binary carries no <c>*_HOME</c>, <c>*_DIR</c> or <c>*_CONFIG</c> variable that moves it —
+    /// so there is nothing this application could set. Giving it a sign-in row anyway would be
+    /// configuration that does nothing: a second account named, logged into, and then running as the
+    /// first, which is the failure the whole feature exists to prevent.</para>
+    /// <para><b>It already has its own answer.</b> <c>~/.gemini/google_accounts.json</c> is
+    /// <c>{"active": …, "old": […]}</c> — a switch between Google accounts, kept by the tool and
+    /// changed inside it. A second mechanism over the top of that would be two places claiming to
+    /// decide the same thing, and only one of them would be listened to.</para></remarks>
+    public override bool SupportsSignIns => false;
     public override string? InstallUrl => "https://antigravity.google/product/antigravity-cli";
     public override SessionStrategy SessionStrategy => SessionStrategy.CapturedAfterStart;
 

@@ -51,15 +51,21 @@ public static class LocalProviderDiscovery
         return found;
     }
 
-    /// <summary>Asks one address whether it is serving, and keeps it if it is.</summary>
+    /// <summary>Asks one address, on each port worth trying, and keeps the ones that are serving.</summary>
+    /// <remarks><b>Every port, not the first that answers.</b> One machine can run two servers, and a
+    /// scan that stopped at the first hit would offer one of them and hide the other with nothing on
+    /// screen saying a choice had been made.</remarks>
     private static async Task AddIfServing(ILocalAiProvider provider, IPAddress address,
         List<Uri> found, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
+        foreach (var port in provider.DiscoveryPorts)
+        {
+            ct.ThrowIfCancellationRequested();
 
-        var url = new Uri($"http://{Host(address)}:{provider.DefaultPort}/");
-        if (await provider.IsServingAsync(url, ct).ConfigureAwait(false))
-            found.Add(url);
+            var url = new Uri($"http://{Host(address)}:{port}/");
+            if (await provider.IsServingAsync(url, ct).ConfigureAwait(false))
+                found.Add(url);
+        }
     }
 
     /// <summary>The network addresses worth asking: whatever has the port open.</summary>
@@ -87,11 +93,21 @@ public static class LocalProviderDiscovery
                 .ToArray();
 
             var isOpen = new bool[candidates.Length];
+            var ports = provider.DiscoveryPorts;
 
             Parallel.For(0, candidates.Length,
                 new ParallelOptions { MaxDegreeOfParallelism = ScanWidth, CancellationToken = ct },
-                index => isOpen[index] =
-                    SubnetScanner.ScanPort(candidates[index], provider.DefaultPort, PortTimeoutMs));
+                // Any of them open makes the address worth the protocol check, which then asks each
+                // port properly.
+                //
+                // Any() short-circuits on a *hit*, not on a miss — so the common answer, nothing
+                // listening at all, costs one timeout per port rather than one per address: a provider
+                // with two ports doubles the sweep. Accepted rather than parallelised inside the
+                // address, because the outer loop is already running ScanWidth of these at once and a
+                // second level of parallelism would be two budgets to reason about for a scan that is
+                // opt-in, on demand, and nearly always finds nothing anyway.
+                index => isOpen[index] = ports.Any(port =>
+                    SubnetScanner.ScanPort(candidates[index], port, PortTimeoutMs)));
 
             return candidates.Where((_, index) => isOpen[index]).ToList();
         }, ct);

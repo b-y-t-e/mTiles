@@ -22,7 +22,17 @@ namespace mTiles.Models;
 public sealed class AiAgentInstance
 {
     /// <summary>This instance's own identity, which is what a tile stores.</summary>
-    public string Id { get; init; } = Guid.NewGuid().ToString("N");
+    /// <remarks>An empty one is replaced, for the reason <c>AiSignIn.Id</c> gives: it names a file —
+    /// <c>OpenCodeProviderConfig.PathFor</c> — and <c>SafePathComponent</c> turns nothing into
+    /// <c>unnamed</c>, so two such instances would launch against one generated provider document.
+    /// </remarks>
+    public string Id
+    {
+        get => _id;
+        init => _id = value.Length > 0 ? value : Guid.NewGuid().ToString("N");
+    }
+
+    private readonly string _id = Guid.NewGuid().ToString("N");
 
     /// <summary>Which agent it runs — an <c>IAiAgent.Id</c>, so an instance naming an agent this build
     /// does not have is a row that finds nothing rather than a load that fails.</summary>
@@ -34,10 +44,25 @@ public sealed class AiAgentInstance
     /// <summary>The provider instance this authenticates through, or empty for the agent's own
     /// configuration — the case that needs no setting up at all, and the one every seeded instance
     /// starts in.</summary>
-    /// <remarks>Empty rather than null, and that is not a style choice: <c>NullToEmptyStringConverter</c>
-    /// turns every null string in the settings file into an empty one, so a <c>string?</c> here would be
-    /// a promise the file cannot keep — see <c>SettingsNullGuardTests</c>.</remarks>
-    public string ProviderInstanceId { get; set; } = "";
+    /// <remarks><para>Empty rather than null, and that is not a style choice:
+    /// <c>NullToEmptyStringConverter</c> turns every null string in the settings file into an empty one,
+    /// so a <c>string?</c> here would be a promise the file cannot keep — see
+    /// <c>SettingsNullGuardTests</c>.</para>
+    /// <para><b>The name on disk is the old one, deliberately.</b> On screen this slot is now "account"
+    /// — a provider and a sign-in are two answers to it — and the property follows that word, but
+    /// renaming the JSON key is a migration: an installation Velopack has rolled back would find no
+    /// <c>ApiAccountId</c>, read nothing, and put every instance silently back on the CLI's own account.
+    /// A different subscription being billed is not something to discover from a bill.</para></remarks>
+    [JsonPropertyName("ProviderInstanceId")]
+    public string ApiAccountId { get; set; } = "";
+
+    /// <summary>The CLI's own login this runs under, or empty for the account it is already signed
+    /// into.</summary>
+    /// <remarks>Mutually exclusive with <see cref="ApiAccountId"/> — they are one chooser on screen and
+    /// <c>AgentRuntime.For</c> is where that is enforced, because a file holding both is something a
+    /// hand edit or an older build can produce and the launch is the last place it can be caught.
+    /// </remarks>
+    public string SignInId { get; set; } = "";
 
     /// <summary>The model to ask for, or empty for whatever the agent would pick.</summary>
     public string Model { get; set; } = "";

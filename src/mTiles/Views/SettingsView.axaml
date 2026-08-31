@@ -390,10 +390,10 @@
                                                     <Border CornerRadius="{DynamicResource RadiusSm}"
                                                             Padding="4,0"
                                                             VerticalAlignment="Center"
-                                                            IsVisible="{Binding IsIncompatible}"
-                                                            ToolTip.Tip="{Binding IncompatibleNote}"
+                                                            IsVisible="{Binding IsUnavailable}"
+                                                            ToolTip.Tip="{Binding UnavailableNote}"
                                                             Background="{DynamicResource StatusMutedSubtle}">
-                                                        <TextBlock Text="INCOMPATIBLE" FontSize="8"
+                                                        <TextBlock Text="UNAVAILABLE" FontSize="8"
                                                                    FontWeight="SemiBold"
                                                                    Foreground="{DynamicResource DangerText}" />
                                                     </Border>
@@ -409,6 +409,85 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                </StackPanel>
+
+                <StackPanel Spacing="6" IsVisible="{Binding ShowsSignIns}">
+                    <DockPanel>
+                        <TextBlock Text="SIGN-INS" Classes="section" Margin="0"
+                                   VerticalAlignment="Center" />
+                        <Button DockPanel.Dock="Right"
+                                Classes="header-action"
+                                Command="{Binding AddSignInCommand}"
+                                IsVisible="{Binding CanAddSignIn}"
+                                ToolTip.Tip="A second subscription, kept in its own directory">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="Plus" Width="12" Height="12" />
+                                <TextBlock Text="Add" />
+                            </StackPanel>
+                        </Button>
+                    </DockPanel>
+
+                    <TextBlock IsVisible="{Binding HasNoSignIns}"
+                               Text="One account per tool is what you already have. Add one to run a second subscription - it gets its own directory, and you sign into it once in a tile."
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource FontXs}"
+                               Foreground="{DynamicResource TextMuted}" />
+
+                    <ItemsControl ItemsSource="{Binding SignIns}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AiSignInViewModel">
+                                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
+                                        Margin="0,0,0,3">
+                                    <Border Background="{DynamicResource BgSurface}" Padding="12,8">
+                                        <DockPanel>
+                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                        Spacing="6" VerticalAlignment="Center">
+                                                <!-- The row that can be acted on carries the action:
+                                                     "not signed in" is a state with a way out, and
+                                                     naming the lack without offering the fix would
+                                                     send the user looking for a terminal. -->
+                                                <Button Classes="outlined-sm"
+                                                        Content="Sign in"
+                                                        IsVisible="{Binding CanSignIn}"
+                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).SignInCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Opens a tile to log in with" />
+                                                <StackPanel Orientation="Horizontal" Spacing="2">
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditSignInCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="Rename">
+                                                        <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
+                                                    </Button>
+                                                    <Button Classes="tile-btn-close"
+                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteSignInCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="Removes the row - the login stays on disk">
+                                                        <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
+                                                    </Button>
+                                                </StackPanel>
+                                            </StackPanel>
+
+                                            <StackPanel VerticalAlignment="Center" Spacing="0">
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontWeight="Medium"
+                                                           Foreground="{DynamicResource TextPrimary}" />
+                                                <TextBlock Text="{Binding Summary}"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextMuted}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Text="A sign-in is a directory the tool logs into by itself. It carries its own conversation history, and none of your global CLAUDE.md, commands or MCP servers."
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource FontXs}"
+                               Foreground="{DynamicResource TextMuted}" />
                 </StackPanel>
 
                 <StackPanel Spacing="6">
@@ -1235,6 +1314,48 @@
                     <Panel Margin="18,16">
                         <!-- No chrome of its own: the overlay it sits in is the card. A bordered box
                              inside a bordered box is the nesting the design rules exist to stop. -->
+                        <!-- A sign-in asks for one thing: what you call it. The directory is derived
+                             and the login itself happens in a tile, so a form with a path field on it
+                             would be three questions where the user has one answer. -->
+                        <Border IsVisible="{Binding IsEditingSignIn}">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="SIGN-IN" Classes="section" Margin="0,0,0,2" />
+                                <DockPanel>
+                                    <TextBlock Text="Name" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <TextBox Classes="setting"
+                                             Text="{Binding EditSignInName}"
+                                             PlaceholderText="required - work, personal, the bigger plan" />
+                                </DockPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Tool" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <!-- Fixed once the sign-in exists: its directory is named after
+                                         the sign-in, not the tool, so switching leaves one CLI's
+                                         credentials in a directory belonging to another. -->
+                                    <ComboBox ItemsSource="{Binding SignInAgentChoices}"
+                                              SelectedItem="{Binding EditSignInAgentName}"
+                                              IsEnabled="{Binding CanChooseSignInAgent}"
+                                              MinWidth="200" />
+                                </DockPanel>
+                                <TextBlock Text="Saving makes the directory. You then sign in once, in a tile, with the tool's own login command."
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                                    <Button Classes="accent"
+                                            Command="{Binding SaveSignInCommand}"
+                                            IsEnabled="{Binding CanSaveSignIn}"
+                                            Content="Save"
+                                            Padding="16,5" />
+                                    <Button Classes="toolbar"
+                                            Command="{Binding CancelEditSignInCommand}"
+                                            Content="Cancel"
+                                            Padding="16,5" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <Border IsVisible="{Binding IsEditingAgentInstance}">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="AGENT INSTANCE" Classes="section" Margin="0,0,0,2" />
@@ -1243,7 +1364,7 @@
                                                VerticalAlignment="Center" Width="90" />
                                     <TextBox Classes="setting"
                                              Text="{Binding EditAgentName}"
-                                             PlaceholderText="what you call it" />
+                                             PlaceholderText="required - what you call this one" />
                                 </DockPanel>
                                 <DockPanel>
                                     <TextBlock Text="Agent" Classes="label"
@@ -1252,28 +1373,42 @@
                                               SelectedItem="{Binding EditAgentAgentName}"
                                               MinWidth="200" />
                                 </DockPanel>
+                                <!-- One chooser, because it is one question: as whom does this run.
+                                     A subscription and an API key are two answers to it, and two
+                                     fields side by side would let an instance carry both - pointed at
+                                     one account directory while authenticating as another. -->
                                 <DockPanel>
-                                    <TextBlock Text="Provider" Classes="label"
+                                    <TextBlock Text="Account" Classes="label"
                                                VerticalAlignment="Center" Width="90" />
-                                    <ComboBox ItemsSource="{Binding ProviderChoices}"
-                                              SelectedItem="{Binding EditAgentProvider}"
+                                    <ComboBox ItemsSource="{Binding AccountChoices}"
+                                              SelectedItem="{Binding EditAgentAccount}"
                                               MinWidth="200" />
                                 </DockPanel>
+                                <TextBlock IsVisible="{Binding HasNoAccountToChoose}"
+                                           Text="{Binding NoAccountNote}"
+                                           Margin="98,-4,0,0"
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
                                 <DockPanel>
                                     <TextBlock Text="Model" Classes="label"
                                                VerticalAlignment="Center" Width="90" />
-                                    <Button DockPanel.Dock="Right" Classes="outlined-sm"
-                                            Command="{Binding LoadAgentModelsCommand}"
-                                            Content="List"
-                                            Margin="6,0,0,0"
-                                            ToolTip.Tip="Ask the provider what it serves" />
-                                    <!-- Completion rather than a drop-down: a provider's list runs to
-                                         hundreds, which is a search box, not a combo. -->
-                                    <AutoCompleteBox Text="{Binding EditAgentModel}"
+                                    <!-- No List button. Fetching is triggered by the one event that
+                                         changes the answer - which account this runs as - so a button
+                                         to ask again was a step the user had to know about, in front
+                                         of a control that gives no sign a list exists at all.
+
+                                         Matching is every typed word anywhere in the id, in any order
+                                         (ModelSearch), because ids are punctuated by whoever published
+                                         them and the separator is the one part nobody remembers. The
+                                         predicate is attached in the code-behind: it is a function,
+                                         and XAML has nowhere to put one. -->
+                                    <AutoCompleteBox x:Name="AgentModelBox"
+                                                     Text="{Binding EditAgentModel}"
                                                      ItemsSource="{Binding ModelSuggestions}"
-                                                     FilterMode="Contains"
+                                                     FilterMode="Custom"
                                                      MinimumPrefixLength="0"
-                                                     PlaceholderText="empty = the agent's own choice" />
+                                                     PlaceholderText="{Binding ModelHint}" />
                                 </DockPanel>
                                 <DockPanel>
                                     <TextBlock Text="Fast model" Classes="label"
@@ -1281,9 +1416,10 @@
                                     <!-- The same completion as Model above, over the same list: it takes
                                          a model id from the same provider, so a field that could not
                                          complete one was the pair disagreeing about what it holds. -->
-                                    <AutoCompleteBox Text="{Binding EditAgentFastModel}"
+                                    <AutoCompleteBox x:Name="AgentFastModelBox"
+                                                     Text="{Binding EditAgentFastModel}"
                                                      ItemsSource="{Binding ModelSuggestions}"
-                                                     FilterMode="Contains"
+                                                     FilterMode="Custom"
                                                      MinimumPrefixLength="0"
                                                      PlaceholderText="for the small, frequent calls (optional)" />
                                 </DockPanel>
@@ -1313,6 +1449,7 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                                     <Button Classes="accent"
                                             Command="{Binding SaveAgentInstanceCommand}"
+                                            IsEnabled="{Binding CanSaveAgentInstance}"
                                             Content="Save"
                                             Padding="16,5" />
                                     <Button Classes="toolbar"
@@ -1331,7 +1468,7 @@
                                                VerticalAlignment="Center" Width="90" />
                                     <TextBox Classes="setting"
                                              Text="{Binding EditProviderName}"
-                                             PlaceholderText="what you call it" />
+                                             PlaceholderText="required — what you call this one" />
                                 </DockPanel>
                                 <DockPanel>
                                     <TextBlock Text="Service" Classes="label"
@@ -1345,7 +1482,7 @@
                                                VerticalAlignment="Center" Width="90" />
                                     <TextBox Classes="setting"
                                              Text="{Binding EditProviderBaseUrl}"
-                                             PlaceholderText="empty = the service's own address" />
+                                             PlaceholderText="{Binding ProviderAddressHint}" />
                                 </DockPanel>
                                 <DockPanel IsVisible="{Binding EditProviderNeedsKey}">
                                     <TextBlock Text="API key" Classes="label"
@@ -1378,6 +1515,7 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                                     <Button Classes="accent"
                                             Command="{Binding SaveProviderInstanceCommand}"
+                                            IsEnabled="{Binding CanSaveProviderInstance}"
                                             Content="Save"
                                             Padding="16,5" />
                                     <Button Classes="outlined"

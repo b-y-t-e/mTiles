@@ -14,7 +14,16 @@ public partial class SettingsView : UserControl
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+
+        // A predicate, which markup has nowhere to put. Both model fields complete against the same
+        // catalogue and must narrow it the same way, so the rule is one function used twice rather than
+        // an attribute repeated - see ModelSearch for why "contains" is not enough.
+        AgentModelBox.ItemFilter = MatchesModel;
+        AgentFastModelBox.ItemFilter = MatchesModel;
     }
+
+    private static bool MatchesModel(string? search, object? item) =>
+        ModelSearch.Matches(search, item as string);
 
     private SettingsViewModel? _subscribed;
 

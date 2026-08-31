@@ -21,7 +21,7 @@ namespace mTiles.ViewModels;
 /// same rule a shell profile already follows — and the reason a tile stores an id rather than a copy.
 /// </para>
 /// </remarks>
-public sealed class AgentTileViewModel : TerminalTileViewModel
+public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
 {
     private readonly IAiAgent _agent;
     private readonly SettingsService _settings;
@@ -113,7 +113,47 @@ public sealed class AgentTileViewModel : TerminalTileViewModel
     public override LaunchScripts ResolveCurrentScripts() => _agent.Interactive(Runtime, SessionId, Shell.Shell);
 
     /// <summary>The instance, its provider and the model this launch settled on.</summary>
-    private AgentRuntime Runtime => AgentRuntime.For(_settings.Settings, Instance, _resolvedModel);
+    private AgentRuntime Runtime =>
+        AgentRuntime.For(_settings.Settings, Instance, _resolvedModel, _agent);
+
+    /// <summary>
+    /// Which agent this tile is, and on what — the line beside its name.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The instance's name first, the CLI's only as a fallback.</b> The instance is the thing
+    /// the user configured and named, and its name is what the Settings row and the chooser both show;
+    /// falling straight through to the CLI would name the program rather than the configuration, which
+    /// is the distinction the whole instance model exists to make. Two tiles both called
+    /// <c>Agent#N</c> may be a subscription and an API key on the same binary.</para>
+    /// <para><b>The model is shortened, and only for display.</b> Provider ids are namespaced
+    /// (<c>z-ai/glm-5.3-flash</c>) and the header is the narrowest place in the application, so the
+    /// vendor is dropped from a line that is already the second thing to give way — the full name is a
+    /// tooltip away and unchanged everywhere it is stored or sent. Empty for an instance that names no
+    /// model: "whatever the agent picks" is not a model, and printing the word for it would fill the
+    /// scarcest line on screen with the absence of information.</para>
+    /// <para>Read live rather than captured at construction, so that editing the instance in Settings
+    /// and restarting the tile redraws this without anything having to notice.</para>
+    /// </remarks>
+    public string HeaderNote
+    {
+        get
+        {
+            var instance = Instance;
+            var name = instance.Name.Length > 0 ? instance.Name : _agent.DisplayName;
+            var model = ShortModel(_resolvedModel ?? instance.Model);
+
+            return model.Length > 0 ? $"{name} · {model}" : name;
+        }
+    }
+
+    /// <summary>The part of a model id that tells one model from another.</summary>
+    /// <remarks>The sentinel is not a name and never reaches here as one — but it can be the stored
+    /// value before a launch has resolved it, and <c>__first_loaded__</c> in a header is worse than
+    /// nothing.</remarks>
+    private static string ShortModel(string model) =>
+        model.Length == 0 || model == AiModelChoice.FirstLoaded
+            ? ""
+            : model[(model.LastIndexOf('/') + 1)..];
 
     /// <summary>
     /// The model this launch settled on, when the instance asked for whatever the server had loaded.
@@ -153,11 +193,20 @@ public sealed class AgentTileViewModel : TerminalTileViewModel
         if (problem is not null)
         {
             LaunchProblem = problem;
+            // The header still showed the model the *previous* launch settled on, over a launch that is
+            // not happening: _resolvedModel was cleared above and nothing said so.
+            OnPropertyChanged(nameof(HeaderNote));
             Trace.TraceWarning("Tile {0} was not launched: {1}", TileId, problem);
             return;
         }
 
         _resolvedModel = model ?? "";
+
+        // The header shows the model this launch settled on, and until now that was the instance's
+        // stored value — which for the "first loaded" sentinel is not a model name at all. Announced
+        // rather than pushed at the view, so the tile stays a view model that knows nothing about
+        // headers.
+        OnPropertyChanged(nameof(HeaderNote));
     }
 
     /// <summary>
@@ -179,6 +228,15 @@ public sealed class AgentTileViewModel : TerminalTileViewModel
         // pre-create is a model call, and making a conversation for a session that is not going to
         // start is a call the user pays for twice.
         if (HasLaunchProblem) return;
+
+        // After the model, and after the problem check. opencode's generated document declares the one
+        // model the launch will ask for, so writing it any earlier declares the wrong one: before the
+        // first resolve `Runtime` still carries the sentinel, which RequestedModel reports as no model
+        // at all, and on later launches it carries the answer from the launch before. Either way the
+        // command line then names a model the document does not - which is the
+        // ProviderModelNotFoundError the document exists to prevent. And after the check because a
+        // launch that is not going to happen has nothing to prepare.
+        _agent.PrepareToLaunch(Runtime);
 
         if (_agent.CapturesWhileRunning) return;
         await CaptureAsync(DateTimeOffset.UtcNow, retryFor: TimeSpan.Zero);

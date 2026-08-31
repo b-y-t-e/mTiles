@@ -17,6 +17,9 @@ public sealed class OpenAiProvider : AiProvider
 
     public override Uri? DefaultBaseUrl => new("https://api.openai.com/");
 
+    /// <summary>The spelling every catalogue reads this service's key from.</summary>
+    public override string? KeyEnvironmentVariable => "OPENAI_API_KEY";
+
     /// <summary>Both shapes sit under <c>v1</c>, which is where an OpenAI-compatible client expects to
     /// be pointed — the version is part of the base address here, not of the path a client appends.
     /// </summary>
@@ -29,6 +32,8 @@ public sealed class OpenAiProvider : AiProvider
     public override async Task<ProviderCheck> TestAsync(AiProviderInstance instance,
         CancellationToken ct = default)
     {
+        if (AddressProblem(instance) is { } problem) return problem;
+
         var models = await ModelsAsync(instance, ct);
         return models.Count > 0
             ? ProviderCheck.Reached($"{models.Count} models")

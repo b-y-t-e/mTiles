@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:views="using:mTiles.Views"
              x:Class="mTiles.Views.LeafTileView"
              x:DataType="vm:LeafTileNodeViewModel"
              DragDrop.AllowDrop="True">
@@ -150,24 +151,66 @@
                                          VerticalAlignment="Center"
                                          Margin="2,0,6,0" />
 
-                        <TextBlock x:Name="TileNameLabel"
-                                   Text="{Binding TileName}"
-                                   VerticalAlignment="Center"
-                                   FontFamily="{DynamicResource UiFontFamily}"
-                                   FontSize="{DynamicResource UiFontSize}"
-                                   FontWeight="Medium"
-                                   Foreground="{DynamicResource TextPrimary}"
-                                   Margin="0"
-                                   MinWidth="28"
-                                   TextTrimming="CharacterEllipsis"
-                                   Cursor="Hand"
-                                   DoubleTapped="TileNameLabel_DoubleTapped" />
-                        <TextBox x:Name="TileNameEditor"
-                                 Text="{Binding TileName}"
-                                 IsVisible="False"
-                                 Classes="inline-editor"
-                                 LostFocus="TileNameEditor_Confirm"
-                                 KeyDown="TileNameEditor_KeyDown" />
+                        <!-- One Panel as the DockPanel's last child, so this is what fills. The
+                             editor used to hold that position while being invisible, which makes the
+                             name a docked child sized to its own content: nothing ever constrains it,
+                             so its TextTrimming can never fire and a long name pushes past the
+                             buttons instead of shortening.
+
+                             Inside it, a Grid and not a horizontal StackPanel. A StackPanel measures
+                             its children with infinite width, so trimming never fires there either and
+                             a long note runs out of the header to be cut mid-character by the card's
+                             clip - the same trap the workspace row's path sits in a DockPanel to
+                             avoid.
+
+                             Auto then star is what keeps the promise that the name never gives way:
+                             the name asks for what it needs and the note lives on whatever is left,
+                             trimming when that is not enough. The other way round is how a tile ends
+                             up spelling out an agent and a model beside a name reduced to "A...". -->
+                        <Panel>
+                            <Grid ColumnDefinitions="Auto,*">
+                                <TextBlock x:Name="TileNameLabel"
+                                           Grid.Column="0"
+                                           Text="{Binding TileName}"
+                                           VerticalAlignment="Center"
+                                           FontFamily="{DynamicResource UiFontFamily}"
+                                           FontSize="{DynamicResource UiFontSize}"
+                                           FontWeight="Medium"
+                                           Foreground="{DynamicResource TextPrimary}"
+                                           Margin="0"
+                                           MinWidth="28"
+                                           MaxWidth="{x:Static views:LeafTileView.NameMaxWidth}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Cursor="Hand"
+                                           DoubleTapped="TileNameLabel_DoubleTapped" />
+
+                                <!-- What the tile is actually running, for the kinds that have an
+                                     answer (IDescribedTile). Plain, small and muted rather than a
+                                     chip: a chip is this application's word for the rare exception -
+                                     NOT FOUND, Error - and it works because you see one at a time.
+                                     This is on every agent tile at once, which makes it metadata, and
+                                     four boxed outlines across a row of tiles would be four frames
+                                     inside four cards inside the canvas. Filled and hidden from the
+                                     code-behind, which is also the one writer of every other header
+                                     property - see ApplyHeaderWidth. -->
+                                <TextBlock x:Name="TileHeaderNote"
+                                           Grid.Column="1"
+                                           VerticalAlignment="Center"
+                                           Margin="8,1,0,0"
+                                           FontFamily="{DynamicResource UiFontFamily}"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           TextTrimming="CharacterEllipsis"
+                                           IsVisible="False" />
+                            </Grid>
+
+                            <TextBox x:Name="TileNameEditor"
+                                     Text="{Binding TileName}"
+                                     IsVisible="False"
+                                     Classes="inline-editor"
+                                     LostFocus="TileNameEditor_Confirm"
+                                     KeyDown="TileNameEditor_KeyDown" />
+                        </Panel>
                     </DockPanel>
                 </Border>
 

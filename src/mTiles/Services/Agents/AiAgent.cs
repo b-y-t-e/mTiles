@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using mTiles.Models;
 using mTiles.Services.Providers;
 using mTiles.Services.Shells;
@@ -47,6 +48,135 @@ public abstract class AiAgent : IAiAgent
     /// is what <see cref="AcceptsModel"/> reads — so an agent that cannot carry a model is one that
     /// says so rather than one that quietly runs on its own.</remarks>
     public virtual IReadOnlyList<string> ModelArgs(string model, AiUsage usage) => [];
+
+    /// <inheritdoc />
+    /// <remarks>The id as the instance stores it, which is right for every agent that is pointed at a
+    /// service by its address rather than by its name. The two that keep a registry override this.
+    /// </remarks>
+    public virtual string QualifiedModel(AgentRuntime runtime) => runtime.RequestedModel;
+
+    /// <inheritdoc />
+    /// <remarks>True unless the agent says otherwise: every agent measured so far either takes a base
+    /// URL from the environment or can be handed a configuration file, and an agent nothing is known
+    /// about is better offered and seen to fail than hidden on a guess.</remarks>
+    public virtual bool SupportsCustomEndpoint => true;
+
+    /// <inheritdoc />
+    /// <remarks>False for the agents pointed at a service by address: the model is then just a model.
+    /// </remarks>
+    public virtual bool NamesProviderInModel => false;
+
+    /// <inheritdoc />
+    /// <remarks><b>Not virtual, and for the reason <see cref="EnvFor"/> is not.</b> The sign-in's
+    /// directories are made here for every agent, and an agent that overrode the whole method could
+    /// drop that without anything noticing — so what an agent overrides is <see cref="Prepare"/>, which
+    /// only ever adds. This is also the moment that exists so a getter does not write files, which is
+    /// why the directories are made here and not in <see cref="EnvFor"/>: that one is reached through
+    /// <c>AgentTileViewModel.LaunchEnvironment</c>, a property read twice a launch and again by any
+    /// debugger watching it.</remarks>
+    public void PrepareToLaunch(AgentRuntime runtime)
+    {
+        // Owner-only, and before the CLI is pointed at it. Created by the Settings form alone, it is
+        // missing on every machine the settings file is imported into and after any manual tidy-up -
+        // and the CLI then makes it itself, at whatever the umask says, which is where it writes a
+        // refresh token. The answer is deliberately not checked: a launch is not the place to refuse a
+        // tile over a directory the CLI may well create for itself, and Ensure has said so in the log.
+        if (runtime.SignIn is { } signIn) AiSignInStore.Ensure(signIn, this);
+
+        Prepare(runtime);
+    }
+
+    /// <summary>What this agent has to write down before a launch. Nothing, for all but one.</summary>
+    protected virtual void Prepare(AgentRuntime runtime)
+    {
+    }
+
+    /// <summary>
+    /// <c>provider/model</c> for an agent whose registry names providers, or the bare id where no
+    /// provider is configured.
+    /// </summary>
+    /// <remarks><para>Shared by opencode and pi because they take the same shape, and put here rather
+    /// than duplicated so that the one rule with a measurement behind it has one home.</para>
+    /// <para>An instance with no provider is left alone: it runs on whatever the CLI is already set up
+    /// with, and prefixing a model with a provider that was never chosen would invent a pairing.</para>
+    /// <para>A model that already carries a slash is <b>still</b> prefixed, and that is not a mistake —
+    /// <c>z-ai/glm-5.3-flash</c> is one model id in OpenRouter's catalogue, so the qualified form is
+    /// <c>openrouter/z-ai/glm-5.3-flash</c>. Trying to be clever about an existing slash would break
+    /// every namespaced id these services actually publish.</para></remarks>
+    protected static string WithProviderPrefix(AgentRuntime runtime)
+    {
+        var model = runtime.RequestedModel;
+        if (model.Length == 0 || runtime.Provider is not { } provider) return model;
+
+        return $"{provider.CatalogueId}/{model}";
+    }
+
+    /// <summary>
+    /// The provider's own key, under the name that provider's key is read from.
+    /// </summary>
+    /// <remarks><b>Not <c>OPENAI_API_KEY</c> for everything.</b> These CLIs decide which service they
+    /// are talking to from <em>which variable is set</em>, so one pair of OpenAI-shaped variables
+    /// authenticated every instance against api.openai.com whatever its row said — measured through
+    /// <c>opencode auth list</c>, which reported our <c>OPENAI_API_KEY</c> as the OpenAI provider.
+    /// <para>Nothing for a service with no key: a local server needs an address, and an address is not
+    /// something these agents take from the environment at all — see each agent for what it does
+    /// instead.</para></remarks>
+    protected static void ApplyProviderKey(IDictionary<string, string?> environment,
+        AgentRuntime runtime, bool setKey = true)
+    {
+        // Nothing at all for an instance that has chosen no account: it runs on whatever the CLI is set
+        // up with, and removing that setup is not what "the agent's own account" asks for.
+        //
+        // A *sign-in* is a choice, though, and gets the same clearing as a provider — the same bug by
+        // the other branch, otherwise. An instance on a subscription names no provider, so returning
+        // here left a globally exported OPENAI_API_KEY visible to opencode as a second account, and
+        // QualifiedModel has no provider to prefix the model with either, so nothing breaks the tie.
+        if (runtime.Provider is null && runtime.SignIn is null) return;
+
+        var keep = runtime.Provider?.KeyEnvironmentVariable;
+
+        // Nothing is *cleared* where the provider is declared rather than selected by key: opencode is
+        // given a config file naming it, and `<provider>/<model>` on the command line says which one to
+        // use, so an inherited key adds nothing to disambiguate - it only keeps the user's other
+        // providers working in that tile, which is the whole reason that file merges their own
+        // configuration in. Clearing here and merging there were two comments arguing opposite ways
+        // about one launch. A sign-in is the exception: there the inherited key is what would
+        // authenticate instead of the login.
+        //
+        // It skips the clearing alone, and that distinction is the whole of the fix: written as an
+        // early return it also skipped the *setting* below, so an OpenRouter instance given a gateway
+        // address - the case this branch was added for - had its own key left out of the environment
+        // while OpenCodeProviderConfig wrote `{env:OPENROUTER_API_KEY}` into the document counting on
+        // it being there. opencode resolved that to nothing and authenticated only on a machine where
+        // the user happened to export the key globally.
+        var clearTheOthers = !runtime.NeedsDeclaredEndpoint || runtime.SignIn is not null;
+
+        // Every other service's variable is removed, and this is the half that was missing. These CLIs
+        // decide which provider is in play from *which key variable is set* - the sentence is in this
+        // method's own summary - so on a machine exporting a global OPENAI_API_KEY, setting
+        // OPENROUTER_API_KEY beside it leaves both visible and nothing choosing between them. With no
+        // model on the instance there is no `--model provider/...` to break the tie either, which is
+        // the state every seeded instance starts in. A null value unsets, which is exactly what
+        // ClaudeAgent already relies on for ANTHROPIC_API_KEY.
+        if (clearTheOthers)
+        {
+            foreach (var variable in AiProviderCatalog.All
+                         .Select(provider => provider.KeyEnvironmentVariable)
+                         .OfType<string>()
+                         .Distinct(StringComparer.Ordinal))
+            {
+                if (!string.Equals(variable, keep, StringComparison.Ordinal))
+                    environment[variable] = null;
+            }
+        }
+
+        // Set only for the agents that read it. Claude Code authenticates through ANTHROPIC_AUTH_TOKEN
+        // and codex takes the key as OPENAI_API_KEY whatever the provider is; exporting the provider's
+        // own variable for them put a secret into the tile's shell - and every program the user runs in
+        // it - that nothing there reads.
+        if (setKey && keep is not null && runtime.ApiKey.Length > 0)
+            environment[keep] = runtime.ApiKey;
+    }
 
     /// <summary>
     /// Whether a model set on the instance reaches this agent at all.
@@ -137,7 +267,7 @@ public abstract class AiAgent : IAiAgent
             .. EffortArgs(effort, AiUsage.Interactive),
             // The resolved model rather than the stored one: a sentinel on a command line is a model
             // name no provider has.
-            .. ModelArgs(runtime.RequestedModel, AiUsage.Interactive),
+            .. ModelArgs(QualifiedModel(runtime), AiUsage.Interactive),
             .. instance.ExtraArgs.Where(argument => !string.IsNullOrWhiteSpace(argument)),
         ];
     }
@@ -192,12 +322,168 @@ public abstract class AiAgent : IAiAgent
     public IReadOnlyDictionary<string, string?> EnvFor(AgentRuntime runtime)
     {
         var environment = new Dictionary<string, string?>(StringComparer.Ordinal);
+
+        // First, so that an agent's own Configure and then the user's ExtraEnv can both still overrule
+        // it — and here rather than in Configure for the same reason this method is not virtual: an
+        // agent that forgot the line would run every one of its tiles on the default account whatever
+        // the row said, which is a different subscription being billed with nothing on screen saying so.
+        if (runtime.SignIn is { } signIn)
+            foreach (var (name, value) in SignInEnv(AiSignInStore.DirectoryFor(signIn)))
+                environment[name] = value;
+
         Configure(environment, runtime);
 
         foreach (var (name, value) in runtime.Instance.ExtraEnv)
             environment[name] = value;
 
         return environment;
+    }
+
+    /// <summary>Most CLIs hold one login. The three that do not say so for themselves.</summary>
+    public virtual bool SupportsSignIns => false;
+
+    /// <inheritdoc />
+    public virtual IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
+        new Dictionary<string, string?>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether anything at all was written into that directory, which is the most an agent whose
+    /// credential file this application has not measured can honestly answer.
+    /// </summary>
+    /// <remarks>Deliberately not "the directory exists": the New sign-in step <em>creates</em> it, so
+    /// existence would report a brand-new row as logged in and send the user to a tile that cannot
+    /// authenticate. An agent that knows its own file overrides this and says who.
+    /// The enumeration itself never throws out of here: a row naming a directory it cannot read
+    /// (<c>ConfigDirectory</c> is typed by hand) is answered "not signed in", the same recovery every
+    /// override offers — these are read while a Settings page is being drawn.</remarks>
+    public virtual SignInStatus ReadSignIn(string? configDirectory)
+    {
+        if (configDirectory is not { Length: > 0 } directory || !Directory.Exists(directory))
+            return SignInStatus.NotSignedIn;
+
+        try
+        {
+            return Directory.EnumerateFileSystemEntries(directory).Any()
+                ? SignInStatus.SignedInAnonymously
+                : SignInStatus.NotSignedIn;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return SignInStatus.NotSignedIn;
+        }
+    }
+
+    /// <summary>Reads one string out of a JSON file, or null for anything that did not work.</summary>
+    /// <remarks><para>Shared by the agents that can name their account, and it never throws: these
+    /// files belong to somebody else's CLI, they are read while a Settings page is being drawn, and
+    /// every failure — absent, locked, half-written, a format that has moved — means the same thing on
+    /// screen. A row that says "not signed in" is recoverable; a dialog with a stack trace in it is
+    /// not.</para>
+    /// <para>Takes a path <em>through</em> the document so that the one field wanted is the one field
+    /// read: these files hold a refresh token beside it.</para>
+    /// <para>The document is <b>walked, not parsed</b>: <c>.claude.json</c> carries a Claude Code
+    /// installation's per-project history beside <c>oauthAccount</c> and grows into the megabytes, and
+    /// a DOM of the whole file — several times its size in memory, on the UI thread, once per sign-in
+    /// row and once per account-chooser rebuild — is more than naming who a row belongs to may cost.
+    /// The reader is fed the file a chunk at a time and stops at the answer, at the point the path
+    /// provably cannot continue (the matched object ended, or a segment turned out not to be an
+    /// object), or at the end of the file; everything else is skipped token by token, and only what
+    /// the path reaches is ever decoded.</para></remarks>
+    protected static string? ReadJsonString(string path, params string[] propertyPath)
+    {
+        try
+        {
+            if (!File.Exists(path) || propertyPath.Length == 0) return null;
+
+            return WalkJsonPath(path, propertyPath);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("Could not read {0}: {1}", path, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>What the token straight after a matched property name has to be: the object the rest
+    /// of the path lives in, or — on the last segment — the answer itself.</summary>
+    private enum Expected { Nothing, Object, Answer }
+
+    private static string? WalkJsonPath(string path, string[] propertyPath)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 4096);
+
+        var buffer = new byte[8 * 1024];
+        var filled = 0;
+        var final = false;
+        var state = new JsonReaderState();
+
+        // Depth is counted by hand because what a property name may match depends on where in the
+        // tree it sits: a property of the object matched so far sits exactly one level inside it,
+        // which is what keeps a name merely *passing through* — inside a value being skipped, or
+        // inside an object already left behind, the way the DOM read's TryGetProperty could not
+        // reach it — from answering in the field's place or restarting the search.
+        var depth = 0;
+        var matched = 0;
+        var expected = Expected.Nothing;
+
+        while (true)
+        {
+            var reader = new Utf8JsonReader(buffer.AsSpan(0, filled), final, state);
+
+            while (reader.Read())
+            {
+                if (expected != Expected.Nothing)
+                {
+                    if (expected == Expected.Answer)
+                        return reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
+
+                    expected = Expected.Nothing;
+                    if (reader.TokenType != JsonTokenType.StartObject) return null;
+                    depth++;
+                    continue;
+                }
+
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject or JsonTokenType.StartArray:
+                        depth++;
+                        break;
+
+                    case JsonTokenType.EndObject or JsonTokenType.EndArray:
+                        depth--;
+                        break;
+
+                    case JsonTokenType.PropertyName:
+                        // matched cannot overflow propertyPath here: every increment arms `expected`,
+                        // and the answer it asks for is consumed before anything else can match.
+                        if (depth == matched + 1 && reader.ValueTextEquals(propertyPath[matched]))
+                        {
+                            matched++;
+                            expected = matched == propertyPath.Length
+                                ? Expected.Answer
+                                : Expected.Object;
+                        }
+                        break;
+                }
+            }
+
+            if (final) return null;
+
+            // The reader stopped inside an unfinished token: what it consumed is dead, so the rest is
+            // moved to the front and the next read carries on after it. The saved state describes
+            // that token, so it has to still be at the front of the span the next reader is handed.
+            state = reader.CurrentState;
+            var consumed = (int)reader.BytesConsumed;
+            Array.Copy(buffer, consumed, buffer, 0, filled - consumed);
+            filled -= consumed;
+
+            if (filled == buffer.Length) Array.Resize(ref buffer, buffer.Length * 2);
+
+            var read = stream.Read(buffer.AsSpan(filled));
+            if (read == 0) final = true;
+            else filled += read;
+        }
     }
 
     /// <summary>

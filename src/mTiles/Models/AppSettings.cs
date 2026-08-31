@@ -101,6 +101,21 @@ public sealed class AppSettings
     }
     private List<AiProviderInstance> _aiProviderInstances = [];
 
+    /// <summary>
+    /// Every login an AI CLI holds on its own — a second subscription, and a third.
+    /// </summary>
+    /// <remarks>Not seeded, for the reason <see cref="AiProviderInstances"/> is not: the account a CLI
+    /// is already signed into needs no row here, and an empty list means "nobody has set up a second
+    /// one" rather than "one per agent, none of which is logged in". <b>Nothing in it is a secret</b> —
+    /// a name and a location — so unlike the list above it needs no blanking on export and no restoring
+    /// on import.</remarks>
+    public List<AiSignIn> AiSignIns
+    {
+        get => _aiSignIns;
+        set => _aiSignIns = value ?? [];
+    }
+    private List<AiSignIn> _aiSignIns = [];
+
     public DatabaseSettings Database
     {
         get => _database;

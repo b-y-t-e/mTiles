@@ -52,10 +52,65 @@ public sealed class ClaudeAgent : AiAgent
     /// </remarks>
     protected override void Configure(IDictionary<string, string?> environment, AgentRuntime runtime)
     {
+        // An instance on a *sign-in* names no provider, so the branch below never ran for it and a
+        // globally exported ANTHROPIC_API_KEY stayed in the environment — the CLI then authenticated
+        // with that key instead of the OAuth login in the directory the row names, and the work went to
+        // another account with nothing on screen saying so. Exactly the failure the branch below exists
+        // to prevent, reached by the other route.
+        //
+        // Clearing only (`setKey: false`): it authenticates through ANTHROPIC_AUTH_TOKEN below, so the
+        // provider's own key variable would be a secret sitting in the tile's shell that nothing reads.
+        ApplyProviderKey(environment, runtime, setKey: false);
+
+        // The pair below, removed when this instance runs as a *sign-in*. ApplyProviderKey clears only
+        // variables that are some provider's KeyEnvironmentVariable, and neither of these is one:
+        // ANTHROPIC_AUTH_TOKEN is what this CLI actually authenticates with, and ANTHROPIC_BASE_URL is
+        // where it sends it. An instance on a subscription names no provider, so the branch below never
+        // runs for it - and on a machine exporting either of them globally, a tile whose row says
+        // "work subscription" ran on somebody else's token, at somebody else's address, with nothing on
+        // screen saying so. The same failure ANTHROPIC_API_KEY is unset for, reached by a variable that
+        // is not on any list.
+        //
+        // Only for a sign-in: an instance that has chosen no account at all runs on the CLI's own
+        // configuration, and a globally exported endpoint is part of that configuration.
+        if (runtime.SignIn is not null)
+        {
+            environment["ANTHROPIC_BASE_URL"] = null;
+            environment["ANTHROPIC_AUTH_TOKEN"] = null;
+        }
+
+        // The model pair, on the same rule and for either kind of account. They are nobody's key
+        // variable either, and they were the third and fourth of a rule applied to two: on a machine
+        // exporting ANTHROPIC_MODEL globally, an instance that names no model ran on somebody else's
+        // while the row and the tile header both showed none. What the row says is what runs, so where
+        // an account has been chosen the model is this instance's or the CLI's own - never a leftover
+        // from the environment. Set again below when the instance names one.
+        //
+        // Not for an instance that has chosen no account at all: that is the CLI's own configuration,
+        // and a globally exported model is part of it.
+        if (runtime.SignIn is not null || runtime.Provider is not null)
+        {
+            environment["ANTHROPIC_MODEL"] = null;
+            environment["ANTHROPIC_SMALL_FAST_MODEL"] = null;
+        }
+
         if (runtime.EndpointFor(ApiFlavor.Anthropic) is { } endpoint)
         {
             environment["ANTHROPIC_BASE_URL"] = endpoint.ToString();
-            environment["ANTHROPIC_AUTH_TOKEN"] = runtime.ApiKey;
+            // A local server has no authentication and hands out no key, but an *empty* token is not
+            // the same as a server that needs none: measured 2026-08-31 against Claude Code 2.1.251
+            // and LM Studio, `ANTHROPIC_AUTH_TOKEN=""` fails the run with "Not logged in · Please run
+            // /login" before a request is made, while any non-empty value gets straight through — the
+            // server ignores it. So the placeholder is what makes a keyless provider reachable at all,
+            // and it is a word rather than anything that could be mistaken for a credential.
+            // "This service has no key", not "this key is empty". A hosted provider saved without one
+            // - which the form allows, since only the name is required - was getting the placeholder
+            // and a 401 from somebody else's server, in place of the local "Not logged in · Please run
+            // /login" that says what is actually wrong. NeedsApiKey is the same fact ApplyProviderKey
+            // and OpenCodeProviderConfig already read.
+            environment["ANTHROPIC_AUTH_TOKEN"] = runtime.Provider is { NeedsApiKey: false }
+                ? "no-key-needed"
+                : runtime.ApiKey;
             environment["ANTHROPIC_API_KEY"] = null;
         }
 
@@ -70,6 +125,67 @@ public sealed class ClaudeAgent : AiAgent
     /// <remarks><c>claude --model</c> exists and is deliberately not used: <c>ANTHROPIC_MODEL</c>
     /// reaches the headless run and the interactive tile by one route instead of two.</remarks>
     public override bool AcceptsModel => true;
+
+    /// <summary>
+    /// <c>CLAUDE_CONFIG_DIR</c>, measured 2026-08-30 against Claude Code 2.1.251.
+    /// </summary>
+    /// <remarks>Pointed at an empty directory it answers <c>Not logged in · Please run /login</c> and
+    /// builds its own <c>.claude.json</c>, <c>sessions/</c> and <c>projects/</c> there — so it reads
+    /// <em>none</em> of <c>~/.claude</c>, which is exactly what a second subscription needs. It also
+    /// takes the conversations with it, which is why a sign-in added to an instance that already has
+    /// tiles is a different set of sessions rather than the same ones on another account.</remarks>
+    public override bool SupportsSignIns => true;
+
+    /// <inheritdoc />
+    public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["CLAUDE_CONFIG_DIR"] = configDirectory,
+        };
+
+    /// <summary>
+    /// The account behind a directory, from the two files Claude Code writes.
+    /// </summary>
+    /// <remarks><b>The two layouts are not the same, and that is measured rather than assumed.</b> A
+    /// relocated configuration keeps <c>.claude.json</c> inside the directory; the default one keeps it
+    /// at <c>~/.claude.json</c> and puts only <c>.credentials.json</c> in <c>~/.claude</c>. Asking the
+    /// wrong one is how the default account would come out as "not signed in" on a machine that is
+    /// signed in perfectly well.</remarks>
+    public override SignInStatus ReadSignIn(string? configDirectory)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        // A machine that already exports CLAUDE_CONFIG_DIR has its default account *there*, so asking
+        // about ~/.claude would report a working login as signed out - the false "not signed in" this
+        // type exists to avoid.
+        configDirectory ??= Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+
+        var (settingsFile, credentialsFile) = configDirectory is { Length: > 0 } directory
+            ? (Path.Combine(directory, ".claude.json"), Path.Combine(directory, ".credentials.json"))
+            : (Path.Combine(home, ".claude.json"), Path.Combine(home, ".claude", ".credentials.json"));
+
+        // The file's existence is what says logged in; its contents only say who. Reading a field first
+        // and answering NotSignedIn when it is missing put a Sign in button over a working login — a
+        // subscription is not the only way to authenticate, and a format that moves must not turn an
+        // account into an offer to create one. This is the policy CodexAgent already states in its own
+        // words, and the two had drifted apart.
+        if (!File.Exists(credentialsFile)) return SignInStatus.NotSignedIn;
+
+        var plan = ReadJsonString(credentialsFile, "claudeAiOauth", "subscriptionType");
+        var email = ReadJsonString(settingsFile, "oauthAccount", "emailAddress");
+
+        var detail = string.Join(" · ", new[]
+        {
+            email,
+            plan is { Length: > 0 } ? Capitalised(plan) : null,
+        }.Where(part => part is not null));
+
+        return detail.Length > 0 ? new SignInStatus(true, detail) : SignInStatus.SignedInAnonymously;
+    }
+
+    /// <summary>"max" is what the file says; "Max" is what the subscription is called.</summary>
+    private static string Capitalised(string word) =>
+        char.ToUpperInvariant(word[0]) + word[1..];
 
     /// <summary>
     /// All six of Claude Code's modes interactively; headlessly, only the two that cannot become a

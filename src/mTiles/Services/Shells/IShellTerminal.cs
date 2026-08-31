@@ -56,6 +56,17 @@ public interface IShellTerminal
     /// spaces and newlines included.</summary>
     string Quote(string value);
 
+    /// <summary>
+    /// One line that runs <paramref name="executable"/> with <paramref name="arguments"/>.
+    /// </summary>
+    /// <remarks><b>Not "quote every part and join them".</b> That is what a caller wrote, and on
+    /// PowerShell it does not run: a quoted first token is a string expression, not a command, so
+    /// <c>'npm' 'install' -g …</c> fails at the parser with <c>Unexpected token</c> before anything is
+    /// started — while bash executes the same line perfectly well, which is how it reached Windows
+    /// unnoticed. The call operator is the answer there, and knowing that is this interface's job for
+    /// the same reason <see cref="Quote"/> is.</remarks>
+    string Invoke(string executable, IReadOnlyList<string> arguments);
+
     /// <summary>The statement that gives an environment variable a value in this shell.</summary>
     string SetEnv(string name, string value);
 

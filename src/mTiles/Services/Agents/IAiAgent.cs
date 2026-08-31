@@ -123,6 +123,43 @@ public interface IAiAgent
     IReadOnlyDictionary<string, string?> EnvFor(AgentRuntime runtime);
 
     /// <summary>
+    /// Whether this CLI can hold more than one login at a time — a second subscription.
+    /// </summary>
+    /// <remarks><b>An agent that cannot, says so</b>, and the chooser then offers it no sign-ins at
+    /// all. Measured: claude, codex, opencode and pi each relocate their credentials with an
+    /// environment variable — pi's was <em>missed</em> at first, from a reading of its <c>--help</c>
+    /// rather than a run, and <c>PiAgent</c> carries that correction in its own words. Only agy has
+    /// none, established by searching its binary rather than its help text. Inventing one would be a
+    /// row the user could add, log into, and never actually run as — a second account that silently is
+    /// the first.</remarks>
+    bool SupportsSignIns { get; }
+
+    /// <summary>
+    /// The environment that points this CLI at one login's directory.
+    /// </summary>
+    /// <remarks><para>A whole block rather than a variable name and a value, for the reason
+    /// <see cref="EffortArgs"/> is a whole fragment: opencode has no dedicated variable and is moved
+    /// with the two XDG ones at once, so "one name, one value" could not describe four of the five.
+    /// </para>
+    /// <para>Empty for an agent that answers false to <see cref="SupportsSignIns"/>, and empty for the
+    /// default account — which is <b>not</b> the same as pointing the variable at the CLI's own
+    /// directory. Measured on Claude Code 2.1.251: with <c>CLAUDE_CONFIG_DIR</c> set, it keeps
+    /// <c>.claude.json</c> <em>inside</em> that directory, while by default it keeps it at
+    /// <c>~/.claude.json</c> and only the credentials in <c>~/.claude</c>. So pointing the variable at
+    /// <c>~/.claude</c> yields a session that is logged in and has lost its projects, its MCP servers
+    /// and its history — a half-configured account that looks like the real one.</para></remarks>
+    IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory);
+
+    /// <summary>
+    /// What that directory says about itself: whether the CLI is logged in there, and as whom.
+    /// </summary>
+    /// <remarks>Null asks about the agent's <em>own</em> default location, which for at least one agent
+    /// is laid out differently from a relocated one — see <see cref="SignInEnv"/>. Read from the CLI's
+    /// files and never from anything stored here, so logging out in a terminal is reflected on the row
+    /// rather than remembered wrongly.</remarks>
+    SignInStatus ReadSignIn(string? configDirectory);
+
+    /// <summary>
     /// What an agent tile runs: the command that resumes <paramref name="sessionId"/>, and the one to
     /// try when it does not work.
     /// </summary>
@@ -153,6 +190,65 @@ public interface IAiAgent
     /// the state every seeded instance is in, so nothing is passed for it.</para>
     /// </remarks>
     IReadOnlyList<string> ModelArgs(string model, AiUsage usage);
+
+    /// <summary>
+    /// The model to ask for, spelled the way this CLI expects it.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Which model and which provider are one string for some agents and two for others</b>,
+    /// and that is the agent's business rather than the caller's. Claude Code takes the id verbatim and
+    /// is told where to send it by <c>ANTHROPIC_BASE_URL</c>; opencode and pi keep their own registry of
+    /// providers, identify them by name, and want <c>provider/model</c> — measured 2026-08-31, opencode
+    /// answers a bare id with <c>ProviderModelNotFoundError</c> before any call is made.</para>
+    /// <para>Asked once and used by both launch paths, so a tile and a headless goal run cannot spell
+    /// the same instance differently. It is the <em>resolved</em> model, never the sentinel: see
+    /// <c>AgentRuntime.RequestedModel</c>.</para>
+    /// </remarks>
+    string QualifiedModel(AgentRuntime runtime);
+
+    /// <summary>
+    /// Whether this CLI can be pointed at a service that is not in its own registry — a server on this
+    /// machine or this network.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>False is an answer, and it has to be said out loud.</b> Measured 2026-08-31: pi has a
+    /// key variable per named service and no generic base-URL setting of any kind — its only address is
+    /// Azure's, which is that one service's own — so an instance of pi pointed at LM Studio cannot
+    /// reach it, and without this it launched anyway and ran on pi's default provider with nothing on
+    /// screen saying so.</para>
+    /// <para>Distinct from <c>AiProviderCatalog.IsCompatible</c>, which asks whether the wire formats
+    /// meet. They can meet perfectly and still leave no way to say <em>where</em>: opencode and pi both
+    /// speak <c>/v1/chat/completions</c>, and only one of them has somewhere to put an address.</para>
+    /// </remarks>
+    bool SupportsCustomEndpoint { get; }
+
+    /// <summary>
+    /// Whether this CLI learns which service to use <em>from the model's name</em> and nowhere else.
+    /// </summary>
+    /// <remarks><b>True means a provider without a model names nothing.</b> opencode and pi take
+    /// <c>provider/model</c>, so the provider half travels on the model; with no model there is no
+    /// prefix, and neither CLI fails for want of a provider — each falls back to its own, which for pi
+    /// is <c>google</c>. Configured, offered, launched, and the work goes to a service no row on screen
+    /// mentions. <c>AgentAvailability</c> refuses that instance rather than letting it happen, because
+    /// which model to use is a question only the user can answer.</remarks>
+    bool NamesProviderInModel { get; }
+
+    /// <summary>
+    /// Anything that has to exist on disk before this agent is started.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Because a getter is not a place to write files.</b> The one agent that needs this —
+    /// opencode, whose only route to a local server is a generated provider document — used to write it
+    /// from <c>Configure</c>, which is reached through <c>EnvFor</c>, which is reached through
+    /// <c>AgentTileViewModel.LaunchEnvironment</c>: a <em>property</em>. Reading it made a directory and
+    /// wrote a file, and the launch reads it twice, so the file was written twice per launch and any
+    /// future reader — a debugger's watch window included — would write it again.</para>
+    /// <para>Called on both launch paths, which is the reason this is on the agent rather than in
+    /// <c>TileLauncher</c>: a headless Goal run does not go through the launcher, and a config prepared
+    /// for the tile but not for the run would be the same instance reaching two different services.
+    /// Nothing for every other agent, and idempotent for the one that answers.</para>
+    /// </remarks>
+    void PrepareToLaunch(AgentRuntime runtime);
 
     /// <summary>
     /// Whether a model set on an instance reaches this agent at all — by argv or by environment.

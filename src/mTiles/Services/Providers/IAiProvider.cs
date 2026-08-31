@@ -37,6 +37,39 @@ public interface IAiProvider
     int DefaultPort { get; }
 
     /// <summary>
+    /// The environment variable this service's own key is conventionally read from, or null where it
+    /// has no key at all.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A fact about the service, not about any agent</b>, which is why it lives here:
+    /// <c>OPENROUTER_API_KEY</c> is what OpenRouter's key is called everywhere it is read, and both
+    /// opencode and pi document exactly these spellings. Put on the agents instead it would be the same
+    /// table written out five times, and the fifth copy would be the one that drifted.</para>
+    /// <para>Measured 2026-08-31: an agent handed <c>OPENAI_API_KEY</c> for an OpenRouter instance does
+    /// not reach OpenRouter — <c>opencode auth list</c> reports it as the <b>OpenAI</b> provider, so the
+    /// run authenticates against api.openai.com while every row on screen says OpenRouter.</para>
+    /// <para>Null for the local servers, which have no authentication: their address is the whole of
+    /// how they are reached, and that is <see cref="EndpointFor"/>'s business.</para>
+    /// </remarks>
+    string? KeyEnvironmentVariable { get; }
+
+    /// <summary>
+    /// What model catalogues call this service — the <c>provider</c> half of <c>provider/model</c>.
+    /// </summary>
+    /// <remarks><para><b>Not every agent takes a bare model id.</b> opencode's own help says
+    /// <c>--model</c> is "model to use in the format of provider/model", and it refuses anything else
+    /// with <c>ProviderModelNotFoundError</c> before a call is made; pi takes the same shape, or a
+    /// separate <c>--provider</c>. The name they use is the service's, so it belongs to the service.
+    /// </para>
+    /// <para><b>Measured against models.dev</b>, which is the catalogue opencode reads, on 2026-08-31:
+    /// <c>openrouter</c>, <c>anthropic</c>, <c>zai</c> and <c>openai</c> are spelled there exactly as
+    /// they are spelled here, so every hosted provider an agent can be prefixed with is confirmed
+    /// rather than assumed. The two local ones need no entry in anybody's catalogue — the provider is
+    /// declared to the agent by <c>OpenCodeProviderConfig</c>, under this same id, so the document and
+    /// the prefix agree by construction.</para></remarks>
+    string CatalogueId { get; }
+
+    /// <summary>
     /// Whether a key is needed to talk to it at all.
     /// </summary>
     /// <remarks>False for a local server, and that is worth saying out loud rather than treating as an
@@ -58,6 +91,15 @@ public interface IAiProvider
     /// alternative — every agent knowing every provider's path — is the map this whole layer exists to
     /// avoid.</remarks>
     Uri? EndpointFor(ApiFlavor flavor, AiProviderInstance instance);
+
+    /// <summary>
+    /// Where this instance's calls go — its own address, or this provider's published one.
+    /// </summary>
+    /// <remarks>Null means the instance names an address that cannot be read, which is deliberately
+    /// not the same answer as "none was typed": that one falls back. <c>AgentAvailability</c> reads it
+    /// so a typo is refused by a sentence rather than by a launch that silently runs on the CLI's own
+    /// configuration.</remarks>
+    Uri? BaseUrlFor(AiProviderInstance instance);
 
     /// <summary>Is it reachable, and does this key work? Never throws: a failure is the answer.</summary>
     Task<ProviderCheck> TestAsync(AiProviderInstance instance, CancellationToken ct = default);

@@ -24,6 +24,9 @@ public sealed class OpenRouterProvider : AiProvider
 
     public override Uri? DefaultBaseUrl => new("https://openrouter.ai/");
 
+    /// <summary>The spelling every catalogue reads this service's key from.</summary>
+    public override string? KeyEnvironmentVariable => "OPENROUTER_API_KEY";
+
     /// <summary>
     /// All three shapes are served under <c>api/v1</c> — but the version is part of the base address
     /// for one of them and part of the path for the other two, so the answer differs by flavor.
@@ -57,6 +60,8 @@ public sealed class OpenRouterProvider : AiProvider
     public override async Task<ProviderCheck> TestAsync(AiProviderInstance instance,
         CancellationToken ct = default)
     {
+        if (AddressProblem(instance) is { } problem) return problem;
+
         using var document = await GetJsonAsync(instance, "api/v1/key", ct);
         if (document is null)
             return ProviderCheck.Failed("OpenRouter did not accept this key.");

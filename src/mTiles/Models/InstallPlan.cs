@@ -21,7 +21,10 @@ public sealed record InstallPlan(string Executable, IReadOnlyList<string> Argume
 {
     /// <summary>The command as the user will see it before agreeing to it.</summary>
     /// <remarks>Naive quoting — a space means quotes — because that is what makes it readable, and it
-    /// is never what runs: <see cref="Arguments"/> is.</remarks>
+    /// is never what runs: <c>InstallCommand.For</c> composes that, from <see cref="Arguments"/> and
+    /// the shell's own quoting. It <em>was</em> what ran, which is how a plan whose executable is an
+    /// already-composed shell line reached a tile wrapped in quotes and was printed instead of
+    /// executed.</remarks>
     public string CommandLine =>
         string.Join(' ', new[] { Executable }.Concat(Arguments)
             .Select(part => part.Contains(' ') ? $"\"{part}\"" : part));

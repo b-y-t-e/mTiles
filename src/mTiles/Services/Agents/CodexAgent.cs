@@ -38,6 +38,54 @@ public sealed class CodexAgent : AiAgent
     public override string Id => "codex";
     public override string DisplayName => "Codex";
     public override string BinaryName => "codex";
+
+    /// <summary>
+    /// <c>CODEX_HOME</c>, measured 2026-08-30 against codex-cli 0.141.0.
+    /// </summary>
+    /// <remarks>Pointed at an empty directory, <c>codex exec</c> fails with <c>401 Unauthorized</c>
+    /// rather than falling back — so it reads none of <c>~/.codex/auth.json</c>, which is what makes a
+    /// second ChatGPT subscription possible. It relocates <c>sessions/</c> with it, so the same warning
+    /// applies as for Claude Code.</remarks>
+    public override bool SupportsSignIns => true;
+
+    /// <inheritdoc />
+    public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["CODEX_HOME"] = configDirectory,
+        };
+
+    /// <summary>
+    /// Whether <c>auth.json</c> is there, and which of the two ways it authenticates.
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured 2026-08-30: the file's <c>auth_mode</c> is <c>chatgpt</c> for a subscription
+    /// login and names the key otherwise, which is the one distinction worth a row here — a sign-in set
+    /// up to spend a plan and one set up to spend an API balance are different bills, and nothing else
+    /// on screen tells them apart.</para>
+    /// <para><b>The account's address is deliberately not shown.</b> It exists, inside the
+    /// <c>id_token</c>'s claims, and getting at it means parsing a bearer token this application has no
+    /// business opening — for a line of text. "Signed in with ChatGPT" is the true answer that costs
+    /// nothing; an email would be the same answer with a credential read to obtain it.</para>
+    /// </remarks>
+    public override SignInStatus ReadSignIn(string? configDirectory)
+    {
+        var home = configDirectory is { Length: > 0 } directory
+            ? directory
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+
+        var authFile = Path.Combine(home, "auth.json");
+        if (!File.Exists(authFile)) return SignInStatus.NotSignedIn;
+
+        // Present but unreadable still means signed in: the file is the evidence, and a format that has
+        // moved must not turn a working login into a row offering to fix it.
+        return ReadJsonString(authFile, "auth_mode") switch
+        {
+            "chatgpt" => new SignInStatus(true, "ChatGPT subscription"),
+            { Length: > 0 } mode => new SignInStatus(true, mode),
+            _ => SignInStatus.SignedInAnonymously,
+        };
+    }
     public override string? InstallUrl => "https://github.com/openai/codex";
     public override SessionStrategy SessionStrategy => SessionStrategy.CapturedAfterStart;
 
@@ -54,6 +102,24 @@ public sealed class CodexAgent : AiAgent
     /// configuration, which is what an unconfigured instance means and what a first run is in.</remarks>
     protected override void Configure(IDictionary<string, string?> environment, AgentRuntime runtime)
     {
+        // The same clearing every agent that can hold a sign-in needs: an instance on a subscription
+        // names no provider, so the early return below left an inherited OPENAI_API_KEY in place and
+        // codex authenticated with it rather than with the login in CODEX_HOME.
+        //
+        // What it then sets is deliberately still OPENAI_API_KEY whatever the provider is: codex is
+        // pointed at a service by *address* (OPENAI_BASE_URL below), so the key variable is the
+        // transport rather than the choice of provider — the opposite of opencode and pi, which is why
+        // those two were taken off this pattern and this one was not - hence `setKey: false`, which
+        // clears without also exporting a variable nothing here reads.
+        ApplyProviderKey(environment, runtime, setKey: false);
+
+        // The address, for the reason ClaudeAgent removes its pair: OPENAI_BASE_URL is nobody's
+        // KeyEnvironmentVariable, so nothing above clears it, and an instance on a subscription takes
+        // the branch below not at all - leaving a globally exported address pointing this login at
+        // somebody else's gateway. The key half is covered already: OPENAI_API_KEY *is* a provider's
+        // variable, so ApplyProviderKey removes it.
+        if (runtime.SignIn is not null) environment["OPENAI_BASE_URL"] = null;
+
         if (runtime.EndpointFor(ApiFlavor.OpenAiResponses) is not { } endpoint)
             return;
 

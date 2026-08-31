@@ -24,10 +24,20 @@ public sealed class OllamaProvider : AiProvider, ILocalAiProvider
     public override IReadOnlyList<ApiFlavor> ApiFlavors =>
         [ApiFlavor.OpenAiChatCompletions, ApiFlavor.OllamaNative];
 
-    /// <summary>None: a local server has no address until somebody says where it is.</summary>
-    public override Uri? DefaultBaseUrl => null;
+    /// <summary>
+    /// This machine, on the port Ollama binds by default.
+    /// </summary>
+    /// <remarks>See <c>LmStudioProvider.DefaultBaseUrl</c>: null here meant an empty address field made
+    /// no call at all and reported it as a server that had not answered.</remarks>
+    public override Uri? DefaultBaseUrl => new($"http://localhost:{DefaultPort}/");
 
     public override int DefaultPort => 11434;
+
+    /// <inheritdoc />
+    /// <remarks>The one port it is ever on: unlike LM Studio's, Ollama's is moved by
+    /// <c>OLLAMA_HOST</c>, and a machine that has moved it is one this scan will not find by
+    /// guessing.</remarks>
+    public IReadOnlyList<int> DiscoveryPorts => [DefaultPort];
     public override bool NeedsApiKey => false;
     public override bool IsLocal => true;
 
@@ -47,11 +57,15 @@ public sealed class OllamaProvider : AiProvider, ILocalAiProvider
     public override async Task<ProviderCheck> TestAsync(AiProviderInstance instance,
         CancellationToken ct = default)
     {
+        // Named before anything is said about the server: an address that cannot be read is not a
+        // server that did not answer.
+        if (AddressProblem(instance) is { } problem) return problem;
+
         var models = await ModelsAsync(instance, ct);
         if (models.Count == 0)
             return ProviderCheck.Failed(
-                "Nothing answered as Ollama there. It binds 127.0.0.1 unless OLLAMA_HOST=0.0.0.0, so "
-                + "another machine cannot reach it by default.");
+                $"Nothing answered as Ollama at {Address(instance)}. It binds 127.0.0.1 unless "
+                + "OLLAMA_HOST=0.0.0.0, so another machine cannot reach it by default.");
 
         var loaded = await FirstLoadedModelAsync(instance, ct);
         return ProviderCheck.Reached(loaded is null

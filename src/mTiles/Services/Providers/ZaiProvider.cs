@@ -18,6 +18,9 @@ public sealed class ZaiProvider : AiProvider
 
     public override Uri? DefaultBaseUrl => new("https://api.z.ai/api/");
 
+    /// <summary>The spelling every catalogue reads this service's key from.</summary>
+    public override string? KeyEnvironmentVariable => "ZAI_API_KEY";
+
     /// <summary>
     /// Its two shapes live at two paths, which is the whole reason an endpoint is asked for per flavor.
     /// </summary>
@@ -37,6 +40,8 @@ public sealed class ZaiProvider : AiProvider
     public override async Task<ProviderCheck> TestAsync(AiProviderInstance instance,
         CancellationToken ct = default)
     {
+        if (AddressProblem(instance) is { } problem) return problem;
+
         var models = await ModelsAsync(instance, ct);
         return models.Count > 0
             ? ProviderCheck.Reached($"{models.Count} models")

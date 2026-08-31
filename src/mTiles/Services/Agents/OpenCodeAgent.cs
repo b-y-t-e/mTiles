@@ -28,6 +28,62 @@ public sealed class OpenCodeAgent : AiAgent
     public override string Id => "opencode";
     public override string DisplayName => "OpenCode";
     public override string BinaryName => "opencode";
+
+    /// <summary>
+    /// <c>XDG_DATA_HOME</c>, measured 2026-08-30 against opencode 1.18.18 and narrowed 2026-08-31.
+    /// </summary>
+    /// <remarks><para>opencode has no variable of its own: it keeps its credentials in
+    /// <c>~/.local/share/opencode/auth.json</c> and its configuration in <c>~/.config/opencode</c>, and
+    /// the credentials move with <c>XDG_DATA_HOME</c> — <c>opencode auth list</c> against a
+    /// relocated pair answers <c>0 credentials</c> while the default one lists the account, so the
+    /// isolation is real.</para>
+    /// <para><b>Only <c>XDG_DATA_HOME</c>, and that is the whole point.</b> It began as both XDG
+    /// variables, which did isolate the login and also took the user's own
+    /// <c>~/.config/opencode/opencode.json</c> away from the tile — no default model, no MCP servers,
+    /// no agents, no instructions. Exactly the loss <c>OpenCodeProviderConfig</c> spends a paragraph
+    /// defending against on the provider path, arriving silently by the other one. Measured 2026-08-31:
+    /// <c>XDG_DATA_HOME</c> alone answers <c>0 credentials</c>, so the config variable was never needed
+    /// — a sign-in is a login, and a login is data.</para>
+    /// <para><b>They reach the tile's shell, not just opencode</b>, and that is worth stating plainly
+    /// because it is the one place a sign-in leaks past the agent it belongs to: the environment goes
+    /// into <c>PtyOptions.Environment</c>, so every program the user then runs in that tile inherits
+    /// them, and on Unix these two are where <em>any</em> XDG-aware tool keeps its configuration and
+    /// data. It is not fixable from here — the agent is started by that shell — and it is bounded: the
+    /// tile is an agent tile the user opened for this instance, and the redirection is to a directory
+    /// this application made. Anything narrower would mean not launching the agent through a shell at
+    /// all.</para>
+    /// </remarks>
+    public override bool SupportsSignIns => true;
+
+    /// <inheritdoc />
+    public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["XDG_DATA_HOME"] = Path.Combine(configDirectory, "data"),
+        };
+
+    /// <summary>Whether <c>auth.json</c> is under this sign-in's data directory.</summary>
+    /// <remarks>The path mirrors <see cref="SignInEnv"/> exactly, because opencode appends its own name
+    /// to whatever <c>XDG_DATA_HOME</c> says; a status read from anywhere else would be answering about
+    /// a directory the launch does not use.</remarks>
+    public override SignInStatus ReadSignIn(string? configDirectory)
+    {
+        // A sign-in's directory holds the data root under `data`, because that is what SignInEnv puts
+        // in XDG_DATA_HOME. The default account's root is XDG_DATA_HOME itself where the machine
+        // exports one, and ~/.local/share otherwise — *not* that path with a directory taken off it,
+        // which is what an earlier version of this line did and which resolved ~/.local/share to
+        // ~/.local.
+        var dataHome = configDirectory is { Length: > 0 } directory
+            ? Path.Combine(directory, "data")
+            : Environment.GetEnvironmentVariable("XDG_DATA_HOME") is { Length: > 0 } xdg
+                ? xdg
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".local", "share");
+
+        var authFile = Path.Combine(dataHome, "opencode", "auth.json");
+
+        return File.Exists(authFile) ? SignInStatus.SignedInAnonymously : SignInStatus.NotSignedIn;
+    }
     public override string? InstallUrl => "https://opencode.ai";
     public override SessionStrategy SessionStrategy => SessionStrategy.ImportedFixed;
 
@@ -38,18 +94,53 @@ public sealed class OpenCodeAgent : AiAgent
     public override IReadOnlyList<ApiFlavor> ConsumesApiFlavors => [ApiFlavor.OpenAiChatCompletions];
 
     /// <summary>
-    /// The OpenAI-compatible pair, when the instance names a provider that serves that shape.
+    /// The chosen service's own key, under the name opencode reads it from.
     /// </summary>
-    /// <remarks>Nothing at all when it does not: an agent with no provider runs on its own
-    /// configuration, which is what an unconfigured instance means and what a first run is in.</remarks>
+    /// <remarks><b>This used to set <c>OPENAI_BASE_URL</c> and <c>OPENAI_API_KEY</c>, and that could
+    /// not work.</b> opencode does not take a base URL from the environment: it keeps a registry of
+    /// providers, decides which one is available from which key variable is set, and validates the
+    /// model against a catalogue before opening a socket. Measured 2026-08-31 — <c>opencode auth
+    /// list</c> reported our <c>OPENAI_API_KEY</c> as the <em>OpenAI</em> provider, so an instance
+    /// configured for OpenRouter authenticated against api.openai.com, and <c>--model</c> with a bare
+    /// id was refused outright.
+    /// <para>A local server has no key and no registry entry, so the key half contributes nothing and
+    /// the address is declared in a generated file instead — see <c>OpenCodeProviderConfig</c>.</para>
+    /// </remarks>
     protected override void Configure(IDictionary<string, string?> environment, AgentRuntime runtime)
     {
-        if (runtime.EndpointFor(ApiFlavor.OpenAiChatCompletions) is not { } endpoint)
-            return;
+        ApplyProviderKey(environment, runtime);
 
-        environment["OPENAI_BASE_URL"] = endpoint.ToString();
-        environment["OPENAI_API_KEY"] = runtime.ApiKey;
+        // A server opencode's registry cannot name is declared to it in a file, which is the only route
+        // in - see OpenCodeProviderConfig. Only *named* here: the path is a pure function of the
+        // instance's id, and writing it belongs to PrepareToLaunch, which is a moment rather than a
+        // property read.
+        // Only once it is really there. Set unconditionally, a write that failed left opencode pointed
+        // at a missing file with `<provider>/<model>` on its command line - ProviderModelNotFoundError,
+        // which is the error this document exists to prevent, and nothing said so. Written by
+        // PrepareToLaunch a moment earlier; absent, the launch falls back to opencode's own
+        // configuration, which is wrong but visible in its own output.
+        //
+        // The file being there is a good enough question because Write owns the other half: a write it
+        // could not complete takes the previous launch's document with it, so what is on disk is either
+        // this launch's or nothing. Asking the filesystem would otherwise have found a stale document
+        // naming the address and model of the launch before.
+        var path = OpenCodeProviderConfig.PathFor(runtime.Instance.Id);
+        if (OpenCodeProviderConfig.IsNeededFor(runtime) && File.Exists(path))
+            environment["OPENCODE_CONFIG"] = path;
     }
+
+    /// <inheritdoc />
+    /// <remarks>The provider document, rewritten on every launch so an address edited in Settings takes effect
+    /// without anything having to notice it changed.</remarks>
+    protected override void Prepare(AgentRuntime runtime) => OpenCodeProviderConfig.Write(runtime);
+
+    /// <inheritdoc />
+    /// <remarks><c>opencode run --help</c>: "model to use in the format of provider/model".</remarks>
+    public override string QualifiedModel(AgentRuntime runtime) => WithProviderPrefix(runtime);
+
+    /// <inheritdoc />
+    /// <remarks>The prefix is the only place this CLI hears which service to use.</remarks>
+    public override bool NamesProviderInModel => true;
 
     /// <summary>Bypass or nothing — the two things a boolean can say. Asking for anything in between
     /// rounds down to <see cref="AiBehaviour.ToolDefault"/>, which is opencode's own asking

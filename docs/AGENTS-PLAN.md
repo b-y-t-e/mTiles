@@ -314,7 +314,7 @@ matcher needs a second shape for config-style arguments.
 **`AiAgentInstance`** — persisted configuration, and the thing the user actually picks:
 
 ```
-Id, AgentId, Name, ProviderInstanceId?, Model, FastModel,
+Id, AgentId, Name, ApiAccountId?, SignInId?, Model, FastModel,
 DefaultEffort, DefaultBehaviour, ExtraEnv, ExtraArgs
 ```
 

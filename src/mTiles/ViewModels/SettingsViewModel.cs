@@ -138,11 +138,12 @@ public partial class SettingsViewModel : ObservableObject
     private CancellationTokenSource? _gitDetectCts;
 
     /// <summary>Whether the entry form is open, and the overlay with it.</summary>
-    /// <remarks>Three forms share it — the manual database connection, an agent instance and a
-    /// provider instance — and only ever one at a time: two of them true would draw two forms stacked
-    /// in one overlay.</remarks>
+    /// <remarks>Four forms share it — the manual database connection, an agent instance, a provider
+    /// instance and a sign-in — and only ever one at a time: two of them true would draw two forms
+    /// stacked in one overlay.</remarks>
     public bool IsEditingAnything =>
-        IsEditingManualConnection || IsEditingAgentInstance || IsEditingProviderInstance;
+        IsEditingManualConnection || IsEditingAgentInstance || IsEditingProviderInstance
+        || IsEditingSignIn;
 
     /// <summary>Raised when a form opens, so the view can put the caret in it.</summary>
     public event Action? EditingStarted;
@@ -157,13 +158,21 @@ public partial class SettingsViewModel : ObservableObject
     /// </remarks>
     private void BeginEditing(ref bool flag)
     {
+        // Whatever the agent form had running stops here too. Lowering the flag is not closing it: the
+        // model fetch would carry on and land its answer on the form that replaced it, which is the very
+        // thing the cancellation was added for. CancelEditing already did this; opening another form did
+        // not, and both are ways of leaving.
+        LeaveAgentForm();
+
         IsEditingManualConnection = false;
         IsEditingAgentInstance = false;
         IsEditingProviderInstance = false;
+        IsEditingSignIn = false;
         flag = true;
         OnPropertyChanged(nameof(IsEditingManualConnection));
         OnPropertyChanged(nameof(IsEditingAgentInstance));
         OnPropertyChanged(nameof(IsEditingProviderInstance));
+        OnPropertyChanged(nameof(IsEditingSignIn));
         OnPropertyChanged(nameof(IsEditingAnything));
         EditingStarted?.Invoke();
     }
@@ -173,6 +182,7 @@ public partial class SettingsViewModel : ObservableObject
     {
         if (IsEditingManualConnection) CancelEditManualConnectionCommand.Execute(null);
         if (IsEditingAgentInstance) CancelEditAgentInstanceCommand.Execute(null);
+        if (IsEditingSignIn) CancelEditSignInCommand.Execute(null);
         if (IsEditingProviderInstance) CancelEditProviderInstanceCommand.Execute(null);
     }
 

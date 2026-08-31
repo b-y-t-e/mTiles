@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Database;
+using mTiles.Services.Shells;
 using mTiles.Services.Tiles;
 
 namespace mTiles.ViewModels;
@@ -129,9 +130,14 @@ public partial class MainWindowViewModel : ObservableObject
         {
             if (CurrentWorkspace is not { } workspace) return Task.FromResult(false);
 
+            // InstallCommand, not CommandLine: the latter is the readable form, and its own remarks say
+            // it is never what runs. It was - and the Sign in button, whose command is a whole shell
+            // line, arrived in the tile wrapped in quotes and was echoed back rather than run.
+            var shell = ShellTerminalCatalog.ResolveDefault(_settingsService.Settings).Shell;
+
             workspace.OpenTileBesideActive(TileKindIds.Terminal, new System.Text.Json.Nodes.JsonObject
             {
-                [TerminalTileKind.StartupScriptKey] = plan.CommandLine,
+                [TerminalTileKind.StartupScriptKey] = InstallCommand.For(plan, shell),
             });
             return Task.FromResult(true);
         };

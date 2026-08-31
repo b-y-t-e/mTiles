@@ -25,7 +25,12 @@ public static class AgentModelResolver
     public static async Task<(string? Model, string? Problem)> ResolveAsync(AppSettings settings,
         IAiAgent agent, AiAgentInstance instance, CancellationToken ct = default)
     {
-        if (ProviderProblem(settings, agent, instance) is { } unreachable)
+        // The same sentence the chooser hides on and the Settings row shows - said out loud here,
+        // because a tile restored from a layout is handed its stored instance without anybody choosing,
+        // which is the one path no chooser filters.
+        // Asked about the agent this launch resolved, which after a substitution is not the one the
+        // instance names - see the overload's own remarks.
+        if (AgentAvailability.Problem(instance, settings, agent) is { } unreachable)
             return (null, unreachable);
 
         if (instance.Model.Length > 0 && !agent.AcceptsModel)
@@ -36,7 +41,7 @@ public static class AgentModelResolver
         if (instance.Model != AiModelChoice.FirstLoaded)
             return (instance.Model, null);
 
-        var runtime = AgentRuntime.For(settings, instance);
+        var runtime = AgentRuntime.For(settings, instance, agent: agent);
         if (runtime.Provider is not { } provider || runtime.ProviderInstance is not { } configured)
             return (null, "This instance runs on the first model loaded, but it names no provider "
                 + "to ask. Choose a provider, or name a model.");
@@ -55,35 +60,5 @@ public static class AgentModelResolver
             return (null, $"Could not work out which model {provider.DisplayName} has loaded: "
                 + ex.Message);
         }
-    }
-
-    /// <summary>
-    /// Why this instance cannot authenticate the way it says it does, or null when it can.
-    /// </summary>
-    /// <remarks>
-    /// <para>The same question <c>AiAgentCatalog.IsAvailable</c> asks, said out loud instead of used as
-    /// a filter. The chooser and the Goal tile's list both hide an instance whose provider has been
-    /// deleted or whose agent has been changed to one that cannot speak to it — but a tile restored
-    /// from a layout is handed its stored instance without anybody asking, so the one path that was
-    /// never filtered is the one where the user is not choosing anything. Left unsaid, that tile
-    /// launches on the CLI's own configuration: another account, another model, and nothing on screen
-    /// saying so.</para>
-    /// <para>An instance naming <em>no</em> provider is not this: "the agent's own configuration" is a
-    /// choice somebody made, and it is what every seeded instance starts in.</para>
-    /// </remarks>
-    private static string? ProviderProblem(AppSettings settings, IAiAgent agent,
-        AiAgentInstance instance)
-    {
-        if (instance.ProviderInstanceId.Length == 0) return null;
-
-        if (AiProviderCatalog.FindInstance(settings, instance.ProviderInstanceId) is not { } configured
-            || AiProviderCatalog.Find(configured.ProviderId) is not { } provider)
-            return "The provider this instance authenticates through is gone, so it would run on "
-                + $"{agent.DisplayName}'s own configuration. Choose a provider on this instance.";
-
-        return AiProviderCatalog.IsCompatible(agent, provider)
-            ? null
-            : $"{agent.DisplayName} cannot talk to {provider.DisplayName}, so this instance would run "
-              + "on its own configuration. Choose a provider it can use.";
     }
 }

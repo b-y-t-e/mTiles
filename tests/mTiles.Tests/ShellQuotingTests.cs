@@ -136,6 +136,27 @@ public class ShellQuotingTests
         => Assert.Equal("claude", Bash.WithEnv(new Dictionary<string, string?>(), "claude"));
 
     /// <summary>
+    /// Running a program is a sentence each shell spells for itself.
+    /// </summary>
+    /// <remarks><b>PowerShell will not run a quoted first token.</b> Measured:
+    /// <c>'npm' 'install'</c> answers <c>Unexpected token ''install'' in expression or statement</c> —
+    /// the parser, before anything is launched — while a POSIX shell executes the identical line. So a
+    /// caller that quoted every part and joined them worked on Linux and was broken on Windows, which
+    /// is exactly what this member exists to keep out of callers.</remarks>
+    [Fact]
+    public void A_program_is_invoked_the_way_each_shell_wants()
+    {
+        Assert.Equal("& 'npm' 'install' '-g' 'a b'",
+            PowerShell.Invoke("npm", ["install", "-g", "a b"]));
+
+        Assert.Equal("'npm' 'install' '-g' 'a b'", Bash.Invoke("npm", ["install", "-g", "a b"]));
+
+        // The quoting is still each shell's own, doubled here and backslash-escaped there.
+        Assert.Equal("& 'it''s'", PowerShell.Invoke("it's", []));
+        Assert.Equal(@"'it'\''s'", Bash.Invoke("it's", []));
+    }
+
+    /// <summary>
     /// A variable name is interpolated into a command rather than quoted into it, so anything that is
     /// not a name is refused instead of escaped.
     /// </summary>

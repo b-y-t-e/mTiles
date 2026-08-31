@@ -22,6 +22,14 @@ public abstract class ShellTerminal : IShellTerminal
     public abstract IReadOnlyList<string> NoProfileArgs { get; }
     public abstract string Quote(string value);
 
+    /// <inheritdoc />
+    /// <remarks>A command word followed by its quoted arguments, which is every shell here but one.
+    /// The executable is quoted too — a path with a space in it is the ordinary case for a program
+    /// that is not on <c>PATH</c> — and POSIX shells read a quoted first word as a command name.
+    /// </remarks>
+    public virtual string Invoke(string executable, IReadOnlyList<string> arguments) =>
+        string.Join(' ', new[] { executable }.Concat(arguments).Select(Quote));
+
     public string SetEnv(string name, string value) => Assign(Named(name), value);
 
     public string UnsetEnv(string name) => Remove(Named(name));

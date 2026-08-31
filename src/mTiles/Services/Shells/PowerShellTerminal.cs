@@ -34,6 +34,15 @@ public sealed class PowerShellTerminal : ShellTerminal
     /// backtick escapes, so a value carrying either would be read as script rather than as text.</remarks>
     public override string Quote(string value) => "'" + value.Replace("'", "''") + "'";
 
+    /// <inheritdoc />
+    /// <remarks><b>The call operator, because a quoted first token is a string here.</b> Measured:
+    /// <c>'npm' 'install' '-g' '@anthropic-ai/claude-code'</c> answers
+    /// <c>Unexpected token ''install'' in expression or statement</c> — the parser, before anything is
+    /// launched. <c>&amp;</c> is what says "this string names a program", and it is also the only form
+    /// that survives an executable path with a space in it.</remarks>
+    public override string Invoke(string executable, IReadOnlyList<string> arguments) =>
+        "& " + base.Invoke(executable, arguments);
+
     protected override string Assign(string name, string value) => $"$env:{name} = {Quote(value)}";
 
     /// <summary>

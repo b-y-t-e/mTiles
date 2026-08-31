@@ -251,4 +251,44 @@ public class GoalAgentSelectionTests : IDisposable
             return Task.CompletedTask;
         });
     }
+
+    /// <summary>
+    /// A combo box clearing its own selection does not take the tile down with it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Both id properties are the target of a two-way <c>SelectedValue</c> binding, and emptying a
+    /// combo box's <c>ItemsSource</c> — which looking for agents again does every time — makes Avalonia
+    /// write <c>null</c> back into the bound property. That is not a hypothetical: it crashed the tile
+    /// with a <see cref="NullReferenceException"/> out of <c>GoalAgents.WithId</c>, reached through the
+    /// change notification re-reading the permission strip while the list was still empty.</para>
+    /// <para>Written as a plain assignment rather than through a real combo box on purpose: what is
+    /// being pinned is that the property tolerates a null from <em>anywhere</em>, and a test that needed
+    /// a view would not run wherever the binding is not the only way in — the goal file's own restore
+    /// writes here too.</para>
+    /// </remarks>
+    [Fact]
+    public void A_null_written_by_a_binding_reads_back_as_no_agent()
+    {
+        OnUiThread(() =>
+        {
+            GoalAgents.Factory = _ => [Worker, Reviewer];
+
+            using var vm = NewTile();
+            vm.ReviewAgentInstanceId = Reviewer.InstanceId;
+
+            vm.ExecutionAgentInstanceId = null!;
+            vm.ReviewAgentInstanceId = null!;
+
+            Assert.Equal("", vm.ExecutionAgentInstanceId);
+            Assert.Equal("", vm.ReviewAgentInstanceId);
+
+            // The two properties the notification cascade reads on the way out. Reading them at all is
+            // the assertion — each one dereferenced the id before this.
+            Assert.Null(vm.ExecutionAgent);
+            Assert.Null(vm.ReviewAgent);
+            Assert.NotEmpty(vm.AvailablePermissionModes);
+
+            return Task.CompletedTask;
+        });
+    }
 }

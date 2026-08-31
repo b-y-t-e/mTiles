@@ -11,6 +11,9 @@ public sealed class AnthropicProvider : AiProvider
     public override IReadOnlyList<ApiFlavor> ApiFlavors => [ApiFlavor.Anthropic];
     public override Uri? DefaultBaseUrl => new("https://api.anthropic.com/");
 
+    /// <summary>The spelling every catalogue reads this service's key from.</summary>
+    public override string? KeyEnvironmentVariable => "ANTHROPIC_API_KEY";
+
     /// <summary>Its own header, not a bearer token, and a version it refuses to answer without.</summary>
     protected override void Authenticate(HttpRequestMessage request, AiProviderInstance instance)
     {
@@ -28,6 +31,8 @@ public sealed class AnthropicProvider : AiProvider
     public override async Task<ProviderCheck> TestAsync(AiProviderInstance instance,
         CancellationToken ct = default)
     {
+        if (AddressProblem(instance) is { } problem) return problem;
+
         var models = await ModelsAsync(instance, ct);
         return models.Count > 0
             ? ProviderCheck.Reached($"{models.Count} models")

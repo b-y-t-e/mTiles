@@ -132,15 +132,52 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     [ObservableProperty] private GoalPhase _currentPhase = GoalPhase.Goal;
     [ObservableProperty] private bool _isRunning;
 
+    private string _executionAgentInstanceId = "";
+    private string _reviewAgentInstanceId = "";
+
     /// <summary>Which configured agent carries the goal out. An <c>AiAgentInstance.Id</c>, not a
     /// name.</summary>
-    [ObservableProperty] private string _executionAgentInstanceId = "";
+    /// <remarks><b>A null is normalised to empty, and that is not defensive housekeeping.</b> Both this
+    /// and <see cref="ReviewAgentInstanceId"/> are the target of a two-way <c>SelectedValue</c> binding,
+    /// and clearing a combo box's <c>ItemsSource</c> — which <see cref="DetectAgents"/> does every time
+    /// it looks again — drops the selection and makes the binding write <c>null</c> back here. A
+    /// property initialiser is not a runtime contract, so the generated setter took it, the change
+    /// notification re-read <see cref="AvailablePermissionModes"/> while the list was still empty, and
+    /// <c>GoalAgents.WithId</c> dereferenced it. Hand-written for exactly that reason: this is the same
+    /// rule the settings file keeps in its own setters, against a null arriving from the view instead
+    /// of from the file.</remarks>
+    public string ExecutionAgentInstanceId
+    {
+        get => _executionAgentInstanceId;
+        set
+        {
+            var id = value ?? "";
+            if (id == _executionAgentInstanceId) return;
+
+            _executionAgentInstanceId = id;
+            OnPropertyChanged();
+            OnExecutionAgentInstanceIdChanged(id);
+        }
+    }
 
     /// <summary>Which configured agent reviews it, or empty for the one that did the work.</summary>
     /// <remarks>Empty is the default and a real answer, which is why the chooser spells it out rather
     /// than leaving a blank row: "the same agent" is what a goal does unless somebody asks for a second
-    /// opinion.</remarks>
-    [ObservableProperty] private string _reviewAgentInstanceId = "";
+    /// opinion. Null is normalised to it for the reason <see cref="ExecutionAgentInstanceId"/>
+    /// gives.</remarks>
+    public string ReviewAgentInstanceId
+    {
+        get => _reviewAgentInstanceId;
+        set
+        {
+            var id = value ?? "";
+            if (id == _reviewAgentInstanceId) return;
+
+            _reviewAgentInstanceId = id;
+            OnPropertyChanged();
+            OnReviewAgentInstanceIdChanged(id);
+        }
+    }
 
     /// <summary>What the strip says, which for every idle state is nothing — see
     /// <c>GoalWorkflowEngine.GetPhaseLabel</c>. Empty is the correct initial value for the same reason
@@ -864,7 +901,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                 : choice.Label
             : "The AI tool";
 
-    partial void OnExecutionAgentInstanceIdChanged(string value)
+    private void OnExecutionAgentInstanceIdChanged(string value)
     {
         OnPropertyChanged(nameof(ExecutionAgent));
         OnPropertyChanged(nameof(ReviewAgent));
@@ -883,7 +920,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         OnPropertyChanged(nameof(PermissionModeLabel));
     }
 
-    partial void OnReviewAgentInstanceIdChanged(string value)
+    private void OnReviewAgentInstanceIdChanged(string value)
     {
         OnPropertyChanged(nameof(ReviewAgent));
         SaveStateSoon();
@@ -2435,6 +2472,20 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         AiUsage.Headless(CurrentPhase,
             _engine.Criteria.RequireBuild || _engine.Criteria.RequireTestsPass);
 
+    /// <summary>
+    /// The agent's environment, after whatever it needs on disk has been made.
+    /// </summary>
+    /// <remarks>A headless run does not go through <c>TileLauncher</c>, so the preparation the tile gets
+    /// from <c>PrepareForLaunchAsync</c> has to be asked for here too — otherwise an opencode instance on
+    /// a local server would run from a config file that exists only when a tile has been opened on the
+    /// same instance first.</remarks>
+    private static IReadOnlyDictionary<string, string?> PreparedEnvironment(
+        IAiAgent agent, AgentRuntime runtime)
+    {
+        agent.PrepareToLaunch(runtime);
+        return agent.EnvFor(runtime);
+    }
+
     private async Task<AiRun> RunAiAsync(string prompt)
     {
         var phase = CurrentPhase;
@@ -2488,7 +2539,8 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             }
 
             var runtime =
-                AgentRuntime.For(_settingsService.Settings, chosen.Instance, resolvedModel);
+                AgentRuntime.For(_settingsService.Settings, chosen.Instance, resolvedModel,
+                    chosen.Agent);
 
             var result = AiRunnerFactory is { } run
                 ? await run(chosen, prompt, _workingDirectory, token)
@@ -2527,13 +2579,15 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                     // by "Claude Code on GLM 5.3 via OpenRouter" rather than by whatever the CLI is
                     // logged in as. A null value unsets, which is what stands between an inherited
                     // global key and a run on somebody else's account.
-                    environment: chosen.Agent.EnvFor(runtime),
+                    environment: PreparedEnvironment(chosen.Agent, runtime),
                     instance: chosen.Instance,
                     // The same instance's model, on the command line for the four agents that are told
-                    // one that way. Never the sentinel: `RequestedModel` is empty where the choice has
-                    // not been resolved, which is the agent's own model rather than a name no provider
-                    // has.
-                    model: runtime.RequestedModel,
+                    // one that way - and spelled the way that agent wants it, which for opencode and pi
+                    // means `provider/model`. Asked of the agent rather than taken from the runtime, so
+                    // a headless run and a tile cannot spell the same instance differently; never the
+                    // sentinel, since `RequestedModel` underneath is empty where the choice has not been
+                    // resolved.
+                    model: chosen.Agent.QualifiedModel(runtime),
                     ct: token);
 
             _lastRunDenials = result.PermissionDenials;

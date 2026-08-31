@@ -20,7 +20,21 @@ public static class AppPaths
     /// </summary>
     private static readonly Lazy<string> Root = new(Resolve);
 
-    public static string GetAppDataDirectory() => Root.Value;
+    /// <summary>
+    /// Where everything lives, or the directory a test has substituted for it.
+    /// </summary>
+    /// <remarks>The seam is the same style as <c>AiProvider.HandlerFactory</c>, and it was added for
+    /// the same class of reason: two tests were creating and deleting real directories under the
+    /// developer's own <c>%APPDATA%/mTiles</c> — an agent sign-in and a generated opencode config —
+    /// and only a passing run cleaned up after itself. A failing or interrupted one left them in a live
+    /// installation.</remarks>
+    public static string GetAppDataDirectory() => RootOverride ?? Root.Value;
+
+    /// <summary>A directory to use instead of the real one. Null everywhere but in tests.</summary>
+    /// <remarks>Not routed through <see cref="Lazy{T}"/>: resolving the real root can <em>move</em> a
+    /// directory, and a test must not be able to trigger that by setting this. Checked first and
+    /// nothing else changes.</remarks>
+    internal static string? RootOverride { get; set; }
 
     /// <summary>
     /// What the move did, if there was one to do, kept for somebody to write to the log later.
@@ -109,6 +123,17 @@ public static class AppPaths
     /// <summary>Where the phone bridge keeps its TLS material. Contains a private key.</summary>
     public static string GetPhoneDirectory() =>
         Path.Combine(GetAppDataDirectory(), "phone");
+
+    /// <summary>
+    /// Where a second (and third) login for an AI CLI lives — one directory per sign-in.
+    /// </summary>
+    /// <remarks><b>Every one of these holds somebody's credentials</b>, written there by the CLI
+    /// itself: a refresh token, and the whole conversation history that came with the account. Which is
+    /// why the sign-in row never deletes a directory and why <c>AiSignInStore</c> creates them
+    /// owner-only, the same rule <c>PrivateFile</c> applies to <c>settings.json</c> for the same reason
+    /// — outside Windows nothing else narrows them.</remarks>
+    public static string GetAgentAccountsDirectory() =>
+        Path.Combine(GetAppDataDirectory(), "agents");
 
     public static string GetSettingsFilePath() =>
         Path.Combine(GetAppDataDirectory(), "settings.json");

@@ -49,6 +49,20 @@ public partial class LeafTileView : UserControl
     /// <summary>Below this, restarting and starting a new session are in the menu only.</summary>
     private const double SessionButtonsNeedWidth = 190;
 
+    /// <summary>How wide the tile's name may grow before the note beside it starts being squeezed.
+    /// </summary>
+    /// <remarks>A named threshold like the two below it, rather than a number in the markup: every
+    /// other width the header decides by lives here, and one of them hiding in a XAML attribute is the
+    /// one nobody finds when the header stops behaving.</remarks>
+    public const double NameMaxWidth = 220;
+
+    /// <summary>Below this, the header says only which tile this is, not what it is running.</summary>
+    /// <remarks>Wider than the button thresholds, and deliberately so: the note is the <em>first</em>
+    /// thing to give way. A button that stands down is still in the overflow menu; the note has nowhere
+    /// else to be shown, but it is also the only thing here the user is not currently trying to click.
+    /// Below this width the name has the row to itself, which is the promise that matters.</remarks>
+    private const double HeaderNoteNeedsWidth = 320;
+
     /// <summary>Which of the header's buttons a tile this wide can afford.</summary>
     /// <remarks>
     /// <para>The name is what identifies the tile, and in a <c>DockPanel</c> it is the one thing that
@@ -76,6 +90,28 @@ public partial class LeafTileView : UserControl
         var roomForSession = width >= SessionButtonsNeedWidth;
         RestartButton.IsVisible = roomForSession && _subscribedLeaf?.CanRestart == true;
         NewSessionButton.IsVisible = roomForSession && _subscribedLeaf?.HasSession == true;
+
+        // Width *and* whether there is anything to say, in one place, for the reason the two above are:
+        // this method is the single writer of every header visibility, and a binding writing the same
+        // property at the same priority is how the Restart button came to depend on whether the tile had
+        // been resized or its content changed more recently.
+        TileHeaderNote.IsVisible = width >= HeaderNoteNeedsWidth && TileHeaderNote.Text?.Length > 0;
+    }
+
+    /// <summary>
+    /// Fills in what the tile is running, for a kind that has an answer.
+    /// </summary>
+    /// <remarks>The text is set here and its visibility in <see cref="ApplyHeaderWidth"/>, which is then
+    /// called: one writer for the text, one for the flag, and neither guessing what the other did. The
+    /// full note is the tooltip whether or not it fits, because trimming it is exactly when the rest of
+    /// it is worth having.</remarks>
+    private void UpdateHeaderNote(LeafTileNodeViewModel leaf)
+    {
+        var note = (leaf.Content as IDescribedTile)?.HeaderNote ?? "";
+
+        TileHeaderNote.Text = note;
+        ToolTip.SetTip(TileHeaderNote, note.Length > 0 ? note : null);
+        ApplyHeaderWidth(TileToolbar.Bounds.Width);
     }
 
     private void OnTilePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
@@ -182,6 +218,11 @@ public partial class LeafTileView : UserControl
     /// </remarks>
     private void UpdateTypeGlyph(LeafTileNodeViewModel leaf)
     {
+        // The note follows the same two things the glyph does - which kind this is, and which content
+        // object is in it - so it is refreshed by the same callers rather than by a third subscription
+        // that would have to be kept in step with them.
+        UpdateHeaderNote(leaf);
+
         var kind = leaf.Kind;
         TileTypeGlyph.Kind = kind is null ? TileIcons.Placeholder : TileIcons.Kind(kind.IconId);
 
@@ -355,6 +396,14 @@ public partial class LeafTileView : UserControl
     {
         if (e.PropertyName == nameof(ICustomBackgroundTile.ContentBackground))
             UpdateContentBackground(sender as ITile);
+
+        // A tile whose note has changed under it - an agent relaunched on an instance edited in
+        // Settings, or a model the launch has only just resolved - says so through its own change
+        // notification, which is what ITile's INotifyPropertyChanged is here for. Without this the
+        // header would keep showing the model of a session that has already been replaced.
+        if (e.PropertyName == nameof(IDescribedTile.HeaderNote)
+            && DataContext is LeafTileNodeViewModel leaf)
+            UpdateHeaderNote(leaf);
     }
 
     /// <summary>

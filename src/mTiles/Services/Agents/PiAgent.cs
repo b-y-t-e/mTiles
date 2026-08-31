@@ -21,6 +21,42 @@ public sealed class PiAgent : AiAgent
     public override string Id => "pi";
     public override string DisplayName => "Pi Agent";
     public override string BinaryName => "pi";
+
+    /// <summary>
+    /// <c>PI_CODING_AGENT_DIR</c>, measured 2026-08-31 against pi 0.84.3.
+    /// </summary>
+    /// <remarks><b>This was first recorded as "pi has no such variable", and that was wrong.</b> It is
+    /// listed in <c>pi --help</c> as "Config directory (default: ~/.pi/agent)", and it really does move
+    /// the credentials: with <c>OPENROUTER_API_KEY</c> removed from the environment,
+    /// <c>pi auth check --provider openrouter</c> answers <c>not_ready</c> against a fresh directory and
+    /// <c>ready</c> against the default one. The first reading was taken by grepping <c>--help</c> for
+    /// the word "config" near the top and stopping too early — which is why the note in
+    /// <c>AiSignInTests</c> now says what was actually run.
+    /// <para>Its <c>auth.json</c> names the providers it holds and no address, so the row says whether
+    /// there is a login and not whose — the same answer codex's file allows.</para></remarks>
+    public override bool SupportsSignIns => true;
+
+    /// <inheritdoc />
+    public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["PI_CODING_AGENT_DIR"] = configDirectory,
+        };
+
+    /// <summary>Whether <c>auth.json</c> is there.</summary>
+    /// <remarks>Deliberately not "is pi ready": readiness can come from an API key in the environment,
+    /// which is not this sign-in's login and would report every empty directory as signed in.</remarks>
+    public override SignInStatus ReadSignIn(string? configDirectory)
+    {
+        var home = configDirectory is { Length: > 0 } directory
+            ? directory
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".pi", "agent");
+
+        return File.Exists(Path.Combine(home, "auth.json"))
+            ? SignInStatus.SignedInAnonymously
+            : SignInStatus.NotSignedIn;
+    }
     public override string? InstallUrl => "https://github.com/mariozechner/pi-coding-agent";
     public override SessionStrategy SessionStrategy => SessionStrategy.Fixed;
 
@@ -32,18 +68,41 @@ public sealed class PiAgent : AiAgent
     public override IReadOnlyList<ApiFlavor> ConsumesApiFlavors => [ApiFlavor.OpenAiChatCompletions];
 
     /// <summary>
-    /// The OpenAI-compatible pair, when the instance names a provider that serves that shape.
+    /// The chosen service's own key, under the name pi reads it from.
     /// </summary>
-    /// <remarks>Nothing at all when it does not: an agent with no provider runs on its own
-    /// configuration, which is what an unconfigured instance means and what a first run is in.</remarks>
-    protected override void Configure(IDictionary<string, string?> environment, AgentRuntime runtime)
-    {
-        if (runtime.EndpointFor(ApiFlavor.OpenAiChatCompletions) is not { } endpoint)
-            return;
+    /// <remarks>Same correction as opencode's, and for the same reason: pi has no generic base-URL
+    /// variable. Its <c>--help</c> lists a key variable per service — <c>OPENROUTER_API_KEY</c>,
+    /// <c>ANTHROPIC_API_KEY</c>, <c>ZAI_API_KEY</c> and a dozen more — and the only address it takes is
+    /// Azure's, which is that one service's own. <c>OPENAI_API_KEY</c> here means the real OpenAI.
+    /// </remarks>
+    protected override void Configure(IDictionary<string, string?> environment, AgentRuntime runtime) =>
+        ApplyProviderKey(environment, runtime);
 
-        environment["OPENAI_BASE_URL"] = endpoint.ToString();
-        environment["OPENAI_API_KEY"] = runtime.ApiKey;
-    }
+    /// <inheritdoc />
+    /// <remarks><c>pi --help</c>: <c>--model</c> "supports provider/id". The separate
+    /// <c>--provider</c> flag says the same thing twice, and its default is <c>google</c> — which is
+    /// what an unprefixed model was quietly running on.</remarks>
+    public override string QualifiedModel(AgentRuntime runtime) => WithProviderPrefix(runtime);
+
+    /// <inheritdoc />
+    /// <remarks>The prefix is the only place this CLI hears which service to use.</remarks>
+    public override bool NamesProviderInModel => true;
+
+    /// <summary>
+    /// No. pi has a key variable per named service and nowhere to put an address.
+    /// </summary>
+    /// <remarks>Measured 2026-08-31 against pi 0.84.3: its <c>--help</c> lists twenty key variables and
+    /// exactly one base URL, Azure's, which belongs to that service rather than being a generic
+    /// endpoint. <c>pi --list-models</c> with <c>OPENAI_BASE_URL</c> set shows no local provider. So an
+    /// instance of pi on a local server is a configuration that cannot work through pi alone.
+    /// <para><b>A third-party extension does provide a route</b> — <c>pi-localllm-provider</c>, which
+    /// registers <c>localllm-&lt;slug&gt;</c> providers from a <c>localllm</c> block in
+    /// <c>settings.json</c>. It is not assumed here because it may not be installed, and because it
+    /// reads a hardcoded path in the home directory rather than <c>PI_CODING_AGENT_DIR</c>, so its
+    /// servers are one global list rather than something an instance can own. What it would take to
+    /// allow the pairing when it <em>is</em> there is written down in <c>docs/ROADMAP.md</c>.</para>
+    /// </remarks>
+    public override bool SupportsCustomEndpoint => false;
 
     /// <summary>
     /// Bypass, and the option of passing nothing — which come to the same thing here, and are both

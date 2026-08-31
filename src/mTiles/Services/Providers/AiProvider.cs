@@ -32,6 +32,18 @@ public abstract class AiProvider : IAiProvider
     public virtual bool NeedsApiKey => true;
 
     /// <inheritdoc />
+    /// <remarks>Null unless the service says otherwise, which is the safe direction: a wrong variable
+    /// name is a run authenticated as somebody else, while none at all is a run that fails and says
+    /// so.</remarks>
+    public virtual string? KeyEnvironmentVariable => null;
+
+    /// <inheritdoc />
+    /// <remarks>Our own id, because it was chosen to be the name these catalogues use — all four hosted
+    /// ones checked against models.dev, which is opencode's own catalogue. An override is for a
+    /// catalogue that spells one differently, and would be a measurement rather than a guess.</remarks>
+    public virtual string CatalogueId => Id;
+
+    /// <inheritdoc />
     public virtual bool IsLocal => false;
 
     /// <summary>
@@ -42,11 +54,31 @@ public abstract class AiProvider : IAiProvider
     /// actually applied.</remarks>
     internal static Func<HttpMessageHandler>? HandlerFactory { get; set; }
 
-    /// <summary>Where this instance's calls go — its own address, or the provider's.</summary>
+    /// <inheritdoc />
     /// <remarks>The parse is done here rather than at the field, so the stored text stays what the user
     /// typed and a mistyped address is one failed call rather than a value silently rewritten.</remarks>
     public Uri? BaseUrlFor(AiProviderInstance instance) =>
-        ProviderEndpoint.Parse(instance.BaseUrl, DefaultPort) ?? DefaultBaseUrl;
+        instance.BaseUrl.Trim().Length == 0
+            ? DefaultBaseUrl
+            // Typed and unparseable is not the same as not typed. Since the local providers gained a
+            // default of their own, `Parse(...) ?? DefaultBaseUrl` quietly sent "192.168.1.10:abc" and
+            // "ftp://box" to localhost — a Test that passes and a tile that runs against this machine
+            // while the row shows another address. Null instead, which every caller already treats as
+            // "there is nowhere to call".
+            : ProviderEndpoint.Parse(instance.BaseUrl, DefaultPort);
+
+    /// <summary>The address a call would go to, spelled for a message, or what is wrong with the one
+    /// that was typed.</summary>
+    /// <remarks><para>Since a typed address that cannot be parsed answers null rather than falling back
+    /// to this machine, interpolating <see cref="BaseUrlFor"/> left a failure sentence reading
+    /// "answered at ." — blank in the one case where the user has made a typo and it could be
+    /// named.</para>
+    /// <para>Here rather than on the two local providers that word such a sentence: it is one rule
+    /// about how an instance's address reads, and two identical copies of it are two places for it to
+    /// drift — the argument <c>SafePathComponent</c> was extracted on.</para></remarks>
+    protected string Address(AiProviderInstance instance) =>
+        BaseUrlFor(instance)?.ToString()
+        ?? $"\"{instance.BaseUrl.Trim()}\", which is not an address this can read";
 
     /// <summary>
     /// The address for a flavor this provider serves — its own, unless a subclass serves that shape
@@ -57,6 +89,20 @@ public abstract class AiProvider : IAiProvider
     /// </remarks>
     public virtual Uri? EndpointFor(ApiFlavor flavor, AiProviderInstance instance) =>
         ApiFlavors.Contains(flavor) ? BaseUrlFor(instance) : null;
+
+    /// <summary>
+    /// The answer a test owes before it makes no request at all, or null when there is an address.
+    /// </summary>
+    /// <remarks><b>Because the message blamed the key for a typo in the address.</b> An unreadable
+    /// address makes <see cref="BaseUrlFor"/> answer null, every request answers null without being
+    /// sent, and the four hosted providers then reported "did not accept this key" — so the first thing
+    /// the user does is rotate a key that works. Said here rather than in four messages, for the reason
+    /// <see cref="Address"/> stopped being written twice.</remarks>
+    protected ProviderCheck? AddressProblem(AiProviderInstance instance) =>
+        BaseUrlFor(instance) is null
+            ? ProviderCheck.Failed($"Nothing was asked: {Address(instance)}. Correct it, or clear it "
+                + $"to use {DisplayName}'s own address.")
+            : null;
 
     /// <inheritdoc />
     public abstract Task<ProviderCheck> TestAsync(AiProviderInstance instance,

@@ -86,7 +86,7 @@ public class AiProviderTests
     public void Claude_is_compatible_with_exactly_the_anthropic_shaped_services()
     {
         Assert.Equal(
-            ["anthropic", "openrouter", "zai"],
+            ["anthropic", "lmstudio", "openrouter", "zai"],
             AiProviderCatalog.CompatibleWith(Agent("claude")).Select(p => p.Id).Order());
     }
 
@@ -189,49 +189,64 @@ public class AiProviderTests
         Assert.Equal("mine", environment["ANTHROPIC_API_KEY"]);
     }
 
-    /// <summary>The OpenAI-compatible agents get the pair their own CLI reads, at the provider's own
-    /// path.</summary>
+    /// <summary>
+    /// The OpenAI-compatible agents are given the provider's <em>own</em> key variable, and no address.
+    /// </summary>
+    /// <remarks><b>This asserted the opposite until 2026-08-31</b>, when the pairing was actually run:
+    /// opencode and pi take no base URL from the environment at all. They keep a registry of providers
+    /// and decide which one is in play from which key variable is set, so <c>OPENAI_API_KEY</c> for an
+    /// OpenRouter instance authenticated the run against api.openai.com — reported as the OpenAI
+    /// provider by <c>opencode auth list</c> — while the row on screen said OpenRouter. See
+    /// <c>AgentProviderRoutingTests</c> for the whole of the corrected behaviour.</remarks>
     [Fact]
-    public void An_openai_compatible_agent_is_given_the_address_and_the_key()
+    public void An_openai_compatible_agent_is_given_the_providers_own_key()
     {
         var (settings, instance) = Configured("opencode", "openrouter", key: "sk-test");
 
         var environment = Agent("opencode").EnvFor(AgentRuntime.For(settings, instance));
 
-        Assert.Equal("https://openrouter.ai/api/v1", environment["OPENAI_BASE_URL"]);
-        Assert.Equal("sk-test", environment["OPENAI_API_KEY"]);
+        Assert.Equal("sk-test", environment["OPENROUTER_API_KEY"]);
+        Assert.False(environment.ContainsKey("OPENAI_BASE_URL"));
+
+        // Present and null: the block *removes* the other services' variables rather than leaving an
+        // inherited one beside ours - see AgentProviderRoutingTests for why that half matters most.
+        Assert.Null(environment["OPENAI_API_KEY"]);
     }
 
     /// <summary>
     /// OpenRouter's two shapes are two addresses, and Claude Code gets the shorter one.
     /// </summary>
     /// <remarks>The provider serves the Anthropic shape at <c>api/v1/messages</c> and Claude Code
-    /// appends <c>/v1/messages</c> itself, so handing it the same <c>api/v1</c> the OpenAI-shaped
-    /// agents get produced a doubled version and a 404 — which Claude Code reports as a model that does
-    /// not exist. Both halves are asserted together: the fix is that they differ, so a test of one
-    /// alone would pass on the bug.</remarks>
+    /// appends <c>/v1/messages</c> itself, so handing it the same <c>api/v1</c> an OpenAI-shaped client
+    /// wants produced a doubled version and a 404. Both halves are asserted together: the fix is that
+    /// they differ, so a test of one alone would pass on the bug.
+    /// <para>Read off the endpoints rather than out of an environment block, because only one of the
+    /// two is delivered that way — see <c>AgentProviderRoutingTests</c>.</para></remarks>
     [Fact]
     public void Openrouter_gives_claude_an_api_root_and_the_openai_agents_a_versioned_one()
     {
-        var (anthropicSide, claude) = Configured("claude", "openrouter", key: "sk-test");
-        var (openAiSide, opencode) = Configured("opencode", "openrouter", key: "sk-test");
+        var (settings, claude) = Configured("claude", "openrouter", key: "sk-test");
+        var runtime = AgentRuntime.For(settings, claude);
 
         Assert.Equal("https://openrouter.ai/api",
-            Agent("claude").EnvFor(AgentRuntime.For(anthropicSide, claude))["ANTHROPIC_BASE_URL"]);
+            Agent("claude").EnvFor(runtime)["ANTHROPIC_BASE_URL"]);
         Assert.Equal("https://openrouter.ai/api/v1",
-            Agent("opencode").EnvFor(AgentRuntime.For(openAiSide, opencode))["OPENAI_BASE_URL"]);
+            runtime.EndpointFor(ApiFlavor.OpenAiChatCompletions)?.ToString());
     }
 
     /// <summary>An address the user typed replaces the provider's own, port and all.</summary>
+    /// <remarks>Asserted through the endpoint the provider answers with, which is what every route to a
+    /// server is built from — the agents differ in how they are told it, and one of them is told
+    /// nothing at all.</remarks>
     [Fact]
     public void A_local_server_is_reached_where_the_user_said_it_was()
     {
         var (settings, instance) = Configured("pi", "lmstudio", key: "");
         settings.AiProviderInstances[0].BaseUrl = "192.168.1.10";
 
-        var environment = Agent("pi").EnvFor(AgentRuntime.For(settings, instance));
+        var endpoint = AgentRuntime.For(settings, instance).EndpointFor(ApiFlavor.OpenAiChatCompletions);
 
-        Assert.Equal("http://192.168.1.10:1234/v1", environment["OPENAI_BASE_URL"]);
+        Assert.Equal("http://192.168.1.10:1234/v1", endpoint?.ToString());
     }
 
     // ── Availability ─────────────────────────────────────────────────────────────────────────────
@@ -412,6 +427,172 @@ public class AiProviderTests
 
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────
 
+    // ── Claude Code against a local server ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// LM Studio gets the API root for Claude Code and the versioned path for an OpenAI client.
+    /// </summary>
+    /// <remarks>Claude Code appends <c>/v1/messages</c> itself, so handing it the same <c>/v1</c> the
+    /// other agents get produces a doubled version and a 404 — the mistake already paid for once
+    /// against OpenRouter. Both halves are asserted together: the fix is that they differ, so a test of
+    /// one alone would pass on the bug.</remarks>
+    [Fact]
+    public void Lm_studio_serves_claude_at_the_root_and_the_openai_agents_under_v1()
+    {
+        var provider = Provider("lmstudio");
+        var instance = Instance("lmstudio", key: "", baseUrl: "127.0.0.1:1234");
+
+        Assert.Equal("http://127.0.0.1:1234/",
+            provider.EndpointFor(ApiFlavor.Anthropic, instance)?.ToString());
+        Assert.Equal("http://127.0.0.1:1234/v1",
+            provider.EndpointFor(ApiFlavor.OpenAiChatCompletions, instance)?.ToString());
+    }
+
+    /// <summary>
+    /// A keyless provider still gets a non-empty token, because an empty one is a refusal.
+    /// </summary>
+    /// <remarks>Measured 2026-08-31 against Claude Code 2.1.251 and a running LM Studio:
+    /// <c>ANTHROPIC_AUTH_TOKEN=""</c> fails with "Not logged in · Please run /login" before a request
+    /// is made, while any non-empty value goes straight through — the server has no authentication and
+    /// ignores it. Without this, every local-server pairing was configurable, offered, and dead on
+    /// launch.</remarks>
+    [Fact]
+    public void Claude_gets_a_placeholder_token_where_the_provider_needs_no_key()
+    {
+        var (settings, instance) = Configured("claude", "lmstudio", key: "");
+
+        var environment = Agent("claude").EnvFor(AgentRuntime.For(settings, instance));
+
+        Assert.NotNull(environment["ANTHROPIC_AUTH_TOKEN"]);
+        Assert.NotEmpty(environment["ANTHROPIC_AUTH_TOKEN"]!);
+    }
+
+    /// <summary>Ollama is not given the same, because it does not serve it.</summary>
+    /// <remarks>Measured the same day: its <c>/v1/messages</c> answers 404. The flavors are what each
+    /// server actually serves, and a pairing offered and then failed is worse than one never
+    /// offered.</remarks>
+    [Fact]
+    public void Ollama_is_not_offered_to_claude() =>
+        Assert.False(AiProviderCatalog.IsCompatible(Agent("claude"), Provider("ollama")));
+
+    /// <summary>
+    /// An address that was typed and cannot be read is a failure, not a fallback.
+    /// </summary>
+    /// <remarks><b>Empty and unparseable stopped being the same answer</b> the day the local providers
+    /// gained a default of their own: <c>Parse(...) ?? DefaultBaseUrl</c> then sent a typo to this
+    /// machine, so a Test could pass and a tile run against localhost while the row showed another
+    /// address. Asserted through <c>BaseUrlFor</c> rather than <c>ProviderEndpoint.Parse</c>, because
+    /// the fallback is what this is about.</remarks>
+    [Theory]
+    [InlineData("", "http://localhost:1234/")]
+    [InlineData("   ", "http://localhost:1234/")]
+    [InlineData("192.168.1.10", "http://192.168.1.10:1234/")]
+    [InlineData("192.168.1.10:abc", null)]
+    [InlineData("ftp://box.local", null)]
+    public void A_typed_address_that_cannot_be_read_does_not_fall_back(string typed, string? expected)
+    {
+        var endpoint = AgentRuntime
+            .For(SettingsWith("lmstudio", typed), InstanceOn("lmstudio"))
+            .EndpointFor(ApiFlavor.OpenAiChatCompletions);
+
+        // The endpoint is the base with /v1 on it, so an answer at all means the base resolved.
+        Assert.Equal(expected is null, endpoint is null);
+    }
+
+    private static AppSettings SettingsWith(string providerId, string baseUrl)
+    {
+        var settings = new AppSettings();
+        settings.AiProviderInstances.Add(
+            new AiProviderInstance { Id = "p", ProviderId = providerId, BaseUrl = baseUrl });
+        return settings;
+    }
+
+    private static AiAgentInstance InstanceOn(string providerId) =>
+        new() { AgentId = "opencode", ApiAccountId = "p" };
+
+    // ── Which ports a scan looks on ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A provider that can be moved is looked for on every port it turns up on.
+    /// </summary>
+    /// <remarks>Measured 2026-08-31: an LM Studio serving a loaded model on 8080 was invisible to
+    /// Discover, which probed 1234 and nothing else. Whether 8080 is that build's default or somebody's
+    /// choice is not knowable from the config file — which is the argument for probing both rather than
+    /// for picking a winner.</remarks>
+    [Fact]
+    public void Lm_studio_is_looked_for_on_both_ports_it_turns_up_on() =>
+        Assert.Equal([1234, 8080], Local("lmstudio").DiscoveryPorts);
+
+    /// <summary>
+    /// The one port stays the one an address is built from, and is among the ones scanned.
+    /// </summary>
+    /// <remarks><para>Two questions, one number each way round: <c>DefaultPort</c> is what a bare host
+    /// means and has to be single, while a scan may look wider. A provider whose default was not in its
+    /// own scan list would be discoverable nowhere it could actually be typed.</para>
+    /// <para><b>Only the local ones are asked</b>, and openrouter used to be a row here — which is the
+    /// whole of why the property moved to <c>ILocalAiProvider</c>: on a hosted provider it resolved to
+    /// <c>[443]</c>, an answer no caller wants and none reads.</para></remarks>
+    [Theory]
+    [InlineData("lmstudio")]
+    [InlineData("ollama")]
+    public void Every_local_provider_scans_the_port_a_bare_host_would_mean(string providerId)
+    {
+        var provider = Local(providerId);
+
+        Assert.Contains(provider.DefaultPort, provider.DiscoveryPorts);
+    }
+
+    /// <summary>The ports are asked of the servers that can be scanned for, and of nothing else.
+    /// </summary>
+    private static ILocalAiProvider Local(string id) =>
+        Provider(id) as ILocalAiProvider
+        ?? throw new InvalidOperationException($"'{id}' is not a local provider.");
+
+    // ── A local provider with an empty address ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Empty means this machine, on the port the tool documents.
+    /// </summary>
+    /// <remarks>Both local providers used to answer null here, on the reasoning that a server on
+    /// somebody's machine has no address until they say where it is. That is true of another machine
+    /// and wrong about the case that happens: <c>GetJsonAsync</c> returned before a socket was opened,
+    /// the empty model list that came back was indistinguishable from an unreachable server, and the
+    /// user was sent to check a server that was running — from a form whose placeholder had told them
+    /// the field could be left blank.</remarks>
+    [Theory]
+    [InlineData("lmstudio", "http://localhost:1234/")]
+    [InlineData("ollama", "http://localhost:11434/")]
+    public void A_local_provider_with_an_empty_address_means_this_machine(
+        string providerId, string expected)
+    {
+        // Through the endpoint an agent would actually be given, which is the thing that was empty:
+        // the flavor route is what a launch reads, and it is built from the same base address.
+        var provider = Provider(providerId);
+        var endpoint = provider.EndpointFor(ApiFlavor.OpenAiChatCompletions,
+            Instance(providerId, key: "", baseUrl: ""));
+
+        Assert.NotNull(endpoint);
+        Assert.StartsWith(expected, endpoint.ToString());
+    }
+
+    /// <summary>
+    /// And one that was asked and did not answer names the address it tried.
+    /// </summary>
+    /// <remarks>The port is the whole of this bug in practice: LM Studio's default is 1234 and it will
+    /// happily be configured onto another, at which point "nothing answered there" is a sentence with
+    /// no "there" in it — the address field the user is looking at may well be empty.</remarks>
+    [Fact]
+    public async Task A_local_provider_that_does_not_answer_names_where_it_looked()
+    {
+        using var http = new StubHttp("", HttpStatusCode.NotFound);
+
+        var check = await Provider("lmstudio")
+            .TestAsync(Instance("lmstudio", key: "", baseUrl: "127.0.0.1:8080"));
+
+        Assert.False(check.Ok);
+        Assert.Contains("8080", check.Message);
+    }
+
     private static IAiAgent Agent(string id) =>
         AiAgentCatalog.Find(id) ?? throw new InvalidOperationException($"No agent '{id}'.");
 
@@ -427,7 +608,7 @@ public class AiProviderTests
     {
         var provider = new AiProviderInstance { ProviderId = providerId, ApiKey = key };
         var instance = AiAgentCatalog.SeedInstanceFor(Agent(agentId));
-        instance.ProviderInstanceId = provider.Id;
+        instance.ApiAccountId = provider.Id;
 
         var settings = new AppSettings();
         settings.AiProviderInstances.Add(provider);
@@ -509,6 +690,27 @@ public class AiProviderTests
                 CancellationToken cancellationToken) =>
                 Task.FromException<HttpResponseMessage>(failure);
         }
+    }
+
+    /// <summary>
+    /// A typed address that cannot be read is named, rather than the key being blamed for it.
+    /// </summary>
+    /// <remarks>No request is made at all in that case, so every provider answered its own "the key was
+    /// not accepted" — and the first thing a user does with that is rotate a key that works. One
+    /// provider is enough: the short-circuit is the same line in all six.</remarks>
+    [Fact]
+    public async Task A_test_names_an_address_it_could_not_read()
+    {
+        // No stub: the point is that nothing is sent.
+        var instance = Instance("openrouter", "sk-test");
+        instance.BaseUrl = "192.168.1.10:abc";
+
+        var check = await new OpenRouterProvider().TestAsync(instance);
+
+        Assert.False(check.Ok);
+        Assert.Contains("192.168.1.10:abc", check.Message);
+        Assert.Contains("not an address this can read", check.Message);
+        Assert.DoesNotContain("key", check.Message);
     }
 
     /// <summary>

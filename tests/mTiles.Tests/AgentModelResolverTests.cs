@@ -84,7 +84,7 @@ public class AgentModelResolverTests
     public async Task A_deleted_provider_is_refused()
     {
         var (model, problem) = await AgentModelResolver.ResolveAsync(new AppSettings(), Claude,
-            new AiAgentInstance { AgentId = Claude.Id, ProviderInstanceId = "gone" });
+            new AiAgentInstance { AgentId = Claude.Id, ApiAccountId = "gone" });
 
         Assert.Null(model);
         Assert.Contains("provider", problem);
@@ -103,7 +103,7 @@ public class AgentModelResolverTests
         settings.AiProviderInstances.Add(provider);
 
         var (model, problem) = await AgentModelResolver.ResolveAsync(settings, codex,
-            new AiAgentInstance { AgentId = codex.Id, ProviderInstanceId = provider.Id });
+            new AiAgentInstance { AgentId = codex.Id, ApiAccountId = provider.Id });
 
         Assert.Null(model);
         Assert.Contains(codex.DisplayName, problem);
