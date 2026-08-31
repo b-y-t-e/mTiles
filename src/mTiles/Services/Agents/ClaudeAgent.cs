@@ -103,8 +103,10 @@ public sealed class ClaudeAgent : AiAgent
             // And the compaction window is the same question one more time: a machine exporting it
             // globally would run a session whose provider said nothing about its model on a threshold
             // inherited from somewhere else — the session running past the model's context by the one
-            // path the unset exists to close.
+            // path the unset exists to close. The assumed window beside it, for the same reason — a
+            // global export there would override the CLI's own knowledge of models it does know.
             environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = null;
+            environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = null;
         }
 
         if (runtime.EndpointFor(ApiFlavor.Anthropic) is { } endpoint)
@@ -170,6 +172,22 @@ public sealed class ClaudeAgent : AiAgent
         if ((runtime.Instance.AutoCompactWindow ?? runtime.AutoCompactWindow) is { } window)
             environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] =
                 window.ToString(CultureInfo.InvariantCulture);
+
+        // The assumed window, beside it — the other half of the same resolution, and the answer to
+        // the failure the compact window alone cannot reach: CLAUDE_CODE_AUTO_COMPACT_WINDOW moves
+        // when compaction fires, but the CLI's belief about how much context the model has stays at
+        // its own 200 000 assumption for an id it does not recognise, and the hard "Context limit
+        // reached" stop fires there first. Measured 2026-09-01 on z-ai/glm-5.3-flash, advertised at
+        // 1 310 720: compact window 1 000 000, stop at 199.8k. CLAUDE_CODE_MAX_CONTEXT_TOKENS is the
+        // documented variable for exactly this — "override the context window size Claude Code
+        // assumes for the active model" — and the answer carried here is the provider's context at
+        // 100%, the assumption being corrected being a fact the margin is not. Typed on the instance
+        // it wins, as the compact window does: a provider can advertise more than its upstream
+        // serves, and the row is where that is corrected. Null answers set nothing, and on the CLI's
+        // own account the resolution never answered at all — the CLI knows its models there.
+        if ((runtime.Instance.MaxContextTokens ?? runtime.MaxContextTokens) is { } assumed)
+            environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] =
+                assumed.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>Through the environment, which is where its base URL and token already go.</summary>

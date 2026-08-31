@@ -8,19 +8,25 @@ using Xunit;
 namespace mTiles.Tests;
 
 /// <summary>
-/// The auto-compact window: the 80% rule, its clamp, and the variables Claude Code is given for a
-/// third-party model.
+/// The two windows Claude Code is given for a third-party model: the assumed context at 100% and the
+/// auto-compact window at 80% of it.
 /// </summary>
 /// <remarks>
 /// <para><b>The 80% is this application's policy, not the CLI's documented default</b> — which is
 /// exactly why it is pinned here as a table rather than left in a remark. The env-var half is pinned
 /// the way <c>AgentProviderRoutingTests</c> pins the rest of Claude Code's environment: through
 /// <c>EnvFor</c>, against a runtime that carries what a launch resolved.</para>
-/// <para>The documented facts these tests rest on (env-vars reference, 2026-08-31):
+/// <para><b>And the assumed window is pinned at 100% for the same reason in reverse</b>: it corrects
+/// a fact the CLI assumed wrongly, and a margin there is the session compacted at a window the model
+/// does not have. Measured 2026-09-01: <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c> alone left the CLI
+/// stopping at its own 200k assumption on a model advertised at 1.31M.</para>
+/// <para>The documented facts these tests rest on (env-vars reference, 2026-09-01):
 /// <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c> takes a plain token count from 100 000 to 1 000 000 and the
-/// CLI clamps outside that range; <c>ANTHROPIC_SMALL_FAST_MODEL</c> is deprecated in favour of
-/// <c>ANTHROPIC_DEFAULT_HAIKU_MODEL</c>; the <c>ANTHROPIC_DEFAULT_*_MODEL</c> family pins what the
-/// <c>opus</c>/<c>sonnet</c>/<c>haiku</c>/<c>fable</c> aliases resolve to.</para>
+/// CLI clamps outside that range; <c>CLAUDE_CODE_MAX_CONTEXT_TOKENS</c> overrides the window the CLI
+/// assumes for the active model, applies directly to an id that neither starts with
+/// <c>claude-</c> nor carries <c>[1m]</c>, and names no range; <c>ANTHROPIC_SMALL_FAST_MODEL</c> is
+/// deprecated in favour of <c>ANTHROPIC_DEFAULT_HAIKU_MODEL</c>; the <c>ANTHROPIC_DEFAULT_*_MODEL</c>
+/// family pins what the <c>opus</c>/<c>sonnet</c>/<c>haiku</c>/<c>fable</c> aliases resolve to.</para>
 /// </remarks>
 public class ModelContextWindowTests
 {
@@ -39,6 +45,19 @@ public class ModelContextWindowTests
     [InlineData(2_000_000L, 1_000_000L)]// clamped: the CLI enforces the same ceiling
     public void The_window_is_80_percent_of_the_context_rounded_down(long? context, long? window) =>
         Assert.Equal(window, ModelContextWindow.Window(context));
+
+    [Theory]
+    [InlineData(null, null)]            // the provider did not say — set nothing
+    [InlineData(0L, null)]              // a zero is a provider that said nothing useful
+    [InlineData(-5L, null)]             // nonsense is not a window either
+    [InlineData(1L, 1L)]                // the truth, however small: a 1k model told the truth beats
+                                        // one assumed at 200k — no clamp, no minimum here
+    [InlineData(32_768L, 32_768L)]      // below the compact variable's minimum, and still the fact
+    [InlineData(200_000L, 200_000L)]
+    [InlineData(1_310_720L, 1_310_720L)]// past the compact variable's ceiling: the assumption is not
+                                        // the compaction policy, and is clamped by nobody
+    public void The_assumed_window_is_the_whole_context(long? context, long? assumed) =>
+        Assert.Equal(assumed, ModelContextWindow.AssumedWindow(context));
 
     // ── The variables Claude Code is given ───────────────────────────────────────────────────────
 
@@ -64,13 +83,15 @@ public class ModelContextWindowTests
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
 
-        // The runtime carries the window ModelContextWindow resolved — already reduced. An agent that
-        // applied the 80% rule to it again would launch Claude Code at 64% of the context.
+        // The runtime carries the windows ModelContextWindow resolved — the compact one already
+        // reduced. An agent that applied the 80% rule to it again would launch Claude Code at 64%
+        // of the context.
         var runtime = AgentRuntime.For(settings, instance, agent: Agent("claude"),
-            autoCompactWindow: 160_000);
+            autoCompactWindow: 160_000, maxContextTokens: 200_000);
 
-        Assert.Equal("160000",
-            Agent("claude").EnvFor(runtime)["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]);
+        var environment = Agent("claude").EnvFor(runtime);
+        Assert.Equal("160000", environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]);
+        Assert.Equal("200000", environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
     }
 
     /// <summary>The whole chain, as a launch runs it: provider → resolver → runtime → environment.
@@ -89,17 +110,46 @@ public class ModelContextWindowTests
             "z-ai/glm-5.3-flash").GetAwaiter().GetResult();
 
         var environment = Agent("claude").EnvFor(
-            AgentRuntime.For(settings, instance, "z-ai/glm-5.3-flash", Agent("claude"), resolved));
+            AgentRuntime.For(settings, instance, "z-ai/glm-5.3-flash", Agent("claude"),
+                resolved?.AutoCompactWindow, resolved?.MaxContextTokens));
 
-        Assert.Equal(160_000, resolved);
+        Assert.Equal(160_000, resolved?.AutoCompactWindow);
+        Assert.Equal(200_000, resolved?.MaxContextTokens);
         Assert.Equal("160000", environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]);
+        Assert.Equal("200000", environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
     }
 
-    /// <summary>And the same chain on a model whose context is below the variable's minimum: the
-    /// resolver answers null and the environment is left without the variable — not with a window the
-    /// CLI would clamp up past the model's whole context.</summary>
+    /// <summary>The failure this half exists for: a context far past the compact variable's ceiling
+    /// is still carried whole, because the stop being corrected is the CLI's own assumption.</summary>
     [Fact]
-    public void The_chain_sets_nothing_when_the_context_is_below_the_minimum()
+    public void The_whole_chain_carries_a_context_past_the_compact_ceiling()
+    {
+        var (settings, instance) = Configured("claude", "openrouter", "sk-test");
+        instance.Model = "z-ai/glm-5.3-flash";
+
+        using var _ = new ModelContextWindowTestsHttp(
+            """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":1310720}]}""");
+        ModelContextWindow.Reset();
+
+        var resolved = ModelContextWindow.ResolveAsync(settings, Agent("claude"), instance,
+            "z-ai/glm-5.3-flash").GetAwaiter().GetResult();
+
+        var environment = Agent("claude").EnvFor(
+            AgentRuntime.For(settings, instance, "z-ai/glm-5.3-flash", Agent("claude"),
+                resolved?.AutoCompactWindow, resolved?.MaxContextTokens));
+
+        Assert.Equal(1_310_720, resolved?.MaxContextTokens);
+        Assert.Equal("1310720", environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
+        // The compact window keeps its own ceiling: 80% of 1 310 720 clamps to the CLI's million.
+        Assert.Equal(1_000_000, resolved?.AutoCompactWindow);
+        Assert.Equal("1000000", environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]);
+    }
+
+    /// <summary>And the same chain on a model whose context is below the compaction variable's
+    /// minimum: no compact window — the CLI would clamp it up past the margin — but the assumed
+    /// window is still corrected, because a 32k model told the truth beats one assumed at 200k.</summary>
+    [Fact]
+    public void The_chain_corrects_the_assumption_even_where_it_sets_no_compact_window()
     {
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "gemma-3-4b";
@@ -112,11 +162,14 @@ public class ModelContextWindowTests
             "gemma-3-4b").GetAwaiter().GetResult();
 
         var environment = Agent("claude").EnvFor(
-            AgentRuntime.For(settings, instance, "gemma-3-4b", Agent("claude"), resolved));
+            AgentRuntime.For(settings, instance, "gemma-3-4b", Agent("claude"),
+                resolved?.AutoCompactWindow, resolved?.MaxContextTokens));
 
-        Assert.Null(resolved);
-        // The chosen account's unset block clears the variable; a null answer leaves it cleared.
+        Assert.Null(resolved?.AutoCompactWindow);
+        Assert.Equal(32_768, resolved?.MaxContextTokens);
+        // The chosen account's unset block clears both variables; a null answer leaves them cleared.
         Assert.Null(environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]);
+        Assert.Equal("32768", environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
     }
 
     [Fact]
@@ -164,16 +217,52 @@ public class ModelContextWindowTests
     }
 
     [Fact]
-    public void Other_agents_are_not_given_the_variable()
+    public void The_typed_max_context_reaches_the_environment_unchanged()
+    {
+        var (settings, instance) = Configured("claude", "openrouter", "sk-test");
+        instance.Model = "z-ai/glm-5.3-flash";
+        instance.MaxContextTokens = 262_144;
+
+        // The provider advertises one thing and the upstream serves another: the row is where that
+        // is corrected, and the typed value outranks the resolution.
+        using var _ = new ModelContextWindowTestsHttp(
+            """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":1310720}]}""");
+        ModelContextWindow.Reset();
+
+        var resolved = ModelContextWindow.ResolveAsync(settings, Agent("claude"), instance,
+            "z-ai/glm-5.3-flash").GetAwaiter().GetResult();
+
+        var environment = Agent("claude").EnvFor(
+            AgentRuntime.For(settings, instance, "z-ai/glm-5.3-flash", Agent("claude"),
+                resolved?.AutoCompactWindow, resolved?.MaxContextTokens));
+
+        Assert.Equal(262_144, resolved?.MaxContextTokens);
+        Assert.Equal("262144", environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
+    }
+
+    [Fact]
+    public void A_max_context_typed_on_the_row_is_honoured_on_the_clis_own_account_too()
+    {
+        var instance = new AiAgentInstance { Model = "claude-opus-4-8", MaxContextTokens = 262_144 };
+
+        var runtime = AgentRuntime.For(new AppSettings(), instance, agent: Agent("claude"));
+
+        Assert.Equal("262144",
+            Agent("claude").EnvFor(runtime)["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
+    }
+
+    [Fact]
+    public void Other_agents_are_not_given_the_variables()
     {
         var (settings, instance) = Configured("codex", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
 
         var runtime = AgentRuntime.For(settings, instance, agent: Agent("codex"),
-            autoCompactWindow: 160_000);
+            autoCompactWindow: 160_000, maxContextTokens: 200_000);
 
-        Assert.False(Agent("codex").EnvFor(runtime)
-            .ContainsKey("CLAUDE_CODE_AUTO_COMPACT_WINDOW"));
+        var environment = Agent("codex").EnvFor(runtime);
+        Assert.False(environment.ContainsKey("CLAUDE_CODE_AUTO_COMPACT_WINDOW"));
+        Assert.False(environment.ContainsKey("CLAUDE_CODE_MAX_CONTEXT_TOKENS"));
     }
 
     // ── The alias pins ───────────────────────────────────────────────────────────────────────────
@@ -223,6 +312,7 @@ public class ModelContextWindowTests
         Assert.Null(environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"]);
         Assert.Null(environment["ANTHROPIC_DEFAULT_FABLE_MODEL"]);
         Assert.Null(environment["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]);
+        Assert.Null(environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
     }
 
     // ── The small-model slot ─────────────────────────────────────────────────────────────────────
@@ -287,15 +377,35 @@ public class ModelContextWindowTests
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
         instance.AutoCompactWindow = 250_000;
+        instance.MaxContextTokens = 262_144;
 
         // The stub would answer a window if it were asked; null is therefore the gate's own answer,
-        // not the network's.
+        // not the network's. One typed alone does ask — the other window is then derived from the
+        // model's context, which the typed field does not replace.
         using var _ = new ModelContextWindowTestsHttp(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
         ModelContextWindow.Reset();
 
         Assert.Null(ModelContextWindow.ResolveAsync(settings, Agent("claude"), instance,
             "z-ai/glm-5.3-flash").GetAwaiter().GetResult());
+    }
+
+    [Fact]
+    public void One_typed_window_still_asks_for_the_other()
+    {
+        var (settings, instance) = Configured("claude", "openrouter", "sk-test");
+        instance.Model = "z-ai/glm-5.3-flash";
+        instance.AutoCompactWindow = 250_000;
+
+        using var _ = new ModelContextWindowTestsHttp(
+            """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
+        ModelContextWindow.Reset();
+
+        var resolved = ModelContextWindow.ResolveAsync(settings, Agent("claude"), instance,
+            "z-ai/glm-5.3-flash").GetAwaiter().GetResult();
+
+        Assert.Equal(250_000, resolved?.AutoCompactWindow);
+        Assert.Equal(200_000, resolved?.MaxContextTokens);
     }
 
     [Fact]
@@ -313,7 +423,7 @@ public class ModelContextWindowTests
     }
 
     [Fact]
-    public void The_resolved_answer_is_the_window_not_the_context()
+    public void The_resolved_answer_is_both_windows()
     {
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
@@ -322,8 +432,12 @@ public class ModelContextWindowTests
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
         ModelContextWindow.Reset();
 
-        Assert.Equal(160_000, ModelContextWindow.ResolveAsync(settings, Agent("claude"), instance,
-            "z-ai/glm-5.3-flash").GetAwaiter().GetResult());
+        var resolved = ModelContextWindow.ResolveAsync(settings, Agent("claude"), instance,
+            "z-ai/glm-5.3-flash").GetAwaiter().GetResult();
+
+        // The assumed window is the context itself, and only the compact window is reduced.
+        Assert.Equal(200_000, resolved?.MaxContextTokens);
+        Assert.Equal(160_000, resolved?.AutoCompactWindow);
     }
 
     [Fact]
@@ -386,4 +500,15 @@ public class ModelContextWindowTests
     [InlineData("""{}""", null)]                                   // absent
     public void The_auto_compact_window_is_read_tolerantly(string json, long? expected) =>
         Assert.Equal(expected, JsonSerializer.Deserialize<AiAgentInstance>(json)?.AutoCompactWindow);
+
+    [Theory]
+    [InlineData("""{"MaxContextTokens":1310720}""", 1_310_720L)]  // what this application writes
+    [InlineData("""{"MaxContextTokens":"1310720"}""", 1_310_720L)]// what a hand edit writes
+    [InlineData("""{"MaxContextTokens":null}""", null)]           // unset
+    [InlineData("""{"MaxContextTokens":"abc"}""", null)]          // rubbish reads as unset
+    [InlineData("""{"MaxContextTokens":true}""", null)]           // the wrong shape entirely
+    [InlineData("""{"MaxContextTokens":-5}""", null)]             // negative: not a window
+    [InlineData("""{}""", null)]                                  // absent
+    public void The_max_context_is_read_tolerantly(string json, long? expected) =>
+        Assert.Equal(expected, JsonSerializer.Deserialize<AiAgentInstance>(json)?.MaxContextTokens);
 }

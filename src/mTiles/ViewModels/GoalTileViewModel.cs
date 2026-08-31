@@ -2538,11 +2538,17 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                 return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
             }
 
+            // Both windows at once: the compact window at 80%, and the assumed window —
+            // CLAUDE_CODE_MAX_CONTEXT_TOKENS's answer — at 100%. The run is where a headless agent
+            // most needs the correction: a context nobody named runs to the CLI's own 200k
+            // assumption and stops there, mid-goal.
+            var windows = await ModelContextWindow.ResolveAsync(
+                _settingsService.Settings, chosen.Agent, chosen.Instance, resolvedModel ?? "");
+
             var runtime =
                 AgentRuntime.For(_settingsService.Settings, chosen.Instance, resolvedModel,
                     chosen.Agent,
-                    await ModelContextWindow.ResolveAsync(
-                        _settingsService.Settings, chosen.Agent, chosen.Instance, resolvedModel ?? ""));
+                    windows?.AutoCompactWindow, windows?.MaxContextTokens);
 
             var result = AiRunnerFactory is { } run
                 ? await run(chosen, prompt, _workingDirectory, token)

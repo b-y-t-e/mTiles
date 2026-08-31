@@ -24,19 +24,25 @@ namespace mTiles.Services.Providers;
 /// signed into. Never set at the same time as <paramref name="Provider"/> — see
 /// <see cref="AgentRuntime.For"/>.</param>
 /// <param name="AutoCompactWindow">The auto-compact window <b>already reduced by the
-/// <c>ModelContextWindow</c> rule</b> — 80% of the model's context, clamped to what the CLI accepts —
+/// <c>ModelContextWindow</c> rule</b> — 80% of the model's context, clamped to what the CLI accepts —"
 /// resolved for this launch, or null when nobody said. The reduction happens once, in
 /// <c>ModelContextWindow.ResolveAsync</c>, whose whole answer this is: an agent that applied
 /// <c>Window</c> to it again would launch Claude Code at 64% of the context, and one that received the
 /// raw context here would have to reduce it itself — two places for one rule. Resolved before
 /// <see cref="IAiAgent.EnvFor"/> because that call is synchronous.</param>
+/// <param name="MaxContextTokens">The context window <b>at 100%</b> — the other half of the same
+/// resolution, <c>CLAUDE_CODE_MAX_CONTEXT_TOKENS</c>'s answer to what the CLI should <em>assume</em>
+/// the model's window is, beside the 80% window it should <em>compact</em> at. Deliberately not
+/// reduced: the margin is an opinion about when to compact, and this declares a fact. Null when the
+/// provider did not say.</param>
 public sealed record AgentRuntime(
     AiAgentInstance Instance,
     IAiProvider? Provider,
     AiProviderInstance? ProviderInstance,
     string Model,
     AiSignIn? SignIn = null,
-    long? AutoCompactWindow = null)
+    long? AutoCompactWindow = null,
+    long? MaxContextTokens = null)
 {
     /// <summary>The address for a wire format, or null when nothing configured here serves it.</summary>
     /// <remarks>Null is what tells an agent to leave the environment alone: an agent given no endpoint
@@ -101,7 +107,7 @@ public sealed record AgentRuntime(
     /// comparing against the instance's own id let a stand-in be pointed at another tool's credential
     /// directory and write its own into it.</param>
     public static AgentRuntime For(AppSettings settings, AiAgentInstance instance, string? model = null,
-        IAiAgent? agent = null, long? autoCompactWindow = null)
+        IAiAgent? agent = null, long? autoCompactWindow = null, long? maxContextTokens = null)
     {
         // The two are one slot on screen and have to be one slot here: an instance carrying both would
         // point the CLI at a second subscription's directory and then hand it somebody else's API key
@@ -122,6 +128,7 @@ public sealed record AgentRuntime(
             providerInstance,
             model ?? instance.Model,
             signIn,
-            autoCompactWindow);
+            autoCompactWindow,
+            maxContextTokens);
     }
 }

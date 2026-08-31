@@ -85,25 +85,34 @@ public partial class SettingsViewModel
     [ObservableProperty] private string _editAgentModel = "";
     [ObservableProperty] private string _editAgentFastModel = "";
     [ObservableProperty] private string _editAgentAutoCompact = "";
+    [ObservableProperty] private string _editAgentMaxContext = "";
     [ObservableProperty] private string _editAgentBehaviour = "";
     [ObservableProperty] private string _editAgentEffort = "";
     [ObservableProperty] private string _editAgentExtraArgs = "";
     private AiAgentInstance? _editingAgentInstance;
 
     /// <summary>Whether the agent form can be saved: it needs a name, for the reason the provider
-    /// form does — nothing else identifies the row, and nothing can invent one. A typed auto-compact
-    /// window has to be a number, or Save says nothing about why it did nothing.</summary>
+    /// form does - nothing else identifies the row, and nothing can invent one. A typed auto-compact
+    /// window or context window has to be a number, or Save says nothing about why it did nothing.</summary>
     public bool CanSaveAgentInstance =>
-        EditAgentName.Trim().Length > 0 && EditAgentAutoCompactIsValid;
+        EditAgentName.Trim().Length > 0
+        && EditAgentAutoCompactIsValid && EditAgentMaxContextIsValid;
 
     /// <summary>Whether the auto-compact field is either empty or a positive token count.</summary>
     public bool EditAgentAutoCompactIsValid =>
-        EditAgentAutoCompact.Trim().Length == 0 || ParseAutoCompactWindow(EditAgentAutoCompact) is not null;
+        EditAgentAutoCompact.Trim().Length == 0 || ParseTokens(EditAgentAutoCompact) is not null;
 
-    private static long? ParseAutoCompactWindow(string text) =>
+    /// <summary>Whether the max-context field is either empty or a positive token count.</summary>
+    public bool EditAgentMaxContextIsValid =>
+        EditAgentMaxContext.Trim().Length == 0 || ParseTokens(EditAgentMaxContext) is not null;
+
+    private static long? ParseTokens(string text) =>
         long.TryParse(text.Trim(), out var value) && value > 0 ? value : null;
 
     partial void OnEditAgentNameChanged(string value) =>
+        OnPropertyChanged(nameof(CanSaveAgentInstance));
+
+    partial void OnEditAgentMaxContextChanged(string value) =>
         OnPropertyChanged(nameof(CanSaveAgentInstance));
 
     partial void OnEditAgentAutoCompactChanged(string value) =>
@@ -181,6 +190,7 @@ public partial class SettingsViewModel
         RefreshEffortLabels();
         OnPropertyChanged(nameof(ModelHint));
         OnPropertyChanged(nameof(ShowsAutoCompact));
+        OnPropertyChanged(nameof(ShowsMaxContext));
         OnPropertyChanged(nameof(ShowsFastModel));
         OnPropertyChanged(nameof(FastModelHint));
         _ = UpdateModelContextAsync(fastModel: false);
@@ -196,6 +206,10 @@ public partial class SettingsViewModel
     /// variable. This remark is not that rule — the two used to be written as one, and a reader
     /// trusting the sentence over the XAML would have hidden the readouts everywhere.</remarks>
     public bool ShowsAutoCompact => AgentBeingEdited is { UsesModelContextWindow: true };
+
+    /// <summary>Whether the Max-context field is shown: the same gate as Auto-compact, because it is
+    /// the same CLI that reads the variable it names.</summary>
+    public bool ShowsMaxContext => AgentBeingEdited is { UsesModelContextWindow: true };
 
     /// <summary>Whether the agent being edited has a slot for the small, frequent calls, and this
     /// launch would read it.</summary>
@@ -592,6 +606,9 @@ public partial class SettingsViewModel
         EditAgentAutoCompact = instance.AutoCompactWindow is { } window
             ? window.ToString(CultureInfo.InvariantCulture)
             : "";
+        EditAgentMaxContext = instance.MaxContextTokens is { } context
+            ? context.ToString(CultureInfo.InvariantCulture)
+            : "";
 
         // Asked for outright, and unconditionally - the same rule the model fetch below is given, for
         // the same reason. Assigning the same model text as the last form's raises no change and so
@@ -646,7 +663,8 @@ public partial class SettingsViewModel
         instance.ExtraArgs = [.. EditAgentExtraArgs
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
         // Empty is the fallback, not a zero: the launch works the window out from the model's context.
-        instance.AutoCompactWindow = ParseAutoCompactWindow(EditAgentAutoCompact);
+        instance.AutoCompactWindow = ParseTokens(EditAgentAutoCompact);
+        instance.MaxContextTokens = ParseTokens(EditAgentMaxContext);
 
         var list = _settingsService.Settings.AiAgentInstances;
         if (!list.Contains(instance)) list.Add(instance);

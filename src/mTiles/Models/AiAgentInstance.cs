@@ -93,6 +93,27 @@ public sealed class AiAgentInstance
     [JsonConverter(typeof(TolerantNullableInt64Converter))]
     public long? AutoCompactWindow { get; set; }
 
+    /// <summary>The context window typed by hand — <c>CLAUDE_CODE_MAX_CONTEXT_TOKENS</c> in tokens —
+    /// or null to have the launch name the provider's own answer.</summary>
+    /// <remarks>
+    /// <para><b>What this declares is a fact, not a margin.</b> <see cref="AutoCompactWindow"/> says
+    /// when to compact — this application's 80% of the model's context; this one says what the CLI
+    /// should <em>assume</em> the model's context is, which it gets wrong by half for a model id it
+    /// does not recognise, and the hard "Context limit reached" stop fires at the assumption long
+    /// before any compaction window. The resolved answer is therefore the provider's context at 100%,
+    /// with no clamp and no minimum — the compact variable's documented range is its own.</para>
+    /// <para><b>The typed value wins</b>, as <see cref="AutoCompactWindow"/> does, for the same
+    /// reason: a number somebody entered is a decision. It matters here more than most, because the
+    /// provider's own word can be the wrong fact — OpenRouter carries the model card's
+    /// <c>context_length</c>, and an upstream that serves less than it advertises is corrected by
+    /// typing what really answers, not by this application rounding it.</para>
+    /// <para>Only Claude Code reads it, as only Claude Code reads <see cref="AutoCompactWindow"/>.
+    /// Read tolerantly, and for the same reason: one hand-edited string must not quarantine a
+    /// settings file holding provider keys with it.</para>
+    /// </remarks>
+    [JsonConverter(typeof(TolerantNullableInt64Converter))]
+    public long? MaxContextTokens { get; set; }
+
     /// <summary>How hard this instance thinks unless a tile says otherwise.</summary>
     /// <remarks>Read tolerantly, as <c>AppSettings.GoalEffort</c> is and for the same reason: a level
     /// written by a newer build and read after a Velopack rollback would otherwise be a
