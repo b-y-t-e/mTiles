@@ -417,6 +417,39 @@ public sealed class GoalPromptBuilder
     /// taught the other way round. The narrowing is a sentence in the ordinary case; a draft longer than
     /// the cap degrades the way a diff does, and says so where it was cut.</para>
     /// </remarks>
+    /// <summary>
+    /// What the user typed beside the Detect buttons, as the <b>subject</b> of the detection.
+    /// </summary>
+    /// <remarks>
+    /// <para>The same block <see cref="Narrowing"/> produces everywhere else, and deliberately not the
+    /// same sentence around it. A review is told what to leave alone — the work is already named, and
+    /// the composer only narrows it. Detection has nothing else to go on: the whole question is what
+    /// this work is for, and the one person who knows has just answered it in the box. Carried as a
+    /// narrowing and nothing more, the answer came back as a goal about whatever sorted first in the
+    /// diff, with the user's own sentence read as a filter over it.</para>
+    /// <para>It outranks the diff where the two disagree, which is the point of typing anything at all:
+    /// a working tree half-way through one piece of work looks exactly like a working tree at the start
+    /// of another, and only the user can say which. The diff is still what the goal is <em>worked out
+    /// from</em> — this says which part of it, and what it is in aid of.</para>
+    /// <para>A path named here is read rather than guessed at. The common case is a plan or an issue
+    /// written down in the repository: that file is often unchanged or untracked, so no diff carries
+    /// it, and without this the tool was handed its name and no reason to open it. Asking rather than
+    /// telling, the way the attached images are.</para>
+    /// <para>An empty composer is not a lesser version of this, it is the original question — so the
+    /// block and the instruction go together or neither goes.</para>
+    /// </remarks>
+    private static string DetectionSubject(string? guideline, int cap)
+    {
+        var block = Narrowing(guideline, "detection", cap);
+        if (block.Length == 0) return "";
+
+        return block +
+               "That block is what the user says this work is about. Work the goal out of the part of " +
+               "the changes it points at, and prefer it to your own reading of the diff wherever the " +
+               "two disagree. If it names a file — a plan, an issue, a note — open it and use what it " +
+               "says.\n\n";
+    }
+
     private static string Narrowing(string? guideline, string what, int cap) =>
         string.IsNullOrWhiteSpace(guideline)
             ? ""
@@ -770,7 +803,7 @@ public sealed class GoalPromptBuilder
         // changes are for, so a version of it with the changes trimmed away is not a smaller prompt but
         // an unanswerable one. If even that will not fit, the guard refuses and says why.
         return "Below are the uncommitted changes in a software project.\n\n"
-               + Narrowing(guideline, "detection", cap)
+               + DetectionSubject(guideline, cap)
                + Block("Working tree", gitDiff, Math.Max(500, cap))
                + "Work out what the person making these changes is trying to achieve, and state it as a " +
                  "goal that is not yet finished — what should be true when the work is done, not a list " +

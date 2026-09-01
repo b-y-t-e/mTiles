@@ -124,6 +124,31 @@ public class GoalReviewParsingTests
     }
 
     [Fact]
+    public void The_composer_is_the_subject_of_a_detection_rather_than_a_filter_over_it()
+    {
+        // The one prompt where the words are not merely a narrowing: nothing else in it says what the
+        // work is for. Without the instruction the block sat above the diff with no standing against
+        // it, and the goal came back about whatever sorted first.
+        var detect = new GoalPromptBuilder().BuildDetectGoal(
+            "a diff", guideline: "plan jest tutaj docs/plans/AGENT-INSTANCE-SWITCH.md");
+
+        Assert.Contains("what the user says this work is about", detect);
+        Assert.Contains("prefer it to your own reading of the diff", detect);
+
+        // The case it was written for: the plan is a file nothing in the diff carries.
+        Assert.Contains("open it and use what it says", detect);
+
+        // The instruction never appears over nothing — an empty composer, and a composer holding
+        // nothing but whitespace, which is the same thing said with the space bar.
+        Assert.DoesNotContain("what the user says this work is about",
+            new GoalPromptBuilder().BuildDetectGoal("a diff"));
+        Assert.DoesNotContain("what the user says this work is about",
+            new GoalPromptBuilder().BuildDetectGoal("a diff", guideline: "    "));
+        Assert.DoesNotContain("what the user says this work is about",
+            new GoalPromptBuilder().BuildDetectGoal("a diff", guideline: " \t\r\n "));
+    }
+
+    [Fact]
     public void An_empty_composer_contributes_no_narrowing_block()
     {
         Assert.DoesNotContain("The user narrowed", new GoalPromptBuilder().BuildReview("the goal", "a diff"));
