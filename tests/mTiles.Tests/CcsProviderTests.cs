@@ -249,6 +249,7 @@ public class CcsProviderTests : IDisposable
         Assert.Equal(0, starts);
         Assert.Contains("401", check.Message);
         Assert.Contains("refused", check.Message);
+        Assert.Contains("api-keys", check.Message);
         Assert.DoesNotContain("did not answer", check.Message);
     }
 
@@ -324,7 +325,8 @@ public class CcsProviderTests : IDisposable
 
     /// <summary>The token that reaches Claude Code's environment through a CCS instance is the daemon's
     /// own key — the placeholder word passed a keyless server and now buys a 401 from <c>/v1/messages</c>
-    /// half way into a session.</summary>
+    /// half way into a session — and where the config names no key, the standing word is carried all
+    /// the way into the environment, not just answered by the unit.</summary>
     [Fact]
     public void Claude_code_on_ccs_authenticates_with_the_daemons_own_key()
     {
@@ -341,6 +343,10 @@ public class CcsProviderTests : IDisposable
 
         Assert.Equal("http://127.0.0.1:8317/", environment["ANTHROPIC_BASE_URL"]);
         Assert.Equal("ccs-internal-managed", environment["ANTHROPIC_AUTH_TOKEN"]);
+
+        CcsProvider.ConfigReader = () => "other: value\n";
+        environment = Claude.EnvFor(AgentRuntime.For(settings, instance));
+        Assert.Equal("no-key-needed", environment["ANTHROPIC_AUTH_TOKEN"]);
     }
 
     // ── Machine state ─────────────────────────────────────────────────────────────────────────────

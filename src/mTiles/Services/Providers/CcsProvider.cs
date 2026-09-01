@@ -286,6 +286,11 @@ public sealed class CcsProvider : AiProvider, IManagedAiProvider
 
     /// <summary>What a refusing daemon says to its user: it is up, the credential is the problem, and
     /// where the key it wants lives.</summary>
+    /// <remarks>The advice stops at the config file on purpose: it is the one route the UI offers
+    /// anything about. The instance's key <em>can</em> be set — a row converted from another provider
+    /// keeps the key it was typed on, and a hand-edited settings.json is honoured — but the form has
+    /// no field for it here, and pointing at a control that is not there is a sentence that sends the
+    /// user looking for their own mistake.</remarks>
     private static string RefusalMessage(Uri baseUrl, AiProviderInstance instance)
     {
         var presented = instance.ApiKey.Length > 0
@@ -295,8 +300,7 @@ public sealed class CcsProvider : AiProvider, IManagedAiProvider
                 : "it requires a key and none could be read from its config";
 
         return "The proxy at " + baseUrl + " refused the request with 401 — " + presented
-            + ". Its keys are the \"api-keys:\" entries in ~/.ccs/cliproxy/config.yaml; typing one "
-            + "on this instance's row overrides that file.";
+            + ". Its keys are the \"api-keys:\" entries in ~/.ccs/cliproxy/config.yaml.";
     }
 
     // ── What the Settings row does with the machine's state ──────────────────────────────────────
