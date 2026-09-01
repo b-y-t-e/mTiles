@@ -340,6 +340,215 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
+    public void Every_tree_read_of_a_goal_typed_with_at_paths_carries_its_scope()
+    {
+        OnUiThread(async () =>
+        {
+            // The wiring the stub tests cannot see: the scope set by Submit, threaded through every
+            // phase's read. The factory answers any read, so a broken thread would show up here as a
+            // null among the observed scopes rather than as a prompt with the wrong files in it.
+            var observed = new List<IReadOnlyList<string>?>();
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
+            WorktreeReader.ReadObserved = scope => observed.Add(scope);
+            try
+            {
+                AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
+
+                using var vm = NewTile();
+
+                Directory.CreateDirectory(Path.Combine(_dir, "src/Agents"));
+                File.WriteAllText(Path.Combine(_dir, "src/Agents/X.cs"), "// x");
+                vm.InputText = "napraw @src/Agents/X.cs";
+                await vm.SubmitCommand.ExecuteAsync(null);
+                vm.InputText = "all of it";
+                await vm.SubmitCommand.ExecuteAsync(null);
+                vm.InputText = "ok";
+                await vm.SubmitCommand.ExecuteAsync(null);
+
+                Assert.NotEmpty(observed);
+                Assert.All(observed, scope => Assert.Equal(["src/Agents/X.cs"], scope));
+            }
+            finally
+            {
+                WorktreeReader.ReadObserved = null;
+            }
+        });
+    }
+
+    [Fact]
+    public void A_narrowing_typed_beside_re_review_goes_to_that_review_and_not_into_the_goal()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var observed = new List<IReadOnlyList<string>?>();
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
+            WorktreeReader.ReadObserved = scope => observed.Add(scope);
+            try
+            {
+                var asked = 0;
+                GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+                {
+                    prompts.Add(prompt);
+                    return Task.FromResult<AiOutput>(++asked switch
+                    {
+                        1 => "Make the totals include discounts.",
+                        _ => "VERDICT: PASS",
+                    });
+                };
+
+                using var vm = NewTile();
+
+                // Detect & run with an @ path: the goal that comes out of it carries that scope.
+                Directory.CreateDirectory(Path.Combine(_dir, "src"));
+                File.WriteAllText(Path.Combine(_dir, "src/Resumable.cs"), "// r");
+                vm.InputText = "make the totals include discounts @src/Resumable.cs";
+                await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
+                prompts.Clear();
+
+                // Typed beside the button — and consumed by this review alone: the goal's own scope
+                // (from its @ mention) is what a later read must fall back to, not the one-look
+                // narrowing.
+                vm.InputText = "tylko samewnegoryzacja metody";
+                await vm.ReReviewCommand.ExecuteAsync(null);
+
+                Assert.Contains("The user narrowed this review", prompts[0]);
+                Assert.Equal("", vm.InputText);
+
+                // One more look, with nothing typed: the goal's scope is what applies.
+                await vm.ReReviewCommand.ExecuteAsync(null);
+                Assert.DoesNotContain("The user narrowed this review", prompts[1]);
+                Assert.Contains("src/Resumable.cs", observed[^1]!);
+            }
+            finally
+            {
+                WorktreeReader.ReadObserved = null;
+            }
+        });
+    }
+
+    [Fact]
+    public void An_unchanged_tree_gets_its_verdict_and_the_stop_says_so_when_the_review_passes()
+    {
+        OnUiThread(async () =>
+        {
+            // Measured live, 2026-09-01: a tool answered "everything the plan asked for is already in
+            // place, odrzucam przepisywanie od zera", changed no files, and the tile stopped with a
+            // dead-end sentence over an account of a goal that was done. The empty worktree goes to
+            // the reviewer once; met, and the stop is the one a finished goal earns.
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
+
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
+
+            using var vm = NewTile();
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Text.StartsWith("Goal completed after 1 attempt"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("changed no files"));
+        });
+    }
+
+    [Fact]
+    public void A_refused_attempt_skips_the_verdict_review_because_it_would_answer_the_summary()
+    {
+        OnUiThread(async () =>
+        {
+            // An empty worktree because every tool call was refused needs the permission mode, not a
+            // review of work nobody was allowed to do — so the extra call is spent only where it can
+            // change the sentence.
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
+
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+            {
+                asked++;
+                AiOutput answer = asked switch
+                {
+                    1 => "Which files?",
+                    2 => NoMoreQuestions,
+                    3 => "The plan",
+                    _ => "VERDICT: PASS",
+                };
+                if (asked == 4) answer = answer with { PermissionDenials = 3 };
+                return Task.FromResult(answer);
+            };
+
+            using var vm = NewTile();
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+
+            // Four calls: the review the passing verdict would have come from was never asked for, and
+            // the sentence is the permission one.
+            Assert.Equal(4, asked);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("refused permission"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.StartsWith("Goal completed"));
+        });
+    }
+
+    [Fact]
+    public void A_verdict_review_refused_its_own_tool_calls_does_not_wear_the_permission_sentence()
+    {
+        OnUiThread(async () =>
+        {
+            // The permission sentence is about the *implementation*: the verdict review runs after it
+            // and every AI run rewrites the denials field with its own refusals, so a review refused
+            // its build over a tree that already held the work would otherwise report an attempt that
+            // was never allowed to touch a file. The implementation's count is captured before the
+            // review runs, and that is what the summary names.
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
+
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+            {
+                asked++;
+                AiOutput answer = asked switch
+                {
+                    1 => "Which files?",
+                    2 => NoMoreQuestions,
+                    3 => "The plan",
+                    4 => "Implemented it",
+                    _ => "VERDICT: FAIL",
+                };
+                if (asked == 5) answer = answer with { PermissionDenials = 3 };
+                return Task.FromResult(answer);
+            };
+
+            using var vm = NewTile();
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+
+            // The implementation changed nothing of its own accord (no refusals of its own), the review
+            // was refused and said not met — and the sentence stays the dead-end one, carrying what the
+            // reviewer found outstanding.
+            Assert.Equal(5, asked);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("changed no files"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("refused permission"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.StartsWith("Goal completed"));
+        });
+    }
+
+    [Fact]
     public void Two_reviews_that_find_the_same_things_stop_the_run()
     {
         OnUiThread(async () =>
@@ -2008,6 +2217,202 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.Equal(2, prompts.Count);
             Assert.Contains("Review the code changes", prompts[1]);
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+        });
+    }
+
+    [Fact]
+    public void A_composer_text_beside_detect_and_run_narrows_what_the_detection_sees()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                asked++;
+                return Task.FromResult<AiOutput>(asked == 1
+                    ? "Tylko parser odpowiedzi."
+                    : "VERDICT: PASS");
+            };
+
+            using var vm = NewTile();
+
+            // Typed, not submitted: the words steer the buttons rather than sitting in the box.
+            Directory.CreateDirectory(Path.Combine(_dir, "src/mTiles/Services"));
+            File.WriteAllText(Path.Combine(_dir, "src/mTiles/Services/GoalResponseParser.cs"), "// p");
+            vm.InputText = "skup sie tylko na @src/mTiles/Services/GoalResponseParser.cs";
+            await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
+
+            // The soft half: the detection prompt carries the narrowing block, @ path and all.
+            Assert.Contains("The user narrowed this detection", prompts[0]);
+            Assert.Contains("@src/mTiles/Services/GoalResponseParser.cs", prompts[0]);
+
+            // Taken, not left: the composer is empty once the words have become the scope, and the
+            // detected goal — not the narrowing — is what the transcript records as the goal.
+            Assert.Equal("", vm.InputText);
+            Assert.Equal(2, prompts.Count);
+            Assert.DoesNotContain("The user narrowed this review", prompts[1]);
+        });
+    }
+
+    [Fact]
+    public void A_composer_text_beside_detect_and_review_narrows_the_review_it_produces()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                asked++;
+                return Task.FromResult<AiOutput>(asked == 1
+                    ? "Recenzja parsera odpowiedzi."
+                    : "VERDICT: PASS");
+            };
+
+            using var vm = NewTile();
+
+            // Detect & Review's only result is the review — so the narrowing typed beside the button
+            // has to reach it, and it once did not: the text was consumed by the detection and the
+            // review after it ran unwidened.
+            Directory.CreateDirectory(Path.Combine(_dir, "src/mTiles/Services"));
+            File.WriteAllText(Path.Combine(_dir, "src/mTiles/Services/GoalResponseParser.cs"), "// p");
+            vm.InputText = "skup sie tylko na @src/mTiles/Services/GoalResponseParser.cs";
+            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+
+            Assert.Contains("The user narrowed this detection", prompts[0]);
+            Assert.Contains("The user narrowed this review", prompts[1]);
+            Assert.Equal("", vm.InputText);
+        });
+    }
+
+    [Fact]
+    public void A_review_written_as_broken_json_is_salvaged_by_one_re_send_of_the_answer()
+    {
+        OnUiThread(async () =>
+        {
+            // The shape captured live, 2026-09-01: a reviewer answering in Polish put a C#
+            // interpolation with its own unescaped quotes inside a finding's detail. The block dies for
+            // every reader the tile has — and its own JSON said the goal was met, which the prose
+            // fallback then read as not met, spending an attempt on work that was already done.
+            var broken = "```json\n{\"goalMet\": true, \"findings\": [{\"severity\": \"warning\", " +
+                         "\"detail\": \"throw new ExportException($\"Nie udało się\" — the outer catch swallows it)\"}]}\n```";
+            var prompts = new List<string>();
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(++asked switch
+                {
+                    1 => "Make the totals include discounts.",
+                    2 => broken,
+                    _ => "{\"goalMet\": true, \"findings\": []}",
+                });
+            };
+
+            using var vm = NewTile();
+
+            await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
+
+            // Three runs: detection, the broken review, and the salvage — which carries the answer
+            // alone, not the review prompt with its working tree again.
+            Assert.Equal(3, prompts.Count);
+            Assert.Contains("exactly the same JSON", prompts[2]);
+            Assert.DoesNotContain("Review the code changes", prompts[2]);
+            Assert.Contains(broken, prompts[2]);
+
+            // The retry parsed, so the transcript shows a review head rather than the soup, and the
+            // honesty note says what happened.
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Goal met"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("Not done:"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("re-send the same block"));
+        });
+    }
+
+    [Fact]
+    public void A_salvage_that_also_fails_leaves_todays_behaviour_standing()
+    {
+        OnUiThread(async () =>
+        {
+            var broken = "{\"goalMet\": false, \"findings\": [{\"severity\": \"error\", " +
+                         "\"title\": \"Swallowed \"quote\" here\"}]}";
+            var prompts = new List<string>();
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(++asked switch
+                {
+                    1 => "Make the totals include discounts.",
+                    2 => broken,
+                    3 => "VERDICT: FAIL",
+                    4 => "the fix is applied",
+                    _ => "VERDICT: PASS",
+                });
+            };
+
+            using var vm = NewTile();
+
+            await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
+
+            // One salvage round, not a loop: the third call is the salvage (the answer alone), the
+            // fourth is the re-implementation the failed review asked for, and the fifth is the review
+            // that then passed. The original review — soup and prose verdict alike — is what stood.
+            Assert.Equal(5, prompts.Count);
+            Assert.Contains("exactly the same JSON", prompts[2]);
+            Assert.Equal(1, prompts.Count(p => p.Contains("exactly the same JSON")));
+            Assert.DoesNotContain("exactly the same JSON", prompts[3]);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Not done:"));
+        });
+    }
+
+    [Fact]
+    public void A_salvage_hit_by_a_dropped_stream_retries_without_naming_a_phase_failure()
+    {
+        OnUiThread(async () =>
+        {
+            // The salvage round is quiet by contract: the run it retries — the review — succeeded, and
+            // only the re-send of its broken JSON failed. When the re-send itself meets a dropped
+            // stream, the unasked retry is still that same quiet round, so its failure must stay quiet
+            // too — "review reported a failure" over it would name a failure the phase did not have.
+            var broken = "{\"goalMet\": true, \"findings\": [{\"severity\": \"warning\", " +
+                         "\"detail\": \"throw new ExportException($\"Nie\"}]}";
+            var prompts = new List<string>();
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(++asked switch
+                {
+                    1 => "Make the totals include discounts.",
+                    2 => broken,
+                    3 => AiOutput.Failure("[error] API Error: stream closed before completion"),
+                    4 => AiOutput.Failure("[error] API Error: stream closed again"),
+                    5 => "the fix is applied",
+                    _ => "VERDICT: PASS",
+                });
+            };
+
+            using var vm = NewTile();
+
+            await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
+
+            // Calls three and four are the salvage and its retry — the same answer-alone prompt, sent
+            // twice. Both failed, the allowance was spent, and the salvage gave up into today's
+            // behaviour: the original review stood, the loop asked for another attempt.
+            Assert.Equal(6, prompts.Count);
+            Assert.Contains("exactly the same JSON", prompts[2]);
+            Assert.Equal(2, prompts.Count(p => p.Contains("exactly the same JSON")));
+            Assert.DoesNotContain("exactly the same JSON", prompts[4]);
+
+            // One retry announced — the allowance is one — and neither failure was: the
+            // retry's own dead end is reached with the salvage's quiet contract still on.
+            Assert.Equal(1, vm.Messages.Count(m => m.Text.Contains("retrying this run on its own")));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("reported a failure"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Not done:"));
         });
     }
 

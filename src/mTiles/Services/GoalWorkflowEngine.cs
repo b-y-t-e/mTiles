@@ -24,6 +24,18 @@ public sealed partial class GoalWorkflowEngine
 
     public string OriginalGoal { get; set; } = "";
 
+    /// <summary>
+    /// The paths the user named with <c>@</c> when this goal was typed or detected, and the hard half
+    /// of a narrowed task: every working-tree read of this goal is filtered to them.
+    /// </summary>
+    /// <remarks>
+    /// Lives here rather than on the view model because it is a fact about the goal, in the same sense
+    /// <see cref="OriginalGoal"/> and <see cref="BaselineRef"/> are — and a goal reopened after a
+    /// restart must read the same narrowed tree its run was started on. Empty when the user narrowed
+    /// by words alone, which is the soft half and travels in the prompts.
+    /// </remarks>
+    public IReadOnlyList<string> ScopePaths { get; set; } = [];
+
     /// <summary>The questions waiting for an answer, in the order they were asked. Empty whenever the
     /// tile is not waiting on the user — see <c>GoalTileViewModel.ShowQuestions</c>.</summary>
     public List<GoalQuestion> PendingQuestions { get; private set; } = [];
@@ -273,8 +285,14 @@ public sealed partial class GoalWorkflowEngine
             budget);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
-    public string BuildReviewPrompt(string? gitDiff, bool scoped = false, int? budget = null) =>
-        _promptBuilder.BuildReview(OriginalGoal, gitDiff, scoped, budget);
+    public string BuildReviewPrompt(string? gitDiff, bool scoped = false, int? budget = null,
+        string? guideline = null) =>
+        _promptBuilder.BuildReview(OriginalGoal, gitDiff, scoped, budget, guideline);
+
+    /// <summary>Asks the tool to re-send a review block it wrote as invalid JSON. The answer travels
+    /// alone — the salvage round repairs what the tool wrote, it does not re-run the phase.</summary>
+    public string BuildJsonSalvagePrompt(string brokenAnswer) =>
+        _promptBuilder.BuildJsonSalvage(brokenAnswer);
 
     /// <summary>How this run's own work should be divided into commits. The file list is the scope
     /// worked out from the goal's baseline, not anything the tool is asked to discover.</summary>
@@ -282,13 +300,14 @@ public sealed partial class GoalWorkflowEngine
         _promptBuilder.BuildCommitPlan(OriginalGoal, files, budget);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
-    public string BuildDetectGoalPrompt(string gitDiff, int? budget = null) =>
-        _promptBuilder.BuildDetectGoal(gitDiff, budget);
+    public string BuildDetectGoalPrompt(string gitDiff, int? budget = null, string? guideline = null) =>
+        _promptBuilder.BuildDetectGoal(gitDiff, budget, guideline);
 
     public void StartNewGoal(string goal)
     {
         OriginalGoal = goal;
         ClarificationHistory.Clear();
+        ScopePaths = [];
 
         // Kept if the new goal still refers to them, dropped with the old goal otherwise — and it has
         // to be this way round rather than an outright clear. The markers are in the text *before* this
@@ -586,6 +605,7 @@ public sealed partial class GoalWorkflowEngine
         string reviewAgentInstanceId) => new()
     {
         OriginalGoal = OriginalGoal,
+        ScopePaths = [..ScopePaths],
         ClarificationHistory = [..ClarificationHistory],
         AttachedImages = [..AttachedImages],
         ApprovedPlan = ApprovedPlan,
@@ -617,6 +637,7 @@ public sealed partial class GoalWorkflowEngine
     public void LoadFrom(GoalTileState state)
     {
         OriginalGoal = state.OriginalGoal;
+        ScopePaths = state.ScopePaths;
         ClarificationHistory.Clear();
 
         // Labelled on the way in, because a file written before the labels existed holds bare answers,

@@ -402,6 +402,26 @@ public sealed class GoalPromptBuilder
     /// </summary>
     internal static string Block(string heading, string content) => Block(heading, content, int.MaxValue);
 
+    /// <summary>
+    /// The composer's words as a scope, or nothing — the soft half of a narrowed task.
+    /// </summary>
+    /// <remarks>
+    /// <para>What the user typed beside the buttons travels as a block of its own rather than being
+    /// folded into the goal: a goal is something the run was asked to achieve, and a narrowing is
+    /// something it has been told to respect — different sentences in the transcript, different things
+    /// in the prompt. The hard half lives in <see cref="GoalScopeFilter"/> when the words name paths.</para>
+    /// <para><b>Capped like every other borrowed block</b>, and not as tidiness: the words are
+    /// user-typed and unbounded — a paste, a dictated paragraph — and an uncapped block beside a review
+    /// on an agent whose prompt rides a command line is a run that stops at the guard with "the prompt
+    /// is too long" where the day before it ran. That is the same lesson the instance's extra arguments
+    /// taught the other way round. The narrowing is a sentence in the ordinary case; a draft longer than
+    /// the cap degrades the way a diff does, and says so where it was cut.</para>
+    /// </remarks>
+    private static string Narrowing(string? guideline, string what, int cap) =>
+        string.IsNullOrWhiteSpace(guideline)
+            ? ""
+            : Block($"The user narrowed this {what}", guideline.Trim(), Cap(cap));
+
     internal static string Block(string heading, string content, int maxChars)
     {
         // No room means no block. Without this the last fitting step emitted a heading, a fence and the
@@ -527,8 +547,9 @@ public sealed class GoalPromptBuilder
 
     /// <param name="scoped">Whether the working tree block is only what changed since the goal
     /// started. See <see cref="OtherPeoplesWorkInReview"/> for what turns on it.</param>
-    public string BuildReview(string goal, string? gitDiff, bool scoped = false, int? budget = null) =>
-        Fit(cap => ComposeReview(goal, gitDiff, scoped, cap), budget);
+    public string BuildReview(string goal, string? gitDiff, bool scoped = false, int? budget = null,
+        string? guideline = null) =>
+        Fit(cap => ComposeReview(goal, gitDiff, scoped, cap, guideline), budget);
 
     /// <summary>
     /// The warning that the working tree is not all one change — said only where it is true.
@@ -554,10 +575,12 @@ public sealed class GoalPromptBuilder
         "The working tree may also contain unrelated work by the user. Judge only what serves the " +
         "goal; do not report their unrelated changes as a finding.\n\n";
 
-    private string ComposeReview(string goal, string? gitDiff, bool scoped, int cap)
+    private string ComposeReview(string goal, string? gitDiff, bool scoped, int cap,
+        string? guideline = null)
     {
         var prompt = "Review the code changes that were just made in this project.\n\n"
                      + Block("The original goal was", goal, GoalCap(cap))
+                     + Narrowing(guideline, "review", cap)
                      + Images(cap);
         prompt += QualityRules();
         prompt += HealthRules(review: true);
@@ -600,6 +623,14 @@ public sealed class GoalPromptBuilder
                   "there is nothing to report.\n\n" +
                   AnswerLanguage +
                   ReviewExample +
+                  // First line of defence against the one malformed shape that no reading of the
+                  // brackets repairs: a quote left unescaped inside a string value. Measured live,
+                  // 2026-09-01 — a reviewer put a C# interpolation with its own quotes inside a
+                  // finding's detail and the block died for every reader this tile has. A prompt is a
+                  // request rather than a protocol, so the parser's salvage round stands behind this;
+                  // the sentence is what makes the round the exception instead of the rule.
+                  "\nInside string values, escape every double quote as \\\" so the block is strictly " +
+                  "valid JSON." +
                   // Asked for as well as the block, and not as a belt-and-braces flourish: it is the
                   // fallback's trigger. GoalResponseParser reads an answer with no JSON in it by
                   // looking for these words, and while nothing asked for them a tool that ignores the
@@ -610,6 +641,29 @@ public sealed class GoalPromptBuilder
                   "VERDICT: PASS or VERDICT: FAIL instead.";
         return prompt;
     }
+
+    /// <summary>
+    /// Asks the tool to re-send a review block it wrote as invalid JSON, as valid JSON.
+    /// </summary>
+    /// <remarks>
+    /// <para>The salvage round's prompt, and <b>the answer travels alone</b> — no goal, no diff, no
+    /// criteria. The tool that wrote the block is the only reader who knows what it meant, so the repair
+    /// belongs to it; but everything the block was judged against already did its part, and sending it
+    /// again would make one unescaped quote cost a whole review run. A few hundred characters in, a few
+    /// hundred out.</para>
+    /// <para>No budget, on purpose: the caller has no choice about fitting, because trimming the
+    /// <em>broken</em> text changes what is being repaired — a finding cut out of the middle is a
+    /// finding the retry cannot return. Reviews are the smallest of the prompts this tile sends, and
+    /// the agents whose prompt rides a command line get the guard's refusal, with its reason, on the
+    /// rare answer big enough to matter.</para>
+    /// </remarks>
+    public string BuildJsonSalvage(string brokenAnswer) =>
+        "The text below was meant to be a single JSON review block, but it is not valid JSON. The " +
+        "usual cause is a double quote or a newline inside a string value.\n\n" +
+        "Return exactly the same JSON — every key and every value unchanged, finding for finding — " +
+        "with every double quote inside a string value escaped as \\\" and every newline inside a " +
+        "string value written as \\n. No prose, no code fence: your whole reply is the JSON.\n\n" +
+        Block("The answer to repair", brokenAnswer);
 
     /// <summary>
     /// Asks how the run's own work should be divided into commits.
@@ -680,8 +734,8 @@ public sealed class GoalPromptBuilder
     /// <para>Plain prose out, alone among these prompts, because the answer is one sentence that goes
     /// into the composer for the user to edit before anything acts on it.</para>
     /// </summary>
-    public string BuildDetectGoal(string gitDiff, int? budget = null) =>
-        Fit(cap => ComposeDetectGoal(gitDiff, cap), budget);
+    public string BuildDetectGoal(string gitDiff, int? budget = null, string? guideline = null) =>
+        Fit(cap => ComposeDetectGoal(gitDiff, cap, guideline), budget);
 
     /// <summary>
     /// The language this machine is set up in, as an instruction — for the one prompt that cannot ask
@@ -710,12 +764,13 @@ public sealed class GoalPromptBuilder
             : $"Answer in {neutral.EnglishName}. Keep code and identifiers as they are.\n\n";
     }
 
-    private static string ComposeDetectGoal(string gitDiff, int cap)
+    private static string ComposeDetectGoal(string gitDiff, int cap, string? guideline = null)
     {
         // A floor, as the goal has in the other prompts and for the same reason: this one asks what the
         // changes are for, so a version of it with the changes trimmed away is not a smaller prompt but
         // an unanswerable one. If even that will not fit, the guard refuses and says why.
         return "Below are the uncommitted changes in a software project.\n\n"
+               + Narrowing(guideline, "detection", cap)
                + Block("Working tree", gitDiff, Math.Max(500, cap))
                + "Work out what the person making these changes is trying to achieve, and state it as a " +
                  "goal that is not yet finished — what should be true when the work is done, not a list " +

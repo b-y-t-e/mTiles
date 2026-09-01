@@ -210,4 +210,42 @@ public class GoalStatePersistenceTests : IDisposable
         Assert.Empty(Directory.GetFiles(_dir, "*.bad-*"));
         Assert.Equal("a real session", _persistence.Load(path)!.OriginalGoal);
     }
+
+    [Fact]
+    public void A_goals_named_scope_comes_back_with_it()
+    {
+        // The @ paths a goal was typed with are the hard half of its narrowing: a tile reopened after
+        // a restart reads the tree through them, and losing them on the way to disk would have a
+        // Resume implement past the narrowing its own goal was written under.
+        var path = File_("goal.json");
+        _persistence.Save(path, new GoalTileState
+        {
+            OriginalGoal = "a narrowed goal",
+            ScopePaths = ["src/Agents", "docs/my notes.md"],
+            CurrentPhase = GoalPhase.Implement,
+            SelectedToolName = "Claude Code",
+            Messages = [new GoalMessage { Role = GoalMessageRole.Assistant, Text = "done", Phase = GoalPhase.Implement }]
+        });
+
+        var loaded = _persistence.Load(path)!;
+
+        Assert.Equal(["src/Agents", "docs/my notes.md"], loaded.ScopePaths);
+    }
+
+    [Fact]
+    public void A_goal_written_before_scopes_existed_loads_with_none()
+    {
+        var path = File_("goal.json");
+        _persistence.Save(path, new GoalTileState
+        {
+            OriginalGoal = "an older goal",
+            CurrentPhase = GoalPhase.Goal,
+            SelectedToolName = "Claude Code",
+            Messages = []
+        });
+
+        var loaded = _persistence.Load(path)!;
+
+        Assert.Empty(loaded.ScopePaths);
+    }
 }

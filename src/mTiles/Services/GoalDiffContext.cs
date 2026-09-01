@@ -124,10 +124,40 @@ internal static class GoalDiffContext
     /// <param name="caps">How much of the diff and the summary to keep — see
     /// <see cref="CapsFor"/>. Defaults to the command-line figures, so a caller that does not know the
     /// transport gets the safe ones.</param>
+    /// <param name="onlyPaths">The scope the user named in the composer, when they named one: paths
+    /// arrived as <c>@</c> mentions, and every part of the block is filtered to them before anything
+    /// else happens. The tool is then told the omission was deliberate — a filter that emptied a part
+    /// leaves a note saying the scope matched nothing there, because a block that goes silent about
+    /// every file but one must not read as a tree where nothing else changed.</param>
     public static string? Compose(string? diff, string? untracked, string? problem = null,
-        string? summary = null, WorktreeCaps? caps = null)
+        string? summary = null, WorktreeCaps? caps = null,
+        IReadOnlyList<string>? onlyPaths = null)
     {
         var limits = caps ?? OnCommandLine;
+
+        // The scope's note is its own part with its own wording, and never joins `problem`: that one
+        // opens "the working tree could not be read in full", which is a fact about git, and a scope
+        // matching nothing is a fact about the user's words — the tree read fine, and deliberately
+        // only part of it is being shown.
+        string? scopeNote = null;
+
+        if (onlyPaths is { Count: > 0 })
+        {
+            var keptDiff = GoalScopeFilter.Diff(diff, onlyPaths);
+            var keptNames = GoalScopeFilter.Lines(untracked, onlyPaths);
+            var keptStat = GoalScopeFilter.Stat(summary, onlyPaths);
+
+            // The note rides on the diff alone, and deliberately: a scope naming one file empties the
+            // untracked list and the stat in the ordinary course of things — none of the others matched
+            // — while a diff that emptied is the substance of the block gone, and that is the case the
+            // tool must not read as a clean tree.
+            if (diff is { Length: > 0 } && keptDiff is null)
+                scopeNote = "nothing in the change is inside the scope the user named";
+
+            diff = keptDiff;
+            untracked = keptNames;
+            summary = keptStat;
+        }
 
         // Truncated before they are joined, never after: appending the list and then cutting the whole
         // thing to length threw the list away in precisely the case it was added for.
@@ -146,6 +176,7 @@ internal static class GoalDiffContext
         // is bulk that degrades gracefully.
         var parts = new List<string>(4);
         if (problem is { Length: > 0 }) parts.Add($"Note: the working tree could not be read in full — {problem}");
+        if (scopeNote is { Length: > 0 }) parts.Add($"Note: {scopeNote}.");
         if (names.Length > 0) parts.Add($"Untracked files (contents not shown):\n{names}");
         // Above the diff, for the reason the untracked names are: it is bounded by the file count
         // rather than by the size of the change, so it survives a cut that takes most of the body —

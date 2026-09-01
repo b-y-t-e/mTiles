@@ -89,6 +89,27 @@ internal static partial class GoalResponseParser
     }
 
     /// <summary>
+    /// Whether a text that failed to parse still <em>looks</em> like the JSON this tile asked for.
+    /// </summary>
+    /// <remarks>
+    /// The salvage round's trigger, and deliberately shallow: it asks whether the words of the requested
+    /// shape are there, not whether the text can be read — that question failed already. A prose answer
+    /// that never mentioned the keys does not earn a second AI call; a review the tool wrote as JSON but
+    /// broke with one unescaped quote does. Measured live, 2026-09-01: GLM answering a review prompt
+    /// put a C# line with an unescaped quote inside a string value, and every reading of the block —
+    /// fenced, balanced, span — died on it.
+    /// <para><b>The keys are matched quoted.</b> JSON keys are never bare, and a bare word matched too
+    /// much prose the wrong way round: a reviewer writing a "Findings:" heading is writing a section
+    /// header, and the one thing a salvage call would get back from it is more prose. The quote is what
+    /// says this text was meant to be JSON — a broken block keeps its quoted keys however mangled its
+    /// values are.</para>
+    /// </remarks>
+    internal static bool LooksLikeJson(string? text) =>
+        (text ?? "").Contains("\"goalMet\"", StringComparison.OrdinalIgnoreCase)
+        || (text ?? "").Contains("\"goal_met\"", StringComparison.OrdinalIgnoreCase)
+        || (text ?? "").Contains("\"findings\"", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The outermost balanced <c>{…}</c> spans of the text, reading strings and escapes as it goes.
     /// </summary>
     /// <remarks>A brace inside a quoted finding must not unbalance the count, which is why the walk

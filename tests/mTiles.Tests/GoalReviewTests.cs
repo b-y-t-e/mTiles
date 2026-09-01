@@ -98,6 +98,88 @@ public class GoalReviewParsingTests
     }
 
     [Fact]
+    public void The_prompt_asks_for_escaped_quotes_so_the_block_parses_first_time()
+    {
+        // Measured live, 2026-09-01: a reviewer put a C# interpolation with its own unescaped quotes
+        // inside a finding's detail, and the block died for every reader the tile has. The sentence is
+        // the first line of defence; the salvage round is the second.
+        Assert.Contains("escape every double quote", new GoalPromptBuilder().BuildReview("the goal", "a diff"));
+    }
+
+    [Fact]
+    public void A_typed_narrowing_travels_as_a_block_of_its_own()
+    {
+        // The soft half of a scope: the words beside the button are something the run has been told to
+        // respect, not something it was asked to achieve — which is why they are not folded into the
+        // goal they sit beside.
+        var review = new GoalPromptBuilder().BuildReview("the goal", "a diff", guideline: "tylko zmiany dotyczące agentów");
+
+        Assert.Contains("The user narrowed this review", review);
+        Assert.Contains("tylko zmiany dotyczące agentów", review);
+
+        var detect = new GoalPromptBuilder().BuildDetectGoal("a diff", guideline: "tylko parser");
+
+        Assert.Contains("The user narrowed this detection", detect);
+        Assert.Contains("tylko parser", detect);
+    }
+
+    [Fact]
+    public void An_empty_composer_contributes_no_narrowing_block()
+    {
+        Assert.DoesNotContain("The user narrowed", new GoalPromptBuilder().BuildReview("the goal", "a diff"));
+        Assert.DoesNotContain("The user narrowed", new GoalPromptBuilder().BuildDetectGoal("a diff"));
+    }
+
+    [Fact]
+    public void A_long_narrowing_is_capped_like_every_other_borrowed_block()
+    {
+        // The words are user-typed and unbounded — a paste, a dictated paragraph. Uncapped beside a
+        // review on an agent whose prompt rides a command line, they were a run stopped at the guard
+        // with "the prompt is too long" where the day before it ran.
+        var draft = new string('x', 5_000);
+
+        var review = new GoalPromptBuilder().BuildReview("the goal", "a diff", budget: null, guideline: draft);
+
+        Assert.Contains("truncated at 2000 characters", review);
+        Assert.DoesNotContain(new string('x', 2_100), review);
+    }
+
+    [Fact]
+    public void The_salvage_prompt_sends_the_answer_alone_and_asks_for_it_back_valid()
+    {
+        // No goal, no diff: the repair belongs to the tool that wrote the block, and everything the
+        // block was judged against already did its part. Sending the review prompt again would make one
+        // unescaped quote cost a whole review run over the working tree.
+        var broken = "{\"goalMet\": true, \"findings\": [{\"detail\": \"throw new ExportException($\"Nie\"}]}";
+        var prompt = new GoalPromptBuilder().BuildJsonSalvage(broken);
+
+        Assert.Contains(broken, prompt);
+        Assert.Contains("exactly the same JSON", prompt);
+        Assert.Contains("every double quote inside a string value", prompt);
+        Assert.DoesNotContain("Review the code changes", prompt);
+    }
+
+    [Fact]
+    public void A_text_that_looks_like_the_requested_json_is_recognized_as_worth_salvaging()
+    {
+        // The salvage round's trigger: shallow on purpose. It asks whether the words of the shape are
+        // there, because the deeper question — can it be read — is the one that already failed.
+        Assert.True(GoalResponseParser.LooksLikeJson("{\"goalMet\": false, \"findings\": []}"));
+        Assert.True(GoalResponseParser.LooksLikeJson("```json\n{\"findings\": [{\"severity\": \"error\"}]}\n```"));
+        Assert.True(GoalResponseParser.LooksLikeJson("{\"goal_met\": null}"));
+
+        // Quoted keys, because a JSON key is never bare: a "Findings:" heading is a section header in
+        // an ordinary prose review, and the only thing a salvage call would get back from it is more
+        // prose.
+        Assert.False(GoalResponseParser.LooksLikeJson("Findings:\n- the null check is missing. VERDICT: FAIL"));
+
+        // A prose verdict never mentioned the keys, so it earns no second AI call.
+        Assert.False(GoalResponseParser.LooksLikeJson("Two things are broken. VERDICT: FAIL"));
+        Assert.False(GoalResponseParser.LooksLikeJson(""));
+        Assert.False(GoalResponseParser.LooksLikeJson(null));
+    }
+
+    [Fact]
     public void A_json_block_that_is_not_a_review_is_not_read_as_one()
     {
         // A tool that ends its answer with the settings file it edited has not passed the goal by

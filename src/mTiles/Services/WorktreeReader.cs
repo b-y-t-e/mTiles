@@ -80,6 +80,25 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     internal static Func<string, CancellationToken, Task<string?>>? Factory { get; set; }
 
     /// <summary>
+    /// Real paths, not quoted escapes, from every read that names files.
+    /// </summary>
+    /// <remarks>
+    /// git's <c>core.quotePath</c> is on by default, and on it a non-ASCII path arrives as
+    /// <c>"src/\305\201adny plik.md"</c> — octal escapes for the bytes past ASCII, inside quotes. Every
+    /// other reader of names in this codebase already carries the same flag (GitService's
+    /// <c>quotePath=false</c>, the committer's <c>-z</c>, the mention source's <c>-z</c>), because the
+    /// completion the user picked a scope from showed them the real name. Quoted escapes arriving here
+    /// meant a scope naming such a file matched nothing: the diff filtered to empty, and the note told
+    /// the tool the user's scope had matched nothing — twice untrue.
+    /// </remarks>
+    private const string QuotePathOff = "-c core.quotePath=false";
+
+    /// <summary>A test seam: the scope every read was given, handed here as it arrives. Null means
+    /// nothing is watching. The scope threading this observes is one piece — the session field, the
+    /// per-call override, the fallback between them — none of which a stub can see.</summary>
+    internal static Action<IReadOnlyList<string>?>? ReadObserved { get; set; }
+
+    /// <summary>
     /// The pathspec every read here carries: this application's own workspace state, under both the
     /// name it uses now and the one it used before it was renamed.
     /// </summary>
@@ -132,12 +151,21 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// The goal's baseline snapshot, when it has one. Given, the tree is read as <b>what this run
     /// changed</b> rather than as everything uncommitted — see <see cref="ReadAgainstAsync"/>.
     /// </param>
+    /// <param name="onlyPaths">
+    /// The scope the user named, when they named one: the composed block is filtered to these paths
+    /// (<see cref="GoalScopeFilter"/>), while the fingerprint below is still taken from the raw output —
+    /// the no-change check compares what the tree <em>is</em>, not what the prompt was allowed to say
+    /// about it.
+    /// </param>
     public async Task<WorktreeSnapshot> ReadAsync(
-        CancellationToken ct, GoalDiffContext.WorktreeCaps? caps = null, string? baselineRef = null)
+        CancellationToken ct, GoalDiffContext.WorktreeCaps? caps = null, string? baselineRef = null,
+        IReadOnlyList<string>? onlyPaths = null)
     {
+        try { ReadObserved?.Invoke(onlyPaths); } catch { /* an observer is not worth a read */ }
+
         if (baselineRef is { Length: > 0 } baseline && Factory is null)
         {
-            var scoped = await ReadAgainstAsync(baseline, ct, caps);
+            var scoped = await ReadAgainstAsync(baseline, ct, caps, onlyPaths);
             if (scoped is { } answered) return answered;
         }
 
@@ -163,12 +191,12 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
             // .gitignore by the Git tile, so a workspace without one can easily have this tile's own
             // transcript under version control and its contents handed to the tool as "recent changes".
             var (diff, diffProblem) = await RunAsync(
-                git, $"--no-optional-locks diff HEAD -- {Excluded}", ct);
+                git, $"{QuotePathOff} --no-optional-locks diff HEAD -- {Excluded}", ct);
             // Excluded by pathspec. Without a Git tile in the workspace nothing adds it to .gitignore,
             // so the listing included this tile's own state file — the transcript being rewritten
             // after every message — and handed the agent its path to tidy up or edit.
             var (untracked, untrackedProblem) = await RunAsync(
-                git, $"--no-optional-locks ls-files --others --exclude-standard -- {Excluded}", ct);
+                git, $"{QuotePathOff} --no-optional-locks ls-files --others --exclude-standard -- {Excluded}", ct);
 
             // Skipped where the caller has said it wants no summary. The no-change check reads the
             // tree only for its fingerprint, and the summary is deliberately outside that — so without
@@ -199,7 +227,7 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
                 ? ("", (string?)null)
                 : await RunAsync(
                 git,
-                "--no-optional-locks diff HEAD --stat=1000,1000 --stat-graph-width=10 " +
+                QuotePathOff + " --no-optional-locks diff HEAD --stat=1000,1000 --stat-graph-width=10 " +
                 $"-- {Excluded}",
                 ct);
 
@@ -222,7 +250,7 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
             // cannot move unless the diff has, and a fingerprint that counts it would only be the same
             // fact twice.
             return new WorktreeSnapshot(
-                GoalDiffContext.Compose(diff, untracked, problems, summary, limits),
+                GoalDiffContext.Compose(diff, untracked, problems, summary, limits, onlyPaths),
                 readable,
                 readable ? WorktreeSnapshot.Digest(whole) : null);
         }
@@ -259,7 +287,8 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// nothing.</para>
     /// </remarks>
     private async Task<WorktreeSnapshot?> ReadAgainstAsync(
-        string baselineRef, CancellationToken ct, GoalDiffContext.WorktreeCaps? caps)
+        string baselineRef, CancellationToken ct, GoalDiffContext.WorktreeCaps? caps,
+        IReadOnlyList<string>? onlyPaths)
     {
         var limits = caps ?? GoalDiffContext.OnCommandLine;
 
@@ -275,7 +304,7 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
             var range = $"{baselineRef}^{{tree}} {now}";
 
             var (diff, problem) = await RunAsync(
-                git, $"--no-optional-locks diff {range} -- {Excluded}", ct);
+                git, QuotePathOff + $" --no-optional-locks diff {range} -- {Excluded}", ct);
 
             // A baseline that no longer resolves is not a failure to report in the prompt: the caller
             // has a perfectly good HEAD to fall back to, and a note saying a ref is missing would tell
@@ -286,14 +315,14 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
                 ? ("", (string?)null)
                 : await RunAsync(
                     git,
-                    $"--no-optional-locks diff {range} --stat=1000,1000 --stat-graph-width=10 " +
-                    $"-- {Excluded}",
+                    QuotePathOff + $" --no-optional-locks diff {range} --stat=1000,1000 " +
+                    $"--stat-graph-width=10 -- {Excluded}",
                     ct);
 
             return new WorktreeSnapshot(
                 // No untracked list: everything with no history is in both trees, so the diff carries
                 // it in full.
-                GoalDiffContext.Compose(diff, null, null, summary, limits),
+                GoalDiffContext.Compose(diff, null, null, summary, limits, onlyPaths),
                 Readable: true,
                 WorktreeSnapshot.Digest(diff),
                 Scoped: true);

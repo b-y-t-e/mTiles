@@ -345,6 +345,35 @@ permission mode is wrong when it is not, while a missed one only leaves the old 
 the count is non-zero the summary names the cause and points at the strip instead of declaring the goal
 a dead end — the worktree looks identical in both cases and the reader's next move does not.
 
+**A review that arrives broken gets one repair round.** The reviewer is asked for a JSON block, and a
+block that is not valid JSON — measured live 2026-09-01: a reviewer answering in Polish put a C#
+interpolation with its own unescaped quotes inside a finding's detail — dies for every reading this
+tile has, fenced, balanced or spanned, and its verdict then falls to the prose fallback, which can say
+the opposite of what the JSON said. When the raw answer still *looks* like the requested shape
+(`GoalResponseParser.LooksLikeJson`: the keys are there, whatever the syntax), the review phase makes
+**one** more AI call — `GoalPromptBuilder.BuildJsonSalvage`, which sends **the answer alone** back to
+the tool: no goal, no diff, a few hundred characters rather than a re-run of the phase, because the
+only reader who knows what the block meant is its author. The re-send is asked to be strictly valid —
+every quote inside a string escaped, every newline as `\n` — and the review prompt itself asks for the
+same escaping up front, which is the cheap first line the round stands behind. If the re-send fails
+too, the original behaviour stands — the raw text is what the transcript shows and the prose fallback
+answers — and the round never announces a failure of its own (`RunAiAsync`'s quiet path), because the
+phase it belongs to succeeded; only its JSON did not. Prose answers that never named the keys earn no
+second call.
+
+**An unchanged worktree still gets a verdict.** A `NoChange` stop used to be the end of it: the
+implementation wrote nothing, the loop ended, and the summary declared a dead end — even when the
+attempt's own account, right there in the transcript, said the tree already held the work ("everything
+the plan asked for is already in place, odrzucam przepisywanie od zera", measured live 2026-09-01, over
+a goal whose plan the user had just approved). The dead end and the finished goal leave identical
+worktrees and want different sentences, and the tile has an arbiter for exactly that question. So where
+there were no refusals, the empty worktree goes to the **reviewer once** (`ReviewUnchangedTreeAsync`,
+unscoped — the work predates the run): met, and the stop is `Met` — "Goal completed after 1 attempt"
+over a goal that was done; not met, and the `NoChange` sentence carries the review's outstanding list.
+Once, either way — the loop ends here, and Resume cannot re-run the review against a tree nothing has
+touched. A refused run skips the call entirely, because a review of work nobody was allowed to do would
+answer what the summary already says.
+
 **The transcript follows the run, unless you are reading it.** `GoalTileView` scrolls to the end when a
 message arrives, and asks first whether the reader was at the bottom *before* it did — measured on the
 old extent, because the message is in the collection but not yet laid out. A run posts a dozen messages
@@ -568,6 +597,24 @@ While the list is up Enter belongs to it rather than to Send, taken in the tunne
 bubble phase would reach it after the box's own handler had already sent a goal with a half-typed
 `@go` in it. **A folder is a step rather than an answer**: taking one types it without the trailing
 space and leaves the list up on what is inside, so Enter walks down a tree exactly as Tab does.
+
+**Typed beside the three buttons, the composer becomes a scope** — and it is two mechanisms, not one.
+The words travel as a narrowing block (`"The user narrowed this detection/review"` — soft, and all a
+phrase like "tylko zmiany dotyczące agentów" can be, since a phrase names no files to filter by); the
+paths it names as `@` mentions are the hard half: `GoalScopeFilter` extracts them (`@path`, and
+`@"path with spaces"` for names with whitespace; a token with neither a directory nor an extension —
+`@admin` — is prose with an at-sign in it, not a path) and every part of the working-tree block is
+filtered to them before the prompt is built. A diff that the filter emptied carries a note saying the
+user's scope matched nothing — a block gone silent about every file must not read as a clean tree;
+the note rides on the diff alone, because the untracked list and the stat empty as a matter of course
+under any scope that names one file. The fingerprint is taken from the raw diff on purpose, so the
+no-change check compares what the tree *is*, not what the prompt was allowed to say about it. Where
+the words land is deliberately uneven: **Detect** and **Detect & run** carry them into the detection
+whose goal then carries the narrowing for the rest of the run; **Review** and **Detect & Review**
+carry them into the one review the button produces — as parameters, never onto the session scope,
+because a narrowing typed for a single look at the tree must not be inherited by a Continue that
+comes after. **The composer is consumed only where the words are acted on**: a detection that ends
+without a goal leaves the draft in the box.
 
 The whole thing follows what the popular tools of this kind do, measured against a 3443-file
 TypeScript repository, and the reason is one number. The ranking here used to say that a hit in the

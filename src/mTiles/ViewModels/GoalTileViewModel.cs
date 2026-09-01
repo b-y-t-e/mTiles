@@ -1144,7 +1144,22 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// </remarks>
     [RelayCommand]
     private Task ReReviewAsync() =>
-        CanReReview ? WorkingAsync(RunReviewOnlyAsync) : Task.CompletedTask;
+        CanReReview ? WorkingAsync(async () =>
+        {
+            // Typed beside the button, the composer's words narrow THIS review — soft as a guideline,
+            // hard where they name @ paths. Both travel as parameters, never onto the goal's scope: a
+            // Continue pressed afterwards implements for the goal as it was typed, not for the one
+            // look the user narrowed down. A composer left without mentions narrows nothing here —
+            // null, so the goal's own scope still applies rather than an empty list overriding it.
+            var (guideline, paths) = ReadScopeFromComposer();
+            var ran = await RunReviewOnlyAsync(guideline,
+                paths.Count > 0 ? paths : null);
+
+            // Cleared after, not before: the words went into a review that actually ran. One that was
+            // paused before it started leaves the draft in the box — the only copy of those words
+            // there is.
+            if (ran) InputText = "";
+        }) : Task.CompletedTask;
 
     /// <summary>
     /// Whether the bar of finished-run actions has anything in it.
@@ -1247,10 +1262,21 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         // clearing first meant the user had paid for that with their session.
         Working("Reading the working tree...");
 
+        // Read before anything else: the paths named here filter the very read below, and the words
+        // around them go into the detection prompt as the narrowing block. Nothing is cleared yet — a
+        // detection that ends without a goal (an unreadable tree, a tool that named none) leaves the
+        // draft in the composer, which is the only copy of those words there is. They are consumed
+        // below, where the goal is adopted.
+        //
+        // The fresh scope is passed explicitly, and an empty list with it: the goal being replaced had
+        // a scope of its own, and a detection reading through that one — or falling back to it where
+        // the new text named none — would answer a question the user did not ask.
+        var (guideline, scopePaths) = ReadScopeFromComposer();
+
         WorktreeSnapshot tree;
         try
         {
-            tree = await ReadWorktreeAsync();
+            tree = await ReadWorktreeAsync(onlyPaths: scopePaths);
         }
         catch (OperationCanceledException)
         {
@@ -1286,7 +1312,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         // alternative — an empty tile where a session used to be — is the ordinary outcome rather than
         // the unlucky one.
         Working("Working out the goal from your changes...");
-        var run = await RunAiAsync(_engine.BuildDetectGoalPrompt(tree.Text!, PromptBudget()));
+        var run = await RunAiAsync(_engine.BuildDetectGoalPrompt(tree.Text!, PromptBudget(), guideline));
 
         if (run.Verdict != GoalRunVerdict.Answered)
         {
@@ -1321,7 +1347,23 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         // really doing is X" is folded into the plan. The one thing that does *not* move is
         // OriginalGoal, which is fixed here and carried by every later prompt — so a badly detected
         // goal is corrected by starting over with +, not by talking it round.
+        //
+        // Here is also where the composer's words are finally consumed — now, and not before the read,
+        // so every failure above left the draft where the user typed it. The scope belongs to the goal
+        // that has just been adopted: every later tree read filters the same way, and on the Detect &
+        // Review path the words go to the one review this button produces, which would otherwise lose
+        // them — the detection that shaped them was a means, not the result.
+        //
+        // Consumed, but cleared only where something takes the composer over. On this button the
+        // detection's answer goes to the transcript and the loop does not start, so a draft that was
+        // there before the click stays a draft — pinned by A_detection_over_a_composer_the_user_had_
+        // already_filled_keeps_it.
+        //
+        // Set after StartFreshGoal, which clears the scope of the goal being replaced: the paths named
+        // here belong to the one that has just started.
         StartFreshGoal(goal);
+        _engine.ScopePaths = LivePaths(scopePaths);
+        if (andRun || andReview) InputText = "";
         SyncFromEngine(save: File.Exists(_filePath));
         await AddMessageAsync(GoalMessageRole.User, goal, GoalPhase.Goal);
         await CaptureBaselineAsync();
@@ -1337,8 +1379,10 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
             // The tree has just been read to work the goal out, and nothing has touched it since — so
             // it is read again rather than kept, for one reason: that read was capped for the *detect*
-            // prompt, and this one is capped for the review's.
-            await RunReviewOnlyAsync();
+            // prompt, and this one is capped for the review's. The narrowing travels: this review is
+            // the whole of what Detect & Review produces, and the goal's scope — just adopted below —
+            // is the hard half of it.
+            await RunReviewOnlyAsync(guideline);
             return;
         }
 
@@ -1488,6 +1532,10 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                 case GoalPhase.Goal:
                 case GoalPhase.Summary:
                     StartFreshGoal(text);
+                    // The typed goal is its own narrowing: @ paths in it scope every tree read of the
+                    // goal that starts here. After StartFreshGoal, which clears the replaced goal's
+                    // scope — these belong to the one that has just started.
+                    _engine.ScopePaths = LivePaths(GoalScopeFilter.Mentions(text));
                     SyncFromEngine();
                     await AddMessageAsync(GoalMessageRole.User, text, GoalPhase.Goal);
 
@@ -1789,6 +1837,14 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             // place it was never computed.
             string? outstanding = null;
 
+            // How many tool calls the *implementation* was refused, carried beside the stop for the same
+            // reason: the summary's NoChange sentence names the attempt, and the unchanged-tree path runs
+            // a review (and a salvage) after the implementation before the summary is built — each of
+            // those runs rewrites _lastRunDenials with its own refusals, so reading the field at summary
+            // time could put the permission sentence under a review that was refused its build over a
+            // tree that already held the work.
+            var implementationDenials = 0;
+
             while (GoalLoopPolicy.NextAttempt(_engine.IterationCount, _engine.MaxIter, finishing) is { } attempt)
             {
                 _engine.IterationCount = attempt;
@@ -1846,10 +1902,33 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
                     // Two short git processes against a lap that costs minutes of AI, and they pay for
                     // themselves the moment this fires: there is no sense reviewing a change that was
-                    // never made.
+                    // never made — but the stop is not the verdict. Two runs leave the same empty
+                    // worktree and want different sentences: the tool refused the work and was never
+                    // allowed to touch a file (the summary below names the permission mode), or it did
+                    // the work's own arithmetic and concluded the tree already held it — measured live
+                    // 2026-09-01, a run answered "everything the plan asked for is already here,
+                    // odrzucam przepisywanie od zera", changed nothing, and the tile stopped with a
+                    // sentence about a dead end over an account of a goal that was done. So the empty
+                    // worktree goes to the reviewer once, to arbitrate what the attempt only claimed:
+                    // met, and the run says so; not met, and the dead-end sentence carries what the
+                    // reviewer found outstanding. Once — the loop ends here either way, and a refused
+                    // run skips the call entirely, because a review of work nobody was allowed to do
+                    // answers what the summary already says.
                     if (await ImplementationChangedNothingAsync(treeBeforeImplement))
                     {
-                        stopReason = GoalStopReason.NoChange;
+                        // Captured before anything can overwrite it: the review below runs its own AI
+                        // call, and the summary's NoChange sentence is about the implementation.
+                        implementationDenials = _lastRunDenials;
+
+                        if (implementationDenials > 0)
+                        {
+                            stopReason = GoalStopReason.NoChange;
+                            break;
+                        }
+
+                        var verdict = await ReviewUnchangedTreeAsync(criteria);
+                        if (verdict is null) return;
+                        (stopReason, outstanding) = verdict.Value;
                         break;
                     }
                 }
@@ -1876,7 +1955,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
                 if (reviewRun is not { } reviewed) return;
 
-                var review = GoalResponseParser.ParseReview(reviewed.Text);
+                var review = await SalvagedReviewAsync(GoalResponseParser.ParseReview(reviewed.Text));
                 ShowFindings(review);
                 // The head as text, the findings as findings. They used to be one string, so the one
                 // part of the transcript arranged to be scanned was also the one part with no colour
@@ -1941,7 +2020,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                         $"Not done: {outstanding}. Re-implementing (attempt {next})...", GoalPhase.Review);
             }
 
-            await ShowSummaryAsync(stopReason, outstanding);
+            await ShowSummaryAsync(stopReason, outstanding, implementationDenials);
         }
         finally
         {
@@ -2100,8 +2179,15 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// afterwards: the other tile's files fall into <c>touchedSince</c>, are held back, and are named
     /// under the reason they were held.</para>
     /// </param>
+    /// <param name="implementationDenials">
+    /// How many tool calls the run's last <em>implementation</em> was refused — captured where the stop
+    /// was decided, not read from <c>_lastRunDenials</c> here. The unchanged-tree path runs a review
+    /// (and a salvage) after the implementation and before this summary, and every AI run rewrites that
+    /// field with its own refusals; the permission sentence is about the attempt, so it is handed the
+    /// attempt's count. Only the NoChange sentence reads it.
+    /// </param>
     private async Task ShowSummaryAsync(GoalStopReason reason, string? outstanding = null,
-        bool autoCommit = true, bool wroteChanges = true)
+        int implementationDenials = 0, bool autoCommit = true, bool wroteChanges = true)
     {
         // Kept with the goal, not merely said in the transcript: the Summary offers Continue for one of
         // the four reasons only, and a tile reopened tomorrow has nothing to read that back out of.
@@ -2146,7 +2232,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         // read as a problem with a run that had none.
         var summary = GoalCompletionPolicy.Summarise(
                           reason, _engine.IterationCount, outstanding,
-                          reason == GoalStopReason.NoChange ? _lastRunDenials : 0)
+                          reason == GoalStopReason.NoChange ? implementationDenials : 0)
                       + "\nType a new goal, or start a fresh one with +.";
 
         await AddMessageAsync(GoalMessageRole.System, summary, GoalPhase.Summary);
@@ -2161,6 +2247,41 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     }
 
     // ── One review, on its own ──────────────────────────
+
+    /// <summary>
+    /// Reviews the working tree once after an implementation that changed no files, so the stop carries
+    /// a verdict instead of only a dead end.
+    /// </summary>
+    /// <remarks>
+    /// <para>The tree is read <b>unscoped</b>, for the reason <see cref="RunReviewOnlyAsync"/> states:
+    /// the work being judged predates this run — the attempt just ended changed nothing, so scoping to
+    /// a baseline taken moments ago would answer with an empty diff.</para>
+    /// <para>Null means the review was paused, and the caller must leave the pause standing rather than
+    /// summarise over it — the same contract the loop's own review runs under.</para>
+    /// </remarks>
+    private async Task<(GoalStopReason Reason, string? Outstanding)?> ReviewUnchangedTreeAsync(
+        GoalCompletionCriteria criteria)
+    {
+        var reviewRun = await RunLoopPhaseAsync(
+            GoalPhase.Review,
+            "AI is reviewing the working tree...",
+            (tree, isScoped) => _engine.BuildReviewPrompt(tree, isScoped, PromptBudget()),
+            addMessage: false,
+            scoped: false);
+
+        if (reviewRun is not { } reviewed) return null;
+
+        var review = await SalvagedReviewAsync(GoalResponseParser.ParseReview(reviewed.Text));
+        ShowFindings(review);
+        await AddMessageAsync(GoalMessageRole.Assistant,
+            GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
+            findings: GoalTranscript.InOrder(review.Findings));
+
+        if (GoalCompletionPolicy.IsMet(review, criteria))
+            return (GoalStopReason.Met, null);
+
+        return (GoalStopReason.NoChange, GoalCompletionPolicy.WhyNotMet(review, criteria));
+    }
 
     /// <summary>
     /// Judges the working tree against the goal, once, and changes nothing.
@@ -2180,7 +2301,8 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// afterwards, and without this its first implement prompt would start over a tree that had just
     /// been reviewed with no idea what the review said.</para>
     /// </remarks>
-    private async Task RunReviewOnlyAsync()
+    private async Task<bool> RunReviewOnlyAsync(string? guideline = null,
+        IReadOnlyList<string>? onlyPaths = null)
     {
         var criteria = _engine.Criteria;
 
@@ -2195,13 +2317,18 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         var run = await RunLoopPhaseAsync(
             GoalPhase.Review,
             "AI is reviewing the working tree...",
-            (tree, isScoped) => _engine.BuildReviewPrompt(tree, isScoped, PromptBudget()),
+            (tree, isScoped) => _engine.BuildReviewPrompt(tree, isScoped, PromptBudget(), guideline),
             addMessage: false,
-            scoped: false);
+            scoped: false,
+            // Scoped to this one review, never to the session: a narrowing typed beside Re-review is
+            // the words of one look at the tree, and a Continue that came after must not inherit it.
+            onlyPaths: onlyPaths);
 
-        if (run is not { } reviewed) return;
+        // False is a review that never ran — paused before it started — and the one answer a caller
+        // needs to know whether the words it handed over were spent.
+        if (run is not { } reviewed) return false;
 
-        var review = GoalResponseParser.ParseReview(reviewed.Text);
+        var review = await SalvagedReviewAsync(GoalResponseParser.ParseReview(reviewed.Text));
         ShowFindings(review);
         await AddMessageAsync(GoalMessageRole.Assistant,
             GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
@@ -2230,6 +2357,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             wroteChanges: false);
 
         RefreshFinishedRunActions();
+        return true;
     }
 
     /// <summary>
@@ -2463,6 +2591,34 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     // ── AI process execution ────────────────────────────
 
     /// <summary>
+    /// One salvage round for a review that arrived as the JSON this tile asked for and broke on the way.
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured live, 2026-09-01: a reviewer answering in Polish put a C# interpolation with its
+    /// own unescaped quotes inside a finding's detail, the block died for every reader this tile has —
+    /// fenced, balanced, span — and a review whose JSON said the goal was met fell through to the prose
+    /// verdict, which said the opposite. The repair belongs to the tool that wrote the block, so the
+    /// answer goes back to it <b>alone</b> — no goal, no diff — for one re-send; a second AI call of a
+    /// few hundred characters instead of a review re-run over the whole working tree.</para>
+    /// <para>The round fires only when the text still <em>looks</em> like the requested shape
+    /// (<see cref="GoalResponseParser.LooksLikeJson"/>): a prose answer earns no second call. When the
+    /// re-send fails too, today's behaviour stands — the soup is shown and the prose verdict answers —
+    /// which is why the original review, not the salvage attempt, is what returns.</para>
+    /// </remarks>
+    private async Task<GoalReviewResult> SalvagedReviewAsync(GoalReviewResult review)
+    {
+        if (review.WasStructured || !GoalResponseParser.LooksLikeJson(review.RawText)) return review;
+
+        await AddMessageAsync(GoalMessageRole.System,
+            "The review came back as JSON this tile could not parse — asking the tool to re-send the " +
+            "same block in a valid form.", CurrentPhase);
+
+        var salvaged = await RunAiAsync(_engine.BuildJsonSalvagePrompt(review.RawText), announceFailure: false);
+        var second = GoalResponseParser.ParseReview(salvaged.Text);
+        return second.WasStructured ? second : review;
+    }
+
+    /// <summary>
     /// One AI run: what it produced, and what happened to it.
     /// <para>The two travel together because they are one answer. They were three fields the caller had
     /// to remember to pass to <see cref="GoalLoopPolicy.Judge"/>, and each was added separately after
@@ -2498,7 +2654,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         return agent.EnvFor(runtime);
     }
 
-    private async Task<AiRun> RunAiAsync(string prompt)
+    private async Task<AiRun> RunAiAsync(string prompt, bool announceFailure = true)
     {
         var phase = CurrentPhase;
 
@@ -2631,7 +2787,11 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                     await AddMessageAsync(GoalMessageRole.System,
                         "The provider dropped the stream mid-run — retrying this run on its own.",
                         phase);
-                    return await RunAiAsync(prompt);
+                    // The quiet contract travels with the retry: it is still the same run — the
+                    // salvage round's re-send, say — and a retry that fails too must stay as quiet as
+                    // the run it stands in for, or the failure message names a phase that never asked
+                    // to be loud.
+                    return await RunAiAsync(prompt, announceFailure);
                 }
 
                 // One recognisable cause gets named, because it is the one that fails *every* run on
@@ -2678,10 +2838,14 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                             ? $"{AiEfforts.RejectedEffortAdvice} "
                             : "";
 
-                await AddMessageAsync(GoalMessageRole.System,
-                    $"{NameOf(CurrentPhase)} reported a failure. {cause}"
-                    + $"{Capitalised(TryAgain())}\n\n{result.Text}",
-                    CurrentPhase);
+                // Quiet is the salvage round's answer: the run it retries succeeded — only the
+                // re-send of its broken JSON failed — and "review reported a failure" over that would
+                // name a failure the phase did not have.
+                if (announceFailure)
+                    await AddMessageAsync(GoalMessageRole.System,
+                        $"{NameOf(CurrentPhase)} reported a failure. {cause}"
+                        + $"{Capitalised(TryAgain())}\n\n{result.Text}",
+                        CurrentPhase);
                 return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
             }
 
@@ -2729,7 +2893,8 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// </summary>
     private async Task<LoopAnswer?> RunLoopPhaseAsync(
         GoalPhase phase, string runningLabel, Func<string?, bool, string> buildPrompt,
-        bool addMessage = true, bool scoped = true)
+        bool addMessage = true, bool scoped = true,
+        IReadOnlyList<string>? onlyPaths = null)
     {
         if (PauseRequested) return Stopped();
 
@@ -2743,7 +2908,7 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         WorktreeSnapshot tree;
         try
         {
-            tree = await ReadWorktreeAsync(scoped);
+            tree = await ReadWorktreeAsync(scoped, onlyPaths);
         }
         catch (OperationCanceledException)
         {
@@ -2994,10 +3159,47 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// user is in the middle of, which is precisely their uncommitted work against HEAD, and it runs
     /// before a goal exists — so the only baseline in reach belongs to the goal being replaced.</para>
     /// </param>
-    private Task<WorktreeSnapshot> ReadWorktreeAsync(bool scoped = false) =>
+    private Task<WorktreeSnapshot> ReadWorktreeAsync(bool scoped = false,
+        IReadOnlyList<string>? onlyPaths = null) =>
         NewWorktreeReader().ReadAsync(
             _cts?.Token ?? CancellationToken.None, GoalDiffContext.CapsFor(PromptBudget()),
-            scoped ? DiffBase : null);
+            scoped ? DiffBase : null, onlyPaths ?? _engine.ScopePaths);
+
+    /// <summary>
+    /// The scope the composer names, read off it — nothing cleared, nothing stored.
+    /// </summary>
+    /// <remarks>
+    /// <para>The paths arrive as <c>@</c> mentions and are the hard half (<see cref="GoalScopeFilter"/>:
+    /// the tree read for this goal is filtered to them); the words around them come back as the first
+    /// half of the pair and go into the prompt as the narrowing block. Image markers go no further — the
+    /// images they stood for were pasted for a goal this composer text is now steering, not for this
+    /// one.</para>
+    /// <para><b>Nothing is consumed here, on purpose.</b> The caller clears the composer only once the
+    /// text has been acted on — a detection that ends without a goal must leave the draft in the box,
+    /// because that draft is the only copy of the user's words there is.</para>
+    /// </remarks>
+    private (string Guideline, IReadOnlyList<string> Paths) ReadScopeFromComposer()
+    {
+        var text = GoalImageMarker.DropMarkersExcept(InputText, []).Trim();
+        return (text, LivePaths(GoalScopeFilter.Mentions(text)));
+    }
+
+    /// <summary>
+    /// The named mentions that name something in this workspace.
+    /// </summary>
+    /// <remarks>
+    /// <para>A completion never offers a file that is not there, but the composer holds anything a
+    /// user typed — and a token that only looks like a path (<c>john.doe</c> out of an email-style
+    /// word) passes the syntax rule and, left in, filters the whole tree to nothing over a typo. A
+    /// scope naming nothing is the most expensive way a letter can be wrong: the diff is gone and the
+    /// note saying so does not bring it back. Words that name nothing stay in the soft half — the
+    /// guideline sentence still carries them.</para>
+    /// </remarks>
+    private IReadOnlyList<string> LivePaths(IReadOnlyList<string> paths) =>
+        paths.Where(path =>
+                File.Exists(Path.Combine(_workingDirectory, path))
+                || Directory.Exists(Path.Combine(_workingDirectory, path)))
+            .ToList();
 
     /// <summary>
     /// What a scoped read measures from — the goal's baseline, or <c>HEAD</c> where the work being
@@ -3034,7 +3236,12 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             // a digest of `diff HEAD` are answers to two different questions and can never be equal, so
             // reading only one of them this way silently retired the no-change stop — the run carried
             // on spending attempts on a tool that had written nothing.
-            DiffBase);
+            DiffBase,
+            // The scope rides along so every read of this goal reports the same answer about itself.
+            // The fingerprint does not need it — it is taken from the raw diff, not from the filtered
+            // block — but a read of a narrowed goal that silently claimed the whole tree would be one
+            // answer in the transcript and another in the check.
+            _engine.ScopePaths);
 
     private WorktreeReader NewWorktreeReader() =>
         new(_workingDirectory, GitPath());

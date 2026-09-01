@@ -161,6 +161,24 @@ public sealed class GoalTileState
     public string? BaselineRef { get; set; }
 
     /// <summary>
+    /// The paths the user named with <c>@</c> when this goal was typed or detected, or an empty list
+    /// when they named none.
+    /// </summary>
+    /// <remarks>
+    /// The hard half of a narrowed task: every working-tree read of this goal is filtered to these
+    /// paths, and a tile reopened after a restart must read the same narrowed tree the run was
+    /// started on — otherwise a Resume implements past the narrowing its own goal was written under.
+    /// Absent in a file written before this existed, which is the state of every goal that had no
+    /// scope.
+    /// </remarks>
+    public List<string> ScopePaths
+    {
+        get => _scopePaths;
+        set => _scopePaths = Without.Nulls(value);
+    }
+    private List<string> _scopePaths = [];
+
+    /// <summary>
     /// The ref holding the working tree as this run <em>finished</em>, or null when none was taken.
     /// </summary>
     /// <remarks>

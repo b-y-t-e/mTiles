@@ -42,7 +42,6 @@ public class GoalDiffContextTests
         // afterwards, so the moment the diff passed the cap the list was cut off entirely — in
         // exactly the case it was added for, a resumed run against a large implementation.
         var huge = new string('x', GoalDiffContext.MaxDiffChars * 3);
-
         var composed = GoalDiffContext.Compose(huge, "src/New.cs")!;
 
         Assert.Contains("src/New.cs", composed);
@@ -156,5 +155,63 @@ public class GoalDiffContextTests
         // Every line that is a path is a whole one: the last is the truncation note, the first the header.
         foreach (var line in lines[1..^1])
             Assert.Matches(@"^generated/file\d+\.txt$", line);
+    }
+
+    [Fact]
+    public void A_named_scope_filters_every_part_of_the_block()
+    {
+        const string diff =
+            "diff --git a/src/Agents/X.cs b/src/Agents/X.cs\n--- a/src/Agents/X.cs\n+++ b/src/Agents/X.cs\n@@ -1 +1 @@\n-new\n+newer\n" +
+            "diff --git a/src/Cart.cs b/src/Cart.cs\n--- a/src/Cart.cs\n+++ b/src/Cart.cs\n@@ -1 +1 @@\n-total\n+discounted\n";
+
+        var composed = GoalDiffContext.Compose(diff, "src/Agents/notes.md\nREADME.md",
+            summary: " src/Agents/X.cs | 2 +-\n src/Cart.cs | 2 +-\n 2 files changed",
+            onlyPaths: ["src/Agents"])!;
+
+        Assert.Contains("src/Agents/X.cs", composed);
+        Assert.DoesNotContain("Cart.cs", composed);
+        Assert.Contains("src/Agents/notes.md", composed);
+        Assert.DoesNotContain("README.md", composed);
+        // The totals described the whole change, and after a filter that is no longer what is true.
+        Assert.DoesNotContain("files changed", composed);
+    }
+
+    [Fact]
+    public void A_scope_matching_nothing_says_so_rather_than_looking_clean()
+    {
+        // A block gone silent about every file but none must not read as a tree where nothing else
+        // changed — the omission was the user's, and the tool is told it was deliberate. Its own
+        // wording, too: the git-failure note opens "could not be read in full", and the tree here was
+        // read perfectly well.
+        var composed = GoalDiffContext.Compose("diff --git a/src/Cart.cs b/src/Cart.cs\n--- a/src/Cart.cs",
+            null, onlyPaths: ["docs/"])!;
+
+        Assert.Contains("nothing in the change is inside the scope the user named", composed);
+        Assert.DoesNotContain("could not be read in full", composed);
+        Assert.DoesNotContain("Cart.cs", composed);
+    }
+
+    [Fact]
+    public void The_note_rides_on_the_diff_alone_because_the_other_parts_empty_in_the_ordinary_course()
+    {
+        // A scope naming one file empties the untracked list as a matter of course — none of the
+        // others matched — and a scope note beside a diff that names the scoped file would be a
+        // contradiction in one block.
+        var composed = GoalDiffContext.Compose(
+            "diff --git a/src/Cart.cs b/src/Cart.cs\n--- a/src/Cart.cs\n+++ b/src/Cart.cs",
+            "src/Other.cs\nsrc/Another.cs", onlyPaths: ["src/Cart.cs"])!;
+
+        Assert.DoesNotContain("scope the user named", composed);
+        Assert.Contains("Cart.cs", composed);
+        Assert.DoesNotContain("src/Other.cs", composed);
+    }
+
+    [Fact]
+    public void No_scope_filters_nothing()
+    {
+        var composed = GoalDiffContext.Compose("diff --git a/src/Cart.cs b/src/Cart.cs", null,
+            onlyPaths: null)!;
+
+        Assert.Contains("Cart.cs", composed);
     }
 }
