@@ -759,6 +759,14 @@ public partial class SettingsViewModel
         }
     }
 
+    /// <summary>Opens the agent's own page in the browser.</summary>
+    [RelayCommand]
+    private void OpenAgentUrl(AiAgentInstanceViewModel row)
+    {
+        if (row.InstallUrl is not { } url) return;
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
     // ─────────────────────────── Sign-ins ───────────────────────────
 
     /// <summary>The agents that can hold more than one login, for the New sign-in form's chooser.

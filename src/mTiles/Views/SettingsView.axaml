@@ -352,6 +352,13 @@
                                                         Content="Install…"
                                                         ToolTip.Tip="Shows the command, then runs it in a terminal tile" />
                                                 <Button Classes="tile-btn"
+                                                        IsVisible="{Binding HasInstallUrl}"
+                                                        Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).OpenAgentUrlCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="{Binding InstallUrl}">
+                                                    <mi:MaterialIcon Kind="OpenInNew" Width="13" Height="13" />
+                                                </Button>
+                                                <Button Classes="tile-btn"
                                                         Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditAgentInstanceCommand}"
                                                         CommandParameter="{Binding}"
                                                         ToolTip.Tip="Edit">

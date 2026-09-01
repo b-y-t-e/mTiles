@@ -47,6 +47,12 @@ public sealed partial class AiAgentInstanceViewModel : ObservableObject
 
     public bool CanBeInstalled => !IsInstalled && InstallPlan is not null;
 
+    /// <summary>Where the tool comes from, for the row's link — null for an agent this build does not
+    /// have and for the one without a page.</summary>
+    public string? InstallUrl => Agent?.InstallUrl;
+
+    public bool HasInstallUrl => InstallUrl is not null;
+
     /// <summary>Why this instance cannot be run as configured, or empty where it can.</summary>
     /// <remarks><para>The row is the only place that can say it. An instance that cannot be run as
     /// configured is unavailable everywhere else — missing from the Agent tile's chooser and from the
