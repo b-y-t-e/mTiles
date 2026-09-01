@@ -45,7 +45,11 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
 
     /// <summary>Which configured way of running an agent this tile is. Stored in the layout, looked up
     /// in settings at every launch.</summary>
-    public string InstanceId { get; }
+    /// <remarks>Written only by <see cref="SwitchTo"/>, never by a plain setter: three things have to
+    /// happen together with it — the substitution is put down, the captured conversation is dropped when
+    /// the account changes, and the layout is asked to be written — and a setter is an invitation to do
+    /// one of them and not the others.</remarks>
+    public string InstanceId { get; private set; }
 
     /// <summary>Which agent it runs, so a tile whose instance has been deleted can still be shown for
     /// what it was.</summary>
@@ -54,8 +58,11 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
     /// <summary>What the layout asked for, when this tile could not be built as it — otherwise null.
     /// </summary>
     /// <remarks>Read by <c>AgentTileKind.Save</c>, which writes the requested ids rather than these
-    /// ones: see <see cref="AgentSubstitution"/>.</remarks>
-    public AgentSubstitution? Substitution { get; }
+    /// ones: see <see cref="AgentSubstitution"/>. Cleared by <see cref="SwitchTo"/>, and only there: a
+    /// user who points the tile at another instance has answered the question the notice was asking, and
+    /// a substitution left standing would have <c>Save</c> write the old requested id over their
+    /// choice.</remarks>
+    public AgentSubstitution? Substitution { get; private set; }
 
     /// <summary>
     /// The conversation this tile resumes.
@@ -105,6 +112,114 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
     private AiAgentInstance Instance =>
         _settings.Settings.AiAgentInstances.FirstOrDefault(i => i.Id == InstanceId)
         ?? AiAgentCatalog.SeedInstanceFor(_agent);
+
+    /// <summary>The instances this tile could be switched to, the one it is running included.</summary>
+    /// <remarks>
+    /// <para><b>The same agent, and nothing else.</b> Another instance of the same
+    /// <see cref="IAiAgent"/> is the same program with another account, model or set of flags — the same
+    /// session strategy, the same resume commands, the same shape of environment. Another <em>agent</em>
+    /// is another program working in somebody's repository, which is the failure
+    /// <see cref="AgentSubstitution"/> exists to announce rather than something to offer as a menu item.
+    /// </para>
+    /// <para>Filtered by <c>AiAgentCatalog.IsAvailable</c>, the rule the tile chooser and the Goal
+    /// tile's list already hide on, so a pairing <c>AgentModelResolver</c> would refuse the launch of
+    /// cannot be picked here either. Read from settings at the moment it is asked for: instances are
+    /// added, renamed and deleted while the tile lives.</para>
+    /// </remarks>
+    public IReadOnlyList<AiAgentInstance> SwitchTargets =>
+        [.. _settings.Settings.AiAgentInstances.Where(
+            instance => instance.AgentId == AgentId
+                        && AiAgentCatalog.IsAvailable(instance, _settings.Settings))];
+
+    /// <summary>
+    /// What the user is agreeing to, or null when there is nothing to switch to.
+    /// </summary>
+    /// <remarks>Switching kills whatever the shell is running, so it is asked about like any other
+    /// destructive action — and the sentence names the part the user cannot see coming: the account is
+    /// where the CLI keeps its conversations, so changing it is what changes which conversation the tile
+    /// comes back to. On an agent that names its own session that loss is one way; on the other two the
+    /// id is derived from the tile's identity at every launch, so switching back finds the old
+    /// conversation again.</remarks>
+    public string? ConfirmationForSwitchTo(string instanceId)
+    {
+        if (Target(instanceId) is not { } target) return null;
+
+        var question = $"Run this tile as \"{target.Name}\"? Whatever it is running now is stopped.";
+        if (target.SignInId == Instance.SignInId) return question;
+
+        return question + (NamesItsOwnSession
+            ? " It is a different account, so the current conversation will not be resumed."
+            : " It is a different account, so a new conversation starts — switching back reopens this one.");
+    }
+
+    /// <summary>
+    /// Points the tile at another instance of the same agent.
+    /// </summary>
+    /// <remarks>
+    /// <para>Everything the tile runs on is derived from <see cref="Instance"/> at every launch — the
+    /// runtime, the environment, the commands, the model — so this is the whole of the switch, and the
+    /// restart that follows it is the caller's. The layout is asked for straight away: a choice nobody
+    /// writes down is one the next start of mTiles does not honour.</para>
+    /// <para><b>Nothing else can be reached from here.</b> An id that is not an available instance of
+    /// this agent is refused rather than resolved onto something near it, which is the difference
+    /// between this and the fallback chain in <c>AgentTileKind.Resolve</c>: that one is rescuing a tile
+    /// nobody is choosing for, and this one is the user choosing.</para>
+    /// </remarks>
+    public void SwitchTo(string instanceId)
+    {
+        if (Target(instanceId) is not { } target) return;
+
+        // Read before the change, because Instance answers from the id below.
+        var accountChanged = target.SignInId != Instance.SignInId;
+
+        InstanceId = target.Id;
+        ClearSubstitution();
+        if (accountChanged) ForgetCapturedSession();
+
+        OnPropertyChanged(nameof(HeaderNote));
+        _requestSave?.Invoke();
+    }
+
+    /// <summary>The instance a switch would land on, or null when the switch means nothing.</summary>
+    /// <remarks>The same agent is the whole of the constraint here, and availability deliberately is not
+    /// part of it: what a machine has installed decides what <see cref="SwitchTargets"/> offers, exactly
+    /// as it decides what the tile chooser and the Goal tile's list offer, and the launch is where an
+    /// instance that cannot be run says so by name (<c>AgentModelResolver</c>). Repeating the filter
+    /// here would make the tile's own bookkeeping depend on a fact about the machine that it is not the
+    /// one reporting.</remarks>
+    private AiAgentInstance? Target(string instanceId) =>
+        instanceId == InstanceId
+            ? null
+            : _settings.Settings.AiAgentInstances.FirstOrDefault(
+                instance => instance.Id == instanceId && instance.AgentId == AgentId);
+
+    /// <summary>Puts down the report of a substitution the user has just overruled.</summary>
+    /// <remarks>The notice only if it is still the one the substitution put there: the user may have
+    /// dismissed it, and a launch may have replaced it with something of its own.</remarks>
+    private void ClearSubstitution()
+    {
+        if (Substitution is not { } substitution) return;
+
+        if (LaunchNotice == substitution.Notice) LaunchNotice = "";
+        Substitution = null;
+    }
+
+    /// <summary>Forgets the conversation captured under the account the tile is leaving.</summary>
+    /// <remarks>The same reset <see cref="ReleaseSessionOfPreviousIdentity"/> performs, keyed on the
+    /// account rather than on the tile's identity — two independent triggers, both of which have to
+    /// exist. A captured id is only meaningful inside its own <c>CODEX_HOME</c> / <c>~/.gemini</c>:
+    /// handed to the new account, <c>codex resume &lt;unknown&gt;</c> stops on an interactive picker
+    /// nobody knows the tile is waiting for, and <c>agy --conversation &lt;unknown&gt;</c> warns,
+    /// silently starts a different conversation and exits 0.</remarks>
+    private void ForgetCapturedSession()
+    {
+        if (!NamesItsOwnSession) return;
+
+        CancelCapture();
+        CapturedSessions.ReleaseAllOf(_capturedForTileId);
+        _capturedSessionId = "";
+        _capturedForTileId = TileId;
+    }
 
     /// <inheritdoc />
     /// <remarks>Through the runtime rather than the instance alone, because the model belongs on the

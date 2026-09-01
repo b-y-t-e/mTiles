@@ -90,7 +90,8 @@
                                     ToolTip.Tip="More">
                                 <mi:MaterialIcon Kind="DotsHorizontal" Width="14" Height="14" />
                                 <Button.Flyout>
-                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight"
+                                                Opening="OnOverflowOpening">
                                         <MenuItem Header="Restart shell"
                                                   InputGesture="Ctrl+Shift+R"
                                                   Command="{Binding RestartTerminalCommand}"
@@ -105,6 +106,33 @@
                                             <MenuItem.Icon>
                                                 <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
                                             </MenuItem.Icon>
+                                        </MenuItem>
+                                        <!-- Same agent, another configured way of running it: same
+                                             session strategy, same resume flags, same shape of
+                                             environment. Another *agent* is another program, which is
+                                             what AgentSubstitution exists to warn about rather than
+                                             something to offer here. -->
+                                        <MenuItem Header="Run as"
+                                                  ItemsSource="{Binding AgentInstances}"
+                                                  IsVisible="{Binding CanSwitchAgentInstance}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="AccountSwitch" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                            <!-- A style rather than an ItemContainerTheme: a theme has
+                                                 to be based on the control's own, which is a static
+                                                 resource that only exists where a theme is loaded — so
+                                                 the tile's view threw on construction anywhere it is
+                                                 built without one. The selector is descendants only,
+                                                 or the entry above would take these setters too. -->
+                                            <MenuItem.Styles>
+                                                <Style Selector="MenuItem > MenuItem"
+                                                       x:DataType="vm:AgentInstanceChoice">
+                                                    <Setter Property="Header" Value="{Binding Label}" />
+                                                    <Setter Property="Command" Value="{Binding SwitchCommand}" />
+                                                    <Setter Property="ToggleType" Value="CheckBox" />
+                                                    <Setter Property="IsChecked" Value="{Binding IsCurrent}" />
+                                                </Style>
+                                            </MenuItem.Styles>
                                         </MenuItem>
                                         <Separator />
                                         <MenuItem Header="Split right"

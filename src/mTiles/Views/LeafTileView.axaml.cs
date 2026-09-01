@@ -43,6 +43,13 @@ public partial class LeafTileView : UserControl
         TileToolbar.SizeChanged += (_, e) => ApplyHeaderWidth(e.NewSize.Width);
     }
 
+    /// <summary>Builds the "Run as" list at the moment the overflow menu is drawn.</summary>
+    /// <remarks>Instances are added, renamed and deleted in Settings while the tile lives, and the
+    /// flyout's own bindings are evaluated once — so a list held from when the tile was built would be
+    /// the one that was true then. The menu asking for it is the one event that matters.</remarks>
+    private void OnOverflowOpening(object? sender, EventArgs e) =>
+        (DataContext as LeafTileNodeViewModel)?.RefreshAgentInstances();
+
     /// <summary>Below this, the header stops offering to split the tile.</summary>
     private const double SplitButtonsNeedWidth = 260;
 

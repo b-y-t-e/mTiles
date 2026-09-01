@@ -41,6 +41,69 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// </remarks>
     public bool HasSession => Content is AgentTileViewModel;
 
+    /// <summary>The tile's content when it is an agent, for the two questions only an agent answers.
+    /// </summary>
+    /// <remarks>The exception <see cref="HasSession"/> already admits to: the header's menu binds to
+    /// this class rather than to the content, and "Run as" is wanted by exactly one kind. An interface
+    /// asked of the content by capability would be the rule rather than the exception — and a whole
+    /// interface for one implementer, which <c>docs/TILES.md</c> says has to be earned. Promote it if a
+    /// second kind ever wants the same thing.</remarks>
+    private AgentTileViewModel? Agent => _disposed ? null : Content as AgentTileViewModel;
+
+    /// <summary>The instances the header's "Run as" submenu is offering right now.</summary>
+    public IReadOnlyList<AgentInstanceChoice> AgentInstances { get; private set; } = [];
+
+    /// <summary>Whether that submenu has a choice to offer.</summary>
+    /// <remarks>Asked of the entries rather than of their number: the instance the tile is running is
+    /// usually one of them, but not when it has been substituted or is no longer available — and those
+    /// are exactly the tiles switching exists to rescue, so counting would hide the menu on a machine
+    /// with one alternative in the one case that needs it. A menu whose only item is a tick on what is
+    /// already true is a click that cannot do anything.</remarks>
+    public bool CanSwitchAgentInstance => AgentInstances.Any(choice => !choice.IsCurrent);
+
+    /// <summary>
+    /// Rebuilds the list of instances, which is what opening the menu is for.
+    /// </summary>
+    /// <remarks>Built when the menu opens rather than followed as a live collection: instances are
+    /// added, renamed and deleted in Settings while the tile lives, and a subscription per agent tile to
+    /// <c>SettingsChanged</c> buys nothing a menu about to be drawn does not get for free.</remarks>
+    public void RefreshAgentInstances()
+    {
+        AgentInstances = Agent is { } agent
+            ?
+            [
+                .. agent.SwitchTargets.Select(instance => new AgentInstanceChoice(
+                    instance.Name, instance.Id == agent.InstanceId,
+                    () => SwitchAgentInstanceAsync(instance.Id)))
+            ]
+            : [];
+
+        OnPropertyChanged(nameof(AgentInstances));
+        OnPropertyChanged(nameof(CanSwitchAgentInstance));
+    }
+
+    /// <summary>
+    /// Runs this tile as another configured instance of the same agent.
+    /// </summary>
+    /// <remarks>
+    /// <para>Destructive — it stops whatever the shell is running — so it asks first, and an unwired
+    /// <see cref="ConfirmAction"/> answers <b>no</b>. Not a <c>TileAction</c> for the same reason
+    /// Restart shell is not one: that list goes to a paired phone, which cannot be shown what is about
+    /// to die.</para>
+    /// <para>The instance and the conversation are settled first and the tile is restarted afterwards,
+    /// because the launch reads both — <c>PrepareForLaunchAsync</c> resolves the model against the new
+    /// account.</para>
+    /// </remarks>
+    private async Task SwitchAgentInstanceAsync(string instanceId)
+    {
+        if (Agent is not { } agent) return;
+        if (agent.ConfirmationForSwitchTo(instanceId) is not { } question) return;
+        if (ConfirmAction is null || !await ConfirmAction(question)) return;
+
+        agent.SwitchTo(instanceId);
+        await InvokeActionAsync(TileActionIds.Restart);
+    }
+
     /// <summary>What the tile's own header and a paired phone may ask its content to do.</summary>
     /// <remarks>Empty for content that offers nothing, so no caller has to ask whether there is a list
     /// before reading one.</remarks>
@@ -71,6 +134,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     {
         WatchContent(oldValue, newValue);
         OnPropertyChanged(nameof(HasSession));
+        RefreshAgentInstances();
         OnPropertyChanged(nameof(IsBusy));
         RaiseActionsChanged();
     }

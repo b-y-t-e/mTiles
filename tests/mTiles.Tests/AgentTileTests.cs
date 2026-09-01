@@ -463,7 +463,271 @@ public class AgentTileTests
         finally { tile.Dispose(); }
     }
 
+    /// <summary>
+    /// Switching a tile to another instance of the same agent is what the layout carries afterwards.
+    /// </summary>
+    /// <remarks>Everything the tile runs on is derived from the instance at every launch, so the switch
+    /// is the id and the save: without the save it is a choice the next start of mTiles does not honour.
+    /// </remarks>
+    [Fact]
+    public void Switching_an_instance_is_what_the_layout_carries_afterwards()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var (chosen, other) = TwoInstancesOfOneAgent(settings);
+
+        var kind = (ITileKind)new AgentTileKind();
+        var saves = 0;
+        var tile = (AgentTileViewModel)kind.Create(
+            Context(directory.Path, settings, Guid.NewGuid().ToString(), saves: () => saves++),
+            new JsonObject
+            {
+                [AgentTileKind.InstanceIdKey] = chosen.Id,
+                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+            });
+
+        try
+        {
+            tile.SwitchTo(other.Id);
+
+            Assert.Equal(other.Id, tile.InstanceId);
+            Assert.Equal(1, saves);
+            Assert.Equal(other.Id,
+                kind.Save(tile)?[AgentTileKind.InstanceIdKey]?.GetValue<string>());
+        }
+        finally { tile.Dispose(); }
+    }
+
+    /// <summary>
+    /// Switching a substituted tile is the user overruling the substitution, so it is put down.
+    /// </summary>
+    /// <remarks><c>AgentTileKind.Save</c> writes the <em>requested</em> id while a substitution stands,
+    /// which is right for a fallback nobody chose and wrong the moment somebody chooses: the new id
+    /// would be gone at the next load, and the tile would come back on the instance that is not there.
+    /// </remarks>
+    [Fact]
+    public void Switching_a_substituted_tile_puts_the_substitution_down()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var (chosen, other) = TwoInstancesOfOneAgent(settings);
+
+        var kind = (ITileKind)new AgentTileKind();
+        var tile = (AgentTileViewModel)kind.Create(
+            Context(directory.Path, settings, Guid.NewGuid().ToString()),
+            new JsonObject
+            {
+                [AgentTileKind.InstanceIdKey] = "an instance that is gone",
+                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+            });
+
+        try
+        {
+            Assert.NotNull(tile.Substitution);
+            Assert.True(tile.HasLaunchNotice);
+
+            tile.SwitchTo(other.Id);
+
+            Assert.Null(tile.Substitution);
+            Assert.False(tile.HasLaunchNotice);
+            Assert.Equal(other.Id,
+                kind.Save(tile)?[AgentTileKind.InstanceIdKey]?.GetValue<string>());
+        }
+        finally { tile.Dispose(); }
+    }
+
+    /// <summary>
+    /// A captured conversation belongs to the account it was captured under, and nothing else.
+    /// </summary>
+    /// <remarks>The id is only meaningful inside its own <c>CODEX_HOME</c> / <c>~/.gemini</c>: handed to
+    /// the new account, <c>codex resume &lt;unknown&gt;</c> stops on an interactive picker and
+    /// <c>agy --conversation &lt;unknown&gt;</c> quietly starts a different conversation and exits 0.
+    /// The claim goes with it, or the abandoned id stays spoken for until the application closes.
+    /// </remarks>
+    [Fact]
+    public void Switching_to_another_account_drops_a_captured_conversation()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var captured = AiAgentCatalog.All
+            .First(a => a.SessionStrategy == SessionStrategy.CapturedAfterStart);
+        var (chosen, other) = TwoInstancesOfOneAgent(settings, captured.Id);
+        other.SignInId = "another sign-in";
+
+        var conversation = "conversation-" + Guid.NewGuid();
+        var kind = (ITileKind)new AgentTileKind();
+        var tile = (AgentTileViewModel)kind.Create(
+            Context(directory.Path, settings, Guid.NewGuid().ToString()),
+            new JsonObject
+            {
+                [AgentTileKind.InstanceIdKey] = chosen.Id,
+                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+                [AgentTileKind.SessionIdKey] = conversation,
+            });
+
+        try
+        {
+            Assert.Equal(conversation, tile.SessionId);
+
+            tile.SwitchTo(other.Id);
+
+            Assert.Equal("", tile.SessionId);
+            Assert.Null(kind.Save(tile)?[AgentTileKind.SessionIdKey]);
+            Assert.True(CapturedSessions.TryClaim(conversation, "another tile"));
+        }
+        finally
+        {
+            tile.Dispose();
+            CapturedSessions.ReleaseAllOf("another tile");
+        }
+    }
+
+    /// <summary>
+    /// The same account with another provider or model keeps the conversation.
+    /// </summary>
+    /// <remarks>The rule is about the sign-in and only about it: that is what relocates the CLI's own
+    /// state directory, which is where the conversation lives. Dropping the id on any change at all
+    /// would cost a conversation every time somebody repointed a tile's model.</remarks>
+    [Fact]
+    public void Switching_within_one_account_keeps_the_captured_conversation()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var captured = AiAgentCatalog.All
+            .First(a => a.SessionStrategy == SessionStrategy.CapturedAfterStart);
+        var (chosen, other) = TwoInstancesOfOneAgent(settings, captured.Id);
+        other.ApiAccountId = "another provider";
+
+        var conversation = "conversation-" + Guid.NewGuid();
+        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+            Context(directory.Path, settings, Guid.NewGuid().ToString()),
+            new JsonObject
+            {
+                [AgentTileKind.InstanceIdKey] = chosen.Id,
+                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+                [AgentTileKind.SessionIdKey] = conversation,
+            });
+
+        try
+        {
+            tile.SwitchTo(other.Id);
+
+            Assert.Equal(other.Id, tile.InstanceId);
+            Assert.Equal(conversation, tile.SessionId);
+        }
+        finally { tile.Dispose(); }
+    }
+
+    /// <summary>
+    /// The list offers this agent's available instances and nothing else.
+    /// </summary>
+    /// <remarks>Another agent is another program working in somebody's repository — the failure
+    /// <c>AgentSubstitution</c> exists to announce — and an unavailable instance is one
+    /// <c>AgentModelResolver</c> would refuse the launch of. Computed rather than written out, the way
+    /// the tile chooser's own test is: which agents are installed is a fact about this machine.</remarks>
+    [Fact]
+    public void The_switcher_offers_this_agents_available_instances_only()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var (chosen, _) = TwoInstancesOfOneAgent(settings);
+
+        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+            Context(directory.Path, settings, Guid.NewGuid().ToString()),
+            new JsonObject
+            {
+                [AgentTileKind.InstanceIdKey] = chosen.Id,
+                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+            });
+
+        try
+        {
+            var expected = settings.Service.Settings.AiAgentInstances
+                .Where(instance => instance.AgentId == tile.AgentId
+                                   && AiAgentCatalog.IsAvailable(instance, settings.Service.Settings))
+                .Select(instance => instance.Id);
+
+            Assert.Equal(expected, tile.SwitchTargets.Select(instance => instance.Id));
+
+            // An instance of another agent is never in there, whatever this machine has installed.
+            var stranger = settings.Service.Settings.AiAgentInstances
+                .First(instance => instance.AgentId != tile.AgentId);
+            Assert.DoesNotContain(stranger.Id, tile.SwitchTargets.Select(instance => instance.Id));
+            Assert.Null(tile.ConfirmationForSwitchTo(stranger.Id));
+
+            tile.SwitchTo(stranger.Id);
+            Assert.Equal(chosen.Id, tile.InstanceId);
+        }
+        finally { tile.Dispose(); }
+    }
+
+    /// <summary>
+    /// The header's own route to a switch asks first, and an unwired question is a no.
+    /// </summary>
+    /// <remarks>The one safety rule of the whole feature, and the layer <c>SwitchTo</c> does not cover:
+    /// switching kills whatever the shell is running. A view built without a window to ask in has no
+    /// <c>ConfirmAction</c>, and the shape used beside this one — <c>ConfirmAction != null &amp;&amp;
+    /// !await …</c> — would let that through silently.</remarks>
+    [Fact]
+    public async Task An_unanswerable_question_does_not_switch_the_tile()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var (chosen, other) = TwoInstancesOfOneAgent(settings);
+
+        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+            Context(directory.Path, settings, Guid.NewGuid().ToString()),
+            new JsonObject
+            {
+                [AgentTileKind.InstanceIdKey] = chosen.Id,
+                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+            });
+        var leaf = new LeafTileNodeViewModel(TileKindIds.Agent, tile, directory.Path,
+            new TileActivationScope());
+
+        try
+        {
+            leaf.RefreshAgentInstances();
+            var target = leaf.AgentInstances.First(choice => choice.Label == other.Name);
+
+            // Nothing wired: the question cannot be put, so the answer is no.
+            target.SwitchCommand.Execute(null);
+            Assert.Equal(chosen.Id, tile.InstanceId);
+
+            // Wired and answered no, which is the same outcome by the other route.
+            var asked = "";
+            leaf.ConfirmAction = question => { asked = question; return Task.FromResult(false); };
+            target.SwitchCommand.Execute(null);
+            await Task.Yield();
+
+            Assert.Contains(other.Name, asked);
+            Assert.Equal(chosen.Id, tile.InstanceId);
+        }
+        finally { leaf.Dispose(); }
+    }
+
+    /// <summary>Two instances of one agent, so a switch has somewhere to go.</summary>
+    /// <remarks>The second is a copy of the first, so the pair differs by nothing the availability rule
+    /// looks at: a test about switching must not turn into a test about what is installed.</remarks>
+    private static (AiAgentInstance Chosen, AiAgentInstance Other) TwoInstancesOfOneAgent(
+        TempSettings settings, string? agentId = null)
+    {
+        var chosen = settings.Service.Settings.AiAgentInstances
+            .First(instance => agentId is null || instance.AgentId == agentId);
+
+        var other = new AiAgentInstance
+        {
+            AgentId = chosen.AgentId,
+            Name = chosen.Name + " (second account)",
+            ApiAccountId = chosen.ApiAccountId,
+            SignInId = chosen.SignInId,
+            Model = chosen.Model,
+        };
+        settings.Service.Settings.AiAgentInstances.Add(other);
+        return (chosen, other);
+    }
+
     private static TileContext Context(string workingDirectory, TempSettings settings,
-        string? tileId = null, Func<string>? reads = null) =>
-        new(workingDirectory, settings.Service) { TileId = reads ?? (() => tileId ?? "") };
+        string? tileId = null, Func<string>? reads = null, Action? saves = null) =>
+        new(workingDirectory, settings.Service, saves) { TileId = reads ?? (() => tileId ?? "") };
 }
