@@ -3391,7 +3391,44 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
     // ── Commands ────────────────────────────────────────
 
+    /// <summary>
+    /// The strip's Pause button: asks first, because what it interrupts is not the click's to spend.
+    /// </summary>
+    /// <remarks>
+    /// <para>Pausing cancels the token, which kills the tool mid-answer: the AI call in flight is paid
+    /// for and thrown away, and Resume starts that phase again from the beginning rather than from
+    /// where it stopped. The glyph is thirteen pixels wide and sits between two buttons that cost
+    /// nothing — the criteria flyout and New goal — so the click that lands on it by accident is the
+    /// expensive one on the strip. That is the same case <c>Restart shell</c> is guarded for, and the
+    /// question is asked in the same place: on the command the button is bound to, not inside
+    /// <see cref="Pause"/>, so the one path that has a screen to ask on is the one that asks.</para>
+    /// <para><b>The phone is deliberately still given it unasked</b> (<see cref="InvokeAsync"/> reaches
+    /// <see cref="Pause"/> directly). Pause is one of the three actions a run is driven by from another
+    /// room, and the reason a destructive action is <em>withheld</em> from a phone rather than confirmed
+    /// there is that confirming what you cannot see is theatre. Marking it
+    /// <see cref="TileAction.IsDestructive"/> would take it off that screen altogether, which is the
+    /// opposite of what it is on it for.</para>
+    /// <para><b>Nothing wired means it goes ahead</b>, which is the tiles' own default and not Settings'.
+    /// The other direction would leave a user with no window to answer in unable to stop a running
+    /// agent, and an interruption they cannot reach is worse than one they did not mean.</para>
+    /// </remarks>
     [RelayCommand]
+    private async Task PauseAsync()
+    {
+        // Asked before the state is touched, and re-tested after: a dialog is open for as long as the
+        // user takes, and a run that finished while it stood there must not be "paused" into a tile
+        // that comes back claiming to have been interrupted.
+        if (!IsRunning) return;
+
+        if (ConfirmAction is { } confirm
+            && !await confirm("Pause the run?\n\n"
+                + "The tool is stopped mid-answer and that answer is lost. "
+                + "Everything already written down is kept, and Resume starts this step again."))
+            return;
+
+        Pause();
+    }
+
     private void Pause()
     {
         // The button is only shown while something is running, but a command can be reached by other
