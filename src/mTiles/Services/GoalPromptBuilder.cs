@@ -403,21 +403,6 @@ public sealed class GoalPromptBuilder
     internal static string Block(string heading, string content) => Block(heading, content, int.MaxValue);
 
     /// <summary>
-    /// The composer's words as a scope, or nothing — the soft half of a narrowed task.
-    /// </summary>
-    /// <remarks>
-    /// <para>What the user typed beside the buttons travels as a block of its own rather than being
-    /// folded into the goal: a goal is something the run was asked to achieve, and a narrowing is
-    /// something it has been told to respect — different sentences in the transcript, different things
-    /// in the prompt. The hard half lives in <see cref="GoalScopeFilter"/> when the words name paths.</para>
-    /// <para><b>Capped like every other borrowed block</b>, and not as tidiness: the words are
-    /// user-typed and unbounded — a paste, a dictated paragraph — and an uncapped block beside a review
-    /// on an agent whose prompt rides a command line is a run that stops at the guard with "the prompt
-    /// is too long" where the day before it ran. That is the same lesson the instance's extra arguments
-    /// taught the other way round. The narrowing is a sentence in the ordinary case; a draft longer than
-    /// the cap degrades the way a diff does, and says so where it was cut.</para>
-    /// </remarks>
-    /// <summary>
     /// What the user typed beside the Detect buttons, as the <b>subject</b> of the detection.
     /// </summary>
     /// <remarks>
@@ -450,6 +435,21 @@ public sealed class GoalPromptBuilder
                "says.\n\n";
     }
 
+    /// <summary>
+    /// The composer's words as a scope, or nothing — the soft half of a narrowed task.
+    /// </summary>
+    /// <remarks>
+    /// <para>What the user typed beside the buttons travels as a block of its own rather than being
+    /// folded into the goal: a goal is something the run was asked to achieve, and a narrowing is
+    /// something it has been told to respect — different sentences in the transcript, different things
+    /// in the prompt. The hard half lives in <see cref="GoalScopeFilter"/> when the words name paths.</para>
+    /// <para><b>Capped like every other borrowed block</b>, and not as tidiness: the words are
+    /// user-typed and unbounded — a paste, a dictated paragraph — and an uncapped block beside a review
+    /// on an agent whose prompt rides a command line is a run that stops at the guard with "the prompt
+    /// is too long" where the day before it ran. That is the same lesson the instance's extra arguments
+    /// taught the other way round. The narrowing is a sentence in the ordinary case; a draft longer than
+    /// the cap degrades the way a diff does, and says so where it was cut.</para>
+    /// </remarks>
     private static string Narrowing(string? guideline, string what, int cap) =>
         string.IsNullOrWhiteSpace(guideline)
             ? ""
