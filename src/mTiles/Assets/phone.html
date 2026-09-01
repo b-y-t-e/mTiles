@@ -42,8 +42,10 @@
   #talk small { font-size: 13px; font-weight: 400; color: var(--muted); }
 
   /* The keys. Big enough to hit without looking, because the phone is usually held at arm's length
-     with the eyes on the computer — and laid out as they are on a keyboard, with Enter the wide one. */
-  #keys { display: flex; gap: 10px; }
+     with the eyes on the computer — and laid out as they are on a keyboard: the four arrows on one
+     row, Escape beside the wide Enter on the row under them. */
+  #keys { display: flex; flex-direction: column; gap: 10px; }
+  .keys-row { display: flex; gap: 10px; }
   #keys button {
     touch-action: manipulation; user-select: none; -webkit-user-select: none;
     appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text);
@@ -95,9 +97,16 @@
     <small id="hint"></small>
   </button>
   <div id="keys">
-    <button id="up" disabled aria-label="Arrow up"><span class="glyph">↑</span></button>
-    <button id="down" disabled aria-label="Arrow down"><span class="glyph">↓</span></button>
-    <button id="enter" disabled aria-label="Enter"><span class="glyph">↵</span> Enter</button>
+    <div class="keys-row">
+      <button id="left" disabled aria-label="Arrow left"><span class="glyph">←</span></button>
+      <button id="up" disabled aria-label="Arrow up"><span class="glyph">↑</span></button>
+      <button id="down" disabled aria-label="Arrow down"><span class="glyph">↓</span></button>
+      <button id="right" disabled aria-label="Arrow right"><span class="glyph">→</span></button>
+    </div>
+    <div class="keys-row">
+      <button id="escape" disabled aria-label="Escape"><span class="glyph">⎋</span> Esc</button>
+      <button id="enter" disabled aria-label="Enter"><span class="glyph">↵</span> Enter</button>
+    </div>
   </div>
   <div id="actions"></div>
   <div id="transcript"></div>
@@ -124,10 +133,13 @@
   const actions = document.getElementById("actions");
 
   /* The keys this page can press, paired with the names mTiles knows them by. A closed list at both
-     ends: the server has the same three and answers anything else with nothing at all. */
+     ends: the server has the same six and answers anything else with nothing at all. */
   const keys = [
+    [document.getElementById("left"), "left"],
     [document.getElementById("up"), "up"],
     [document.getElementById("down"), "down"],
+    [document.getElementById("right"), "right"],
+    [document.getElementById("escape"), "escape"],
     [document.getElementById("enter"), "enter"],
   ];
 

@@ -6,14 +6,18 @@ namespace mTiles.ViewModels;
 /// <remarks>
 /// A closed set, decided in this process at compile time. What reaches it has crossed a network from a
 /// device the user paired once and may have left in a coat pocket, and the destination is a shell — so
-/// everything not in this enum is nonsense that gets no reply. Three is also what is needed: answering
-/// the prompt an agent is waiting on, and moving up and down the choices it is offering.
+/// everything not in this enum is nonsense that gets no reply. Six is also all that is needed: answering
+/// the prompt an agent is waiting on, moving through the choices it is offering, and dismissing or
+/// backing out of what it has put on the screen (Escape), which the arrows alone cannot do.
 /// </remarks>
 public enum TileKey
 {
     Enter,
     Up,
     Down,
+    Left,
+    Right,
+    Escape,
 }
 
 /// <summary>

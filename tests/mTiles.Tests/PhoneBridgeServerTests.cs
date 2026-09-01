@@ -657,7 +657,7 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
     // ── the keys ────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The three keys the page offers, each reaching the sink as itself.
+    /// The keys the page offers, each reaching the sink as itself.
     /// </summary>
     /// <remarks>
     /// Worth spelling out per key rather than testing one: what crosses the wire is a name, and the map
@@ -671,6 +671,9 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
     [InlineData("enter")]
     [InlineData("up")]
     [InlineData("down")]
+    [InlineData("left")]
+    [InlineData("right")]
+    [InlineData("escape")]
     public async Task A_key_press_reaches_the_sink(string name)
     {
         using var socket = await ConnectAsync();

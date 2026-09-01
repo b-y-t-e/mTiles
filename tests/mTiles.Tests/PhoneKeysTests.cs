@@ -348,7 +348,7 @@ public class PhoneKeysTests : IDisposable
     // ── the wire names ──────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The names are exactly the page's three, matched exactly.
+    /// The names are exactly the page's six, matched exactly.
     /// </summary>
     /// <remarks>
     /// What arrives is a string from a paired device across a network, and what it selects is a keystroke
@@ -359,11 +359,15 @@ public class PhoneKeysTests : IDisposable
     [InlineData("enter", true)]
     [InlineData("up", true)]
     [InlineData("down", true)]
+    [InlineData("left", true)]
+    [InlineData("right", true)]
+    [InlineData("escape", true)]
     [InlineData("Enter", false)]
-    [InlineData("left", false)]
+    [InlineData("Escape", false)]
+    [InlineData("esc", false)]
     [InlineData("", false)]
     [InlineData(null, false)]
-    public void Only_the_three_names_are_keys(string? name, bool known)
+    public void Only_the_page_names_are_keys(string? name, bool known)
         => Assert.Equal(known, PhoneKeys.TryParse(name, out _));
 
     /// <summary>

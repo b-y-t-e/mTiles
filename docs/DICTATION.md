@@ -676,9 +676,10 @@ focused text box first when there is one, so dictating into a Note from a phone 
 resolved on the UI thread when the recording starts, for the same reason the shortcut resolves it then:
 the words belong where the user was looking when they spoke.
 
-The page also carries **three keys** — Enter, and the arrows up and down. Dictating a command is only
+The page also carries **six keys** — Enter, the four arrows and Escape. Dictating a command is only
 half of driving an agent from the sofa: the other half is answering the prompt it stops on, which is a
-choice moved through with the arrows and taken with Enter. See *Enter and the arrows* below.
+choice moved through with the arrows and taken with Enter, and dismissing the screens it puts up, which
+is Escape. See *Enter and the arrows* below.
 
 The button is **window-level rather than per-tile**. It started in the tile header next to the microphone,
 which read as "dictate into *this* tile" — something the feature neither promises nor could deliver, since
@@ -802,20 +803,20 @@ with it. It had to be handed a fresh QR code from a machine that might be in ano
 
 ### Enter and the arrows
 
-Three buttons under the talk button, and one more message type on the same socket:
-`{"type":"key","key":"enter"|"up"|"down"}`. `PhoneKeys` is both ends of that name — the page's list and
-the server's — and everything outside it is answered with silence.
+Six buttons under the talk button, and one more message type on the same socket:
+`{"type":"key","key":"enter"|"up"|"down"|"left"|"right"|"escape"}`. `PhoneKeys` is both ends of that
+name — the page's list and the server's — and everything outside it is answered with silence.
 
-**A closed set of three, decided in this process.** The obvious generalisation is a key *name* off the
+**A closed set of six, decided in this process.** The obvious generalisation is a key *name* off the
 wire, and it is the wrong shape: what arrives has crossed a network from a device paired once and left in
-a coat pocket, and where it arrives is a shell. Three is also all the job needs.
+a coat pocket, and where it arrives is a shell. Six is also all the job needs.
 
 Closed at *both* ends, which took a second pass to get right. Parsing a name was already a closed list;
-turning one into a keystroke was a two-arm switch with `Enter` as its fallback, so a fourth key added to
-the enum and to the wire names and missed there would have been delivered as Enter — of the three, the
+turning one into a keystroke was a two-arm switch with `Enter` as its fallback, so a new key added to
+the enum and to the wire names and missed there would have been delivered as Enter — of the six, the
 one that cannot be taken back, since it answers whatever prompt the agent is sitting on with that
 prompt's default. Every member is now spelled out and the default throws, which the wrapper below turns
-into "could not deliver that key"; a test walks the enum so the three lists cannot drift apart without
+into "could not deliver that key"; a test walks the enum so the lists cannot drift apart without
 the build saying so.
 
 **They go where the transcript goes, by the same rule** — and by the same *code*: both destinations come

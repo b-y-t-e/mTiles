@@ -34,8 +34,8 @@ public static class TileKeyPress
     /// <remarks>
     /// Every member spelled out and the default throwing, rather than an <c>Enter</c> to fall back on.
     /// The set is closed at compile time — that is the doctrine <see cref="TileKey"/> is written to — but
-    /// a catch-all here would quietly opt out of it: a fourth key added to the enum and missed in this
-    /// one place would be sent as <em>Enter</em>, which of the three is the one that cannot be taken
+    /// a catch-all here would quietly opt out of it: a new key added to the enum and missed in this
+    /// one place would be sent as <em>Enter</em>, which of the six is the one that cannot be taken
     /// back — it answers the prompt an agent is sitting on with whatever that prompt's default is.
     /// <para>Safe to reach, because every press is wrapped: the caller reports a failure as "the key
     /// could not be delivered", which is the truth.</para>
@@ -45,6 +45,9 @@ public static class TileKeyPress
         TileKey.Enter => Key.Enter,
         TileKey.Up => Key.Up,
         TileKey.Down => Key.Down,
+        TileKey.Left => Key.Left,
+        TileKey.Right => Key.Right,
+        TileKey.Escape => Key.Escape,
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, "No key is mapped for this."),
     };
 }
