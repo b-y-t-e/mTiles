@@ -96,4 +96,26 @@ public class GoalTilePolicyTests
 
         Assert.True(GoalTilePolicy.WorthConfirming(afterAFailedClarify));
     }
+
+    [Theory]
+    [InlineData("API Error: stream closed before completion\n\n[error] API Error: stream closed before completion", true)]
+    [InlineData("half a plan\n\n[error] The stream was closed by the server", true)]
+    [InlineData("STREAM CLOSED", true)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void A_dropped_stream_is_named_as_such_and_nothing_else_is(string? text, bool broken)
+    {
+        // Measured 2026-09-01 on Claude Code 2.1.251 over OpenRouter: the dropped stream exits non-zero
+        // with these words, the same status a refused flag leaves — which is why the match is on the
+        // words and not on the exit code, and why the negatives matter: a usage message is a decision
+        // about the command line, and retrying it unasked would run the same refusal again.
+        Assert.Equal(broken, GoalTilePolicy.LooksLikeBrokenStream(text));
+    }
+
+    [Fact]
+    public void A_refused_flag_is_not_a_broken_stream()
+    {
+        const string usage = "error: unknown option '--effort'\n\n[stderr] claude: unknown option --effort";
+        Assert.False(GoalTilePolicy.LooksLikeBrokenStream(usage));
+    }
 }

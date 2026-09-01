@@ -723,6 +723,18 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// </summary>
     private int _lastRunDenials;
 
+    /// <summary>
+    /// How many unasked retries against a dropped stream the run under way still has.
+    /// <para>Granted at each user-initiated start (<see cref="WorkingAsync"/> — Resume, Submit, an
+    /// answer, an approved plan), spent by the automatic retries, and never renewed inside the work:
+    /// once the allowance is gone, a broken stream stops the loop and waits for the user, exactly as
+    /// every other failure always has. The size of the allowance is <see cref="GoalTilePolicy
+    /// .BrokenStreamRetries"/> — one today, raised by changing that number and nothing else. Not
+    /// persisted: it describes the run under way, and after a restart the allowance is the next button
+    /// press's to give.</para>
+    /// </summary>
+    private int _brokenStreamRetriesLeft;
+
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
 
@@ -2609,6 +2621,19 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             // written files and this is the only account of what is now in the worktree.
             if (result.Failed)
             {
+                // A gateway that drops the stream mid-run is a network fault, not the tool refusing —
+                // and the run it interrupted was one the user had already asked for. The allowance is
+                // spent here without asking; once it is gone, a broken stream — like every other
+                // failure — posts the message below and waits.
+                if (_brokenStreamRetriesLeft > 0 && GoalTilePolicy.LooksLikeBrokenStream(result.Text))
+                {
+                    _brokenStreamRetriesLeft--;
+                    await AddMessageAsync(GoalMessageRole.System,
+                        "The provider dropped the stream mid-run — retrying this run on its own.",
+                        phase);
+                    return await RunAiAsync(prompt);
+                }
+
                 // One recognisable cause gets named, because it is the one that fails *every* run on
                 // the default setting while saying nothing about itself: a tool too old for the mode
                 // this tile asked for rejects the flag, and "the AI tool reported a failure" over a
@@ -2814,6 +2839,12 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
         StartElapsed();
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
+
+        // A small allowance of unasked retries against a dropped stream, per start the user asked for.
+        // Here rather than in ResumeAsync alone, because Submit, an answer and an approved plan all
+        // start work the same way — and the retry below never re-enters this method, so the allowance
+        // is never renewed mid-work.
+        _brokenStreamRetriesLeft = GoalTilePolicy.BrokenStreamRetries;
 
         try { await work(); }
         finally

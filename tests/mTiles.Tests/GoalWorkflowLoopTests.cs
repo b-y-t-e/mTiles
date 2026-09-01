@@ -1908,6 +1908,57 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
+    public void A_dropped_stream_is_retried_once_without_asking()
+    {
+        OnUiThread(async () =>
+        {
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult<AiOutput>(++asked switch
+            {
+                1 => AiOutput.Failure("[error] API Error: stream closed before completion"),
+                _ => """{"questions":[{"question":"Which file?"}]}""",
+            });
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // The retry is the second call, and it is the tool's answer the tile acts on — the loop
+            // never saw the failure, and the questions the answer carried are on screen.
+            Assert.Equal(2, asked);
+            Assert.False(vm.IsRunning);
+            Assert.Single(vm.Questions);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("retrying this run on its own"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("reported a failure"));
+        });
+    }
+
+    [Fact]
+    public void A_second_dropped_stream_stops_and_waits_for_the_user()
+    {
+        OnUiThread(async () =>
+        {
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult(
+                AiOutput.Failure($"half a plan\n\n[error] API Error: stream closed, attempt {++asked}"));
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // One unasked retry, not a loop: the allowance was granted once by Submit and the retry
+            // never renews it. Stopping is what leaves the user in charge of a provider that is down.
+            // The size of the allowance is GoalTilePolicy.BrokenStreamRetries — one today — and a
+            // policy test pins the number, so raising it updates these counts with it.
+            Assert.Equal(1 + GoalTilePolicy.BrokenStreamRetries, asked);
+            Assert.True(vm.IsPaused);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("retrying this run on its own"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("reported a failure"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("attempt 2"));
+        });
+    }
+
+    [Fact]
     public void Detect_and_run_starts_at_the_review_because_the_changes_are_already_on_disk()
     {
         OnUiThread(async () =>

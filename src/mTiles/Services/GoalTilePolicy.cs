@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using mTiles.Models;
 
 namespace mTiles.Services;
@@ -11,7 +12,7 @@ namespace mTiles.Services;
 /// applied to every idle tile so each came back claiming to be interrupted, and a dialog asked for by
 /// phase rather than by content so a failed Clarify let the next thing typed wipe the session.</para>
 /// </summary>
-internal static class GoalTilePolicy
+internal static partial class GoalTilePolicy
 {
     /// <summary>
     /// Whether sending something from the composer also clears an outstanding pause.
@@ -60,4 +61,28 @@ internal static class GoalTilePolicy
     /// </summary>
     public static bool WorthConfirming(IEnumerable<GoalMessage> messages) =>
         messages.Any(m => m.Role != GoalMessageRole.System);
+
+    /// <summary>
+    /// How many times a run broken by a dropped stream is retried without asking.
+    /// <para>Raised once, deliberately — the number, not the mechanism, is what changes if a provider
+    /// proves flakier than this. Every retry costs the tool's whole turn again, so one is what is
+    /// honest today; raising it is a one-line decision, and the view model reads the answer from here
+    /// rather than owning a constant of its own.</para>
+    /// </summary>
+    public const int BrokenStreamRetries = 1;
+
+    /// <summary>
+    /// Whether a failed run's text is the provider dropping the stream rather than the tool refusing
+    /// to work.
+    /// <para>A gateway (OpenRouter, a local server) can end a long turn mid-stream — Claude Code
+    /// reports it as <c>API Error: stream closed before completion</c> and exits non-zero — which is a
+    /// network fault, not a verdict on the work. Matched on the words rather than the exit code,
+    /// because a broken pipe and a refused flag leave the same exit status and only one of them is
+    /// worth retrying unasked.</para>
+    /// </summary>
+    public static bool LooksLikeBrokenStream(string? text) =>
+        text is not null && BrokenStream().IsMatch(text);
+
+    [GeneratedRegex(@"stream\s+(was\s+)?closed", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex BrokenStream();
 }
