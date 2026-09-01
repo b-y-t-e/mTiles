@@ -1181,7 +1181,43 @@ public partial class SettingsViewModel
 
     /// <summary>Whether the provider being edited is one this network might be running, which is what
     /// makes Discover worth offering.</summary>
-    public bool EditProviderIsLocal => EditedProvider is { IsLocal: true };
+    /// <remarks>Asked of the interface rather than the flag: Discover walks addresses looking for a
+    /// server, and the one provider that is local without being one to discover is CCS — its address is
+    /// fixed and published, and a sweep would find either it or nothing.</remarks>
+    public bool EditProviderIsLocal => EditedProvider is ILocalAiProvider;
+
+    /// <summary>Whether the provider being edited is CCS, whose row carries its own setup flow.</summary>
+    /// <remarks><b>Always offered, never hidden for being uninstalled.</b> LM Studio and Ollama stand in
+    /// the Service list while they are not running, and hiding the one entry somebody could otherwise
+    /// install would be the list telling them the option does not exist. The form reacts to state
+    /// instead — an Install button while the CLI is missing, an Auth button while the proxy's account
+    /// is not signed in.</remarks>
+    public bool EditProviderIsCcs => EditedProvider is CcsProvider;
+
+    /// <summary>Whether CCS itself is missing from this machine.</summary>
+    public bool ShowCcsInstall => EditProviderIsCcs && !CcsProvider.IsInstalled;
+
+    /// <summary>Whether the proxy's Codex account still needs its one-time login.</summary>
+    public bool ShowCcsAuth => EditProviderIsCcs && CcsProvider.IsInstalled && !CcsProvider.HasCodexAuth;
+
+    /// <summary>Whether nothing on the CCS row is waiting for the user any more.</summary>
+    /// <remarks>A property rather than a <c>!</c>-and-<c>&amp;</c> expression in the binding, which a
+    /// compiled binding cannot read — and the failure was a silent one: the assembly's precompiled XAML
+    /// was left half-written, and every view in it answered "not found" at load.</remarks>
+    public bool CcsIsSetUp => EditProviderIsCcs && CcsProvider.IsInstalled && CcsProvider.HasCodexAuth;
+
+    /// <summary>Re-reads what this machine says about CCS, after anything that could have changed it.
+    /// </summary>
+    /// <remarks>The install and the login both happen in a tile this dialog does not own, so their
+    /// effect arrives whenever the user gets round to it — the properties are asked again when the form
+    /// opens or the kind changes, which is the moment the answer could have moved.</remarks>
+    private void RefreshCcsState()
+    {
+        OnPropertyChanged(nameof(EditProviderIsCcs));
+        OnPropertyChanged(nameof(ShowCcsInstall));
+        OnPropertyChanged(nameof(ShowCcsAuth));
+        OnPropertyChanged(nameof(CcsIsSetUp));
+    }
 
     /// <summary>
     /// What the address field says while it is empty.
@@ -1204,6 +1240,7 @@ public partial class SettingsViewModel
         OnPropertyChanged(nameof(ShowsProviderKeyWarning));
         OnPropertyChanged(nameof(EditProviderIsLocal));
         OnPropertyChanged(nameof(ProviderAddressHint));
+        RefreshCcsState();
     }
 
     /// <summary>
@@ -1235,6 +1272,11 @@ public partial class SettingsViewModel
         EditProviderBaseUrl = instance.BaseUrl;
         EditProviderApiKey = instance.ApiKey;
         EditProviderTimeout = instance.TimeoutSeconds;
+
+        // The kind may be unchanged from the last time this form was open, in which case the
+        // ObservableProperty setter raises nothing — and what this machine says about CCS may still
+        // have moved between the two opens.
+        RefreshCcsState();
 
         BeginEditing(ref _isEditingProviderInstance);
     }
@@ -1402,6 +1444,52 @@ public partial class SettingsViewModel
         finally
         {
             IsTestingProvider = false;
+        }
+    }
+
+    /// <summary>Installs CCS in a visible tile, through the route every agent install takes.</summary>
+    /// <remarks>Shown only while <c>ccs</c> is missing; once it is on the machine the button stands down
+    /// and the Auth one takes its place. Nothing is re-read here: the route answers as soon as the tile
+    /// opens, so the state the buttons follow is re-checked when the form next opens — which is when
+    /// the answer could have moved.</remarks>
+    [RelayCommand]
+    private async Task InstallCcsAsync()
+    {
+        if (!await ConfirmedAsync("Install CCS?", CcsProvider.Install)) return;
+
+        if (RunInstallPlan is not { } run || !await run(CcsProvider.Install))
+        {
+            await ShowProblemAsync("Install CCS",
+                "Open a workspace first — the install runs in a terminal tile there.");
+        }
+    }
+
+    /// <summary>Signs the CCS proxy in to a Codex account — the one OAuth step nothing here can do
+    /// silently, and the only one the whole setup needs.</summary>
+    /// <remarks>Through the same route a sign-in row takes, and for the same reason: the URL the login
+    /// prints has to be read by somebody. The command travels through the startup script rather than
+    /// the environment, which is harmless for a CLI invocation and is where a login command belongs.
+    /// After it, the proxy refreshes its own token — nothing here ever touches it. The button's state
+    /// is re-checked when the form next opens, not here: the route answers as soon as the tile opens,
+    /// before anybody has logged in.</remarks>
+    [RelayCommand]
+    private async Task AuthCcsCodexAsync()
+    {
+        var shell = ShellTerminalCatalog.ResolveDefault(_settingsService.Settings).Shell;
+        var command = shell.Invoke(CcsProvider.CommandName, CcsProvider.AuthArguments);
+
+        // Not an InstallPlan in spirit, but exactly one in shape — the rule the Sign in button already
+        // lives by: a command line, a note, and a tile to run it in.
+        var plan = new InstallPlan(command, [],
+            "Runs \"ccs codex --auth\" — the proxy's one-time login to a Codex account. A browser "
+            + "opens, the token lands in the proxy's own directory, and it refreshes itself from then on.");
+
+        if (!await ConfirmedAsync("Sign the CCS proxy in to Codex?", plan)) return;
+
+        if (RunInstallPlan is not { } run || !await run(plan))
+        {
+            await ShowProblemAsync("Auth Codex",
+                "Open a workspace first — the login runs in a terminal tile there.");
         }
     }
 

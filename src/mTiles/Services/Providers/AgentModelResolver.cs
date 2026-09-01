@@ -33,6 +33,19 @@ public static class AgentModelResolver
         if (AgentAvailability.Problem(instance, settings, agent) is { } unreachable)
             return (null, unreachable);
 
+        // Before anything is asked of a provider — its model list needs the service alive to answer.
+        // Only a managed one is started: a server the user runs themselves is started by the user, and
+        // a hosted one has nothing to start. The ensure is the resolver's business because both places
+        // that start an agent ask here first, and a dead proxy that got this far used to fail the
+        // launch later, as the CLI's own network error mid-session rather than a sentence up front.
+        if (instance.ApiAccountId.Length > 0
+            && AiProviderCatalog.FindInstance(settings, instance.ApiAccountId) is { } managed
+            && AiProviderCatalog.Find(managed.ProviderId) is IManagedAiProvider starts)
+        {
+            var ensured = await starts.EnsureRunningAsync(managed, ct);
+            if (!ensured.Ok) return (null, ensured.Message);
+        }
+
         if (instance.Model.Length > 0 && !agent.AcceptsModel)
             return (null, $"{agent.DisplayName} cannot be told which model to use, so "
                 + $"\"{instance.Model}\" would be ignored. Clear the model on this instance, or run "

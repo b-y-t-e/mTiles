@@ -16,6 +16,7 @@ namespace mTiles.Tests;
 /// <remarks>No key and no network: every call that would leave the machine goes through
 /// <c>AiProvider.HandlerFactory</c>, the same style of seam as <c>TerminalControl.PtyFactory</c>.
 /// </remarks>
+[Collection(ProviderSeamCollection.Name)]
 public class AiProviderTests
 {
     // ── The endpoint parser ──────────────────────────────────────────────────────────────────────
@@ -81,12 +82,12 @@ public class AiProviderTests
         Assert.True(AiProviderCatalog.IsCompatible(codex, Provider("openrouter")));
     }
 
-    /// <summary>Claude Code needs an Anthropic-shaped endpoint, and three of the six serve one.</summary>
+    /// <summary>Claude Code needs an Anthropic-shaped endpoint, and four of the seven serve one.</summary>
     [Fact]
     public void Claude_is_compatible_with_exactly_the_anthropic_shaped_services()
     {
         Assert.Equal(
-            ["anthropic", "lmstudio", "openrouter", "zai"],
+            ["anthropic", "ccs", "lmstudio", "openrouter", "zai"],
             AiProviderCatalog.CompatibleWith(Agent("claude")).Select(p => p.Id).Order());
     }
 

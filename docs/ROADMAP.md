@@ -227,3 +227,74 @@ That run stopped only because there was no Google key on the machine. With one p
 completed **remotely and billed**, while the tile, the row and the header all said LM Studio. Whether
 the substitution is noticed depends on whether the user happens to lack a key, which is not a property
 anything should rely on — so the tile is refused until the pairing can be checked rather than hoped for.
+
+---
+
+## A CCS provider — Claude Code on a Codex subscription
+
+**What this is.** [CCS](https://github.com/kaitranntt/ccs) (`npm install -g @kaitranntt/ccs`) wraps
+**CLIProxyAPI**, a local OAuth proxy (default `http://127.0.0.1:8317`) that serves an
+**Anthropic-flavor** endpoint (`/v1/messages`) backed by an OAuth *subscription* — ChatGPT/Codex today,
+Gemini, Kimi, xAI and others upstream. Pointed at it, Claude Code runs on a Codex subscription with no
+API key anywhere: the proxy owns the OAuth token and refreshes it itself.
+
+**Why a provider and not a new agent.** `ccs codex` as a command is only a wrapper that sets
+`ANTHROPIC_BASE_URL` and launches Claude Code — and a provider that could inject CLI fragments would
+break the agents' pinned argv tables and session strategies for everybody. The clean seam is the one
+that already exists: the CLI stays `claude`, and the provider contributes address (Anthropic flavor),
+env (`ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`, exactly what `ccs env codex --format anthropic`
+exports) and model. `AiProviderCatalog.IsCompatible` then allows the pairing only with `ClaudeAgent`,
+which is correct — CCS is a bridge *to* Claude Code.
+
+**What is wrong now.** There is no CCS entry. The stopgap works but is all hand work: pick
+**Anthropic**, type `http://127.0.0.1:8317` by hand, run `ccs codex --auth` and `ccs cliproxy start`
+in a terminal yourself, and know that the proxy has to be alive before the first launch. Nothing here
+detects, starts, or explains any of it — and a dead proxy fails mid-session with a network error
+instead of a sentence.
+
+**What to build.**
+
+1. **`CcsProvider`** in `Services/Providers/` — id `ccs`, flavor Anthropic,
+   `DefaultBaseUrl` = `http://127.0.0.1:8317`, `NeedsApiKey` false locally (the docker deployment has
+   a managed key — then a key field), `IsLocal` true. `ModelsAsync` reads the proxy's
+   `/v1/models` (CLIProxy carries a synced catalog). The entry **appears in the Service dropdown
+   unconditionally** — LM Studio and Ollama are listed while not running, and hiding an entry somebody
+   could otherwise install is the one thing this screen must not do. The form reacts to state instead.
+2. **Two buttons on the form, per state** (the agent row's `NOT INSTALLED` chip + **Install…** pattern):
+   - **Install CCS**, shown while `ExecutableFinder` does not find `ccs` — runs
+     `npm install -g @kaitranntt/ccs` **in a visible terminal tile**, through the `InstallCommand`
+     route, never a hidden process.
+   - **Auth Codex**, shown while installed and `~/.ccs/cliproxy/auth/codex-*.json` does not exist —
+     the sign-in flow: say what will run, then open a tile whose startup script is `ccs codex --auth`
+     (`--auth` = auth only, no session). The OAuth consent itself is the one step mTiles cannot do
+     silently, and it is one-time; the proxy refreshes the token afterwards on its own. The
+     `codex-` prefix of the token file is **inferred from the neighbours' measured naming**
+     (`gemini-…`, `kiro-…`, `xai-…`), not measured for codex itself — confirm it against the first
+     real login.
+3. **A note on the form saying what this is for**: *CCS connects Claude Code to a Codex subscription
+   through a local proxy. Only the Codex subscription is wired today.*
+4. **Proxy lifecycle** — the one genuinely new member, on an optional interface beside
+   `ILocalAiProvider` because no hosted provider can answer it:
+   `IManagedAiProvider.EnsureRunningAsync(instance, ct)` — probe the address by protocol
+   (`IsServingAsync`, not by port), and when it is down run `ccs cliproxy start` (idempotent), wait
+   for health, answer. **Called from `AgentModelResolver.ResolveAsync`** — before any model question,
+   because a model list needs the service alive to answer — rather than from
+   `TileLauncher.PrepareForLaunchAsync` as this entry first guessed: the resolver is the one place both
+   the agent tile and the Goal run already ask before every start, so the ensure reaches both callers
+   through code that existed. A failure is the resolver's problem sentence — the tile's
+   `LaunchProblem`, the goal's refusal — not a stack trace.
+   The `cmd /c` invocation takes its arguments **separately**, never as one pre-quoted string: .NET
+   escapes the embedded quotes and cmd answers `not recognized`, exit 1, every time — measured, and
+   pinned by a test that runs a real shim.
+5. **Context window.** The model behind the proxy is `gpt-5.x` — an id Claude Code does not know, so
+   it assumes 200 000. `ContextWindowAsync` answers from the proxy catalog where it can; the
+   instance's own `MaxContextTokens`/Auto-compact fields (Claude Code only) are the manual answer and
+   need no new code.
+
+**Later, deliberately not now — more subscriptions.** The point of CCS is that CLIProxy speaks to
+*many* OAuth subscriptions. When a second one is wanted, choosing CCS on the form should grow a
+**subscription choice** (Codex / Gemini / Kimi / …), each with its own auth flow (`ccs <provider>
+--auth`), its own token directory under `~/.ccs/cliproxy/auth/`, its own model spellings and windows.
+Nothing in the shape above blocks it — the provider stays one, the choice is an instance field — but
+each subscription is a measured integration of its own, and one that works should ship before a
+chooser promises five.

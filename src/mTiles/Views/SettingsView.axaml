@@ -1529,6 +1529,32 @@
                                               SelectedItem="{Binding EditProviderKind}"
                                               MinWidth="200" />
                                 </DockPanel>
+                                <!-- What CCS is for, said where the choice is made: it is the one
+                                     service here that is somebody else's local proxy, and its purpose
+                                     is not guessable from its name. -->
+                                <TextBlock IsVisible="{Binding EditProviderIsCcs}"
+                                           Text="CCS runs a local OAuth proxy (CLIProxyAPI) so Claude Code can work on a Codex subscription. Only the Codex subscription is wired today."
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8"
+                                            IsVisible="{Binding EditProviderIsCcs}">
+                                    <Button Classes="outlined"
+                                            IsVisible="{Binding ShowCcsInstall}"
+                                            Command="{Binding InstallCcsCommand}"
+                                            Content="Install CCS"
+                                            Padding="12,5" />
+                                    <Button Classes="outlined"
+                                            IsVisible="{Binding ShowCcsAuth}"
+                                            Command="{Binding AuthCcsCodexCommand}"
+                                            Content="Auth Codex"
+                                            Padding="12,5" />
+                                    <TextBlock VerticalAlignment="Center"
+                                               IsVisible="{Binding CcsIsSetUp}"
+                                               Text="CCS is installed and signed in."
+                                               FontSize="{DynamicResource FontXs}"
+                                               Foreground="{DynamicResource TextMuted}" />
+                                </StackPanel>
                                 <DockPanel>
                                     <TextBlock Text="Address" Classes="label"
                                                VerticalAlignment="Center" Width="90" />

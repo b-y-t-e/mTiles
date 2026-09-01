@@ -15,6 +15,7 @@ public static class AiProviderCatalog
     public static IReadOnlyList<IAiProvider> All { get; } =
     [
         new AnthropicProvider(),
+        new CcsProvider(),
         new OpenAiProvider(),
         new OpenRouterProvider(),
         new ZaiProvider(),

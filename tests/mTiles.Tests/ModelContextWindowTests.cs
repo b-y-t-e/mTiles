@@ -28,6 +28,7 @@ namespace mTiles.Tests;
 /// deprecated in favour of <c>ANTHROPIC_DEFAULT_HAIKU_MODEL</c>; the <c>ANTHROPIC_DEFAULT_*_MODEL</c>
 /// family pins what the <c>opus</c>/<c>sonnet</c>/<c>haiku</c>/<c>fable</c> aliases resolve to.</para>
 /// </remarks>
+[Collection(ProviderSeamCollection.Name)]
 public class ModelContextWindowTests
 {
     // ── The 80% rule ─────────────────────────────────────────────────────────────────────────────

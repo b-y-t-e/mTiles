@@ -13,6 +13,7 @@ namespace mTiles.Tests;
 /// </summary>
 /// <remarks>Everything on this page could already be launched through and tested; none of it could be
 /// typed anywhere, so the page is the whole of what these assertions are about.</remarks>
+[Collection(ProviderSeamCollection.Name)]
 public sealed class AiSettingsPageTests : IDisposable
 {
     private readonly TempSettings _settings = new();
