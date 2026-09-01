@@ -70,8 +70,10 @@
 
     <!-- Danger (close/remove hover) -->
     <SolidColorBrush x:Key="DangerSubtle"  Color="#2e1a24" />
+
     <SolidColorBrush x:Key="DangerText"    Color="#c06878" />
 
+    <SolidColorBrush x:Key="WarnText"      Color="#c0a25a" />
     <!-- Git tags -->
     <SolidColorBrush x:Key="TagColor"      Color="#6DBF8B" />
 

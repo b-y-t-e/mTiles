@@ -1415,6 +1415,15 @@
                                            Margin="98,-6,0,0"
                                            FontSize="{DynamicResource FontXs}"
                                            Foreground="{DynamicResource TextMuted}" />
+                                <!-- The same slot as the context readout above, for the one state the
+                                     readout cannot fill: no model named. The account is half the
+                                     question - on a sign-in the CLI's default is its own answer. -->
+                                <TextBlock IsVisible="{Binding HasModelEmptyWarning}"
+                                           Text="{Binding ModelEmptyWarning}"
+                                           Margin="98,-6,0,0"
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource WarnText}" />
                                 <DockPanel IsVisible="{Binding ShowsFastModel}">
                                     <TextBlock Text="Fast model" Classes="label"
                                                VerticalAlignment="Center" Width="90" />

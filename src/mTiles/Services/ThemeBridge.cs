@@ -103,6 +103,10 @@ public static class ThemeBridge
         Set(app, "DangerText", dangerText);
         Set(app, "TagColor", green);
 
+        // A warning is a caution, not an error: ANSI yellow with the same light-theme treatment as the
+        // phase markers above, so it stays readable on a pale ground.
+        Set(app, "WarnText", Marker(theme.Yellow, theme.IsDark, fg));
+
         // The Goal tile's phases read as a terminal transcript, so their markers come from the ANSI
         // palette rather than a fixed set of hexes: a light theme used to get five dark slate dots that
         // belonged to the dark default, because nothing here overwrote them.

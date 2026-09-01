@@ -271,9 +271,33 @@ public partial class SettingsViewModel
             ? "provider/model, e.g. openrouter/z-ai/glm-5.3-flash"
             : "empty = the agent's own choice";
 
+    /// <summary>The warning under an empty model field, or empty while there is nothing to warn about.
+    /// </summary>
+    /// <remarks>An API key points the CLI at a service that serves <em>your</em> catalogue, and an
+    /// empty model field hands the launch no model at all — so the CLI asks for its own default, which
+    /// the provider may not serve (a launch that succeeds and a run that fails) or may serve at a
+    /// price nobody chose. On a sign-in the CLI's default is the account's own answer, so there is
+    /// nothing to warn about. Read beside <see cref="ModelContextDisplay"/>, which fills the same slot
+    /// the moment a model is named: the two are never shown together.</remarks>
+    public string ModelEmptyWarning =>
+        EditAgentAccount is { Kind: AccountKind.Provider }
+        && EditAgentModel.Trim().Length == 0
+            ? "No model set: the CLI's own default model will be requested from this provider — "
+              + "it may not be served there, and it may cost more."
+            : "";
+
+    public bool HasModelEmptyWarning => ModelEmptyWarning.Length > 0;
+
+    private void NotifyModelEmptyWarning()
+    {
+        OnPropertyChanged(nameof(ModelEmptyWarning));
+        OnPropertyChanged(nameof(HasModelEmptyWarning));
+    }
+
     partial void OnEditAgentModelChanged(string value)
     {
         RefreshEffortLabels();
+        NotifyModelEmptyWarning();
         _ = UpdateModelContextAsync(fastModel: false);
     }
 
@@ -413,6 +437,7 @@ public partial class SettingsViewModel
         OnPropertyChanged(nameof(ModelHint));
         OnPropertyChanged(nameof(FastModelHint));
         OnPropertyChanged(nameof(ShowsFastModel));
+        NotifyModelEmptyWarning();
         _ = LoadAgentModelsAsync();
     }
 
