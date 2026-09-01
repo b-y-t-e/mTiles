@@ -82,6 +82,34 @@ public interface IAiProvider
     bool IsLocal { get; }
 
     /// <summary>
+    /// The credential a client of this provider authenticates with, or a word that stands in for one
+    /// where the server takes none.
+    /// </summary>
+    /// <remarks>
+    /// <para>Asked by the agents that present a token to an endpoint — Claude Code's
+    /// <c>ANTHROPIC_AUTH_TOKEN</c> is the reader — so "what do I authenticate with here" is answered by
+    /// the provider, which is the one that knows whether its server takes a key and, when the server
+    /// manages its own, which one.</para>
+    /// <para><b>An empty string is an answer, and a deliberate one.</b> Measured 2026-08-31 against
+    /// Claude Code 2.1.251, <c>ANTHROPIC_AUTH_TOKEN=""</c> fails with "Not logged in · Please run
+    /// /login" before a request is made — which is the right diagnosis for a hosted provider whose key
+    /// was never typed (the form allows saving one, since only the name is required): the lack is local
+    /// and named here, where a placeholder word would buy a 401 from the provider's own server that
+    /// reads as a rejected key. A server that takes no key at all gets the word instead — any
+    /// non-empty value passes it (measured against LM Studio the same day), and the word is chosen to
+    /// be nothing that could be mistaken for a credential.</para>
+    /// </remarks>
+    string ClientToken(AiProviderInstance instance);
+
+    /// <summary>
+    /// What the form and the row say where no key is typed, in one sentence.
+    /// </summary>
+    /// <remarks>One spelling in both places, because two sentences about the same fact are two places
+    /// for them to drift. The default is a fact about the network; an override is for a server that
+    /// takes a credential but hands it out itself.</remarks>
+    string NoKeyNote { get; }
+
+    /// <summary>
     /// The address to hand an agent that speaks <paramref name="flavor"/>, or null when this provider
     /// does not serve it.
     /// </summary>

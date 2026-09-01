@@ -1576,7 +1576,7 @@
                                            FontSize="{DynamicResource FontXs}"
                                            Foreground="{DynamicResource DangerText}" />
                                 <TextBlock IsVisible="{Binding !EditProviderNeedsKey}"
-                                           Text="This server has no authentication — anyone who can reach it can use it."
+                                           Text="{Binding EditProviderNoKeyNote}"
                                            TextWrapping="Wrap"
                                            FontSize="{DynamicResource FontXs}"
                                            Foreground="{DynamicResource TextMuted}" />

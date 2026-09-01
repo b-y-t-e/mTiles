@@ -180,6 +180,19 @@ public class AiProviderTests
         Assert.Empty(Agent("claude").EnvFor(AgentRuntime.For(settings, instance)));
     }
 
+    /// <summary>The token question's two deliberate answers, pinned because the contract says them
+    /// and nothing else enforces either: a hosted provider whose key was never typed yields the
+    /// <b>empty</b> token — Claude Code's own "Not logged in" names the local lack, where a placeholder
+    /// word would buy a 401 from its server that reads as a rejected key — and a server that takes no
+    /// key gets a word, because an empty one is refused locally before any request is made.</summary>
+    [Fact]
+    public void A_hosted_provider_without_a_key_yields_the_empty_token_and_a_keyless_one_a_word()
+    {
+        Assert.Equal("", Provider("zai").ClientToken(new AiProviderInstance { ProviderId = "zai" }));
+        Assert.Equal("no-key-needed",
+            Provider("lmstudio").ClientToken(new AiProviderInstance { ProviderId = "lmstudio" }));
+    }
+
     /// <summary>
     /// What the user set by hand wins, including putting back a variable the agent asked to remove.
     /// </summary>

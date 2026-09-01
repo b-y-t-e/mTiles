@@ -1231,6 +1231,10 @@ public partial class SettingsViewModel
             ? $"empty = localhost:{port} — or type where the server is"
             : "empty = the service's own address";
 
+    /// <summary>What the form says where no key field is shown — the provider's own sentence, so the
+    /// row and the form cannot say two different things about the same fact.</summary>
+    public string EditProviderNoKeyNote => EditedProvider?.NoKeyNote ?? "";
+
     private IAiProvider? EditedProvider =>
         AiProviderCatalog.All.FirstOrDefault(p => p.DisplayName == EditProviderKind);
 
@@ -1240,6 +1244,7 @@ public partial class SettingsViewModel
         OnPropertyChanged(nameof(ShowsProviderKeyWarning));
         OnPropertyChanged(nameof(EditProviderIsLocal));
         OnPropertyChanged(nameof(ProviderAddressHint));
+        OnPropertyChanged(nameof(EditProviderNoKeyNote));
         RefreshCcsState();
     }
 

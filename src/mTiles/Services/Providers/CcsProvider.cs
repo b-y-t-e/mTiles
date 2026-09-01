@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using mTiles.Models;
 
@@ -17,8 +19,13 @@ namespace mTiles.Services.Providers;
 /// fragments would break the agents' pinned argv tables and session strategies for everybody. So the CLI
 /// stays <c>claude</c>, and this class contributes only what a provider contributes anywhere: the
 /// address, the flavor, and the model list. <c>ClaudeAgent.Configure</c> does the rest with the pair it
-/// already sets — the placeholder token included, since an <em>empty</em> token makes Claude Code refuse
-/// to run at all while any non-empty one passes a keyless server.</para>
+/// already sets — asking here for the token to present, which is the key the daemon's own config hands
+/// out.</para>
+/// <para><b>The daemon takes a key after all</b> — measured 2026-09-01, when a CCS update began writing
+/// <c>api-keys:</c> into its config, and every request without one, this application's probe included,
+/// was refused with <c>401 {"error":"Missing API key"}</c>. The key is not a secret the user keeps: it
+/// is <see cref="ManagedApiKey"/>, read from the same file, so nothing is typed, nothing is asked, and
+/// an update that rotates it is picked up at the next read.</para>
 /// <para><b>Not an <see cref="ILocalAiProvider"/>, deliberately.</b> Its address is fixed and published,
 /// so there is nothing to discover; and "whatever the server has loaded" is a question about a model
 /// server, which a subscription proxy cannot answer. <see cref="Models"/> therefore names no sentinel
@@ -37,9 +44,108 @@ public sealed class CcsProvider : AiProvider, IManagedAiProvider
     public override int DefaultPort => 8317;
     public override Uri? DefaultBaseUrl => new($"http://127.0.0.1:{DefaultPort}/");
 
-    /// <summary>No key on a local proxy — its address is the whole of how it is reached.</summary>
+    /// <summary>No key for the <em>user</em> to type — the daemon's own config is where the credential
+    /// comes from, and <see cref="ClientToken"/> reads it.</summary>
     public override bool NeedsApiKey => false;
     public override bool IsLocal => true;
+
+    /// <summary>The key the daemon's own config hands out, or the word that passes a server old enough
+    /// to take none.</summary>
+    /// <remarks>A key typed on the instance still wins — tolerance rather than a route, since the form
+    /// offers no key field here and nothing writes one. The one statement of that rule: everything
+    /// that presents a credential to this proxy asks here.</remarks>
+    public override string ClientToken(AiProviderInstance instance) =>
+        instance.ApiKey.Length > 0 ? instance.ApiKey : ManagedApiKey ?? NoKeyWord;
+
+    /// <inheritdoc />
+    /// <remarks>The form note that fits the row beside it: there is nothing to type, and the sentence
+    /// says where the credential actually comes from.</remarks>
+    public override string NoKeyNote => "no key to type — mTiles authenticates with the proxy's own key";
+
+    /// <summary>The key read out of the daemon's config, or null when it names none.</summary>
+    /// <remarks>
+    /// <para>CCS writes <c>api-keys:</c> — first entry <c>ccs-internal-managed</c> — into
+    /// <c>~/.ccs/cliproxy/config.yaml</c>, and since the update that did, it refuses every anonymous
+    /// request with 401. Read at every call rather than cached: the calls are a handful a launch, the
+    /// file is a few kilobytes, and an update that rotates the key is then picked up without anything
+    /// having to notice.</para>
+    /// <para><b>A file that cannot be read is a keyless daemon as far as this answers.</b> Null sends
+    /// the request unauthenticated, which is what every version before the key requirement answered —
+    /// so an unreadable config costs nothing on an old CCS and reports an honest failure on a new one,
+    /// rather than inventing a key.</para>
+    /// </remarks>
+    public static string? ManagedApiKey
+    {
+        get
+        {
+            if (ConfigReader is { } read) return read() is { } yaml ? ApiKeysIn(yaml).FirstOrDefault() : null;
+
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".ccs", "cliproxy", "config.yaml");
+            try
+            {
+                return File.Exists(path) ? ApiKeysIn(File.ReadAllText(path)).FirstOrDefault() : null;
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning("Reading {0} failed: {1}", path, ex.Message);
+                return null;
+            }
+        }
+    }
+
+    /// <summary>Where the daemon's config is read from, in tests.</summary>
+    /// <remarks>Answers the file's <em>text</em>, so a test drives the parse as well as the read.</remarks>
+    internal static Func<string?>? ConfigReader { get; set; }
+
+    /// <summary>
+    /// The keys under <c>api-keys:</c> in the daemon's YAML config, in the order written.
+    /// </summary>
+    /// <remarks>
+    /// <para>Read what CCS writes, not the whole of YAML: the file is the daemon's own, regenerated on
+    /// its updates, and its shape is a block list of quoted or bare entries. A comment or a blank line
+    /// inside the block is skipped; the next key at column zero ends it. An <c>api-keys:</c> line
+    /// carrying its entries inline is not recognised — the block form is what the daemon writes, and a
+    /// parser confident about shapes it has not seen is a parser that guesses about somebody else's
+    /// file.</para>
+    /// <para>Pure, and argued in a table test for the same reason <c>PhoneEndpointRanker</c> is: it is
+    /// an opinion about a file format.</para>
+    /// </remarks>
+    internal static IReadOnlyList<string> ApiKeysIn(string yaml)
+    {
+        var keys = new List<string>();
+        var underApiKeys = false;
+        foreach (var rawLine in yaml.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (!underApiKeys)
+            {
+                underApiKeys = line.TrimEnd() == "api-keys:";
+                continue;
+            }
+
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0 || trimmed.StartsWith('#')) continue;
+
+            // Anything that is not a list entry ends the block — the next top-level key, chiefly.
+            if (!trimmed.StartsWith("- ")) break;
+
+            var value = trimmed[2..].Trim().Trim('"').Trim('\'');
+            if (value.Length > 0) keys.Add(value);
+        }
+        return keys;
+    }
+
+    /// <summary>Presents <see cref="ClientToken"/>'s answer as the bearer credential — the one rule
+    /// for what authenticates a call to this proxy, so the probe, the model list and the agent's own
+    /// CLI cannot disagree about which key is in play. The standing word is not sent: it is a token
+    /// shape for the CLI's environment, not a credential, and the wire carries either a key or
+    /// nothing.</summary>
+    protected override void Authenticate(HttpRequestMessage request, AiProviderInstance instance)
+    {
+        if (ClientToken(instance) is { Length: > 0 } token && token != NoKeyWord)
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    }
 
     /// <summary>
     /// The models the proxy serves, and the reason this is asked of it at all.
@@ -81,6 +187,10 @@ public sealed class CcsProvider : AiProvider, IManagedAiProvider
     /// running its own life as a daemon: one local HTTP call, and the launch pays nothing else. Only a
     /// silent address starts anything, and what it starts is <c>ccs cliproxy start</c> — the tool's own
     /// lifecycle command, idempotent by its own contract.</para>
+    /// <para><b>A refusal is read as what it is</b> — a daemon that is up and declining the credential —
+    /// and is answered immediately: neither starting it again nor waiting out the poll can change its
+    /// mind, and reading the 401 as silence produced the one dishonest sentence this class could still
+    /// print, "it may still be coming up", at a proxy that had been up the whole time.</para>
     /// <para>Installing CCS is <em>not</em> part of this: an installation is a decision and a visible
     /// tile, which is what the Settings row's Install button is for. A launch answers with the sentence
     /// pointing there instead.</para>
@@ -91,8 +201,13 @@ public sealed class CcsProvider : AiProvider, IManagedAiProvider
         if (BaseUrlFor(instance) is not { } baseUrl)
             return ProviderCheck.Failed($"\"{instance.BaseUrl.Trim()}\" is not an address this can read.");
 
-        if (await IsServingAsync(baseUrl, ct))
-            return ProviderCheck.Reached($"Proxy running at {baseUrl}");
+        switch (await ProbeAsync(baseUrl, instance, ct))
+        {
+            case ProxyAnswer.Serving:
+                return ProviderCheck.Reached($"Proxy running at {baseUrl}");
+            case ProxyAnswer.Refused:
+                return ProviderCheck.Failed(RefusalMessage(baseUrl, instance));
+        }
 
         if (!IsInstalled)
             return ProviderCheck.Failed(
@@ -109,13 +224,19 @@ public sealed class CcsProvider : AiProvider, IManagedAiProvider
 
         // The start command returns on its own; the daemon comes up a moment later. Poll rather than
         // sleep once: a proxy that answers in half a second need not cost the launch a full second,
-        // and one that never comes up is reported rather than waited on for ever.
+        // and one that never comes up is reported rather than waited on for ever. A refusal in the
+        // loop ends it the same way — up is up, however freshly it became so.
         var deadline = DateTimeOffset.UtcNow + ProxyStartTimeout;
         while (DateTimeOffset.UtcNow < deadline)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(500), ct);
-            if (await IsServingAsync(baseUrl, ct))
-                return ProviderCheck.Reached($"Proxy started at {baseUrl}");
+            switch (await ProbeAsync(baseUrl, instance, ct))
+            {
+                case ProxyAnswer.Serving:
+                    return ProviderCheck.Reached($"Proxy started at {baseUrl}");
+                case ProxyAnswer.Refused:
+                    return ProviderCheck.Failed(RefusalMessage(baseUrl, instance));
+            }
         }
 
         return ProviderCheck.Failed(
@@ -130,14 +251,52 @@ public sealed class CcsProvider : AiProvider, IManagedAiProvider
     /// Writable for the tests, which cannot afford twenty seconds to prove a timeout.</remarks>
     internal static TimeSpan ProxyStartTimeout = TimeSpan.FromSeconds(20);
 
-    /// <summary>
-    /// Whether this address is really the CLIProxy daemon — asked by protocol, never by port.
-    /// </summary>
-    private async Task<bool> IsServingAsync(Uri baseUrl, CancellationToken ct)
+    /// <summary>What the daemon said when asked by protocol, never by port.</summary>
+    private enum ProxyAnswer { Serving, Refused, Silent }
+
+    /// <summary>Asks the address whether the CLIProxy daemon is there — and, when it answers, whether
+    /// it takes the credential this would present.</summary>
+    /// <remarks><b>Silent and refusing are different answers, and only silence is "not coming up".</b>
+    /// The 401 is the measured refusal (2026-09-01, the key requirement) and proves the daemon is up;
+    /// every other non-success, and every failure to connect, is silence. Narrow on 401 deliberately,
+    /// the way a denial is matched by its words elsewhere: a guess at other codes would spend a
+    /// refusal message on a server that is merely broken.</remarks>
+    private async Task<ProxyAnswer> ProbeAsync(Uri baseUrl, AiProviderInstance instance,
+        CancellationToken ct)
     {
-        var probe = new AiProviderInstance { ProviderId = Id, BaseUrl = baseUrl.ToString() };
-        using var document = await GetJsonAsync(probe, "v1/models", ct);
-        return document is not null;
+        try
+        {
+            using var client = ClientFor(instance);
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(baseUrl, "v1/models"));
+            Authenticate(request, instance);
+
+            using var response = await client.SendAsync(request, ct);
+            if (response.IsSuccessStatusCode) return ProxyAnswer.Serving;
+            if (response.StatusCode == HttpStatusCode.Unauthorized) return ProxyAnswer.Refused;
+
+            Trace.TraceWarning("{0} answered {1} for the probe.", Id, (int)response.StatusCode);
+            return ProxyAnswer.Silent;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            Trace.TraceWarning("Probing {0} failed: {1}", baseUrl, ex.Message);
+            return ProxyAnswer.Silent;
+        }
+    }
+
+    /// <summary>What a refusing daemon says to its user: it is up, the credential is the problem, and
+    /// where the key it wants lives.</summary>
+    private static string RefusalMessage(Uri baseUrl, AiProviderInstance instance)
+    {
+        var presented = instance.ApiKey.Length > 0
+            ? "the key typed on this instance is not one it accepts"
+            : ManagedApiKey is { }
+                ? "the key from its own config is not one it accepts"
+                : "it requires a key and none could be read from its config";
+
+        return "The proxy at " + baseUrl + " refused the request with 401 — " + presented
+            + ". Its keys are the \"api-keys:\" entries in ~/.ccs/cliproxy/config.yaml; typing one "
+            + "on this instance's row overrides that file.";
     }
 
     // ── What the Settings row does with the machine's state ──────────────────────────────────────

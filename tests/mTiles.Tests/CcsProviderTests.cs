@@ -30,6 +30,7 @@ public class CcsProviderTests : IDisposable
         CcsProvider.StartOverride = null;
         CcsProvider.InstalledOverride = null;
         CcsProvider.AuthDirectoryOverride = null;
+        CcsProvider.ConfigReader = null;
         CcsProvider.ProxyStartTimeout = TimeSpan.FromSeconds(20);
         CcsProvider.DrainTimeout = TimeSpan.FromSeconds(2);
     }
@@ -126,6 +127,9 @@ public class CcsProviderTests : IDisposable
 
     /// <summary>A start command that fails is named, with what it printed — never swallowed into a
     /// launch that fails later with a network error mid-session.</summary>
+    /// <remarks>The canned handler keeps the probe off the machine's real proxy: with the daemon's own
+    /// key now sent, a live one would answer the probe and the start command would never be reached —
+    /// a pass bought by whichever other application happened to be running.</remarks>
     [Fact]
     public async Task A_failed_start_is_reported()
     {
@@ -133,6 +137,7 @@ public class CcsProviderTests : IDisposable
         CcsProvider.InstalledOverride = () => true;
         CcsProvider.StartOverride = (_, _, _) =>
             Task.FromResult(new CcsProvider.CcsStartResult(3, "port 8317 in use"));
+        AiProvider.HandlerFactory = () => new CannedHandler("", HttpStatusCode.ServiceUnavailable);
 
         var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
 
@@ -156,6 +161,186 @@ public class CcsProviderTests : IDisposable
 
         Assert.False(check.Ok);
         Assert.Contains("did not answer", check.Message);
+    }
+
+    // ── The daemon's own key ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>The keys under <c>api-keys:</c>, read the way CCS writes the block: quoted or bare
+    /// entries, comments and blanks inside it, the next top-level key ending it.</summary>
+    [Theory]
+    [InlineData(
+        """
+        api-keys:
+          - "ccs-internal-managed"
+        auth-dir: "C:/u/.ccs/cliproxy/auth"
+        """,
+        "ccs-internal-managed")]
+    [InlineData("something: else\n", "")]
+    [InlineData(
+        """
+        other: 1
+        api-keys: ["inline"]
+        """,
+        "")]
+    public void The_config_api_keys_are_read_the_way_ccs_writes_them(string yaml, string expected)
+    {
+        var keys = CcsProvider.ApiKeysIn(yaml);
+
+        Assert.Equal(expected.Length == 0 ? [] : [expected], keys);
+    }
+
+    /// <summary>Comments and blanks inside the block are skipped, and the entries come back in the
+    /// order written — the first is the one <see cref="CcsProvider.ManagedApiKey"/> answers with.</summary>
+    [Fact]
+    public void Comments_inside_the_block_are_skipped_and_the_order_kept()
+    {
+        var keys = CcsProvider.ApiKeysIn(
+            """
+            api-keys:
+            # user-added keys survive updates
+              - first-key
+              - "second-key"
+
+            next: value
+            """);
+
+        Assert.Equal(["first-key", "second-key"], keys);
+    }
+
+    /// <summary>Since the daemon began requiring a key it refuses every anonymous request — the probe
+    /// and the model list authenticate with the key its own config hands out.</summary>
+    /// <remarks>This is the 2026-09-01 failure, pinned: without the header the proxy answered 401, the
+    /// probe read "not serving", and a working launch was reported as "did not answer within 20 s".</remarks>
+    [Fact]
+    public async Task The_probe_authenticates_with_the_daemons_own_key()
+    {
+        var requests = new List<HttpRequestMessage>();
+        AiProvider.HandlerFactory = () => new RecordingHandler("""{"data":[]}""", requests);
+        CcsProvider.ConfigReader = () => "api-keys:\n  - \"ccs-internal-managed\"\n";
+
+        var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
+
+        Assert.True(check.Ok);
+        Assert.All(requests, request =>
+            Assert.Equal("Bearer ccs-internal-managed",
+                request.Headers.Authorization?.ToString()));
+    }
+
+    /// <summary>A daemon that is up and refusing the credential is answered as one: its 401 is not
+    /// read as silence, so it is neither started again nor waited on, and the message names the key
+    /// it wants rather than suggesting it may still be coming up.</summary>
+    /// <remarks>This is the other half of the 2026-09-01 bug — before this, the refusal surfaced as
+    /// "did not answer within 20 s" whenever the config could not be read.</remarks>
+    [Fact]
+    public async Task A_refusing_daemon_is_reported_as_refused_not_down()
+    {
+        var starts = 0;
+        CcsProvider.InstalledOverride = () => true;
+        CcsProvider.StartOverride = (_, _, _) =>
+        {
+            Interlocked.Increment(ref starts);
+            return Task.FromResult(new CcsProvider.CcsStartResult(0, ""));
+        };
+        AiProvider.HandlerFactory = () => new CannedHandler("", HttpStatusCode.Unauthorized);
+
+        var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
+
+        Assert.False(check.Ok);
+        Assert.Equal(0, starts);
+        Assert.Contains("401", check.Message);
+        Assert.Contains("refused", check.Message);
+        Assert.DoesNotContain("did not answer", check.Message);
+    }
+
+    /// <summary>A refusal that appears in the poll — the daemon came up refusing — ends the wait the
+    /// same way, instead of burning the whole timeout on a daemon that has already said no.</summary>
+    [Fact]
+    public async Task A_refusal_in_the_poll_ends_the_wait()
+    {
+        var started = false;
+        CcsProvider.ProxyStartTimeout = TimeSpan.FromSeconds(5);
+        CcsProvider.InstalledOverride = () => true;
+        CcsProvider.StartOverride = (_, _, _) =>
+        {
+            started = true;
+            return Task.FromResult(new CcsProvider.CcsStartResult(0, ""));
+        };
+        AiProvider.HandlerFactory = () => started
+            ? new CannedHandler("", HttpStatusCode.Unauthorized)
+            : new CannedHandler("", HttpStatusCode.ServiceUnavailable);
+
+        var watch = DateTimeOffset.UtcNow;
+        var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
+
+        Assert.False(check.Ok);
+        Assert.True(started);
+        Assert.Contains("401", check.Message);
+        Assert.True(DateTimeOffset.UtcNow - watch < TimeSpan.FromSeconds(4),
+            "the poll was waited out past the refusal.");
+    }
+
+    /// <summary>The probe presents the same credential the agent's CLI would — a key typed on the
+    /// instance wins over the daemon's own, on the wire as in the environment.</summary>
+    /// <remarks>The probe used to ask on a synthetic instance with the typed key dropped, which is
+    /// exactly the probe/CLI disagreement this pins against.</remarks>
+    [Fact]
+    public async Task The_probe_presents_a_typed_key_over_the_daemons_own()
+    {
+        var requests = new List<HttpRequestMessage>();
+        AiProvider.HandlerFactory = () => new RecordingHandler("""{"data":[]}""", requests);
+        CcsProvider.ConfigReader = () => "api-keys:\n  - \"ccs-internal-managed\"\n";
+
+        await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs", ApiKey = "typed" });
+
+        Assert.All(requests, request =>
+            Assert.Equal("Bearer typed", request.Headers.Authorization?.ToString()));
+    }
+
+    /// <summary>A key typed on the instance is the client's answer and wins over the daemon's own —
+    /// a decision somebody made by hand is not overwritten by a file.</summary>
+    [Fact]
+    public void A_typed_key_wins_over_the_daemons_own()
+    {
+        CcsProvider.ConfigReader = () => "api-keys:\n  - \"ccs-internal-managed\"\n";
+
+        Assert.Equal("typed",
+            Ccs.ClientToken(new AiProviderInstance { ProviderId = "ccs", ApiKey = "typed" }));
+    }
+
+    /// <summary>Where the config names no key — an old CCS, an unreadable file — <see cref="CcsProvider.ManagedApiKey"/>
+    /// answers null and the word that passes a keyless server is the token, which is the whole of the
+    /// pre-key behaviour kept.</summary>
+    [Fact]
+    public void Without_a_config_key_the_standing_word_is_the_answer()
+    {
+        CcsProvider.ConfigReader = () => "other: value\n";
+
+        Assert.Null(CcsProvider.ManagedApiKey);
+        Assert.Equal("no-key-needed", Ccs.ClientToken(new AiProviderInstance { ProviderId = "ccs" }));
+
+        CcsProvider.ConfigReader = () => null;
+        Assert.Null(CcsProvider.ManagedApiKey);
+    }
+
+    /// <summary>The token that reaches Claude Code's environment through a CCS instance is the daemon's
+    /// own key — the placeholder word passed a keyless server and now buys a 401 from <c>/v1/messages</c>
+    /// half way into a session.</summary>
+    [Fact]
+    public void Claude_code_on_ccs_authenticates_with_the_daemons_own_key()
+    {
+        CcsProvider.ConfigReader = () => "api-keys:\n  - \"ccs-internal-managed\"\n";
+
+        var provider = new AiProviderInstance { ProviderId = "ccs" };
+        var instance = AiAgentCatalog.SeedInstanceFor(Agent("claude"));
+        instance.ApiAccountId = provider.Id;
+        var settings = new AppSettings();
+        settings.AiProviderInstances.Add(provider);
+        settings.AiAgentInstances.Add(instance);
+
+        var environment = Claude.EnvFor(AgentRuntime.For(settings, instance));
+
+        Assert.Equal("http://127.0.0.1:8317/", environment["ANTHROPIC_BASE_URL"]);
+        Assert.Equal("ccs-internal-managed", environment["ANTHROPIC_AUTH_TOKEN"]);
     }
 
     // ── Machine state ─────────────────────────────────────────────────────────────────────────────

@@ -150,10 +150,11 @@ public sealed partial class AiProviderInstanceViewModel : ObservableObject
                 ? Instance.BaseUrl
                 : Provider?.DefaultBaseUrl?.ToString() ?? "no address";
 
-            // "No key needed" rather than a blank: on a local server it is the whole story, and it is
-            // worth saying that anybody who can reach it can use it.
-            var key = Provider is { NeedsApiKey: false }
-                ? "no key needed — open to anyone who can reach it"
+            // "No key needed" rather than a blank: on a local server it is the whole story. The
+            // provider's own sentence, so a server that takes a credential but hands it out itself
+            // (CCS) says that instead of claiming to be open to anyone.
+            var key = Provider is { NeedsApiKey: false } keyless
+                ? keyless.NoKeyNote
                 : Instance.ApiKey.Length > 0 ? "key set" : "no key";
 
             return $"{address} · {key}";

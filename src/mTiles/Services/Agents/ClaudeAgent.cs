@@ -109,23 +109,17 @@ public sealed class ClaudeAgent : AiAgent
             environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = null;
         }
 
-        if (runtime.EndpointFor(ApiFlavor.Anthropic) is { } endpoint)
+        if (runtime.EndpointFor(ApiFlavor.Anthropic) is { } endpoint
+            && runtime.Provider is { } provider
+            && runtime.ProviderInstance is { } configured)
         {
             environment["ANTHROPIC_BASE_URL"] = endpoint.ToString();
-            // A local server has no authentication and hands out no key, but an *empty* token is not
-            // the same as a server that needs none: measured 2026-08-31 against Claude Code 2.1.251
-            // and LM Studio, `ANTHROPIC_AUTH_TOKEN=""` fails the run with "Not logged in · Please run
-            // /login" before a request is made, while any non-empty value gets straight through — the
-            // server ignores it. So the placeholder is what makes a keyless provider reachable at all,
-            // and it is a word rather than anything that could be mistaken for a credential.
-            // "This service has no key", not "this key is empty". A hosted provider saved without one
-            // - which the form allows, since only the name is required - was getting the placeholder
-            // and a 401 from somebody else's server, in place of the local "Not logged in · Please run
-            // /login" that says what is actually wrong. NeedsApiKey is the same fact ApplyProviderKey
-            // and OpenCodeProviderConfig already read.
-            environment["ANTHROPIC_AUTH_TOKEN"] = runtime.Provider is { NeedsApiKey: false }
-                ? "no-key-needed"
-                : runtime.ApiKey;
+            // What to authenticate with is the provider's answer, not a rule spelled here: the key
+            // typed on the instance, or — for a server that takes none — the word that stands in for
+            // one, or, for one that manages its own (CCS), the key its config hands out. The measured
+            // reasoning about empty tokens lives with the member, which is where every agent that
+            // presents a credential will ask the same question.
+            environment["ANTHROPIC_AUTH_TOKEN"] = provider.ClientToken(configured);
             // Empty rather than removed, and an inherited global key is still shut out — an empty
             // value overrides it as surely as a removal does, and the CLI cannot authenticate with an
             // empty key. The distinction is the gateway's own recipe (OpenRouter's Claude Code

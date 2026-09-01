@@ -46,6 +46,22 @@ public abstract class AiProvider : IAiProvider
     /// <inheritdoc />
     public virtual bool IsLocal => false;
 
+    /// <summary>The word presented where a server takes no key — not empty, because an empty token is
+    /// refused locally before any request is made, and nothing that could be mistaken for a
+    /// credential, because a server that reads none of it ignores it. The measured reasoning is on
+    /// <see cref="IAiProvider.ClientToken"/>.</summary>
+    public const string NoKeyWord = "no-key-needed";
+
+    /// <inheritdoc />
+    /// <remarks>The key typed on the instance where the server takes one — empty when none was, which
+    /// is its own answer, not an omission — and a word where the server takes none. The measured
+    /// reasoning for both is on the interface member.</remarks>
+    public virtual string ClientToken(AiProviderInstance instance) =>
+        NeedsApiKey ? instance.ApiKey : NoKeyWord;
+
+    /// <inheritdoc />
+    public virtual string NoKeyNote => "no key needed — open to anyone who can reach it";
+
     /// <summary>
     /// How this provider's HTTP calls are made. Replaced in tests; null everywhere else.
     /// </summary>
@@ -200,7 +216,10 @@ public abstract class AiProvider : IAiProvider
     /// <summary>A client for one call. Short-lived on purpose: these are a handful of user-triggered
     /// requests, not a hot path, and a pooled client would outlive the instance whose address and
     /// timeout it was built from.</summary>
-    private HttpClient ClientFor(AiProviderInstance instance)
+    /// <remarks>Protected for the one provider that must read a status code rather than a body —
+    /// CCS's probe distinguishes a daemon that is up and refusing from one that is silent, which
+    /// <see cref="GetJsonAsync"/>'s null-collapse cannot.</remarks>
+    protected HttpClient ClientFor(AiProviderInstance instance)
     {
         var client = HandlerFactory is { } factory
             ? new HttpClient(factory(), disposeHandler: true)
