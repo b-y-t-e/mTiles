@@ -124,6 +124,95 @@ public class GoalReviewParsingTests
     }
 
     [Fact]
+    public void A_bare_json_answer_survives_braces_in_the_prose_after_it()
+    {
+        // Measured against z-ai/glm-5.3-flash through OpenRouter: the review comes back as bare JSON
+        // with no fence, and the model routinely adds a "proposed fix" section after it — prose and a
+        // code snippet carrying braces of their own. The outermost first-{-to-last-} span then covers
+        // both and parses as nothing, so the whole structured review was dumped into the transcript as
+        // raw JSON text and the verdict fell out of the VERDICT fallback.
+        var review = GoalResponseParser.ParseReview(
+            "{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"Swallowed exception\"}]}\n\n" +
+            "Proponowana poprawka:\n" +
+            "try { File.WriteAllText(path, data); }\n" +
+            "catch (IOException ex) { throw new ExportException($\"Nie udało się zapisać pliku: {path}\", ex); }");
+
+        Assert.True(review.WasStructured);
+        Assert.False(review.GoalMet);
+        Assert.Equal(1, review.Count(GoalSeverity.Error));
+    }
+
+    [Fact]
+    public void A_bare_json_answer_survives_braces_in_the_prose_before_it()
+    {
+        // The same shape at the other end: a sentence of analysis that happens to carry a brace
+        // destroyed the span from the other side.
+        var review = GoalResponseParser.ParseReview(
+            "Analizowałem kontroler {\"name\":\"Export\"} i zmiany poniżej.\n" +
+            "{\"goalMet\":true,\"findings\":[]}");
+
+        Assert.True(review.WasStructured);
+        Assert.True(review.GoalMet);
+    }
+
+    [Fact]
+    public void A_review_emitted_twice_without_fences_reads_the_last_one()
+    {
+        // A tool may emit the block twice — the fenced reader already takes the last one, and a tool
+        // that omits the fences deserves the same rule rather than a span that covers both copies and
+        // the sentence between them.
+        var review = GoalResponseParser.ParseReview(
+            "{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"stale\"}]}\n" +
+            "Correcting myself:\n" +
+            "{\"goalMet\":true,\"findings\":[]}");
+
+        Assert.True(review.WasStructured);
+        Assert.True(review.GoalMet);
+    }
+
+    [Fact]
+    public void A_bare_config_snippet_is_still_not_read_as_the_verdict()
+    {
+        // The bare-JSON twin of the fenced case above it: no marker keys means this is not the
+        // review, and the prose verdict rule still answers.
+        var review = GoalResponseParser.ParseReview("All good. VERDICT: PASS\n\n{\"port\":8080}");
+
+        Assert.False(review.WasStructured);
+        Assert.True(review.GoalMet);
+    }
+
+    [Fact]
+    public void The_fenced_review_then_a_fenced_fix_snippet_still_parses()
+    {
+        // Measured against z-ai/glm-5.3-flash through OpenRouter, 2026-09-01: the review arrives in a
+        // ```json fence and the proposed fix in a second fence whose body is C# — the last fence is
+        // not the verdict, and the reverse walk has to keep going past the one that does not parse.
+        var review = GoalResponseParser.ParseReview(
+            "```json\n{\"goalMet\":true,\"findings\":[]}\n```\n\n" +
+            "Proponowana poprawka:\n" +
+            "```csharp\ntry\n{\n    File.WriteAllText(path, data);\n}\ncatch (IOException ex)\n{\n" +
+            "    throw new ExportException($\"Nie udało się zapisać pliku: {path}\", ex);\n}\n```\n\n" +
+            "Uwagi: wymagany jest konstruktor z innerException.");
+
+        Assert.True(review.WasStructured);
+        Assert.True(review.GoalMet);
+    }
+
+    [Fact]
+    public void A_bare_clarify_answer_survives_braces_in_the_prose_around_it()
+    {
+        // The marker rule is asked for by every reader of this parser, not only the review's: a
+        // clarification answer wrapped in the same brace-carrying prose was printed as the question.
+        var clarify = GoalResponseParser.ParseClarify(
+            "Zanim zaplanuję, sprawdźmy kontekst {\"branch\":\"master\"}:\n" +
+            "{\"needsClarification\":true,\"questions\":[{\"question\":\"Czy dane mogą się nadpisać?\"}]}");
+
+        Assert.True(clarify.WasStructured);
+        Assert.True(clarify.NeedsClarification);
+        Assert.Equal("Czy dane mogą się nadpisać?", clarify.Questions.Single().Question);
+    }
+
+    [Fact]
     public void A_boolean_the_tool_quoted_is_still_a_boolean()
     {
         // A model shown a schema in prose quotes values as readily as keys. Read as anything but true,

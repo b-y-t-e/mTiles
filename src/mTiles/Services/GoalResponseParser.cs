@@ -33,9 +33,37 @@ internal static partial class GoalResponseParser
         RegexOptions.Multiline | RegexOptions.Singleline)]
     private static partial Regex FencedBlock();
 
-    internal static JsonElement? ExtractJson(string? text)
+    /// <summary>
+    /// The object this answer was asked for, or null when there is none to read.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Marker keys are the strongest signal and are read first.</b> A tool answers with bare
+    /// JSON — no fence — and routinely wraps it in prose that carries braces of its own: a code
+    /// suggestion, an example, a sentence naming a literal. Measured against z-ai/glm-5.3-flash
+    /// through OpenRouter, 2026-09-01. The old rule took the text from the first <c>{</c> to the last
+    /// <c>}</c>, so one brace either side of the review turned the whole answer into one string that
+    /// parses as nothing, and a structured review was dropped into the transcript as raw text with its
+    /// verdict invented by the fallback. The scan below walks the whole answer and hands back the
+    /// <b>last</b> balanced object carrying any of the keys the caller reads — last, because that is
+    /// the verdict rule the fenced reader already follows.</para>
+    /// <para>What the scan deliberately does not do: rescue an object whose strings carry raw newlines.
+    /// That answer is illegal JSON, no reading of the braces can repair it, and every path here still
+    /// ends in a usable answer — the prose fallback — which is the contract this class was written
+    /// for.</para>
+    /// <para>The fenced walk and the outermost span keep their places after it, and every caller that
+    /// passes no markers behaves exactly as it did.</para>
+    /// </remarks>
+    internal static JsonElement? ExtractJson(string? text, params string[] markerKeys)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
+
+        if (markerKeys.Length > 0)
+        {
+            var candidates = BalancedObjects(text);
+            for (var i = candidates.Count - 1; i >= 0; i--)
+                if (TryParseObject(candidates[i]) is { } parsed && CarriesAnyKey(parsed, markerKeys))
+                    return parsed;
+        }
 
         foreach (Match m in FencedBlock().Matches(text).Reverse())
             if (TryParseObject(m.Groups["body"].Value) is { } fenced)
@@ -46,6 +74,65 @@ internal static partial class GoalResponseParser
         var open = text.IndexOf('{');
         var close = text.LastIndexOf('}');
         return open >= 0 && close > open ? TryParseObject(text[open..(close + 1)]) : null;
+    }
+
+    private static bool CarriesAnyKey(JsonElement obj, string[] markerKeys)
+    {
+        if (obj.ValueKind != JsonValueKind.Object) return false;
+
+        foreach (var property in obj.EnumerateObject())
+            foreach (var marker in markerKeys)
+                if (string.Equals(property.Name, marker, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// The outermost balanced <c>{…}</c> spans of the text, reading strings and escapes as it goes.
+    /// </summary>
+    /// <remarks>A brace inside a quoted finding must not unbalance the count, which is why the walk
+    /// tracks <c>"</c> and <c>\</c>. A candidate that never closes runs to the end of the text and dies
+    /// in <see cref="TryParseObject"/> — the answer an unterminated fragment deserves. Only spans that
+    /// open at depth zero are kept: a findings entry's own braces are inside the object being read,
+    /// not candidates beside it.</remarks>
+    private static List<string> BalancedObjects(string text)
+    {
+        var spans = new List<string>();
+        var depth = 0;
+        var start = -1;
+        var inString = false;
+        var escaped = false;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (inString)
+            {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+
+            if (c == '"') inString = true;
+            else if (c == '{')
+            {
+                if (depth == 0) start = i;
+                depth++;
+            }
+            else if (c == '}' && depth > 0)
+            {
+                depth--;
+                if (depth == 0 && start >= 0)
+                {
+                    spans.Add(text[start..(i + 1)]);
+                    start = -1;
+                }
+            }
+        }
+
+        return spans;
     }
 
     private static JsonElement? TryParseObject(string candidate)
@@ -71,7 +158,7 @@ internal static partial class GoalResponseParser
     public static GoalReviewResult ParseReview(string? response)
     {
         var raw = response ?? "";
-        var json = ExtractJson(raw);
+        var json = ExtractJson(raw, "goalMet", "goal_met", "findings");
 
         if (json is not { } root)
             return Unstructured(raw);
@@ -167,7 +254,7 @@ internal static partial class GoalResponseParser
     public static GoalClarifyResult ParseClarify(string? response)
     {
         var raw = response ?? "";
-        var json = ExtractJson(raw);
+        var json = ExtractJson(raw, "needsClarification", "needs_clarification", "questions");
 
         if (json is not { } root)
             return new GoalClarifyResult { NeedsClarification = true, WasStructured = false, RawText = raw };
@@ -248,7 +335,7 @@ internal static partial class GoalResponseParser
     public static List<GoalCommit> ParseCommitPlan(string? response)
     {
         var commits = new List<GoalCommit>();
-        if (ExtractJson(response) is not { } root) return commits;
+        if (ExtractJson(response, "commits") is not { } root) return commits;
 
         if (Property(root, "commits") is not { ValueKind: JsonValueKind.Array } array) return commits;
 
@@ -299,7 +386,7 @@ internal static partial class GoalResponseParser
         if (FencedBlock().Matches(text) is [.., var last] && last.Value.Trim() == text)
             text = last.Groups["body"].Value.Trim();
 
-        if (ExtractJson(text) is { } root && Text(root, "goal") is { Length: > 0 } fromJson)
+        if (ExtractJson(text, "goal") is { } root && Text(root, "goal") is { Length: > 0 } fromJson)
             text = fromJson;
 
         // Also on the path where no JSON was found at all: a tool that answers with a bare sentence can

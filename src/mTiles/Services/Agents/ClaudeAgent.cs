@@ -126,7 +126,23 @@ public sealed class ClaudeAgent : AiAgent
             environment["ANTHROPIC_AUTH_TOKEN"] = runtime.Provider is { NeedsApiKey: false }
                 ? "no-key-needed"
                 : runtime.ApiKey;
-            environment["ANTHROPIC_API_KEY"] = null;
+            // Empty rather than removed, and an inherited global key is still shut out — an empty
+            // value overrides it as surely as a removal does, and the CLI cannot authenticate with an
+            // empty key. The distinction is the gateway's own recipe (OpenRouter's Claude Code
+            // cookbook, read 2026-09-01): "must be explicitly empty, not unset" — the CLI's auth
+            // resolution treats a missing variable and a present-but-empty one differently, and the
+            // missing one lets a cached claude.ai login answer questions it should not.
+            environment["ANTHROPIC_API_KEY"] = "";
+            // Headless model validation against a gateway the CLI does not have a family for. Without
+            // this, `-p` refuses a model id it cannot match against Anthropic's own catalogue before
+            // asking the model anything — measured 2026-09-01 against 2.1.250–2.1.252 with
+            // `z-ai/glm-5.3-flash` on OpenRouter, every spelling, env and flag alike. The switch is
+            // the documented one (the same cookbook), and it makes the CLI ask the gateway's model
+            // list instead: the provider then answers for the ids it serves. The CLI handles a
+            // gateway that fails to answer — the discovery path logs its own failure and the run
+            // carries on — which is why it is set for every provider rather than only the ones this
+            // application has measured serving a list.
+            environment["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "1";
         }
 
         if (runtime.RequestedModel.Length > 0)

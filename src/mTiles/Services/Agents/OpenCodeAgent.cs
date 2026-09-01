@@ -228,6 +228,26 @@ public sealed class OpenCodeAgent : AiAgent
     /// rest of it is the tile's own — so no tile-to-session bookkeeping exists anywhere.</remarks>
     public override string SessionIdForTile(string tileId) => OpenCodeSession.IdFor(tileId);
 
+    /// <summary>
+    /// Measured 2026-09-01 against 1.18.18 and 1.18.25: with no message argument,
+    /// <c>opencode run</c> reads the prompt from standard input and answers it — exit 0, answer on
+    /// stdout.
+    /// </summary>
+    /// <remarks><para>Everything the command line did to the prompt here was real on this machine.
+    /// npm resolves <c>opencode</c> to a <c>.cmd</c> shim, so the line this application built was
+    /// re-parsed by cmd.exe before the CLI ever saw it, and past roughly eight thousand characters
+    /// cmd.exe refuses the line outright — <c>The command line is too long.</c>, reproduced at 8.4k
+    /// where the same prompt down stdin ran and answered. Between those two stood every
+    /// quote-and-newline shape in a goal prompt, and one failure that reached the CLI printed its own
+    /// usage page as the run's error text.</para>
+    /// <para><see cref="AiProcessRunner.PromptBudget"/> answers null for this agent from here on, which
+    /// also stops the prompt builder trimming the working tree to fit a limit that no longer
+    /// exists.</para></remarks>
+    public override bool AcceptsPromptOnStdin => true;
+
+    /// <inheritdoc />
+    /// <remarks>The prompt is unused here for the same reason <see cref="ClaudeAgent"/>'s is: it goes
+    /// down standard input, which <c>AiProcessRunner</c> writes and closes.</remarks>
     public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
         AiUsage usage, AiBehaviour behaviour = AiBehaviour.Auto,
         AiEffort effort = AiEffort.High, string model = "")
@@ -236,7 +256,5 @@ public sealed class OpenCodeAgent : AiAgent
 
         foreach (var argument in BehaviourArgs(behaviour, usage).Concat(ModelArgs(model, usage)))
             psi.ArgumentList.Add(argument);
-
-        psi.ArgumentList.Add(prompt);
     }
 }

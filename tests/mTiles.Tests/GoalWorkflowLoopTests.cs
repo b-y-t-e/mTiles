@@ -1908,6 +1908,33 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
+    public void A_claude_model_refusal_names_the_model_and_the_route_that_still_works()
+    {
+        OnUiThread(async () =>
+        {
+            // Measured 2026-09-01: `claude -p` verifies the model id against the provider's catalogue
+            // and exits 1 before asking the model anything. OpenRouter answers 404 on the per-model
+            // route, so every goal on the pairing stopped here saying only "the AI tool reported a
+            // failure" over a sentence about a model the user cannot fix from the goal tile.
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) => Task.FromResult(
+                AiOutput.Failure(
+                    "[stderr] ⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another " +
+                    "auth source is set and takes precedence over your claude.ai login\n" +
+                    "[claude-code:unrecognized_model] {\"model\":\"z-ai/glm-5.3-flash\"," +
+                    "\"query_source\":\"sdk\"}"));
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.True(vm.IsPaused);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("reported a failure")
+                && m.Text.Contains("verifies the model id against the provider"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("agent tile"));
+        });
+    }
+
+    [Fact]
     public void A_dropped_stream_is_retried_once_without_asking()
     {
         OnUiThread(async () =>

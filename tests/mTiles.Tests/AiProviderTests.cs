@@ -144,14 +144,19 @@ public class AiProviderTests
     // ── The environment an agent runs with ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// Claude Code pointed at another service authenticates with the token <b>and the inherited key is
-    /// removed</b>.
+    /// Claude Code pointed at another service authenticates with the token, the inherited key is
+    /// <b>emptied</b>, and the model check is pointed at the gateway.
     /// </summary>
-    /// <remarks>That single null is what stage 2 was for. Without it, a machine exporting a global
-    /// <c>ANTHROPIC_API_KEY</c> keeps sending it beside our token, and the session runs on somebody
-    /// else's account with nothing on screen saying so.</remarks>
+    /// <remarks>The empty string rather than a removal is the gateway's own recipe (OpenRouter's
+    /// Claude Code cookbook, read 2026-09-01): the CLI treats a missing variable and a present-but-empty
+    /// one differently, and the missing one lets a cached claude.ai login answer. An inherited global
+    /// key is shut out either way — an empty value overrides it, and an empty key authenticates
+    /// nothing. The discovery switch is what makes a headless (<c>-p</c>) run verify a model id against
+    /// the <em>gateway's</em> catalogue instead of refusing ids outside Anthropic's own families —
+    /// measured the hard way on <c>z-ai/glm-5.3-flash</c> through OpenRouter, which refuses on every
+    /// version from 2.1.250 to 2.1.252 without it.</remarks>
     [Fact]
-    public void A_configured_provider_unsets_the_inherited_anthropic_key()
+    public void A_configured_provider_empties_the_inherited_anthropic_key_and_enables_gateway_discovery()
     {
         var (settings, instance) = Configured("claude", "zai", key: "zzz");
 
@@ -160,7 +165,8 @@ public class AiProviderTests
         Assert.Equal("https://api.z.ai/api/anthropic", environment["ANTHROPIC_BASE_URL"]);
         Assert.Equal("zzz", environment["ANTHROPIC_AUTH_TOKEN"]);
         Assert.True(environment.ContainsKey("ANTHROPIC_API_KEY"));
-        Assert.Null(environment["ANTHROPIC_API_KEY"]);
+        Assert.Equal("", environment["ANTHROPIC_API_KEY"]);
+        Assert.Equal("1", environment["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"]);
     }
 
     /// <summary>An instance with no provider contributes nothing: the agent runs on whatever it was

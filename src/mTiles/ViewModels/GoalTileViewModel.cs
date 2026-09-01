@@ -2666,13 +2666,17 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                 var effortFlag = agent.EffortFlagFor(effort, usage);
                 var permissionFlag = agent.BehaviourFlagFor(behaviour, usage);
 
-                var cause = AiBehaviours.LooksLikeRejectedMode(
-                    result.Text, permissionFlag, effortFlag)
-                    ? $"{AiBehaviours.RejectedModeAdvice} "
-                    : AiEfforts.LooksLikeRejectedEffort(
-                        result.Text, effortFlag, permissionFlag)
-                        ? $"{AiEfforts.RejectedEffortAdvice} "
-                        : "";
+                // The model refusal is asked first, because it happens before any flag could matter:
+                // a CLI that will not start on the model never got far enough to refuse a mode or an
+                // effort, and its failure text carries neither — only its own words about the model.
+                var cause = UnrecognizedModel.Named(result.Text) ? $"{UnrecognizedModel.Advice} "
+                    : AiBehaviours.LooksLikeRejectedMode(
+                        result.Text, permissionFlag, effortFlag)
+                        ? $"{AiBehaviours.RejectedModeAdvice} "
+                        : AiEfforts.LooksLikeRejectedEffort(
+                            result.Text, effortFlag, permissionFlag)
+                            ? $"{AiEfforts.RejectedEffortAdvice} "
+                            : "";
 
                 await AddMessageAsync(GoalMessageRole.System,
                     $"{NameOf(CurrentPhase)} reported a failure. {cause}"

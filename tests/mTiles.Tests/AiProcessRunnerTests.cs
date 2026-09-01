@@ -130,15 +130,31 @@ public class AiProcessRunnerTests
         Assert.DoesNotContain("the prompt", psi.ArgumentList);
         Assert.Contains("-p", psi.ArgumentList);
 
-        // And it is the only one that opted in. Opting in is a claim about somebody else's CLI, and a
-        // tool that does not read stdin sits waiting for input that never arrives.
-        // Through the interface: the default lives there, so asking the concrete type would not see it.
+        // Opting in is a claim about somebody else's CLI, and a tool that does not read stdin sits
+        // waiting for input that never arrives. Through the interface: the default lives there, so
+        // asking the concrete type would not see it.
         Assert.True(((IAiAgent)new ClaudeAgent()).AcceptsPromptOnStdin);
         Assert.False(((IAiAgent)new CodexAgent()).AcceptsPromptOnStdin);
-        Assert.False(((IAiAgent)new OpenCodeAgent()).AcceptsPromptOnStdin);
         Assert.False(((IAiAgent)new PiAgent()).AcceptsPromptOnStdin);
     }
 
+    [Fact]
+    public void OpenCode_leaves_the_prompt_off_the_command_line_because_it_reads_stdin()
+    {
+        // Measured 2026-09-01 against 1.18.18 and 1.18.25: `opencode run` with no message argument
+        // answers the prompt it is piped. On the command line the same prompt went through the npm
+        // `.cmd` shim's re-parsing, and past ~8 000 characters cmd.exe refused the line outright —
+        // "The command line is too long." — while the stdin run answered.
+        var psi = new ProcessStartInfo();
+        new OpenCodeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing);
+
+        Assert.DoesNotContain("the prompt", psi.ArgumentList);
+        Assert.Contains("run", psi.ArgumentList);
+        Assert.True(((IAiAgent)new OpenCodeAgent()).AcceptsPromptOnStdin);
+
+        // And with no command-line budget, the builder is not asked to trim anything to fit either.
+        Assert.Null(AiProcessRunner.PromptBudget("opencode.cmd", new OpenCodeAgent()));
+    }
 
     [Fact]
     public void Claude_is_given_no_turn_limit_at_all()

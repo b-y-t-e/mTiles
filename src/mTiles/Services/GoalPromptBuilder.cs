@@ -301,9 +301,9 @@ public sealed class GoalPromptBuilder
     /// close: a review carrying the goal, the quality rules, seven thousand
     /// characters of working tree, the severity rules and an example runs to about twelve thousand —
     /// against the <b>8 191</b> a <c>.cmd</c> shim allows, which is what npm installs and what
-    /// <c>AiToolDetector</c> looks for first. Three of the four supported tools go that way, and the
-    /// case that overflows is the one the whole feature exists for: a resume after a large
-    /// implementation in a busy working tree.</para>
+    /// <c>AiToolDetector</c> looks for first. Every tool that does not read its prompt on stdin goes
+    /// that way, and the case that overflows is the one the whole feature exists for: a resume after a
+    /// large implementation in a busy working tree.</para>
     /// <para>Refusing was the old answer and a poor one — the run is judged failed, the tile pauses,
     /// and Resume reproduces the identical failure for ever. Trimming costs the tool some context and
     /// costs the user nothing, so the borrowed blocks give way in order of size until the thing fits.

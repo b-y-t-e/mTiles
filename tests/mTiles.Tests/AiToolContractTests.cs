@@ -118,11 +118,13 @@ public class AiToolContractTests
     /// reaches <c>exec</c>, which refuses <c>-a</c> outright.</para>
     /// </remarks>
     [Fact]
-    public void Opencode_and_codex_take_the_prompt_after_their_subcommand()
+    public void Opencode_leaves_the_prompt_to_stdin_and_codex_takes_it_after_its_subcommand()
     {
-        Assert.Equal(["run", "the prompt"], Args("opencode"));
-        Assert.Equal(["run", "--auto", "the prompt"],
-            Args("opencode", AiBehaviour.BypassPermissions));
+        // Measured 2026-09-01: `opencode run` with no message argument answers the prompt it is
+        // piped, so the prompt stays off the command line — which is what removes the npm `.cmd`
+        // shim's re-parsing of it, and the ~8 000 characters past which cmd.exe refuses the line.
+        Assert.Equal(["run"], Args("opencode"));
+        Assert.Equal(["run", "--auto"], Args("opencode", AiBehaviour.BypassPermissions));
 
         // No -a: measured, codex exec refuses it — the axis exists on codex and codex resume alone.
         Assert.Equal(

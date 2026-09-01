@@ -31,11 +31,12 @@ public static class AiProcessRunner
 
     /// <summary>
     /// Refuses a prompt the operating system could not carry, with a message saying so.
-    /// <para>The prompt is passed as a command-line argument by every agent here, and Windows caps a
-    /// command line at 32 767 characters — 8 191 through a <c>.cmd</c> shim, which is what npm installs.
-    /// Over the limit <c>Process.Start</c> throws a <see cref="System.ComponentModel.Win32Exception"/>
-    /// whose text says nothing about length, so the tile reported that the tool had failed and offered
-    /// to try again, which could only fail identically. This says what actually happened.</para>
+    /// <para>The prompt is passed as a command-line argument by every agent that does not read
+    /// standard input (<see cref="IAiAgent.AcceptsPromptOnStdin"/>), and Windows caps a command line
+    /// at 32 767 characters — 8 191 through a <c>.cmd</c> shim, which is what npm installs. Over the
+    /// limit <c>Process.Start</c> throws a <see cref="System.ComponentModel.Win32Exception"/> whose
+    /// text says nothing about length, so the tile reported that the tool had failed and offered to
+    /// try again, which could only fail identically. This says what actually happened.</para>
     /// </summary>
     private static void GuardPromptLength(
         string executablePath, string prompt, AiAgentInstance? instance)

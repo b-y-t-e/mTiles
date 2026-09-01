@@ -260,8 +260,9 @@ public class AgentProviderRoutingTests : IDisposable
     /// which key variable is set, so on a machine exporting a global <c>OPENAI_API_KEY</c> an OpenRouter
     /// instance showed the CLI two accounts and nothing to choose between them — and with no model on
     /// the instance, which is how every seeded one starts, there is no <c>provider/model</c> to break
-    /// the tie either. A null value unsets, exactly as <c>ClaudeAgent</c> already relies on for
-    /// <c>ANTHROPIC_API_KEY</c>.</remarks>
+    /// the tie either. A null value unsets — the same move <c>ClaudeAgent</c> makes for every other
+    /// service's key variable; its own <c>ANTHROPIC_API_KEY</c> it empties rather than removes, which
+    /// is that CLI's own gateway recipe.</remarks>
     [Theory]
     [InlineData("opencode")]
     [InlineData("pi")]
