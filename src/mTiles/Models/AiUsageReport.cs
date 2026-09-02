@@ -29,6 +29,11 @@ namespace mTiles.Models;
 /// <param name="MeasuredAt">The instant the figures describe — <b>not</b> the instant they were
 /// fetched, where the two differ.</param>
 /// <param name="Problem">Why this account has no figures, or null when it answered.</param>
+/// <param name="AccountKey">What this is an account <i>of</i>, where the source can say — two reports
+/// carrying the same key are two ways of naming one login and only one of them is worth a card. <b>Null
+/// means it cannot say</b>, and a report with no key is never treated as a duplicate of anything: two
+/// accounts wrongly merged is a subscription missing from the screen, which is worse than the repetition
+/// this exists to remove.</param>
 public sealed record AiUsageReport(
     string SourceId,
     string SourceName,
@@ -37,7 +42,8 @@ public sealed record AiUsageReport(
     decimal? RemainingCredit,
     string? Currency,
     DateTimeOffset MeasuredAt,
-    string? Problem)
+    string? Problem,
+    string? AccountKey = null)
 {
     /// <summary>An account that is there and could not be asked.</summary>
     /// <remarks>A report rather than a null, and the difference is what the caller can then do about

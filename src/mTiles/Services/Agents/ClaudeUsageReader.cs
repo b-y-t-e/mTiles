@@ -48,14 +48,15 @@ public static class ClaudeUsageReader
     /// <remarks>Never null and never a throw: this is called for an account that exists, so silence has
     /// to arrive as a sentence in the place the figures would have been.</remarks>
     public static async Task<AiUsageReport> ReadAsync(string sourceId, string sourceName, string? plan,
-        string accessToken, DateTimeOffset measuredAt, CancellationToken ct = default)
+        string accessToken, DateTimeOffset measuredAt, string? accountKey = null,
+        CancellationToken ct = default)
     {
         var json = await FetchAsync(accessToken, ct);
 
         return json is null
             ? AiUsageReport.Failed(sourceId, sourceName,
                 "Anthropic did not answer the usage question for this account.", measuredAt)
-            : Parse(json, sourceId, sourceName, plan, measuredAt);
+            : Parse(json, sourceId, sourceName, plan, measuredAt, accountKey);
     }
 
     /// <summary>The two windows the answer describes.</summary>
@@ -66,7 +67,7 @@ public static class ClaudeUsageReader
     /// is the difference between this and answering a report with no bars in it, which reads on screen
     /// as an account with nothing to report.</para></remarks>
     public static AiUsageReport Parse(string json, string sourceId, string sourceName, string? plan,
-        DateTimeOffset measuredAt)
+        DateTimeOffset measuredAt, string? accountKey = null)
     {
         JsonDocument document;
         try { document = JsonDocument.Parse(json); }
@@ -90,7 +91,7 @@ public static class ClaudeUsageReader
                 ? AiUsageReport.Failed(sourceId, sourceName,
                     "Anthropic answered, but named no limit window this build recognises.", measuredAt)
                 : new AiUsageReport(sourceId, sourceName, plan, windows, RemainingCredit: null,
-                    Currency: null, measuredAt, Problem: null);
+                    Currency: null, measuredAt, Problem: null, accountKey);
         }
     }
 

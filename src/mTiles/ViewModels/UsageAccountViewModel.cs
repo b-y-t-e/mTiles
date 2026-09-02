@@ -28,6 +28,13 @@ public sealed class UsageWindowViewModel
     /// <summary>What the window is called — <c>5h</c>, <c>7d</c>.</summary>
     public string Label { get; }
 
+    /// <summary>The same, punctuated for a row with no bar between the name and the figure.</summary>
+    /// <remarks>A window with a bar needs no colon: the bar is what separates the name from the figure,
+    /// and it is wide. A window answered in money has nothing in between, so the two were left at
+    /// opposite ends of an empty cell — <c>today</c> against the left margin and <c>$0.18</c> against
+    /// the right, reading as two facts that had nothing to do with each other.</remarks>
+    public string LabelWithColon => Label.Length > 0 ? $"{Label}:" : "";
+
     /// <summary>How much of it is spent, 0..100, and zero where nothing was said — which is why
     /// <see cref="HasPercent"/> is asked before a bar is drawn.</summary>
     public double UsedPercent { get; }

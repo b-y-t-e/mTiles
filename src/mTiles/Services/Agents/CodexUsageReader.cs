@@ -33,7 +33,7 @@ public static class CodexUsageReader
     /// ever had here, and a machine with no codex reading anywhere must not cost a scan of all of
     /// them.</remarks>
     public static AiUsageReport Read(string sourceId, string sourceName, string sessionsRoot,
-        DateTimeOffset now)
+        DateTimeOffset now, string? accountKey = null)
     {
         var rollouts = NewestRollouts(sessionsRoot);
         if (rollouts.Count == 0)
@@ -42,7 +42,7 @@ public static class CodexUsageReader
                 now);
 
         foreach (var rollout in rollouts)
-            if (NewestReading(rollout, sourceId, sourceName, now) is { } report)
+            if (NewestReading(rollout, sourceId, sourceName, now, accountKey) is { } report)
                 return report;
 
         return AiUsageReport.Failed(sourceId, sourceName,
@@ -63,7 +63,7 @@ public static class CodexUsageReader
     /// fixed is the name of the object and the names inside it, which is as much of somebody else's
     /// format as it is safe to depend on.</remarks>
     public static AiUsageReport? Parse(string? line, string sourceId, string sourceName,
-        DateTimeOffset fallbackMeasuredAt)
+        DateTimeOffset fallbackMeasuredAt, string? accountKey = null)
     {
         if (line is not { Length: > 0 }) return null;
 
@@ -85,7 +85,7 @@ public static class CodexUsageReader
                 ? null
                 : new AiUsageReport(sourceId, sourceName, Plan: null, windows,
                     RemainingCredit: Balance(document.RootElement), Currency: "$", measuredAt,
-                    Problem: null);
+                    Problem: null, accountKey);
         }
         catch (JsonException)
         {
@@ -185,7 +185,7 @@ public static class CodexUsageReader
     /// conversation lasts, and a reader that locked it would break the very session it is asking
     /// about.</para></remarks>
     private static AiUsageReport? NewestReading(string path, string sourceId, string sourceName,
-        DateTimeOffset now)
+        DateTimeOffset now, string? accountKey)
     {
         try
         {
@@ -196,7 +196,7 @@ public static class CodexUsageReader
             AiUsageReport? newest = null;
             while (reader.ReadLine() is { } line)
                 if (line.Contains("rate_limits", StringComparison.Ordinal))
-                    newest = Parse(line, sourceId, sourceName, now) ?? newest;
+                    newest = Parse(line, sourceId, sourceName, now, accountKey) ?? newest;
 
             return newest;
         }

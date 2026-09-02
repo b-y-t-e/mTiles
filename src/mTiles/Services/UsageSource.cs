@@ -48,12 +48,18 @@ public static class UsageSources
             .Select(pair => new ProviderUsageSource(pair.Provider!, pair.Instance)),
     ];
 
+    /// <remarks><b>The sign-ins come first and the default account last, which is what decides the name
+    /// a duplicate keeps.</b> A machine that exports <c>CLAUDE_CONFIG_DIR</c> — which is what an mTiles
+    /// sign-in sets for the tiles it launches — has its default account inside one of those sign-in
+    /// directories, so the two are one login read twice; the tile keeps the first it sees, and the row
+    /// the user named and can find in Settings is the better of the two to keep. A machine with no
+    /// sign-ins at all still gets its default account, because nothing came before it.</remarks>
     private static IEnumerable<IUsageSource> AccountsOf(IAiAgent agent, AppSettings settings)
     {
-        yield return new AgentUsageSource(agent, null);
-
         foreach (var signIn in AiSignInStore.For(settings, agent.Id))
             yield return new AgentUsageSource(agent, signIn);
+
+        yield return new AgentUsageSource(agent, null);
     }
 }
 

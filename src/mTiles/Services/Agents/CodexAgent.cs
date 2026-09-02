@@ -282,9 +282,11 @@ public sealed class CodexAgent : AiAgent
         var sourceId = UsageSourceId(signIn);
         var name = UsageSourceName(signIn);
 
+        var accountKey = UsageAccountKey(root);
+
         return Task.Run<AiUsageReport?>(() => signIn is null && !Directory.Exists(root)
             ? null
-            : CodexUsageReader.Read(sourceId, name, root, DateTimeOffset.Now), ct);
+            : CodexUsageReader.Read(sourceId, name, root, DateTimeOffset.Now, accountKey), ct);
     }
 
     public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,

@@ -318,6 +318,8 @@ public sealed class ClaudeAgent : AiAgent
         var sourceId = UsageSourceId(signIn);
         var now = DateTimeOffset.Now;
 
+        var accountKey = UsageAccountKey(credentialsFile);
+
         if (ReadJsonString(credentialsFile, "claudeAiOauth", "accessToken") is not { Length: > 0 } token)
             return signIn is null
                 ? null
@@ -327,7 +329,7 @@ public sealed class ClaudeAgent : AiAgent
         var plan = ReadJsonString(credentialsFile, "claudeAiOauth", "subscriptionType");
 
         return await ClaudeUsageReader.ReadAsync(sourceId, name,
-            plan is { Length: > 0 } ? Capitalised(plan) : null, token, now, ct);
+            plan is { Length: > 0 } ? Capitalised(plan) : null, token, now, accountKey, ct);
     }
 
     /// <summary>"max" is what the file says; "Max" is what the subscription is called.</summary>

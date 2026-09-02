@@ -101,34 +101,54 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="vm:UsageWindowViewModel">
-                                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,10,0"
-                                                      ClipToBounds="True"
-                                                      ToolTip.Tip="{Binding Tooltip}">
-                                                    <TextBlock Grid.Column="0" Classes="readout"
-                                                               Text="{Binding Label}" Margin="0,0,6,0" />
-
-                                                    <!-- No minimum width, and that is the mechanism:
-                                                         the bar draws whole cells and stops drawing
-                                                         when there is no room for one, so a narrow
-                                                         tile loses the picture and keeps every
+                                                <Panel ToolTip.Tip="{Binding Tooltip}">
+                                                    <!-- A window with a bar: the bar is what separates
+                                                         the name from the figure, so the figure is
+                                                         pushed to the right and the bar takes the rest.
+                                                         No minimum width on it, and that is the
+                                                         mechanism - it draws whole cells and stops
+                                                         drawing when there is no room for one, so a
+                                                         narrow tile loses the picture and keeps every
                                                          figure. -->
-                                                    <views:UsageBar Grid.Column="1" Height="8"
-                                                                    VerticalAlignment="Center"
-                                                                    IsVisible="{Binding HasPercent}"
-                                                                    UsedPercent="{Binding UsedPercent}"
-                                                                    ExpectedPercent="{Binding ExpectedPercent}"
-                                                                    TrackBrush="{DynamicResource BgElevated}"
-                                                                    FillBrush="{DynamicResource AccentHover}"
-                                                                    OverBrush="{DynamicResource DangerText}"
-                                                                    TickBrush="{DynamicResource BorderStrong}" />
+                                                    <Grid ColumnDefinitions="Auto,*,Auto"
+                                                          Margin="0,0,10,0" ClipToBounds="True"
+                                                          IsVisible="{Binding HasPercent}">
+                                                        <TextBlock Grid.Column="0" Classes="readout"
+                                                                   Text="{Binding Label}"
+                                                                   Margin="0,0,6,0" />
 
-                                                    <TextBlock Grid.Column="2"
-                                                               Classes="readout value"
-                                                               Classes.over="{Binding IsOverspending}"
-                                                               Text="{Binding Figure}"
-                                                               TextAlignment="Right"
-                                                               Margin="6,0,0,0" />
-                                                </Grid>
+                                                        <views:UsageBar Grid.Column="1" Height="8"
+                                                                        VerticalAlignment="Center"
+                                                                        UsedPercent="{Binding UsedPercent}"
+                                                                        ExpectedPercent="{Binding ExpectedPercent}"
+                                                                        TrackBrush="{DynamicResource BgElevated}"
+                                                                        FillBrush="{DynamicResource AccentHover}"
+                                                                        OverBrush="{DynamicResource DangerText}"
+                                                                        TickBrush="{DynamicResource BorderStrong}" />
+
+                                                        <TextBlock Grid.Column="2"
+                                                                   Classes="readout value"
+                                                                   Classes.over="{Binding IsOverspending}"
+                                                                   Text="{Binding Figure}"
+                                                                   TextAlignment="Right"
+                                                                   Margin="6,0,0,0" />
+                                                    </Grid>
+
+                                                    <!-- A window answered in money has no bar, so the
+                                                         name sits against its figure and the pair
+                                                         starts at the cell's own left edge. Spread to
+                                                         the two ends of an empty cell they read as two
+                                                         facts with nothing to do with each other. -->
+                                                    <StackPanel Orientation="Horizontal"
+                                                                Margin="0,0,10,0" ClipToBounds="True"
+                                                                IsVisible="{Binding !HasPercent}">
+                                                        <TextBlock Classes="readout"
+                                                                   Text="{Binding LabelWithColon}" />
+                                                        <TextBlock Classes="readout value"
+                                                                   Text="{Binding Figure}"
+                                                                   Margin="5,0,0,0" />
+                                                    </StackPanel>
+                                                </Panel>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>

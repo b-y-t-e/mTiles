@@ -95,9 +95,17 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
         // user's call: most of these failures are an account they do not use through this machine, and a
         // dashboard whose permanent top line is a sentence about one of them is a dashboard they stop
         // reading. The reason is still in the log; what is gone is the card.
+        // One card per login, not per way of naming one. A machine that exports CLAUDE_CONFIG_DIR - which
+        // is what a sign-in sets for the tiles it launches - has its default account inside that
+        // sign-in's own directory, so both were read from one file and drew the same figures twice.
+        // AccountKey is what says they are the same; a report with none is never merged with anything,
+        // because two accounts wrongly folded together is a subscription missing from the screen.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
         Accounts.Clear();
         foreach (var report in _usage.Reports.Where(report => report.Answered))
-            Accounts.Add(new UsageAccountViewModel(report, now));
+            if (report.AccountKey is not { Length: > 0 } key || seen.Add(key))
+                Accounts.Add(new UsageAccountViewModel(report, now));
 
         IsEmpty = Accounts.Count == 0 && _usage.LastRefresh is not null;
         IsBusy = _usage.IsRefreshing;

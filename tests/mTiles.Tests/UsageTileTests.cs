@@ -255,6 +255,50 @@ public class UsageTileTests
         service.Dispose();
     }
 
+    /// <summary>
+    /// One login read twice is one card, and the row the user named is the one that stays.
+    /// </summary>
+    /// <remarks>A machine that exports <c>CLAUDE_CONFIG_DIR</c> — which is what an mTiles sign-in sets
+    /// for the tiles it launches — has its default account inside that sign-in's own directory, so the
+    /// two are read from one file and drew the same figures twice under two names.</remarks>
+    [Fact]
+    public async Task One_login_reached_two_ways_gets_one_card()
+    {
+        const string sameFile = @"c:\accounts\max\.credentials.json";
+
+        var service = ServiceOf(
+            Subscription("claude:max", 14) with { SourceName = "Claude Code · Max", AccountKey = sameFile },
+            Subscription("claude", 14) with { SourceName = "Claude Code", AccountKey = sameFile },
+            Subscription("claude:pro", 4) with { SourceName = "Claude Code · Pro", AccountKey = "elsewhere" });
+
+        await service.RefreshAsync(force: true);
+
+        var tile = new UsageTileViewModel(service);
+        Assert.Equal(["Claude Code · Max", "Claude Code · Pro"], tile.Accounts.Select(card => card.Title));
+
+        tile.Dispose();
+        service.Dispose();
+    }
+
+    /// <summary>A source that cannot say what account it is reading is never folded into another.</summary>
+    /// <remarks>Two accounts wrongly merged is a subscription missing from the screen, which is worse
+    /// than the repetition the merging exists to remove.</remarks>
+    [Fact]
+    public async Task Accounts_that_name_no_login_are_all_kept()
+    {
+        var service = ServiceOf(
+            Subscription("one", 10) with { SourceName = "One" },
+            Subscription("two", 20) with { SourceName = "Two" });
+
+        await service.RefreshAsync(force: true);
+
+        var tile = new UsageTileViewModel(service);
+        Assert.Equal(2, tile.Accounts.Count);
+
+        tile.Dispose();
+        service.Dispose();
+    }
+
     private static UsageHistory History() =>
         new(Path.Combine(Path.GetTempPath(), $"mtiles-usage-{Guid.NewGuid():N}", "history.json"));
 

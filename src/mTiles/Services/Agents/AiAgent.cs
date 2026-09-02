@@ -410,6 +410,34 @@ public abstract class AiAgent : IAiAgent
     protected string UsageSourceName(AiSignIn? signIn) =>
         signIn?.Name is { Length: > 0 } named ? $"{DisplayName} · {named}" : DisplayName;
 
+    /// <summary>
+    /// A file or directory named the one way, so that two rows reading it are recognisably one account.
+    /// </summary>
+    /// <remarks><para><b>The default account and a sign-in can be the same login, and routinely are.</b>
+    /// A machine that exports <c>CLAUDE_CONFIG_DIR</c> — which is exactly what an mTiles sign-in sets for
+    /// the tiles it launches — has its default account <em>in</em> that sign-in's own directory, so the
+    /// two are read from one file and the tile drew the same figures twice under two names.</para>
+    /// <para>The path and not the credential: what is being asked is whether two rows point at one
+    /// login on this disk, and comparing tokens would mean holding somebody's refresh token to answer a
+    /// question about a file name. Case-insensitively on Windows, where the two spellings are one file.
+    /// </para></remarks>
+    protected static string? UsageAccountKey(string? path)
+    {
+        if (path is not { Length: > 0 }) return null;
+
+        try
+        {
+            var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            return OperatingSystem.IsWindows() ? full.ToLowerInvariant() : full;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // A path this cannot canonicalise is one this cannot compare, and the honest answer to that
+            // is "cannot say" - which shows both rows rather than merging two accounts on a guess.
+            return null;
+        }
+    }
+
     /// <summary>Reads one string out of a JSON file, or null for anything that did not work.</summary>
     /// <remarks><para>Shared by the agents that can name their account, and it never throws: these
     /// files belong to somebody else's CLI, they are read while a Settings page is being drawn, and

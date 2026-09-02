@@ -624,6 +624,17 @@ readers take trouble to write was constructed and thrown away, and a genuinely b
 in silence. The layers underneath log their own failures, but only the ones that are a failed call —
 nothing down there knows that eight rollouts in a row carried no reading.
 
+**One login reached two ways is one card.** A machine that exports `CLAUDE_CONFIG_DIR` — which is
+exactly what an mTiles sign-in sets for the tiles it launches — has its *default* account inside one of
+those sign-in directories, so both sources read one file and the tile drew the same figures twice under
+two names. `AiUsageReport.AccountKey` is what says they are the same: the canonicalised path of the file
+or directory the reading came from, never the credential, because the question is whether two rows point
+at one login on this disk. **A report with no key is never merged with anything** — two accounts wrongly
+folded together is a subscription missing from the screen, which is worse than the repetition. Which
+name survives is decided by `UsageSources.AccountsOf` listing an agent's sign-ins *before* its default
+account: the row the user named and can find in Settings is the better of the two to keep, and a machine
+with no sign-ins still gets its default because nothing came before it.
+
 **A 200 in the wrong shape is a failure, not an empty card.** `OpenRouterProvider.UsageAsync` answers
 `AiUsageReport.Failed` when the answer carries no `data` object: built as an ordinary report it came out
 `Answered`, with three window labels and not one figure under them — which is the "card that says
