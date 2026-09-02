@@ -275,9 +275,9 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.True(vm.CanReReview);
 
             // And Continue, which here means the first attempts rather than extra ones: none have been
-            // spent, so nothing is added and the label says so.
+            // spent, so nothing is added and the label counts what is already there rather than a `+`.
             Assert.True(vm.CanContinue);
-            Assert.Equal("Continue", vm.ContinueLabel);
+            Assert.Equal($"Continue · {vm.Criteria.MaxIterations} left", vm.ContinueLabel);
 
             Assert.True(vm.HasFinishedRunActions);
         });
@@ -357,8 +357,11 @@ public class GoalWorkflowLoopTests : IDisposable
             // The prediction that was the whole argument for refusing Continue, and was false.
             Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("would change none again"));
 
-            // The one attempt was one of five, and the four still owed are reachable.
+            // The one attempt was one of five, and the four still owed are reachable — and the button
+            // says so. It used to read a bare "Continue" here and "Continue · +5" once the budget was
+            // gone, so the only figure on screen was the one for the case with nothing left in it.
             Assert.True(vm.CanContinue);
+            Assert.Equal($"Continue · {vm.Criteria.MaxIterations - 1} left", vm.ContinueLabel);
         });
     }
 

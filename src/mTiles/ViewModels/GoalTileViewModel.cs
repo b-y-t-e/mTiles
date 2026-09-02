@@ -262,12 +262,26 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             _ => false,
         };
 
-    /// <summary>The button says how many attempts it will add, because it reads the number out of the
-    /// attempts field at the moment it is clicked — so somebody who wants two more can type 2 and
-    /// see the button agree before pressing it. It adds nothing, and says nothing about adding, where
-    /// the budget was never spent.</summary>
+    /// <summary>
+    /// The button says what pressing it costs the budget.
+    /// </summary>
+    /// <remarks>
+    /// <para><c>Continue · +2</c> where the attempts really ran out: it reads the number out of the
+    /// attempts field at the moment it is clicked, so somebody who wants two more can type 2 and see
+    /// the button agree before pressing it.</para>
+    /// <para><c>Continue · 5 left</c> where they did not, which used to be a bare <c>Continue</c>.
+    /// Silence there was exactly backwards: the button said nothing when five attempts were waiting
+    /// and named a number when none were, so the one reading available was "no number means no
+    /// attempts". Both states now carry their figure and the <c>+</c> is what tells them apart —
+    /// raising the ceiling, against spending what is already in it.</para>
+    /// <para>The <c>left</c> branch can never say zero: it is reached only while
+    /// <see cref="GoalWorkflowEngine.IterationCount"/> is below <see cref="GoalWorkflowEngine.MaxIter"/>,
+    /// and <see cref="CanContinue"/> has already refused a run at the ceiling.</para>
+    /// </remarks>
     public string ContinueLabel =>
-        AttemptsContinueWouldAdd() is var added && added > 0 ? $"Continue · +{added}" : "Continue";
+        AttemptsContinueWouldAdd() is var added && added > 0
+            ? $"Continue · +{added}"
+            : $"Continue · {_engine.MaxIter - _engine.IterationCount} left";
 
     /// <summary>
     /// What Continue would really add.
