@@ -398,6 +398,12 @@ public abstract class AiAgent : IAiAgent
     public virtual Task<AiUsageReport?> UsageAsync(AiSignIn? signIn, CancellationToken ct = default) =>
         Task.FromResult<AiUsageReport?>(null);
 
+    /// <inheritdoc />
+    /// <remarks>Null by default, which is the answer for an agent that reports no usage at all and for
+    /// one that cannot tell its logins apart on disk. It costs the round one extra call at worst, and
+    /// that is the same call being made today.</remarks>
+    public virtual string? UsageAccountKeyFor(AiSignIn? signIn) => null;
+
     /// <summary>The key one account's readings are filed under.</summary>
     /// <remarks>The agent's id and the sign-in's, never a name: nothing makes a sign-in's name unique
     /// and the user can retype it, so a renamed row would either start a fresh history or adopt

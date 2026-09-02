@@ -23,6 +23,13 @@ public interface IUsageSource
     /// draws no card for it, a report carrying a problem is one it has and could not ask. Never
     /// throws.</remarks>
     Task<AiUsageReport?> ReadAsync(CancellationToken ct = default);
+
+    /// <summary>Which login this is, where that can be told without asking anybody.</summary>
+    /// <remarks>Null is <em>cannot say</em> and is never a match — see
+    /// <see cref="UsageSources.OnePerLogin"/> for why the doubt goes that way. A source whose identity
+    /// only its answer can carry (a metered key, which has no duplicate to find) simply says
+    /// nothing.</remarks>
+    string? AccountKey => null;
 }
 
 /// <summary>Every account this machine could ask, worked out from the settings.</summary>
@@ -41,7 +48,7 @@ public static class UsageSources
     /// rationing by the hour and a key is a balance that changes slowly.</remarks>
     public static IReadOnlyList<IUsageSource> From(AppSettings settings) =>
     [
-        .. AiAgentCatalog.All.SelectMany(agent => AccountsOf(agent, settings)),
+        .. OnePerLogin(AiAgentCatalog.All.SelectMany(agent => AccountsOf(agent, settings))),
         .. settings.AiProviderInstances
             .Select(instance => (Instance: instance, Provider: AiProviderCatalog.Find(instance.ProviderId)))
             .Where(pair => pair.Provider is not null)
@@ -61,6 +68,31 @@ public static class UsageSources
 
         yield return new AgentUsageSource(agent, null);
     }
+
+    /// <summary>
+    /// Two rows that are one login are asked once.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Before the call, not after it.</b> The tile has always merged the answers, so the
+    /// duplicate never reached the screen — but it reached the service: the same subscription was asked
+    /// twice a round with the same token, which is most of what the Claude usage endpoint's 429s were,
+    /// and those cost the *good* row its figures too.</para>
+    /// <para><b>A row that cannot name its login is never merged.</b> Null is "cannot say", and the
+    /// doubt is spent on the harmless side: keeping two rows apart wrongly costs the extra call that is
+    /// being made today anyway, while folding two accounts together wrongly is a subscription missing
+    /// from the tile — which looks exactly like a machine that never had it.</para>
+    /// <para>The first of a pair wins, and the order is <see cref="AccountsOf"/>'s: sign-ins before the
+    /// default account, so the row that survives is the one the user named and can find in
+    /// Settings.</para>
+    /// </remarks>
+    private static IEnumerable<IUsageSource> OnePerLogin(IEnumerable<IUsageSource> sources)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var source in sources)
+            if (source.AccountKey is not { Length: > 0 } key || seen.Add(key))
+                yield return source;
+    }
 }
 
 /// <summary>One CLI's account — its default login, or one of its sign-ins.</summary>
@@ -68,9 +100,21 @@ public static class UsageSources
 /// <param name="signIn">The login, or null for the CLI's own default account.</param>
 public sealed class AgentUsageSource(IAiAgent agent, AiSignIn? signIn) : IUsageSource
 {
+    /// <summary>The CLI this account belongs to.</summary>
+    public IAiAgent Agent => agent;
+
+    /// <summary>The login, or null for the CLI's own default account.</summary>
+    public AiSignIn? SignIn => signIn;
+
     /// <inheritdoc />
     public Task<AiUsageReport?> ReadAsync(CancellationToken ct = default) =>
         agent.UsageAsync(signIn, ct);
+
+    /// <inheritdoc />
+    /// <remarks>Asked each time the sources are worked out rather than remembered, for the reason
+    /// <c>SignInStatus</c> is: a login swapped in a terminal must not leave this naming the account
+    /// that used to be there.</remarks>
+    public string? AccountKey => agent.UsageAccountKeyFor(signIn);
 }
 
 /// <summary>One configured key at a metered service.</summary>

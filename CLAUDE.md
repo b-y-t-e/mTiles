@@ -675,6 +675,17 @@ the screen, which is worse than the repetition. Which name survives is decided b
 named and can find in Settings is the better of the two to keep, and a machine with no sign-ins still
 gets its default because nothing came before it.
 
+**And the duplicate is dropped *before* the call, not after it** (`IAiAgent.UsageAccountKeyFor`,
+`UsageSources.OnePerLogin`). Merging the reports kept the second card off the screen and left the second
+request in place: one subscription asked twice a round with one token, which is most of what the usage
+endpoint's 429s were — and a 429 takes the *good* row's figures down with it, so the deduplication that
+was only cosmetic became the thing that made the tile wrong. The key is the same rule the report
+carries, asked of the same files, because the two answering differently would either draw one login
+twice or drop the only card of one. It reads nothing but this machine: a question asked to decide
+whether to ask a question must not itself be a request. `AiUsageService.Explain` and the tile's own
+merge stay as they are — a metered key names no login, and the doubt keeps costing a call rather than a
+card.
+
 **A 200 in the wrong shape is a failure, not an empty card.** `OpenRouterProvider.UsageAsync` answers
 `AiUsageReport.Failed` when the answer carries no `data` object: built as an ordinary report it came out
 `Answered`, with three window labels and not one figure under them — which is the "card that says

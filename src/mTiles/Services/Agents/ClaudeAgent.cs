@@ -364,6 +364,20 @@ public sealed class ClaudeAgent : AiAgent
             ? $"claude-account:{account}"
             : UsageAccountKey(credentialsFile);
 
+    /// <inheritdoc />
+    /// <remarks><b>The same answer <see cref="UsageAsync"/> puts in its report, worked out from the
+    /// same two files.</b> It has to be the same rule and not a second one that agrees today: this
+    /// decides whether the account is asked at all, and the report's decides whether the card is drawn,
+    /// so a disagreement between them would either draw two cards for one login or drop the only card
+    /// of one.</remarks>
+    public override string? UsageAccountKeyFor(AiSignIn? signIn)
+    {
+        var directory = signIn is null ? null : AiSignInStore.DirectoryFor(signIn);
+        var (settingsFile, credentialsFile) = FilesFor(directory);
+
+        return AccountKeyFor(settingsFile, credentialsFile);
+    }
+
     /// <summary>"max" is what the file says; "Max" is what the subscription is called.</summary>
     private static string Capitalised(string word) =>
         char.ToUpperInvariant(word[0]) + word[1..];

@@ -289,6 +289,13 @@ public sealed class CodexAgent : AiAgent
             : CodexUsageReader.Read(sourceId, name, root, DateTimeOffset.Now, accountKey), ct);
     }
 
+    /// <inheritdoc />
+    /// <remarks>The sessions directory, canonicalised — the same key <see cref="UsageAsync"/> files its
+    /// report under. codex has no account id to read anywhere, so what this can say is that two rows
+    /// are reading one directory, which is the case <c>CODEX_HOME</c> produces.</remarks>
+    public override string? UsageAccountKeyFor(AiSignIn? signIn) =>
+        UsageAccountKey(SessionsRootFor(signIn is null ? null : AiSignInStore.DirectoryFor(signIn)));
+
     public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
         AiUsage usage, AiBehaviour behaviour = AiBehaviour.Auto,
         AiEffort effort = AiEffort.High, string model = "")

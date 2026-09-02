@@ -224,6 +224,25 @@ public interface IAiAgent
     Task<AiUsageReport?> UsageAsync(AiSignIn? signIn, CancellationToken ct = default);
 
     /// <summary>
+    /// Which login this row is, where that can be told before anybody is asked anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>The same answer <c>AiUsageReport.AccountKey</c> carries, available <em>ahead</em> of the
+    /// call rather than in its result. Two rows can be one login — a sign-in's directory that is also
+    /// what <c>CLAUDE_CONFIG_DIR</c> points at is the ordinary case — and finding that out from the
+    /// reports meant asking the service twice for one account every round, which is what the usage
+    /// endpoint's 429s were.</para>
+    /// <para><b>Null means "cannot say", and it is never treated as a match.</b> Two rows folded
+    /// together wrongly is a subscription missing from the tile, which nobody notices; two rows kept
+    /// apart wrongly is the extra call that is happening today anyway. The doubt is spent on the
+    /// harmless side.</para>
+    /// <para>Read from this machine only — a file the CLI already wrote — because a question asked to
+    /// decide whether to ask a question must not itself be a request.</para>
+    /// </remarks>
+    /// <param name="signIn">The login to name, or null for the CLI's own default account.</param>
+    string? UsageAccountKeyFor(AiSignIn? signIn);
+
+    /// <summary>
     /// What an agent tile runs: the command that resumes <paramref name="sessionId"/>, and the one to
     /// try when it does not work.
     /// </summary>
