@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
 using mTiles.Services;
 
@@ -55,6 +55,19 @@ public partial class WorkspaceItemViewModel : ObservableObject
     /// has looked, and a blank line is the truthful answer to a question nobody has answered yet.</para>
     /// </remarks>
     public bool ShowsDirectoryPath => HasRepository == false && !HasNoRepository;
+
+    /// <summary>Whether a git call has ever answered for this row's current repository.</summary>
+    /// <remarks>
+    /// <para>Set from outside, and it is the difference between <em>nobody has asked</em> and <em>the
+    /// answer is empty</em> — which <see cref="BranchName"/> alone cannot tell apart. A detached HEAD, a
+    /// rebase and a bisect all leave <c>git branch --show-current</c> printing nothing, so a periodic
+    /// pass judging on the name alone reads a perfectly well watched repository as one it has never
+    /// managed to read and spawns a <c>git</c> for it every thirty seconds for the life of the
+    /// window.</para>
+    /// <para>Cleared when the repository goes, because the next one at that path is a different
+    /// question.</para>
+    /// </remarks>
+    public bool BranchAnswered { get; set; }
 
     /// <summary>Whether something is running in this workspace right now.</summary>
     /// <remarks>Set from outside — the row is told, it does not look. Only workspaces that have been

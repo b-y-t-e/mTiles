@@ -331,21 +331,39 @@ public sealed partial class GitService(string workingDirectory, string gitPath =
                      .ToList();
     }
 
-    /// <summary>The branch this directory is on, or empty if there is none to name.</summary>
+    /// <summary>
+    /// The branch this directory is on, empty if there is none to name, or <c>null</c> if git could not
+    /// be asked at all.
+    /// </summary>
     /// <remarks>
+    /// <b>The three answers are not two.</b> A failed call — <c>index.lock</c> held by another git, a
+    /// network drive gone for a moment, git not on the path — printed nothing to stdout and was read as
+    /// "this repository has no branch to name", which is the same string a detached HEAD gives. A caller
+    /// that records having been answered would then stop asking, and the row would carry an empty branch
+    /// until HEAD next moved. <c>null</c> is what says the question was never answered.
+    /// <para>
     /// <c>branch --show-current</c> rather than <c>rev-parse --abbrev-ref HEAD</c>, which cannot answer
     /// for a repository that has no commits yet: HEAD points at a branch that does not exist, rev-parse
     /// exits non-zero and prints nothing to stdout. That is exactly the state a repository is in the
     /// moment the panel creates one, so the row that had just offered to create it came back blank.
     /// <c>--show-current</c> reads the ref HEAD names and prints it whether or not anything is on it;
     /// it is also empty on a detached HEAD, which is correct — there is no branch to show.
+    /// </para>
     /// </remarks>
-    public static async Task<string> GetBranchNameAsync(string directory, string gitPath = "git")
+    public static async Task<string?> ReadBranchNameAsync(string directory, string gitPath = "git")
     {
-        var runner = new GitCommandRunner(directory, gitPath);
-        var result = await runner.RunAsync("branch --show-current", throwOnError: false);
-        var branch = result.Trim();
-        return string.IsNullOrEmpty(branch) || branch.Contains(' ') ? "" : branch;
+        try
+        {
+            var runner = new GitCommandRunner(directory, gitPath);
+            var result = await runner.RunAsync("branch --show-current", throwOnError: true);
+            var branch = result.Trim();
+            return branch.Contains(' ') ? "" : branch;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning("Branch read failed for {0}: {1}", directory, ex.Message);
+            return null;
+        }
     }
 
     public static string ResolveGitPath(string? customPath)
