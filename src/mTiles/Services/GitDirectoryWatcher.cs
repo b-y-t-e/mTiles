@@ -22,6 +22,12 @@ public sealed class GitDirectoryWatcher : IDisposable
 
     public void UpdateIgnoredDirs(HashSet<string> dirs) => _ignoredDirs = dirs;
 
+    /// <summary>Whether <see cref="Start"/> found a repository and is now watching.</summary>
+    /// <remarks>Start is a no-op without a <c>.git</c> directory and never retries by itself, so
+    /// whoever owns the watcher has to be able to tell "watching" from "there was nothing to watch
+    /// yet" — see <see cref="WorkspaceGitWatcher"/>, which polls until this turns true.</remarks>
+    public bool IsWatching => _gitWatcher != null;
+
     public void Start()
     {
         if (_gitWatcher != null) return;

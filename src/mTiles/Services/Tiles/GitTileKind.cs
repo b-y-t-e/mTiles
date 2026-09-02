@@ -18,7 +18,7 @@ public sealed class GitTileKind : TileKind<GitTileViewModel>
 
     protected override GitTileViewModel Create(TileContext context, JsonObject? state)
     {
-        var tile = new GitTileViewModel(context.WorkingDirectory, context.Settings)
+        var tile = new GitTileViewModel(context.WorkingDirectory, context.Settings, context.GitWatcher)
         {
             ShowDiffPanel = state.Bool(ShowDiffPanelKey, fallback: true)
         };

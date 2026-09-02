@@ -18,8 +18,9 @@ public sealed class GoalTileKind : TileKind<GoalTileViewModel>
 
     protected override GoalTileViewModel Create(TileContext context, JsonObject? state) =>
         state.String(FilePathKey) is { } filePath
-            ? new GoalTileViewModel(filePath, context.WorkingDirectory, context.Settings)
-            : new GoalTileViewModel(context.WorkingDirectory, context.Settings);
+            ? new GoalTileViewModel(filePath, context.WorkingDirectory, context.Settings,
+                context.GitWatcher)
+            : new GoalTileViewModel(context.WorkingDirectory, context.Settings, context.GitWatcher);
 
     protected override JsonObject? Save(GoalTileViewModel tile) =>
         new() { [FilePathKey] = tile.FilePath };

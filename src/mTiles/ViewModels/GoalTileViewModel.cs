@@ -789,7 +789,8 @@ public partial class GoalTileViewModel
 
     public string FilePath => _filePath;
 
-    public GoalTileViewModel(string workingDirectory, SettingsService settingsService)
+    public GoalTileViewModel(string workingDirectory, SettingsService settingsService,
+        WorkspaceGitWatcher? gitWatcher = null)
     {
         _workingDirectory = workingDirectory;
         _settingsService = settingsService;
@@ -811,10 +812,12 @@ public partial class GoalTileViewModel
         Criteria = NewCriteriaEditor();
 
         DetectAgents();
+        WatchWorkingTree(gitWatcher);
         RefreshDetectAvailability();
     }
 
-    public GoalTileViewModel(string filePath, string workingDirectory, SettingsService settingsService)
+    public GoalTileViewModel(string filePath, string workingDirectory, SettingsService settingsService,
+        WorkspaceGitWatcher? gitWatcher = null)
     {
         _workingDirectory = workingDirectory;
         _settingsService = settingsService;
@@ -827,7 +830,44 @@ public partial class GoalTileViewModel
         DetectAgents();
         LoadState();
         Criteria.Reload();
+        WatchWorkingTree(gitWatcher);
         RefreshDetectAvailability();
+    }
+
+    // ── Hearing about the changes the buttons are about ──
+
+    /// <summary>The workspace's shared watcher, while this tile is listening to it.</summary>
+    private WorkspaceGitWatcher.Subscription? _treeWatch;
+
+    /// <summary>
+    /// Follow the working tree, so the detect buttons are right without anybody having to click.
+    /// </summary>
+    /// <remarks>
+    /// <para>The changes a goal is detected from are made in the tiles next door, or in an editor
+    /// outside this application altogether, and <see cref="OnActivated"/> only closes that gap for
+    /// somebody who then clicks <em>into</em> this tile — which a user reading a tile they are already
+    /// focused on never does. The watcher is <see cref="WorkspaceGitWatcher"/>: one per workspace,
+    /// shared with the git tile, so following the tree here costs no watcher of its own.</para>
+    /// <para>What it triggers is the same cheap <c>git status</c> the named moments trigger, under the
+    /// same two conditions, so a tile mid-run or mid-conversation spends nothing on an answer nobody can
+    /// see. The notification arrives on the watcher's debounce timer, off the UI thread —
+    /// <see cref="RefreshDetectAvailability"/> starts its work on the thread pool and marshals back for
+    /// itself, so there is nothing to post here.</para>
+    /// <para>Null where nothing hands one over: the tests build this tile directly, and a goal tile in
+    /// a workspace that is not a repository has nothing to watch. Either way the named moments stay
+    /// exactly as they were — this is a second route to the same refresh, never the only one.</para>
+    /// </remarks>
+    private void WatchWorkingTree(WorkspaceGitWatcher? gitWatcher)
+    {
+        if (gitWatcher is null) return;
+
+        _treeWatch = gitWatcher.Subscribe(() =>
+        {
+            if (_disposed) return;
+            if (IsRunning || CurrentPhase is not (GoalPhase.Goal or GoalPhase.Summary)) return;
+
+            RefreshDetectAvailability();
+        });
     }
 
     // ── Agent detection ─────────────────────────────────
@@ -1130,15 +1170,17 @@ public partial class GoalTileViewModel
     /// Asks git whether there is anything to detect a goal from, without making anybody wait for it.
     /// <para>Fire and forget on purpose: the answer only decides whether two buttons are shown, and the
     /// user is not blocked on either.</para>
-    /// <para><b>It is asked at moments, not continuously</b>, and the moments are named rather than
-    /// implied: when the tile is built, when a run ends, when a detection finds nothing, when a fresh
-    /// goal is started, and when the tile becomes the active one. It is emphatically <em>not</em>
-    /// watching the working tree — the changes it asks about are made in the terminal tiles next door,
-    /// and a filesystem watcher over an entire worktree, per Goal tile, is not a price worth paying for
-    /// a button's visibility; the run itself re-reads the tree rather than trusting this. What closes
-    /// the gap instead is <see cref="OnActivated"/>: clicking into the tile is the gesture that precedes
-    /// reading it, so the answer is refreshed when somebody is about to look at it rather than
-    /// continuously.</para>
+    /// <para><b>It is asked at moments, and the moments are named rather than implied</b>: when the
+    /// tile is built, when a run ends, when a detection finds nothing, when a fresh goal is started,
+    /// when the tile becomes the active one, and when the working tree changes
+    /// (<see cref="WatchWorkingTree"/>). The run itself still re-reads the tree rather than trusting
+    /// this — what is cached here decides two buttons and nothing else.</para>
+    /// <para>The last of those moments is the one that took a correction. What was rejected, and still
+    /// is, is a filesystem watcher <em>per Goal tile</em> for a button's visibility; the tree is watched
+    /// once per workspace and shared with the git tile, so a second goal beside the first costs
+    /// nothing. Before it, the answer was refreshed only by clicking into the tile, which never happens
+    /// to somebody reading a tile they are already focused on: they changed two files next door, looked
+    /// at the tile, and the detect buttons it should have been offering were not there.</para>
     /// </summary>
     private void RefreshDetectAvailability()
     {
@@ -1146,7 +1188,18 @@ public partial class GoalTileViewModel
         // nothing left to show the answer to.
         if (_disposed) return;
 
-        var token = _lifetime.Token;
+        // One check at a time: a burst of writes in the tree — a checkout, a code generator, a build —
+        // arrives as several notifications, and each of these is a `git status` of its own. Without
+        // this, whichever process happened to finish last wrote the answer, which is not necessarily
+        // the one that asked last. Linked to the tile's lifetime so closing the tile still ends it.
+        // Exchanged atomically because the notifications arrive on the watcher's timer thread rather
+        // than the UI one.
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var previous = Interlocked.Exchange(ref _detectAvailabilityCheck, cts);
+        previous?.Cancel();
+        previous?.Dispose();
+
+        var token = cts.Token;
 
         _ = Task.Run(async () =>
         {
@@ -1167,6 +1220,9 @@ public partial class GoalTileViewModel
             }
         });
     }
+
+    /// <summary>The availability check in flight, cancelled by the next one and by <c>Dispose</c>.</summary>
+    private CancellationTokenSource? _detectAvailabilityCheck;
 
     [RelayCommand]
     private Task DetectGoalAsync() => DetectAsync(andRun: false);
@@ -3952,6 +4008,13 @@ public partial class GoalTileViewModel
         // After the final write, so a probe still in flight cannot be the reason it did not happen.
         // Cancelled, not disposed — see the field.
         _lifetime.Cancel();
+
+        // Linked to the lifetime above, so this only releases its registration.
+        Interlocked.Exchange(ref _detectAvailabilityCheck, null)?.Dispose();
+
+        // Beside FileMentions below and for the same reason: a closed tile has no use for the answer,
+        // and the workspace's watcher stops altogether once its last subscriber has gone.
+        _treeWatch?.Dispose();
 
         // The `@` suggestions read the working tree with a git process, and a tile nobody is looking at
         // has no use for the answer. Last, because it is the only thing here that cannot affect the

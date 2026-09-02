@@ -157,19 +157,33 @@ public partial class GitTileViewModel : ObservableObject, ITileActions
     private readonly SettingsService? _settingsService;
     private GitService _gitService;
     private string _resolvedGitPath;
-    private readonly GitDirectoryWatcher _watcher;
+    /// <summary>This tile's place in the workspace's shared watcher.</summary>
+    /// <remarks>Shared rather than owned since the Goal tile started following the tree too: two tiles
+    /// with a <see cref="GitDirectoryWatcher"/> each is two recursive watches over one working copy.
+    /// The tile still computes the ignored directories — it is the only thing here that asks git for
+    /// them — and hands them to the watcher through its own subscription, so they leave the union with
+    /// it when this tile closes. A watcher was owned outright before kinds handed one over, which is
+    /// why it is still built here when nobody does (the tests, and any caller of the two-argument
+    /// constructor).</remarks>
+    private readonly WorkspaceGitWatcher _watcher;
+    private readonly WorkspaceGitWatcher.Subscription _watch;
+
+    /// <summary>Ours to dispose only when nobody handed one in.</summary>
+    private readonly bool _ownsWatcher;
     private CancellationTokenSource? _refreshCts;
     private Dictionary<string, (string Status, bool IsChecked, DateTime Mtime)> _previousState = new();
     private bool _batchUpdate;
 
-    public GitTileViewModel(string workingDirectory, SettingsService? settingsService = null)
+    public GitTileViewModel(string workingDirectory, SettingsService? settingsService = null,
+        WorkspaceGitWatcher? gitWatcher = null)
     {
         _worktreePath = workingDirectory;
         _settingsService = settingsService;
         _resolvedGitPath = GitService.ResolveGitPath(settingsService?.Settings.GitPath);
         _gitService = new GitService(workingDirectory, _resolvedGitPath);
-        _watcher = new GitDirectoryWatcher(workingDirectory);
-        _watcher.Changed += OnGitDirectoryChanged;
+        _ownsWatcher = gitWatcher is null;
+        _watcher = gitWatcher ?? new WorkspaceGitWatcher(workingDirectory);
+        _watch = _watcher.Subscribe(OnGitDirectoryChanged);
 
         var s = settingsService?.Settings;
         _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
@@ -353,8 +367,7 @@ public partial class GitTileViewModel : ObservableObject, ITileActions
             CanUndoLastCommit = status.CommitLog.Count > 0
                 && (!status.HasRemote || status.UnpushedCount > 0);
 
-            _watcher.UpdateIgnoredDirs(await _gitService.GetIgnoredDirsAsync(ct));
-            _watcher.Start();
+            _watch.UpdateIgnoredDirs(await _gitService.GetIgnoredDirsAsync(ct));
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -809,7 +822,8 @@ public partial class GitTileViewModel : ObservableObject, ITileActions
             c.PropertyChanged -= OnFileCheckedChanged;
         if (_settingsService != null)
             _settingsService.SettingsChanged -= OnSettingsChanged;
-        _watcher.Dispose();
+        _watch.Dispose();
+        if (_ownsWatcher) _watcher.Dispose();
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();
     }

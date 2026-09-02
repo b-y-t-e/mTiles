@@ -22,6 +22,7 @@ public sealed class DiffResult
 }
 
 public sealed partial class GitService(string workingDirectory, string gitPath = "git")
+    : IIgnoredDirectorySource
 {
     private readonly GitCommandRunner _git = new(workingDirectory, gitPath);
 

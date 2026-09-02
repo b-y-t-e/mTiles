@@ -42,6 +42,21 @@ public sealed record TileContext(
     /// </remarks>
     public Func<string> TileId { get; init; } = static () => "";
 
+    private readonly GitWatcherCache _gitWatcherCache = new();
+
+    /// <summary>
+    /// The one watcher over this workspace's working tree, shared by every tile in it.
+    /// </summary>
+    /// <remarks>Built on first use and held in a field rather than passed in as a value, for the reason
+    /// <see cref="Shells"/> is: a record's <c>with</c> copies fields by reference, so the copy a tile
+    /// makes of its context reaches the same watcher rather than starting a second one over the same
+    /// tree.</remarks>
+    public WorkspaceGitWatcher GitWatcher => _gitWatcherCache.Get(
+        WorkingDirectory,
+        // The watcher keeps its own noise floor rather than waiting for a git tile to supply one, and
+        // it asks through the git this installation is configured with, exactly as the git tile does.
+        directory => new GitService(directory, GitService.ResolveGitPath(Settings.Settings.GitPath)));
+
     private readonly ShellCache _shellCache = new();
 
     /// <summary>
@@ -62,6 +77,31 @@ public sealed record TileContext(
     /// question about the same machine.</para>
     /// </remarks>
     public IReadOnlyList<ShellInstallation> Shells => _shellCache.Get();
+
+    /// <summary>The watcher, made once per working directory and shared by every copy of the context.
+    /// Keyed on the directory because <c>with { WorkingDirectory = ... }</c> is a different
+    /// workspace, and a watcher over the old one would report changes nobody is looking at.</summary>
+    private sealed class GitWatcherCache
+    {
+        private readonly Lock _gate = new();
+        private WorkspaceGitWatcher? _watcher;
+
+        public WorkspaceGitWatcher Get(
+            string workingDirectory, Func<string, IIgnoredDirectorySource> ignoredDirectories)
+        {
+            lock (_gate)
+            {
+                if (_watcher is { } current
+                    && string.Equals(current.WorkingDirectory, workingDirectory,
+                        StringComparison.OrdinalIgnoreCase))
+                    return current;
+
+                _watcher?.Dispose();
+                return _watcher =
+                    new WorkspaceGitWatcher(workingDirectory, ignoredDirectories(workingDirectory));
+            }
+        }
+    }
 
     /// <summary>What the context remembers of the last detection, shared by every copy of it.</summary>
     /// <remarks>A class rather than a pair of fields, because a record's <c>with</c> copies fields by
