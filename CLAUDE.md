@@ -731,6 +731,38 @@ window with nothing else in it, is what runs out first. `UsageBar` draws whole c
 drawing when there is no room for one, so a narrow tile loses the picture and keeps every figure — no
 visibility rule, no width to pick.
 
+**Below the width that trick runs out at, the windows go down the card instead** (`Views/UsageLayout.cs`,
+`Views/UsageWindowsPanel.cs`). Losing the bar buys room down to about a window's label and its widest
+figure (`13% · 2h 26m`); past that the shared line starts cutting the figure itself — which is the one
+part of the row the rule above promises to keep — and in a column beside a terminal it was cutting it
+mid-character. Down the card, a window gets the tile's whole width and the bar comes back with it.
+
+**Down the card is not one window per line, and the bar is what decides.** A window with a bar takes a
+line to itself, because the bar is the only part of the row with nothing in it and therefore the part a
+shared line starves first. A window answered in money has no bar at all — `today: $0.41` is eighty pixels
+of text — so it **wraps** beside the last one, which is four lines of a metered key's card turned into
+two. **What is left on the key is the last item of that same flow**, not something docked to the end of
+it: docked is where it belongs and is exactly why it was the one figure that could not wrap, so a
+stacked metered card put its windows on two lines and then spent a third on `left: $4.14`. It is
+written the way the windows beside it are — a muted name, a bright figure — so it is now the same kind
+of thing. `UsageWindowsPanel` is where all three shapes live (equal shares across one line, a line to itself,
+wrapped) because equal shares are the one thing a `WrapPanel` cannot do: it packs to the left, and equal
+shares are what line two accounts' figures up down the tile. It asks the **item** whether it has a bar
+rather than the container it sits in — a child there is the item's presenter, whose own alignment says
+nothing about what the template drew, and both shapes measure to much the same width when asked with no
+constraint.
+
+The threshold is **derived rather than chosen**: what has to fit is a window's parts times however many
+things the busiest account puts on its line — a bar's worth of width where anything on the tile draws
+one, and a metered row's where nothing does, so a machine whose only account is a key does not stack at a
+width its rows fit in. An account with two windows therefore stays horizontal in a column where one with
+four cannot. The rule is pure and argued in a table test; the view reads its own width and the view model
+says only how many items there are and whether any draws a bar, because those are facts about the answers
+and not about the drawing. The tile is the only thing that
+knows how much room it was given, so nothing above it is asked and nothing is persisted — the shape is
+recomputed from `Bounds`, and a control that has not been measured yet stays horizontal rather than
+starting stacked and springing sideways on its first layout pass.
+
 What came off the rows is the point of the tile being a dashboard rather than a report. **The pace has
 no words on screen at all** — "on pace" and "13 points spare" under every bar was a line of prose per
 window per account, a number on every point, which is the thing a reader stops seeing; the state worth

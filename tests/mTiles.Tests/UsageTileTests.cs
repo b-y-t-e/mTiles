@@ -149,9 +149,11 @@ public class UsageTileTests
     {
         var card = new UsageAccountViewModel(Subscription("claude", 60), Now);
 
-        Assert.True(card.HasWindows);
+        Assert.True(card.HasLineItems);
         Assert.False(card.HasRemaining);
         Assert.False(card.HasMoney);
+        // Nothing to say about a balance is nothing on the line: the items are the windows themselves.
+        Assert.Equal(card.Windows.Count, card.LineItems.Count);
         Assert.Equal("60%", card.Windows[0].PercentLabel);
         Assert.True(card.Windows[0].HasPercent);
     }
@@ -171,6 +173,13 @@ public class UsageTileTests
         // what is pinned is that the figure and the word are there, not which locale drew them.
         Assert.True(card.HasMoney);
         Assert.Equal($"${20.60m:0.00}", card.RemainingLabel);
+
+        // And it is the last thing on the account's own line rather than something docked to the end of
+        // it, which is what lets it wrap with the windows when the card has to stack.
+        var balance = Assert.Single(card.LineItems.Except(card.Windows));
+        Assert.Equal("left:", balance.LabelWithColon);
+        Assert.False(balance.HasPercent);
+        Assert.Equal(card.RemainingLabel, balance.Figure);
     }
 
     /// <summary>What each window cost is on the window's own row, so the seven days the goal asks about

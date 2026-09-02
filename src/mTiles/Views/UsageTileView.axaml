@@ -106,25 +106,29 @@
                                             Background="{DynamicResource BorderSubtle}" />
                                 </DockPanel>
 
-                                <!-- Every window on one line, at every width. The shares are
-                                     proportional rather than sized to their content, which is what
-                                     makes that true without a threshold anybody had to choose: the bar
-                                     is the only part of a window with nothing else in it, so it is
-                                     what runs out first. -->
-                                <Grid ColumnDefinitions="*,Auto" Height="15"
-                                      Opacity="{Binding IsStale, Converter={x:Static views:UsageOpacity.Instance}}">
-                                    <ItemsControl Grid.Column="0" ItemsSource="{Binding Windows}"
-                                                  IsVisible="{Binding HasWindows}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <!-- Equal shares, so two accounts with the same windows
-                                                     line their figures up down the tile. -->
-                                                <UniformGrid Rows="1" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
+                                <!-- Every window on one line while there is room, down the card once
+                                     there is not - and what is left on the key is the last item in
+                                     that same flow rather than something docked to the end of it, or
+                                     it is the one figure on a stacked card that cannot wrap. -->
+                                <ItemsControl ItemsSource="{Binding LineItems}"
+                                              IsVisible="{Binding HasLineItems}"
+                                              Opacity="{Binding IsStale, Converter={x:Static views:UsageOpacity.Instance}}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                                <!-- Equal shares across the line while there is room
+                                                     for them, so two accounts with the same windows
+                                                     line their figures up down the tile - and down the
+                                                     card once there is not, where a window with a bar
+                                                     takes a line and one answered in money wraps
+                                                     beside the last. The panel decides that item by
+                                                     item; all it is told here is which way round. -->
+                                                <views:UsageWindowsPanel
+                                                    IsVertical="{Binding $parent[views:UsageTileView].IsVerticalLayout}" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="vm:UsageWindowViewModel">
-                                                <Panel ToolTip.Tip="{Binding Tooltip}">
+                                                <Panel ToolTip.Tip="{Binding Tooltip}" Height="15">
                                                     <!-- A window with a bar: the bar is what separates
                                                          the name from the figure, so the figure is
                                                          pushed to the right and the bar takes the rest.
@@ -134,7 +138,7 @@
                                                          narrow tile loses the picture and keeps every
                                                          figure. -->
                                                     <Grid ColumnDefinitions="Auto,*,Auto"
-                                                          Margin="0,0,10,0" ClipToBounds="True"
+                                                          ClipToBounds="True"
                                                           IsVisible="{Binding HasPercent}">
                                                         <TextBlock Grid.Column="0" Classes="readout"
                                                                    Text="{Binding Label}"
@@ -163,7 +167,7 @@
                                                          the two ends of an empty cell they read as two
                                                          facts with nothing to do with each other. -->
                                                     <StackPanel Orientation="Horizontal"
-                                                                Margin="0,0,10,0" ClipToBounds="True"
+                                                                ClipToBounds="True"
                                                                 IsVisible="{Binding !HasPercent}">
                                                         <TextBlock Classes="readout"
                                                                    Text="{Binding LabelWithColon}" />
@@ -174,19 +178,7 @@
                                                 </Panel>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-
-                                    <!-- What is left on the key: the last thing on the line, and the
-                                         one figure a metered account is looked at for. Written the way
-                                         every window beside it is - the name muted, the figure bright -
-                                         because it is the same kind of fact. -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                                IsVisible="{Binding HasMoney}">
-                                        <TextBlock Classes="readout" Text="{Binding MoneyCaption}" />
-                                        <TextBlock Classes="readout value" Text="{Binding RemainingLabel}"
-                                                   Margin="5,0,0,0" />
-                                    </StackPanel>
-                                </Grid>
+                                </ItemsControl>
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

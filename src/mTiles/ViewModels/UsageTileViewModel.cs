@@ -70,6 +70,17 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
     /// <summary>The whole instant, spelled out, for the line that only has room for the minute.</summary>
     [ObservableProperty] private string _lastRefreshTooltip = "";
 
+    /// <summary>How many things the busiest account puts on its line, and whether any draws a bar.</summary>
+    /// <remarks><b>Facts about the answers, not about the drawing.</b> The view needs them to decide
+    /// whether a card's windows still fit side by side (see <c>UsageLayout</c>) — an account with two
+    /// windows fits in a column where one with four does not — and the alternative was a code-behind
+    /// walking <see cref="Accounts"/> and subscribing to it, which is the tile's own bookkeeping done
+    /// twice.</remarks>
+    [ObservableProperty] private int _windowsPerAccount;
+
+    /// <inheritdoc cref="WindowsPerAccount" />
+    [ObservableProperty] private bool _hasBarWindows;
+
     /// <summary>Nothing has been asked yet — which is not the same as nothing having been found.</summary>
     /// <remarks>The complement of <see cref="IsEmpty"/> among the states with no card to draw: before
     /// the first round answers there is no fact about this machine to state, so what stands in the
@@ -122,6 +133,9 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
         foreach (var report in _usage.Reports.Where(report => report.Answered))
             if (report.AccountKey is not { Length: > 0 } key || seen.Add(key))
                 Accounts.Add(new UsageAccountViewModel(report, now));
+
+        WindowsPerAccount = Accounts.Count == 0 ? 0 : Accounts.Max(account => account.LineItems.Count);
+        HasBarWindows = Accounts.Any(account => account.HasBars);
 
         IsEmpty = Accounts.Count == 0 && _usage.LastRefresh is not null;
         IsLoading = Accounts.Count == 0 && !IsEmpty;

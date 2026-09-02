@@ -25,6 +25,29 @@ public sealed class UsageWindowViewModel
         AmountLabel = "";
     }
 
+    private UsageWindowViewModel(string label, string amount)
+    {
+        Label = label;
+        UsedPercent = 0;
+        HasPercent = false;
+        PercentLabel = "";
+        ExpectedPercent = null;
+        IsOverspending = false;
+        ResetLabel = "";
+        CountdownLabel = "";
+        PaceLabel = "";
+        AmountLabel = amount;
+    }
+
+    /// <summary>What is left on the key, as one more thing on the account's line.</summary>
+    /// <remarks><b>An item and not a corner of the card.</b> It used to be docked to the end of the
+    /// line, which is where it belongs and is also why it was the one figure that could not wrap: a
+    /// docked child is outside the flow by definition, so a stacked metered card put its three windows
+    /// on two lines and then spent a third on this. It is the same kind of fact as the windows beside
+    /// it — a muted name and a bright figure — so it is now the same kind of thing, and the last one in
+    /// the line's own order.</remarks>
+    public static UsageWindowViewModel Balance(string amount) => new("left", amount);
+
     /// <summary>What the window is called — <c>5h</c>, <c>7d</c>.</summary>
     public string Label { get; }
 
@@ -108,6 +131,9 @@ public sealed class UsageAccountViewModel
             AmountLabel = UsageDisplay.Money(window.UsedAmount, report.Currency),
         })];
         RemainingLabel = UsageDisplay.Money(report.RemainingCredit, report.Currency);
+        LineItems = RemainingLabel.Length > 0
+            ? [.. Windows, UsageWindowViewModel.Balance(RemainingLabel)]
+            : Windows;
     }
 
     public string SourceId { get; }
@@ -127,16 +153,21 @@ public sealed class UsageAccountViewModel
 
     public bool IsStale => AgeLabel.Length > 0;
     public IReadOnlyList<UsageWindowViewModel> Windows { get; }
-    public bool HasWindows => Windows.Count > 0;
-    public string RemainingLabel { get; }
-    public bool HasRemaining => RemainingLabel.Length > 0;
+    public bool HasLineItems => LineItems.Count > 0;
 
-    /// <summary>What is left on the key, written the way every other figure on the row is.</summary>
-    /// <remarks><b>A caption and a figure, not a figure and a word.</b> "$4.38 left" put the amount
-    /// first and the noun after it, in the row's bright ink, which is the opposite of every window
-    /// beside it — those read <c>today: $0.22</c>, the name muted and the figure bright. It is the same
-    /// kind of fact and it now looks like one.</remarks>
-    public string MoneyCaption => "left:";
+    /// <summary>Whether any of this account's windows draws a bar.</summary>
+    /// <remarks>A subscription's windows do and a metered key's do not, which is the difference between
+    /// a row that needs the width and one that is a label and a figure — see <c>UsageWindowsPanel</c>.
+    /// </remarks>
+    public bool HasBars => Windows.Any(window => window.HasPercent);
+    public string RemainingLabel { get; }
+
+    /// <summary>Everything on this account's line, in the order it is read.</summary>
+    /// <remarks>The windows, and what is left on the key after them where there is such a figure. One
+    /// list rather than a list and a docked extra, because the panel that lays them out can only wrap
+    /// what it is given — see <see cref="Balance"/>.</remarks>
+    public IReadOnlyList<UsageWindowViewModel> LineItems { get; }
+    public bool HasRemaining => RemainingLabel.Length > 0;
 
     public bool HasMoney => HasRemaining;
 }
