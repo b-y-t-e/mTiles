@@ -1,4 +1,4 @@
-using Avalonia.Headless;
+﻿using Avalonia.Headless;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Agents;
@@ -314,13 +314,24 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
+    /// <summary>
+    /// An attempt that writes nothing ends the lap rather than spending the rest of the budget — and
+    /// hands what is left to the user rather than to the loop.
+    /// </summary>
+    /// <remarks>
+    /// <para>The loop stops because there is no sense running an identical prompt over an identical
+    /// tree. But the unchanged tree is reviewed on the way out, and those findings go into the next
+    /// implement prompt, so the next attempt is <em>not</em> identical — which is why Continue is
+    /// offered here, and why the summary states what happened instead of predicting what would.</para>
+    /// <para>It is also the stop that most often arrives with attempts still owed: refusing Continue
+    /// left a run with an unmet criterion, budget in hand and no way at all to spend it.</para>
+    /// </remarks>
     [Fact]
-    public void An_attempt_that_changes_nothing_stops_the_run_instead_of_spending_the_budget()
+    public void An_attempt_that_changes_nothing_stops_the_run_but_leaves_the_budget_reachable()
     {
         OnUiThread(async () =>
         {
-            // The tree never moves, which is what a tool that did nothing leaves behind. Four more
-            // attempts against an unchanged worktree with an unchanged prompt get the same nothing.
+            // The tree never moves, which is what a tool that did nothing leaves behind.
             WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
 
             AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: FAIL");
@@ -335,7 +346,60 @@ public class GoalWorkflowLoopTests : IDisposable
             await vm.SubmitCommand.ExecuteAsync(null);
 
             Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
-            Assert.Contains(vm.Messages, m => m.Text.Contains("changed no files"));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("the agent changed no files"));
+
+            // The prediction that was the whole argument for refusing Continue, and was false.
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("would change none again"));
+
+            // The one attempt was one of five, and the four still owed are reachable.
+            Assert.True(vm.CanContinue);
+        });
+    }
+
+    /// <summary>
+    /// The review of the unchanged tree is carried forward, so the attempt Continue starts knows what
+    /// it found.
+    /// </summary>
+    /// <remarks>Without it the continued implementation begins over a tree that has just been reviewed
+    /// knowing nothing of the review — the bug <c>RunReviewOnlyAsync</c> already guards against, on the
+    /// one path where that review is the only new thing there is.</remarks>
+    [Fact]
+    public void The_findings_of_an_unchanged_tree_reach_the_attempt_that_continues()
+    {
+        OnUiThread(async () =>
+        {
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
+
+            var prompts = new List<string>();
+            var answers = new Queue<string>([
+                "Which files?", NoMoreQuestions, "The plan", "Implemented it",
+                "Reviewed.\n\n```json\n{\"goalMet\":false,\"findings\":[" +
+                "{\"severity\":\"warning\",\"title\":\"the leftover cast\"}]}\n```",
+            ]);
+
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers.Count > 0 ? answers.Dequeue() : "Implemented it");
+            };
+
+            using var vm = NewTile();
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.True(vm.CanContinue);
+
+            var before = prompts.Count;
+            await vm.ContinueRunCommand.ExecuteAsync(null);
+
+            Assert.Contains(prompts.Skip(before),
+                prompt => prompt.Contains("Fix these findings from the previous review")
+                          && prompt.Contains("the leftover cast"));
         });
     }
 

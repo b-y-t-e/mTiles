@@ -215,10 +215,22 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// <remarks>
     /// <para>One of the four stops. <b>BudgetSpent</b> is the plain one: the attempts ran out and more
     /// of them is exactly what is missing.</para>
-    /// <para>The other three are not budgets and never will be: a met goal has nothing to continue
-    /// towards, a no-progress stop has just established that two reviews in a row found exactly the
-    /// same things, and a no-change stop means the tool wrote nothing. Offering Continue there would
-    /// sell AI runs whose outcome is already known.</para>
+    /// <para><b>NoChange is offered too, and used not to be.</b> The argument against it was that the
+    /// tool wrote nothing, so another attempt would write nothing again, and neither of the two paths
+    /// that reach this stop bears it out. Where the attempt was <em>refused</em>, the summary itself
+    /// says to change the permission mode and try again — and this button is that retry, keeping the
+    /// transcript instead of asking for the goal to be retyped. Where it was not,
+    /// <see cref="ReviewUnchangedTreeAsync"/> reviews the unchanged tree before the summary is written
+    /// and its findings go into the next implement prompt, so the next attempt is handed something this
+    /// one was not. It is also the stop that most often arrives with the budget unspent — an empty
+    /// attempt ends the loop whatever is left in it — so refusing here left a run with an unmet
+    /// criterion, attempts still owed and no way at all to spend them. Whether the tool disagreed with
+    /// the finding or simply missed it is not something this application can tell, and one button is a
+    /// cheaper way to find out than starting again.</para>
+    /// <para>The other two are not budgets and never will be: a met goal has nothing to continue
+    /// towards, and a no-progress stop has just established that two reviews in a row found exactly
+    /// the same things. Offering Continue there would sell AI runs whose outcome is already known.
+    /// </para>
     /// <para>The ceiling is asked about too: <see cref="GoalCompletionPolicy.Attempts"/> clamps, so
     /// raising a budget that is already at the top would run the loop round to no next attempt and
     /// summarise again, having spent nothing and changed nothing but looking exactly like a button that
@@ -240,8 +252,13 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
             // defines.
             GoalStopReason.Reviewed => true,
 
-            // Met has nothing to continue towards, NoChange means the tool wrote nothing, and
-            // NoProgress has just established that two reviews running found exactly the same things.
+            // An attempt that wrote nothing: either it was refused and this is the retry the summary
+            // asks for, or the unchanged tree was reviewed on the way out and the next implementation
+            // is handed findings this one never saw. See the remarks.
+            GoalStopReason.NoChange => true,
+
+            // Met has nothing to continue towards, and NoProgress has just established that two reviews
+            // running found exactly the same things.
             _ => false,
         };
 
@@ -2235,7 +2252,8 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                           reason == GoalStopReason.NoChange ? implementationDenials : 0)
                       + "\nType a new goal, or start a fresh one with +.";
 
-        await AddMessageAsync(GoalMessageRole.System, summary, GoalPhase.Summary);
+        await AddMessageAsync(GoalMessageRole.System, summary, GoalPhase.Summary,
+            isRunSummary: true);
 
         RefreshFinishedRunActions();
 
@@ -2279,6 +2297,24 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
 
         if (GoalCompletionPolicy.IsMet(review, criteria))
             return (GoalStopReason.Met, null);
+
+        // Carried for Continue, exactly as RunReviewOnlyAsync carries it and for the same reason:
+        // without it the implementation Continue starts would begin over a tree that has just been
+        // reviewed, knowing nothing of what was found — and this is the one path where that review is
+        // the only new thing there is, since the tree itself did not move.
+        //
+        // The fingerprint goes with it so that a continued attempt which *does* write something and is
+        // then reviewed to the same conclusion stops as NoProgress. It does not close the other door:
+        // a continued attempt that again writes nothing comes back here, where nothing asks
+        // RepeatsPrevious, and stops as NoChange a second time with Continue still on offer. Measured,
+        // not assumed. Left that way deliberately — the escalation would have to tell "this stop
+        // repeats the last one" from "this review repeats the last one", and the fingerprint alone
+        // cannot: on the *first* no-change stop it usually matches the previous lap's review already,
+        // since the tree did not move, so escalating on it would replace the one fact the user needs
+        // ("the agent changed no files") with a sentence about reviews. Each repeat is a press of a
+        // button, in front of the user, against a sentence identical to the one above it.
+        _engine.RecordReviewFeedback(GoalTranscript.Feedback(review));
+        _engine.LastReviewFingerprint = review.WasStructured ? review.Fingerprint() : null;
 
         return (GoalStopReason.NoChange, GoalCompletionPolicy.WhyNotMet(review, criteria));
     }
@@ -3584,13 +3620,14 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     /// see <see cref="GoalQuestionAnswer.Snapshot"/>.</param>
     private async Task AddMessageAsync(GoalMessageRole role, string text, GoalPhase phase,
         bool markdown = false, IReadOnlyList<GoalFinding>? findings = null,
-        IReadOnlyList<GoalQuestion>? questions = null)
+        IReadOnlyList<GoalQuestion>? questions = null, bool isRunSummary = false)
     {
         // Built once and added on whichever thread this is. The two branches used to hold a copy of the
         // initialiser each, which is how the third property was added to one of them.
         var message = new GoalMessage
         {
             Role = role, Text = text, Phase = phase, Markdown = markdown,
+            IsRunSummary = isRunSummary,
             Findings = findings is null ? [] : [..findings],
             Questions = questions is null ? [] : [..questions],
         };

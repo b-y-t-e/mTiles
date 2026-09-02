@@ -241,6 +241,15 @@
         <Style Selector="SelectableTextBlock.msg.msg-system">
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
         </Style>
+        <!-- The one note that is not a footnote: the sentence a run ends on. It says whether the goal
+             was met and what stood in the way, and it is what the user comes back to the tile to read
+             — so it takes one step back up the same scale the notes are quieted on, rather than a
+             colour of its own. TextSecondary, not TextPrimary: still a line the tile wrote rather than
+             a turn of the conversation, and the gutter glyph still says so. After .msg-system, because
+             both match and the last one wins. -->
+        <Style Selector="SelectableTextBlock.msg.msg-summary">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
 
         <!-- ======== Status strip ======== -->
         <Style Selector="TextBlock.strip">
@@ -1178,6 +1187,7 @@
                                                 <DataTemplate DataType="m:GoalMessage">
                                                     <SelectableTextBlock Classes="msg"
                                                                          Classes.msg-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}"
+                                                                         Classes.msg-summary="{Binding IsRunSummary}"
                                                                          Text="{Binding Text}" />
                                                 </DataTemplate>
                                             </v:GoalMessageTemplate.Plain>

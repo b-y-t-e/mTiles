@@ -132,9 +132,15 @@ internal static class GoalCompletionPolicy
             + "mode beside the tool name to auto or higher, then try again"
             + Outstanding(outstanding),
 
+        // What happened, not what would happen next. This said "so the same prompt would change none
+        // again", which is a prediction and a false one: the unchanged tree is reviewed before this
+        // sentence is written, and those findings go into the next implement prompt — so the next
+        // attempt is handed something this one was not. The fact on its own is what the reader needs,
+        // because the odd thing here is an agent that had an unmet criterion in front of it and wrote
+        // nothing, and that is a thing to look at rather than a budget to top up.
         GoalStopReason.NoChange =>
-            $"Stopped after {Count(attempts, "attempt")}: the last attempt changed no files, so the " +
-            "same prompt would change none again" + Outstanding(outstanding),
+            $"Stopped after {Count(attempts, "attempt")}: the agent changed no files"
+            + StillOutstanding(outstanding),
 
         // No attempt count: none were spent and none were meant to be. Saying "after 0 attempts" would
         // describe a run that failed to start rather than one that did exactly what was asked.
@@ -165,6 +171,19 @@ internal static class GoalCompletionPolicy
     /// <summary>What was left unresolved, where the caller knows it, as the tail of a sentence.</summary>
     private static string Outstanding(string? outstanding) =>
         outstanding is { Length: > 0 } ? $": {outstanding}." : ".";
+
+    /// <summary>The same, as a sentence of its own.</summary>
+    /// <remarks>
+    /// <para>Not <see cref="Outstanding"/>, which continues the sentence after a colon this one has
+    /// already spent: "the agent changed no files: 1 warning (limit 0)" reads as two unrelated facts,
+    /// and the whole point of this stop is that they are in tension — the criterion was unmet and the
+    /// agent wrote nothing anyway.</para>
+    /// <para>A separate sentence rather than an "although" clause, because
+    /// <see cref="WhyNotMet"/> answers with whole phrases as readily as with counts — "the review says
+    /// the goal is not met" — and only one of the two shapes fits inside a clause.</para>
+    /// </remarks>
+    private static string StillOutstanding(string? outstanding) =>
+        outstanding is { Length: > 0 } ? $". Still outstanding: {outstanding}." : ".";
 
     /// <summary>Negative tolerances read as zero. They come from a text box and from a file, and
     /// "fewer than no errors" is not a criterion anybody can meet.</summary>

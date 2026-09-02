@@ -999,7 +999,6 @@ public class GoalCompletionPolicyTests
 
         Assert.Contains("3 tool calls were refused permission", text);
         Assert.Contains("permission mode", text);
-        Assert.DoesNotContain("would change none again", text);
     }
 
     [Fact]
@@ -1009,13 +1008,37 @@ public class GoalCompletionPolicyTests
             GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 2, null, permissionDenials: 1));
     }
 
+    /// <summary>
+    /// The empty attempt is reported as what happened, not as a prediction about the next one.
+    /// </summary>
+    /// <remarks>It used to end "so the same prompt would change none again", which is false on the one
+    /// path that reaches this stop: the unchanged tree is reviewed first and those findings go into the
+    /// next implement prompt. The sentence was also the whole argument for refusing Continue here.
+    /// </remarks>
     [Fact]
-    public void Without_a_refusal_the_dead_end_is_still_a_dead_end()
+    public void Without_a_refusal_the_stop_states_the_fact_and_predicts_nothing()
     {
         var text = GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 2);
 
-        Assert.Contains("would change none again", text);
+        Assert.Contains("the agent changed no files", text);
+        Assert.DoesNotContain("would change none again", text);
         Assert.DoesNotContain("permission", text);
+    }
+
+    /// <summary>What was outstanding is a sentence of its own, because it is the odd part.</summary>
+    /// <remarks>An agent that wrote nothing with a criterion still unmet in front of it is the thing to
+    /// look at, so the two facts are stated as being in tension rather than run together after one
+    /// colon — and the tail has to survive a WhyNotMet that answers with a phrase rather than a count.
+    /// </remarks>
+    [Fact]
+    public void An_empty_attempt_says_what_it_left_outstanding()
+    {
+        Assert.Contains("Still outstanding: 1 warning (limit 0)",
+            GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 4, "1 warning (limit 0)"));
+
+        Assert.Contains("Still outstanding: the review says the goal is not met",
+            GoalCompletionPolicy.Summarise(
+                GoalStopReason.NoChange, 4, "the review says the goal is not met"));
     }
 
     [Fact]

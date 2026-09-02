@@ -261,7 +261,9 @@ strip each with a line of explanation — *The attempts ran out.*, *This run's c
 printed directly above them. That is the same fault the status strip's four idle labels had, and it is
 fixed the same way: the tooltips carry what a button does, which is the part not already on screen.
 
-**A run that ran out of attempts can be given more.** The Summary offers **Continue**, which adds as many attempts as the attempts field currently says, re-enters the loop and keeps the transcript. It is offered for `BudgetSpent` alone — the attempts ran out and more of them is exactly what is missing. The other three stops are not budgets: `Met` has nothing to continue towards, `NoChange` means the tool wrote nothing, and `NoProgress` has just established that two reviews running found exactly the same things. Offering the button there would sell AI runs whose outcome is already known. Continue re-enters at the **implementation**, not the review: the last thing the run did was review, and starting there again spends a run re-judging a working tree nothing has touched since.
+**A run that ran out of attempts can be given more.** The Summary offers **Continue**, which adds as many attempts as the attempts field currently says, re-enters the loop and keeps the transcript. `Met` has nothing to continue towards and `NoProgress` has just established that two reviews running found exactly the same things, so neither offers it: the button there would sell AI runs whose outcome is already known. Continue re-enters at the **implementation**, not the review: the last thing the run did was review, and starting there again spends a run re-judging a working tree nothing has touched since.
+
+**`NoChange` offers it too, and used not to.** The argument against was that the tool wrote nothing, so another attempt would write nothing again — and the summary said so out loud ("the last attempt changed no files, so the same prompt would change none again"). That prediction holds on neither path that reaches this stop. Where the attempt was *refused*, the summary itself says to change the permission mode and try again, and Continue is that retry with the transcript kept. Where it was not, the unchanged tree is reviewed on the way out and those findings go into the next implement prompt, so the next attempt is handed something this one was not. It is also the stop that most often arrives with the budget **unspent** — an empty attempt ends the loop whatever is left in it — so refusing here left a run with an unmet criterion, attempts still owed and no route at all to spend them but retyping the goal. The summary now states the fact and predicts nothing ("Stopped after 4 attempts: the agent changed no files. Still outstanding: 1 warning (limit 0)."), and it is drawn a step brighter than the tile's other notes (`GoalMessage.IsRunSummary` → `msg-summary` at `TextSecondary`), because an agent that had an unmet criterion in front of it and wrote nothing anyway is the thing to look at. Whether it disagreed with the finding or simply missed it is not something this application can tell, and one button is a cheaper way to find out than starting again.
 
 **How hard the tool is asked to think is the tile's to say too, and the default is not the tool's.**
 The strip carries an effort level beside the permission mode (`AiEffort`, mapped to `claude --effort`
@@ -373,6 +375,22 @@ over a goal that was done; not met, and the `NoChange` sentence carries the revi
 Once, either way — the loop ends here, and Resume cannot re-run the review against a tree nothing has
 touched. A refused run skips the call entirely, because a review of work nobody was allowed to do would
 answer what the summary already says.
+
+**And that verdict is carried, not thrown away.** The review of the unchanged tree produces findings
+like any other, and they are recorded (`RecordReviewFeedback`, with the fingerprint beside them) exactly
+as a review-only run records its own. Without it the implementation **Continue** starts would begin over
+a tree that has just been reviewed knowing nothing of what was found — and this is the one path where
+that review is the only new thing there is, since the tree itself did not move.
+
+**A repeat of this stop is not escalated, and that is a decision.** A continued attempt that *does* write
+something and is then reviewed to the same conclusion stops as `NoProgress`, which offers no Continue. One
+that again writes nothing comes back through `ReviewUnchangedTreeAsync`, where nothing asks
+`RepeatsPrevious`, and stops as `NoChange` a second time with Continue still on offer (measured). The
+escalation would have to tell *this stop repeats the last one* from *this review repeats the last one*, and
+the fingerprint alone cannot: on the first no-change stop it usually matches the previous lap's review
+already, because the tree did not move — so escalating on it would replace the one fact the user needs
+("the agent changed no files") with a sentence about reviews. Each repeat costs one press of a button, in
+front of the user, against a sentence identical to the one above it.
 
 **The transcript follows the run, unless you are reading it.** `GoalTileView` scrolls to the end when a
 message arrives, and asks first whether the reader was at the bottom *before* it did — measured on the

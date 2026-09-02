@@ -58,6 +58,21 @@ public sealed class GoalMessage
     /// this application composed, and not what the user typed.</summary>
     [JsonIgnore]
     public bool IsMarkdown => Markdown && Role == GoalMessageRole.Assistant;
+    /// <summary>
+    /// Whether this is the sentence a run ends on — how it stopped and what it left outstanding.
+    /// </summary>
+    /// <remarks>
+    /// <para>It is drawn a step brighter than the tile's other notes (<c>msg-summary</c>), because it
+    /// is the one the user came back to read: it says whether the goal was met, and where it was not,
+    /// what stood in the way. Set at the one place a summary is written rather than derived from the
+    /// role and the phase, which would take every commit note and error in <c>Summary</c> with it.
+    /// </para>
+    /// <para>Persisted, and false for every transcript written before it existed — which costs those
+    /// messages a shade and nothing else. The migration decision <see cref="Markdown"/> spells out does
+    /// not arise here: this changes a colour, not what the text is taken to be.</para>
+    /// </remarks>
+    public bool IsRunSummary { get; set; }
+
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
     /// <summary>
