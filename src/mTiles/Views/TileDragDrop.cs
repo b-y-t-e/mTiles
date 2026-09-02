@@ -41,12 +41,13 @@ internal static class TileDragDrop
         if (source == target || zone == DropZone.None) return;
 
         if (zone == DropZone.Center)
-        {
             SwapPlaces(source, target);
-            return;
-        }
+        else
+            MoveToEdge(source, target, zone);
 
-        MoveToEdge(source, target, zone);
+        // A drop moves a tile between parents, which is the other way the soloed splits stop describing
+        // the tree — the same reason DetachFromTree says so, said once for both drops.
+        source.MaximizeScope?.ReviewLayout();
     }
 
     /// <summary>
@@ -114,6 +115,13 @@ internal static class TileDragDrop
         }
 
         node.Parent = null;
+
+        // The tile that stayed has just been lifted into its grandparent's slot, so the split that
+        // held the two of them is out of the tree — and it may be one a maximized tile is being drawn
+        // through. Told here rather than at each caller: this is the one method that takes a node out,
+        // and a scope left describing a split nobody draws lights the header's "Exit full screen" over
+        // an ordinary layout.
+        node.MaximizeScope?.ReviewLayout();
         return true;
     }
 
