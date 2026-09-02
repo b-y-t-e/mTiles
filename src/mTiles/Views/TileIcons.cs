@@ -31,6 +31,7 @@ internal static class TileIcons
         "source-branch" => MaterialIconKind.SourceBranch,
         "database" => MaterialIconKind.DatabaseOutline,
         "goal" => MaterialIconKind.BullseyeArrow,
+        "gauge" => MaterialIconKind.SpeedometerSlow,
         "robot" => MaterialIconKind.RobotOutline,
         "script-outline" => MaterialIconKind.ScriptOutline,
         "restart" => MaterialIconKind.Restart,

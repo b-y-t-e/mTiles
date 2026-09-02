@@ -276,8 +276,8 @@ public partial class LeafTileView : UserControl
         }
         else
         {
-            ContentChooser.IsVisible = false;
-            SetupChooser.IsVisible = false;
+            ContentChooserScroll.IsVisible = false;
+            SetupChooserScroll.IsVisible = false;
             ContentHost.IsVisible = true;
             SetContent(leaf.Content);
         }
@@ -286,8 +286,10 @@ public partial class LeafTileView : UserControl
     private void UpdateChooserVisibility(LeafTileNodeViewModel leaf)
     {
         if (leaf.KindId.Length > 0) return;
-        ContentChooser.IsVisible = !leaf.IsChoosingSetup;
-        SetupChooser.IsVisible = leaf.IsChoosingSetup;
+        // The scroller is what is shown and hidden, not the panel inside it: a visible scroller wrapped
+        // round a collapsed panel is still a hit-testable sheet lying over the tile's content.
+        ContentChooserScroll.IsVisible = !leaf.IsChoosingSetup;
+        SetupChooserScroll.IsVisible = leaf.IsChoosingSetup;
         if (leaf.IsChoosingSetup)
             PopulateSetupButtons(leaf);
     }

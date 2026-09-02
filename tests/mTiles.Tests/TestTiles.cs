@@ -15,7 +15,10 @@ namespace mTiles.Tests;
 internal static class TestTiles
 {
     /// <param name="settings">What the database service manager reads. It is constructed and never
-    /// started: the database kind needs one to exist, not to be listening.</param>
+    /// started: the database kind needs one to exist, not to be listening. The usage service is given
+    /// no sources for the same reason — the usage kind needs one to exist, and a real list would have a
+    /// layout test asking three services on the network what a subscription has left.</param>
     public static TileCatalog Catalog(mTiles.Services.SettingsService settings) =>
-        mTiles.App.BuildTileCatalog(new DatabaseServiceManager(settings));
+        mTiles.App.BuildTileCatalog(new DatabaseServiceManager(settings),
+            new mTiles.Services.AiUsageService(settings, sources: _ => []));
 }

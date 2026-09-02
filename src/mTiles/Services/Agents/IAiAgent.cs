@@ -206,6 +206,24 @@ public interface IAiAgent
     SignInStatus ReadSignIn(string? configDirectory);
 
     /// <summary>
+    /// How much of this account's allowance is left, or null when this CLI reports none.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Null and a failed report are different answers.</b> Null is "there is no such question
+    /// here" — an agent that publishes no limits, or a default account nobody has logged into on this
+    /// machine — and nothing is recorded at all. A report carrying a <c>Problem</c> is an account that
+    /// exists and could not be asked, and its sentence reaches the log through
+    /// <c>AiUsageService.Explain</c>. Neither draws a card, and that is the tile's decision rather than
+    /// this contract's; what this must never answer is a zero for either.</para>
+    /// <para>Per sign-in <em>and</em> for the default account, because a second subscription is a
+    /// second set of limits — which is the whole reason <see cref="SupportsSignIns"/> exists.</para>
+    /// <para>Never throws, the rule <c>AiProvider</c> is built on: every caller is a piece of UI that
+    /// has to say something either way.</para>
+    /// </remarks>
+    /// <param name="signIn">The login to ask about, or null for the CLI's own default account.</param>
+    Task<AiUsageReport?> UsageAsync(AiSignIn? signIn, CancellationToken ct = default);
+
+    /// <summary>
     /// What an agent tile runs: the command that resumes <paramref name="sessionId"/>, and the one to
     /// try when it does not work.
     /// </summary>

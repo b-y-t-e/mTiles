@@ -251,21 +251,30 @@
                          seventh kind was a class, a line of registration and a page of XAML nobody
                          would think to look for. A chooser card is a big button with a glyph and a
                          label; there is nothing in it a loop cannot say. -->
-                    <WrapPanel x:Name="ContentChooser"
-                               IsVisible="False"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Orientation="Horizontal" />
+                    <!-- The chooser scrolls. A tile short enough that the cards do not fit - the
+                         bottom half of a vertical split, a tile in a stack of four - cut the last row
+                         off with nothing saying so and no way to reach it. Vertical only: the cards
+                         wrap, so there is never anything off to the right. -->
+                    <ScrollViewer x:Name="ContentChooserScroll" IsVisible="False"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <WrapPanel x:Name="ContentChooser"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Orientation="Horizontal" />
+                    </ScrollViewer>
 
                     <!-- The step a kind asks for before it can be built: one card per option, built
                          in the code-behind from that kind's own list. Back is the only card here the
                          kind does not describe, because leaving the step is the tile's business and
                          not the kind's. -->
-                    <WrapPanel x:Name="SetupChooser"
-                               IsVisible="False"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Orientation="Horizontal">
+                    <ScrollViewer x:Name="SetupChooserScroll" IsVisible="False"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <WrapPanel x:Name="SetupChooser"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Orientation="Horizontal">
                         <Button x:Name="SetupBackButton"
                                 Classes="chooser-back"
                                 Command="{Binding CancelSetupCommand}">
@@ -276,8 +285,9 @@
                                 <TextBlock Text="Back" FontSize="{DynamicResource FontSm}"
                                            HorizontalAlignment="Center" />
                             </StackPanel>
-                        </Button>
-                    </WrapPanel>
+                            </Button>
+                        </WrapPanel>
+                    </ScrollViewer>
 
                     <Panel x:Name="ContentHost" />
                 </Panel>

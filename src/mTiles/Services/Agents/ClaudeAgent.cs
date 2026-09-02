@@ -253,16 +253,7 @@ public sealed class ClaudeAgent : AiAgent
     /// signed in perfectly well.</remarks>
     public override SignInStatus ReadSignIn(string? configDirectory)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-        // A machine that already exports CLAUDE_CONFIG_DIR has its default account *there*, so asking
-        // about ~/.claude would report a working login as signed out - the false "not signed in" this
-        // type exists to avoid.
-        configDirectory ??= Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
-
-        var (settingsFile, credentialsFile) = configDirectory is { Length: > 0 } directory
-            ? (Path.Combine(directory, ".claude.json"), Path.Combine(directory, ".credentials.json"))
-            : (Path.Combine(home, ".claude.json"), Path.Combine(home, ".claude", ".credentials.json"));
+        var (settingsFile, credentialsFile) = FilesFor(configDirectory);
 
         // The file's existence is what says logged in; its contents only say who. Reading a field first
         // and answering NotSignedIn when it is missing put a Sign in button over a working login — a
@@ -281,6 +272,62 @@ public sealed class ClaudeAgent : AiAgent
         }.Where(part => part is not null));
 
         return detail.Length > 0 ? new SignInStatus(true, detail) : SignInStatus.SignedInAnonymously;
+    }
+
+    /// <summary>
+    /// The two files a login is read from: the one naming the account and the one holding the token.
+    /// </summary>
+    /// <remarks><b>The two layouts are not the same, and that is measured rather than assumed.</b> A
+    /// relocated configuration keeps <c>.claude.json</c> inside the directory; the default one keeps it
+    /// at <c>~/.claude.json</c> and puts only <c>.credentials.json</c> in <c>~/.claude</c>. Asking the
+    /// wrong one is how the default account would come out as "not signed in" on a machine that is
+    /// signed in perfectly well — which is why the rule is stated once and read by both the sign-in row
+    /// and the usage question.</remarks>
+    private static (string Settings, string Credentials) FilesFor(string? configDirectory)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        // A machine that already exports CLAUDE_CONFIG_DIR has its default account *there*, so asking
+        // about ~/.claude would report a working login as signed out - the false "not signed in" this
+        // rule exists to avoid.
+        configDirectory ??= Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+
+        return configDirectory is { Length: > 0 } directory
+            ? (Path.Combine(directory, ".claude.json"), Path.Combine(directory, ".credentials.json"))
+            : (Path.Combine(home, ".claude.json"), Path.Combine(home, ".claude", ".credentials.json"));
+    }
+
+    /// <summary>
+    /// The five-hour and seven-day windows this subscription reports, or null where nobody is logged in.
+    /// </summary>
+    /// <remarks><para><b>A login that is not there answers null, a login that is there and cannot be
+    /// asked answers a sentence.</b> That is the whole distinction <see cref="IAiAgent.UsageAsync"/>
+    /// draws: a machine where nobody has run <c>claude</c> has no such account to report on, while a
+    /// sign-in row the user made and never logged into is an account that owes them an explanation —
+    /// which reaches the log rather than the tile. This answers null only when there is no credential
+    /// at all.</para>
+    /// <para>The token is read here and handed straight to <see cref="ClaudeUsageReader"/>, held for the
+    /// length of one call: what it authenticates is somebody else's service, and nothing in this
+    /// application stores, logs or shows it.</para></remarks>
+    public override async Task<AiUsageReport?> UsageAsync(AiSignIn? signIn,
+        CancellationToken ct = default)
+    {
+        var directory = signIn is null ? null : AiSignInStore.DirectoryFor(signIn);
+        var credentialsFile = FilesFor(directory).Credentials;
+        var name = UsageSourceName(signIn);
+        var sourceId = UsageSourceId(signIn);
+        var now = DateTimeOffset.Now;
+
+        if (ReadJsonString(credentialsFile, "claudeAiOauth", "accessToken") is not { Length: > 0 } token)
+            return signIn is null
+                ? null
+                : AiUsageReport.Failed(sourceId, name,
+                    "Nobody is signed in here, so there is no allowance to report.", now);
+
+        var plan = ReadJsonString(credentialsFile, "claudeAiOauth", "subscriptionType");
+
+        return await ClaudeUsageReader.ReadAsync(sourceId, name,
+            plan is { Length: > 0 } ? Capitalised(plan) : null, token, now, ct);
     }
 
     /// <summary>"max" is what the file says; "Max" is what the subscription is called.</summary>

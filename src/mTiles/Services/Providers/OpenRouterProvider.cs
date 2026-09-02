@@ -75,15 +75,116 @@ public sealed class OpenRouterProvider : AiProvider
     /// <remarks>An unlimited key has no remaining figure at all, which is <c>null</c> and not zero — the
     /// distinction the whole tri-state exists for, since the two would otherwise read identically to a
     /// user whose key works perfectly well.</remarks>
-    private static decimal? BalanceIn(JsonDocument document)
-    {
-        if (!document.RootElement.TryGetProperty("data", out var data)
-            || !data.TryGetProperty("limit_remaining", out var remaining)
-            || remaining.ValueKind != JsonValueKind.Number)
-            return null;
+    private static decimal? BalanceIn(JsonDocument document) => Money(Data(document), "limit_remaining");
 
-        return remaining.GetDecimal();
+    /// <summary>
+    /// The <c>data</c> object of an answer, or nothing at all where there is none.
+    /// </summary>
+    /// <remarks><b><see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> throws on anything
+    /// that is not an object</b> — it is a lookup, not a test — so asking it about a root that came back
+    /// as an array, a string or <c>null</c> is an <see cref="InvalidOperationException"/> out of a method
+    /// documented never to throw. A proxy or a captive portal answering 200 with something that is not
+    /// this service's shape is exactly the "could not be asked" case the report type exists to draw, and
+    /// it was instead the case that dropped the card without a word. The kind is checked once here and
+    /// every reader below is handed an element that is safe to ask.</remarks>
+    private static JsonElement Data(JsonDocument? document) =>
+        document?.RootElement is { ValueKind: JsonValueKind.Object } root
+        && root.TryGetProperty("data", out var data)
+            ? data
+            : default;
+
+    /// <summary>How much of the week the key has spent, and what is left on it.</summary>
+    /// <remarks>
+    /// <para><b>Money, not a percentage, and the two must not share a bar.</b> A subscription is spent
+    /// out of a window; a key is spent out of a balance, and there is no rate that converts one into the
+    /// other — inventing one would put a figure on screen this service never said.</para>
+    /// <para><c>api/v1/key</c> carries the rolling totals and the balance where a limit is set;
+    /// <c>api/v1/credits</c> carries the balance where one is not, which is the ordinary case for a
+    /// topped-up key. Asked in that order and only when the first leaves the balance unknown, because a
+    /// key that answers everything should not cost two calls.</para>
+    /// <para><b>There is no per-day history to fetch.</b> <c>api/v1/activity</c> answers 403 for a
+    /// normal key (<i>Only management keys can fetch activity</i>), so the seven days on the card come
+    /// from this application's own daily snapshots — see <c>UsageHistory</c> — and the tile says as
+    /// much rather than drawing empty days as free ones.</para>
+    /// </remarks>
+    public override async Task<AiUsageReport?> UsageAsync(AiProviderInstance instance,
+        CancellationToken ct = default)
+    {
+        var measuredAt = DateTimeOffset.Now;
+        var sourceId = UsageSourceId(instance);
+
+        if (AddressProblem(instance) is { } addressProblem)
+            return AiUsageReport.Failed(sourceId, instance.Name, addressProblem.Message, measuredAt);
+
+        using var key = await GetJsonAsync(instance, "api/v1/key", ct);
+        if (key is null)
+            return AiUsageReport.Failed(sourceId, instance.Name,
+                "OpenRouter did not answer for this key, so nothing here is a figure.", measuredAt);
+
+        // An answer this reader cannot find a `data` object in is a failure and has to say so. Built as
+        // a normal report it came out Answered, with three windows of nulls and no balance - a card
+        // carrying an account's name, three window labels and not one figure, which is precisely the
+        // "says nothing" this type exists to keep off the screen. Guarding only against the throw left
+        // the quieter half of the same fault in place.
+        if (Data(key) is not { ValueKind: JsonValueKind.Object } data)
+            return AiUsageReport.Failed(sourceId, instance.Name,
+                "OpenRouter answered in a shape this build does not recognise.", measuredAt);
+
+        var remaining = Money(data, "limit_remaining") ?? await BalanceAsync(instance, ct);
+
+        return new AiUsageReport(sourceId, instance.Name, Money(data, "limit") is { } limit
+                ? $"limit {Currency}{limit:0.##}" : null,
+            [
+                new AiUsageWindow("today", TimeSpan.FromDays(1), UsedAmount: Money(data, "usage_daily")),
+                new AiUsageWindow("7d", TimeSpan.FromDays(7), UsedAmount: Money(data, "usage_weekly"),
+                    LimitAmount: Money(data, "limit"), ResetsAt: Reset(data)),
+                new AiUsageWindow("30d", TimeSpan.FromDays(30), UsedAmount: Money(data, "usage_monthly")),
+            ],
+            remaining, Currency, measuredAt, Problem: null);
     }
+
+    /// <summary>What this provider's amounts are in. OpenRouter prices in US dollars throughout.</summary>
+    private const string Currency = "$";
+
+    /// <summary>The key this instance's daily snapshots are filed under.</summary>
+    /// <remarks>The instance's id and not its name: nothing makes a name unique — two keys for the same
+    /// service are two identically spelled rows — and a renamed row must keep its own history rather
+    /// than adopting another's.</remarks>
+    public static string UsageSourceId(AiProviderInstance instance) => $"openrouter:{instance.Id}";
+
+    /// <summary>What is left where no limit is set on the key, from the credits endpoint.</summary>
+    /// <remarks>Asked only when <c>limit_remaining</c> was null, which is what an unlimited key answers:
+    /// the subtraction here is the only figure that is ours rather than the service's, and it is a
+    /// difference of two numbers it did state.</remarks>
+    private async Task<decimal?> BalanceAsync(AiProviderInstance instance, CancellationToken ct)
+    {
+        using var credits = await GetJsonAsync(instance, "api/v1/credits", ct);
+        var data = Data(credits);
+
+        return Money(data, "total_credits") is { } granted && Money(data, "total_usage") is { } spent
+            ? granted - spent
+            : null;
+    }
+
+    /// <summary>One amount out of the answer, or null where it does not carry it.</summary>
+    /// <remarks>Null and never zero, for the reason the whole of <c>AiUsageWindow</c> is nullable: a
+    /// field that moved is a service that did not say, and drawn as 0 it reads as a week that cost
+    /// nothing.</remarks>
+    private static decimal? Money(JsonElement data, string field) =>
+        data.ValueKind == JsonValueKind.Object
+        && data.TryGetProperty(field, out var value)
+        && value.ValueKind == JsonValueKind.Number
+            ? value.GetDecimal()
+            : null;
+
+    /// <summary>When the key's own limit window starts again, where one is set.</summary>
+    private static DateTimeOffset? Reset(JsonElement data) =>
+        data.ValueKind == JsonValueKind.Object
+        && data.TryGetProperty("limit_reset", out var reset)
+        && reset.ValueKind == JsonValueKind.String
+        && DateTimeOffset.TryParse(reset.GetString(), out var instant)
+            ? instant
+            : null;
 
     /// <summary>
     /// The full catalogue, with the one honest per-model effort answer any of these providers gives.

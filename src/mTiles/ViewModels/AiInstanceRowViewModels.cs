@@ -187,6 +187,11 @@ public sealed partial class AiSignInViewModel : ObservableObject
 
     public bool IsSignedIn => Status.SignedIn;
 
+    /// <summary>Where the CLI keeps this account — the directory it was pointed at.</summary>
+    /// <remarks>Derived rather than stored, the same way everything else here asks for it: what is on
+    /// screen and what the launch sets must be the one answer.</remarks>
+    public string Directory => AiSignInStore.DirectoryFor(SignIn);
+
     /// <summary>Whether Sign in can do anything — it needs an agent to open a tile for.</summary>
     /// <remarks>A row whose agent this build does not have showed the button and did nothing when it
     /// was pressed; the row is still listed so it can be renamed or removed.</remarks>

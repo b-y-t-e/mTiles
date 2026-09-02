@@ -21,6 +21,7 @@ public partial class App : Application
     private DatabaseServiceManager? _dbManager;
     private DictationService? _dictation;
     private PhoneBridgeManager? _phoneBridge;
+    private AiUsageService? _usage;
 
     public override void Initialize()
     {
@@ -50,6 +51,11 @@ public partial class App : Application
         // dictates, so the switch in settings only has to gate the UI.
         _dictation = new DictationService(_settingsService, router);
 
+        // One asker for the whole application, so two usage tiles in two workspaces are one set of calls.
+        // It reaches nothing until a tile attaches to it: nothing here polls a service the user is not
+        // looking at, the rule discovery already follows.
+        _usage = new AiUsageService(_settingsService);
+
         // Captured before the view model exists, and read only when a phone actually streams — which
         // breaks the circle between the two without either of them holding a half-built reference.
         MainWindowViewModel? mainVmRef = null;
@@ -57,7 +63,7 @@ public partial class App : Application
             () => mainVmRef?.CurrentWorkspace?.ActiveTile);
 
         var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
-            BuildTileCatalog(_dbManager), _dbManager, _dictation, _phoneBridge);
+            BuildTileCatalog(_dbManager, _usage), _dbManager, _dictation, _phoneBridge);
         mainVmRef = mainVm;
 
         // The other half of the Func above: it says what the active tile is, this says when to look
@@ -114,6 +120,7 @@ public partial class App : Application
                 });
                 Shutdown("dictation", () => _dictation?.Dispose());
                 Shutdown("database bridge", () => _dbManager?.Dispose());
+                Shutdown("usage service", () => _usage?.Dispose());
             };
         }
 
@@ -132,7 +139,7 @@ public partial class App : Application
     /// <c>ViewModels/</c> and <c>Views/</c>. The order is the order the empty tile's chooser offers
     /// them in.</para>
     /// </remarks>
-    internal static TileCatalog BuildTileCatalog(DatabaseServiceManager databases) =>
+    internal static TileCatalog BuildTileCatalog(DatabaseServiceManager databases, AiUsageService usage) =>
         new TileCatalog()
             // The same view as a terminal, because an agent tile is a terminal: what differs is
             // where its commands come from, and that is the view model's answer to give.
@@ -141,6 +148,7 @@ public partial class App : Application
             .Register(new GoalTileKind(), tile => new GoalTileView { DataContext = tile })
             .Register(new DatabaseTileKind(databases), tile => new DatabaseTileView { DataContext = tile })
             .Register(new GitTileKind(), tile => new GitTileView { DataContext = tile })
+            .Register(new UsageTileKind(usage), tile => new UsageTileView { DataContext = tile })
             .Register(new NoteTileKind(), tile => new NoteTileView { DataContext = tile })
             .Register(new TodoTileKind(), tile => new TodoTileView { DataContext = tile });
 

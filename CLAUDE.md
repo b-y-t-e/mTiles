@@ -19,7 +19,7 @@ dotnet test                     # tests/mTiles.Tests
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`. `BgCanvas` is the odd one out: it is what the tiles are laid on and the only colour here not meant to be looked at (see Split tiles architecture)
 - `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), AgentTileMigration (the terminal tiles that were an AI CLI in a shell, turned into agent tiles once), GoalAgents/GoalAgentChoice (which agents a Goal tile may offer, and what a stored id means), InstallCommand (the line an install or a sign-in actually types into a tile — `InstallPlan.CommandLine` is for reading and never what runs), ExecutableFinder (a program on `PATH`, for the callers a GUI process cannot rely on its own resolution for), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/GitIgnoreFile, DiffFormatter, ProcessTreeMemory/MemoryDisplay (what a workspace's tiles are holding, and how that reads on its row), FileHelper, ProtectedStringConverter, TolerantEnumConverter, TileTreeSerializer, TileNameGenerator, TileMinimumSize, SpecialDirectories, SafePathComponent (the one rule for turning an id into a directory or file name — an allow-list plus the Windows reserved names, because both the sign-in directories and the generated opencode files are named after ids that reach `settings.json` by hand), DefaultWorkspace, the Goal tile's engine (AiProcessRunner, AiBehaviours, AiEfforts, GoalWorkflowEngine, GoalPromptBuilder, GoalStatePersistence, GoalLoopPolicy, GoalTilePolicy, GoalCompletionPolicy, GoalBaseline, GoalCommitter, GoalCommitPlan, GoalDiffContext, CommandDisplay, CommandLineLength, ElapsedDisplay, GoalStageDisplay, RejectedFlag, UnrecognizedModel (Claude Code refusing to start a headless run on a model it cannot verify against the gateway — the one recognisable failure that names itself and the route that still works), GoalResponseParser, GoalScopeFilter (the composer typed beside Detect/Review as a scope: its words a narrowing block in the prompt, its `@` paths a hard filter on the working-tree block), GoalStateStore, GoalTranscript, GoalImageStore, GoalImageMarker, SolidPrincipleCatalog, WorktreeReader, and its `@` file mentions — IFileMentionSource/WorkspaceFileMentionSource, FileSuggestionIgnore, FileMentionToken, FileMentionMatcher, FileMentionCorpus), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
-- `Services/Tiles/` — the tile registry (see *Tiles* below and [`docs/TILES.md`](docs/TILES.md)): ITileKind, TileKind<T>, TileCatalog/TileCatalogEntry, TileContext, TileState, and one class per kind (TerminalTileKind, AgentTileKind, NoteTileKind, TodoTileKind, GitTileKind, DatabaseTileKind, GoalTileKind)
+- `Services/Tiles/` — the tile registry (see *Tiles* below and [`docs/TILES.md`](docs/TILES.md)): ITileKind, TileKind<T>, TileCatalog/TileCatalogEntry, TileContext, TileState, and one class per kind (TerminalTileKind, AgentTileKind, NoteTileKind, TodoTileKind, GitTileKind, DatabaseTileKind, GoalTileKind, UsageTileKind)
 - `Services/Database/` — DatabaseServiceManager, DbHttpServer, DiscoveryService, DbRegistry, DbLogger, QueryHandler, SqlGuard, SqlGuardProfile, SqlServerProvider, PostgreSqlProvider, SubnetScanner, IDbProvider, ClaudeLocalMdWriter
 - `Services/ShellStarter.cs` — one call that replaces whatever session a `TerminalControl` holds and hands the shell its startup script (`${tileId}` substituted, one line per `\r`). The control owns the rest: killing the old session, waiting for it, and gating the script on `ShellReady` for *that* session
 - `Services/TileLauncher.cs` — launching a terminal or agent tile: disposes the previous launch, asks the tile what it runs now (`ResolveCurrentScripts`), then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it. **A launch that has to wait checks that it is still the tile's launch before it starts one**: preparation for an agent that creates its conversation first is a model call with a minute's timeout, and closing the tile cancels the capture — which ends the preparation *normally*, so without the check the launch carried on, started a session in a disposed terminal and left a chain owned by a tile whose `Dispose` had already run. `TerminalTileViewModel.BeginLaunch`/`IsCurrentLaunch` is that claim, and it answers no for a restart in the same window too — which is the two competing chains this one call exists to prevent
@@ -581,6 +581,137 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 
 **Services:** `Services/Database/` — IDbProvider, SqlServerProvider, PostgreSqlProvider, SqlGuard, SqlGuardProfile, QueryHandler, DbRegistry, DiscoveryService, DbHttpServer, DbLogger, SubnetScanner, DatabaseServiceManager, ClaudeLocalMdWriter.
 
+## Usage tile
+
+A read-only dashboard: for every account this machine can **actually ask**, how much of the limit window
+is gone, when it comes back, whether the week is being spent faster than the week is passing, and what
+what is left on it where the answer is money. It starts nothing, kills nothing and holds no state
+a user would miss — which is why `UsageTileKind.Save` answers `null` and the tile implements `IBusyTile`
+and none of the other tile interfaces.
+
+**Two questions, each asked of the thing that knows.** `IAiAgent.UsageAsync(AiSignIn?, ct)` and
+`IAiProvider.UsageAsync(AiProviderInstance, ct)`, both defaulting to `null`. Measured 2026-09-01, and
+only three of the twelve answer at all: **Claude Code** through `GET api.anthropic.com/api/oauth/usage`
+with the OAuth token out of the CLI's own `.credentials.json` (`ClaudeUsageReader`), **codex** out of the
+last `token_count` event in the newest `~/.codex/sessions/**/rollout-*.jsonl` — there is no endpoint,
+`backend-api/codex/usage` answers 403 at the edge (`CodexUsageReader`) — and **OpenRouter** through
+`api/v1/key` plus `api/v1/credits`. z.ai, the Anthropic API, ccs, LM Studio and Ollama publish nothing.
+
+**Three distinctions the whole tile rests on, and each is a card that would otherwise lie:**
+
+- **`null` is not a failure and a failure is not a zero.** `null` means *there is no such question
+  here* — an agent that publishes no limits, a default account nobody has logged into on this machine —
+  and the tile draws no card. An `AiUsageReport` carrying a `Problem` is an account that exists and
+  could not be asked, and the sentence stands where the figures would have been, the rule
+  `AgentAvailability` set. A zero for either reads as an account that has run out.
+- **A subscription answers in percent and a provider in money**, and they are not two views of one
+  number: there is no rate to convert with, so `AiUsageWindow` carries both and a card draws whichever
+  it was given. Every figure on it is nullable and `null` is *did not say*. What a metered account's card
+  says under its windows is **what is left and nothing else** — a row of daily bars and a note saying how
+  long this application had been watching was a second line answering a question nobody asks of a key.
+- **Codex's numbers are as fresh as its last reply**, so `AiUsageReport.MeasuredAt` is the event's own
+  timestamp rather than the moment of the read, and a reading older than the window it describes is
+  stamped and dimmed (`UsageDisplay.Age`) rather than shown as current.
+
+**An account that could not be asked gets no card** (`UsageTileViewModel.Rebuild` keeps only
+`AiUsageReport.Answered`), **and its reason goes to the log instead** (`AiUsageService.Explain`, once per
+round). Dropping the card is deliberately the opposite of what `Problem` was built for, and it is a
+decision about this screen rather than about the type: most of these failures are an account the user
+does not reach through this machine — a CLI's default login on a machine where they only use sign-ins —
+and a dashboard whose permanent top line is a sentence about one of them is a dashboard they stop
+reading. The logging is the other half of it and is not optional: without it every sentence these
+readers take trouble to write was constructed and thrown away, and a genuinely broken account vanished
+in silence. The layers underneath log their own failures, but only the ones that are a failed call —
+nothing down there knows that eight rollouts in a row carried no reading.
+
+**A 200 in the wrong shape is a failure, not an empty card.** `OpenRouterProvider.UsageAsync` answers
+`AiUsageReport.Failed` when the answer carries no `data` object: built as an ordinary report it came out
+`Answered`, with three window labels and not one figure under them — which is the "card that says
+nothing" the type exists to prevent, reached by the quiet half of the same fault whose loud half
+(`TryGetProperty` throwing on a non-object) was guarded first.
+
+`UsagePace` is the pure part and is argued in a table test: elapsed time comes from **`ResetsAt -
+Length`**, never from the day of the week — Claude's and codex's seven-day windows roll, so "it is
+Wednesday, therefore 43%" is wrong by up to a day, and the same subtraction then serves the five-hour
+window for free. Three states with a **dead band** of three points, because without it the label flips
+between two words every refresh for the one account there is nothing to say about. The projection is
+answered only where the rate runs out **inside** the window: a slower rate outlasts its own reset, so
+there is nothing to warn about — and that is also what keeps a rate of almost nothing from overflowing a
+`TimeSpan` on its way to a date in the year 40 000.
+
+`AiUsageService` is one asker for the whole application, built in `App.axaml.cs` beside
+`DatabaseServiceManager`: it enumerates the accounts (`UsageSources`, behind `IUsageSource` so the
+service knows nothing about agents, providers or sign-ins), asks them in parallel, caches for three
+minutes, records into `UsageHistory` and raises `Changed`. Two usage tiles in two workspaces are one set
+of calls. **The timer runs only while at least one tile is attached** (`Attach`), the rule
+discovery already follows: nothing here polls a service the user is not looking at. The in-flight handle
+is a `TaskCompletionSource` published *before* the work starts, because with every source answering from
+a cache the work finishes before it returns — a handle assigned from the return value is one assigned
+after the run has already cleared it, and the service then reports a refresh in flight for good.
+
+**Three rules there are about the clock and all three were wrong once.** The timer ticks at **half**
+`RefreshInterval`, because a timer whose period equals the guard's window drops every other tick: the
+period runs from one firing to the next while `_lastRefresh` is stamped when the work *finishes*, so at
+the following tick the elapsed time is the interval less the round's duration, the guard says "still
+current", and a dashboard documented as its interval was twice it. A round has its own deadline
+(`RoundTimeout`) because the answers are published together and one account on a hanging socket held
+every card at its previous figures for as long as *that instance's* timeout allowed — an OpenRouter
+instance can be configured to a minute, and its usage call is two requests. And a **forced refresh
+queues behind the round in flight rather than joining it**: joining is what made the button look
+broken, since a round that began before whatever the user just changed — a sign-in they finished
+logging into, a key they pasted — answers a different question, and its result reads on screen as a
+press that did nothing. Not started alongside it either, or two rounds write `_reports` and the winner
+is whichever finishes last rather than whichever asked last.
+
+**Nothing asked is not nothing found.** `UsageTileViewModel.IsEmpty` is false until `LastRefresh` is
+set, so "No account here reports limits." — a statement about the machine — is not the first thing every
+usage tile says while the first round is still running.
+
+**codex is read newest-first until one file answers, and by the newest line that _parses_.**
+`rate_limits` is a substring, so a conversation *about* rate limits puts it in a message event, which
+then stood in for the reading and had the card report no limits with the figures a line above it; and a
+session opened a minute ago has written its file and had no reply yet, so asking the newest file alone
+threw away the good reading from the session before it. The walk is bounded (`RolloutsExamined`) —
+that directory holds every conversation ever had on this machine.
+
+On screen it is **a readout, not a document**: full-bleed in the card, everything in the terminal's own
+`TerminalFontFamily`, no chips and no second frame. Monospace is what puts the figures in a column down
+the card without a grid holding them there, and it makes the tile read as part of the same instrument as
+the terminal beside it. An account's name is a **section heading with a rule running to the edge**,
+which is also what separates one account from the next — no boxes, no gap doing the job.
+
+**A bar is a row of cells and the clock's share is one of them** (`Views/UsageBar.cs`, a control rather
+than converters doing arithmetic in the markup): cells of a fixed size, so two bars are compared by
+counting rather than by measuring, and any spending at all lights the first one — rounding would
+otherwise swallow every figure under half a cell, which on a sixteen-cell bar is three per cent. Cells
+past the clock's mark are the danger colour and are the only colour on this tile carrying meaning, so
+one glance answers *am I overspending* without a second widget. **A money account has no
+bar at all**, so what its row carries is the amount, beside the window it belongs to — summarising one
+window into a line under the card left the other two nowhere on screen. Empty
+state is a fact rather than an error — most CLIs and most services publish nothing — with a button
+opening Settings → AI.
+
+**The name gets its own line; every window shares the next one, at any width.** The rule under the name
+does the separating a box or a gap would otherwise have to, and it is also what lets the figures start
+at the tile's own left margin instead of after however long the account happens to be called. Below it
+the windows share the line in equal proportions (`UniformGrid Rows="1"`), so two accounts with the same
+windows line their figures up down the tile — and proportional is what makes "one line" true without a
+threshold anybody had to choose: everything narrows together, and the bar, being the only part of a
+window with nothing else in it, is what runs out first. `UsageBar` draws whole cells and simply stops
+drawing when there is no room for one, so a narrow tile loses the picture and keeps every figure — no
+visibility rule, no width to pick.
+
+What came off the rows is the point of the tile being a dashboard rather than a report. **The pace has
+no words on screen at all** — "on pace" and "13 points spare" under every bar was a line of prose per
+window per account, a number on every point, which is the thing a reader stops seeing; the state worth
+acting on is already there without words, as fill past the tick in the danger colour and the figure
+beside it in the same, and the sentence is in the row's tooltip. **The reset shows the countdown and
+not the clock time** (`3h 43m`, with `resets 13:10 · in 3h 43m` in the tooltip): the instant is the half
+that survives the card being looked at later, the wait is the half a glance is for. The percentage and
+the countdown are **one string in one column**, because three columns to align carried two facts. The
+per-card timestamp is gone — the tile's own header has the refresh time, and repeating it on four cards
+buried the one stamp that differs, which is the stale one. And there is no "Usage" heading inside the tile: the tile header above already says it.
+
 ## Dictation
 
 Speak into a tile instead of typing: a microphone button in the terminal tile's header and a
@@ -716,6 +847,17 @@ It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (
   through its own environment variable. **Contains a refresh token and the whole conversation history
   that came with the account**, so it is created owner-only and nothing in this application ever deletes
   one: removing the sign-in row removes the row
+- `usage/history.json` — the daily spending snapshots
+  (`UsageHistory`): `{ sourceId: { "2026-09-01": 18.09, … } }`, 60 days kept, owner-only through
+  `PrivateFile` because it is a record of what somebody's accounts cost. **These are ours and nobody
+  else's** — OpenRouter's `api/v1/activity` answers 403 for an ordinary key, so there is no per-day
+  history to fetch from anyone. **Nothing on screen reads it**: the card shows what is *left* on a key,
+  not what each of the last seven days cost. The recording stays because it is the only per-day history
+  that exists at all, it costs a few kilobytes, and a row of bars that starts empty is worth having
+  already filled in if it ever comes back. The day is **UTC**, because that
+  is the boundary the counter being sampled resets on, and the **maximum** seen for a date wins: the
+  value is a running daily total, so a poll landing just after midnight would otherwise write a fresh
+  small number over a finished day. An unreadable file is a fresh start — what is lost is a row of bars
 - `models/` — downloaded speech-to-text models (hundreds of MB each; `.partial` while downloading)
 - `phone/` — the phone bridge's TLS material and its paired devices. `bridge.pfx` **contains a private key**; kept rather than regenerated per launch, because a new certificate every launch means a new browser warning every launch, and reissued when the machine's set of addresses changes (a certificate is only accepted for a host in its SANs). `sessions.json` holds SHA-256 of each paired device's token — never the token, so the file records *who* is paired without being usable to authenticate. Shutting the application down does not clear it; turning the bridge off does
 - Auto-save with debounce
@@ -762,6 +904,8 @@ carries the reasoning.
   the two an agent needs). A capture that fails costs a conversation, never a tile.
 - **Git** — tile with change viewer (diff, commit, stash, push, fetch, tags, undo, context menu, discard), kind id `git`
 - **Database** — tile with database management (SQL Server, PostgreSQL), HTTP bridge, query logs, kind id `database`
+- **Usage** — a read-only dashboard of what every account this machine can actually ask has left, kind
+  id `usage`. See *Usage tile* below
 - No DI container — manual injection in `App.axaml.cs`, where `BuildTileCatalog` is also the one place a kind of tile is registered
 - **ConfirmAction pattern** — destructive actions (discard, remove workspace, undo commit) use `Func<string, Task<bool>>? ConfirmAction` in ViewModel, wired from View as `MessageBox.Avalonia` dialog (YesNo). **An unwired dialog normally lets the action through** — except in Settings, where it does not. `SettingsView.ConfirmAction` answers **no** when there is no window to ask in, and that covers *every* confirmation on that dialog: deleting a manual database connection, a downloaded speech model. An unanswered question is not a yes, and nothing on that dialog is cheap to undo — a speech model is hundreds of megabytes and, on a slow connection, hours. The speech model's own chain says no at all three links (the row, the tab that wires it, the view), and all three had to change together: a `?? Task.FromResult(true)` in the middle made the row's own refusal unreachable
 - **PromptInput pattern** — `Func<string, string, IEnumerable<string>?, Task<string?>>? PromptInput` in ViewModel, wired from View as `InputDialog` (title + text input + suggestions list). Used e.g. when creating a tag.

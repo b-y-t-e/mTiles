@@ -135,6 +135,15 @@ public static class AppPaths
     public static string GetAgentAccountsDirectory() =>
         Path.Combine(GetAppDataDirectory(), "agents");
 
+    /// <summary>
+    /// Where the daily spending snapshots live.
+    /// </summary>
+    /// <remarks>A record of what somebody's accounts cost, so what is written in here goes through
+    /// <see cref="PrivateFile"/> for the reason <c>settings.json</c> does: outside Windows nothing else
+    /// narrows it.</remarks>
+    public static string GetUsageDirectory() =>
+        Path.Combine(GetAppDataDirectory(), "usage");
+
     public static string GetSettingsFilePath() =>
         Path.Combine(GetAppDataDirectory(), "settings.json");
 

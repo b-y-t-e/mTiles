@@ -142,6 +142,17 @@ Who implements what:
 | Git | | | ✔ Refresh, Commit, Push | | | | |
 | Database | | | | | | | |
 | Goal | ✔ | | ✔ Continue, Pause, Commit work | | | ✔ | |
+| Usage | ✔ | | | | | | |
+
+**The usage tile implements exactly one, and the empty columns are the design.** It starts nothing, so
+there is no `IProcessTile` answer to give — a dashboard that reported a working set would be reporting
+this application's own. It owns no file, takes no dictation and draws no terminal. What a workspace does
+need from it is the working light: a refresh reaches three services over the network and can take
+seconds, and a dashboard that looks identical while it is asking is a dashboard nobody trusts. Its
+`Save` answers `null` for the same reason — there is nothing per tile worth writing down, and
+`TileKindIds.ToLegacy` finds no name for it, so a build Velopack has rolled back opens the leaf as an
+empty tile. That costs a click; degrading it to a terminal, the way an agent tile is degraded, would open
+a shell nobody asked for.
 
 `IProcessTile` is the root of a tree and not a process: a terminal knows the shell it spawned and nothing
 about the agent that shell went on to start, which is where the memory actually is. A Goal tile

@@ -1,0 +1,162 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             xmlns:views="using:mTiles.Views"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             x:Class="mTiles.Views.UsageTileView"
+             x:DataType="vm:UsageTileViewModel">
+
+    <UserControl.Styles>
+        <!-- Everything on this tile is set in the terminal's own font. It is a readout of numbers in
+             columns, which is what a monospace face is for: the figures line up down the card without a
+             grid holding them there, and the tile reads as part of the same instrument as the terminal
+             beside it rather than as a document. -->
+        <Style Selector="TextBlock.readout">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource FontXs}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- The figure is the one thing on the row read at full strength. -->
+        <Style Selector="TextBlock.readout.value">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+
+        <!-- The one colour on this tile that carries meaning, and it says the same thing as the cells
+             past the clock's mark: spending ahead of the clock. -->
+        <Style Selector="TextBlock.readout.over">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+
+        <Style Selector="TextBlock.readout.heading">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Full-bleed in the card: this tile's content is its own chrome, so it runs to the edge and takes
+         the corners from the card's clip. -->
+    <DockPanel Background="{DynamicResource BgSurface}">
+
+        <!-- No "Usage" heading: the tile header above already says what this is. -->
+        <DockPanel DockPanel.Dock="Top" Margin="8,3,6,0">
+            <Button DockPanel.Dock="Right" Classes="tile-btn"
+                    Command="{Binding RefreshCommand}"
+                    IsEnabled="{Binding !IsBusy}"
+                    ToolTip.Tip="Ask every account again">
+                <mi:MaterialIcon Kind="Refresh" Width="12" Height="12" />
+            </Button>
+            <TextBlock Classes="readout" Text="{Binding LastRefreshLabel}"
+                       HorizontalAlignment="Right" Margin="0,0,6,0" />
+        </DockPanel>
+
+        <!-- One Panel as the fill child, holding both states. In a DockPanel only the last child fills
+             and everything before it docks - Left by default - so the empty state centred itself inside
+             a strip its own width and sat against the left edge of the tile. -->
+        <Panel>
+            <ScrollViewer IsVisible="{Binding !IsEmpty}" HorizontalScrollBarVisibility="Disabled">
+                <!-- The right margin is the scrollbar's own width. It hides itself and overlays the
+                     content rather than reserving a gutter, so a figure at the end of a row was drawn
+                     underneath it and read as cut off. -->
+                <ItemsControl ItemsSource="{Binding Accounts}" Margin="8,2,14,8">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:UsageAccountViewModel">
+                            <StackPanel Margin="0,0,0,7">
+
+                                <!-- The name gets its own line, and a rule to the edge does the
+                                     separating a box or a gap would otherwise have to. It is also what
+                                     lets the figures below start at the tile's own left margin instead
+                                     of after however long the account happens to be called. -->
+                                <DockPanel ClipToBounds="True" Margin="0,0,0,3">
+                                    <TextBlock DockPanel.Dock="Left" Classes="readout heading"
+                                               Text="{Binding Title}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock DockPanel.Dock="Left" Classes="readout"
+                                               Text="{Binding Plan}"
+                                               IsVisible="{Binding HasPlan}" Margin="5,0,0,0" />
+                                    <!-- Only where the reading is older than the window it describes,
+                                         which is codex's and nobody else's. -->
+                                    <TextBlock DockPanel.Dock="Left" Classes="readout"
+                                               Text="{Binding AgeLabel}"
+                                               IsVisible="{Binding IsStale}" Margin="5,0,0,0" />
+                                    <Border Height="1" VerticalAlignment="Center" Margin="6,1,0,0"
+                                            Background="{DynamicResource BorderSubtle}" />
+                                </DockPanel>
+
+                                <!-- Every window on one line, at every width. The shares are
+                                     proportional rather than sized to their content, which is what
+                                     makes that true without a threshold anybody had to choose: the bar
+                                     is the only part of a window with nothing else in it, so it is
+                                     what runs out first. -->
+                                <Grid ColumnDefinitions="*,Auto" Height="15"
+                                      Opacity="{Binding IsStale, Converter={x:Static views:UsageOpacity.Instance}}">
+                                    <ItemsControl Grid.Column="0" ItemsSource="{Binding Windows}"
+                                                  IsVisible="{Binding HasWindows}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <!-- Equal shares, so two accounts with the same windows
+                                                     line their figures up down the tile. -->
+                                                <UniformGrid Rows="1" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:UsageWindowViewModel">
+                                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,10,0"
+                                                      ClipToBounds="True"
+                                                      ToolTip.Tip="{Binding Tooltip}">
+                                                    <TextBlock Grid.Column="0" Classes="readout"
+                                                               Text="{Binding Label}" Margin="0,0,6,0" />
+
+                                                    <!-- No minimum width, and that is the mechanism:
+                                                         the bar draws whole cells and stops drawing
+                                                         when there is no room for one, so a narrow
+                                                         tile loses the picture and keeps every
+                                                         figure. -->
+                                                    <views:UsageBar Grid.Column="1" Height="8"
+                                                                    VerticalAlignment="Center"
+                                                                    IsVisible="{Binding HasPercent}"
+                                                                    UsedPercent="{Binding UsedPercent}"
+                                                                    ExpectedPercent="{Binding ExpectedPercent}"
+                                                                    TrackBrush="{DynamicResource BgElevated}"
+                                                                    FillBrush="{DynamicResource AccentHover}"
+                                                                    OverBrush="{DynamicResource DangerText}"
+                                                                    TickBrush="{DynamicResource BorderStrong}" />
+
+                                                    <TextBlock Grid.Column="2"
+                                                               Classes="readout value"
+                                                               Classes.over="{Binding IsOverspending}"
+                                                               Text="{Binding Figure}"
+                                                               TextAlignment="Right"
+                                                               Margin="6,0,0,0" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <!-- What is left on the key: the last thing on the line, and the
+                                         one figure a metered account is looked at for. -->
+                                    <TextBlock Grid.Column="1" Classes="readout value"
+                                               Text="{Binding MoneyLabel}"
+                                               IsVisible="{Binding HasMoney}" />
+                                </Grid>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- A fact, not an error: most CLIs and most services publish nothing, so a machine can
+                 legitimately have no card to draw. Shown only once something has actually been asked. -->
+            <StackPanel IsVisible="{Binding IsEmpty}" Spacing="8"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Classes="readout" Text="{x:Static vm:UsageTileViewModel.EmptyMessage}"
+                           Foreground="{DynamicResource TextSecondary}"
+                           TextAlignment="Center" TextWrapping="Wrap"
+                           HorizontalAlignment="Center" />
+                <Button Classes="outlined-sm" Content="Settings → AI"
+                        HorizontalAlignment="Center"
+                        Command="{Binding OpenAiSettingsCommand}" />
+            </StackPanel>
+        </Panel>
+    </DockPanel>
+</UserControl>

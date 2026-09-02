@@ -250,8 +250,42 @@ public sealed class CodexAgent : AiAgent
 
     /// <summary>Where codex keeps its rollout files: <c>~/.codex/sessions</c>, then a directory per
     /// year, month and day.</summary>
-    private static string SessionsRoot => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
+    private static string SessionsRoot => SessionsRootFor(null);
+
+    /// <summary>The sessions directory of one codex home.</summary>
+    /// <remarks><c>CODEX_HOME</c> takes <c>sessions/</c> with it, which is the same fact that makes a
+    /// sign-in a different set of conversations — and here it is what makes it a different set of
+    /// limits.</remarks>
+    private static string SessionsRootFor(string? configDirectory) =>
+        Path.Combine(
+            configDirectory is { Length: > 0 } directory
+                ? directory
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".codex"),
+            "sessions");
+
+    /// <summary>
+    /// The two windows codex last reported, read out of its own transcript.
+    /// </summary>
+    /// <remarks><para>Answered for a sign-in always, and for the default account only where codex has
+    /// actually been used here: a machine with no <c>~/.codex/sessions</c> has no such account, and a
+    /// card saying so would be an explanation for something the user never configured. A sign-in row
+    /// they did make is the opposite case and gets its sentence.</para>
+    /// <para><b>The work goes on the thread pool, because it is the only source here with no network
+    /// call to yield at.</b> It walks the whole of <c>sessions/</c> and reads a rollout file that runs
+    /// into megabytes; left synchronous it ran to completion before the first real <c>await</c> of the
+    /// refresh, which is on the UI thread whenever a tile is built or the Refresh button is
+    /// pressed.</para></remarks>
+    public override Task<AiUsageReport?> UsageAsync(AiSignIn? signIn, CancellationToken ct = default)
+    {
+        var root = SessionsRootFor(signIn is null ? null : AiSignInStore.DirectoryFor(signIn));
+        var sourceId = UsageSourceId(signIn);
+        var name = UsageSourceName(signIn);
+
+        return Task.Run<AiUsageReport?>(() => signIn is null && !Directory.Exists(root)
+            ? null
+            : CodexUsageReader.Read(sourceId, name, root, DateTimeOffset.Now), ct);
+    }
 
     public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
         AiUsage usage, AiBehaviour behaviour = AiBehaviour.Auto,

@@ -460,6 +460,15 @@
                                                         CommandParameter="{Binding}"
                                                         ToolTip.Tip="Opens a tile to log in with" />
                                                 <StackPanel Orientation="Horizontal" Spacing="2">
+                                                    <!-- What the CLI wrote for this account, where it
+                                                         wrote it. The path was only ever reachable by
+                                                         reading it out of a confirmation dialog. -->
+                                                    <Button Classes="tile-btn"
+                                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).OpenSignInFolderCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="{Binding Directory, StringFormat='Open {0}'}">
+                                                        <mi:MaterialIcon Kind="FolderOpenOutline" Width="13" Height="13" />
+                                                    </Button>
                                                     <Button Classes="tile-btn"
                                                             Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditSignInCommand}"
                                                             CommandParameter="{Binding}"
@@ -1358,6 +1367,13 @@
                                     <Button Classes="toolbar"
                                             Command="{Binding CancelEditSignInCommand}"
                                             Content="Cancel"
+                                            Padding="16,5" />
+                                    <!-- Only once the directory exists: on a new sign-in it is made by
+                                         Save, and a button that opens nothing is worse than none. -->
+                                    <Button Classes="toolbar"
+                                            Command="{Binding OpenEditedSignInFolderCommand}"
+                                            IsVisible="{Binding CanOpenEditedSignInFolder}"
+                                            Content="Open account folder"
                                             Padding="16,5" />
                                 </StackPanel>
                             </StackPanel>

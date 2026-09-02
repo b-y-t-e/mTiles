@@ -128,6 +128,14 @@ public abstract class AiProvider : IAiProvider
     public abstract Task<IReadOnlyList<AiModelInfo>> ModelsAsync(AiProviderInstance instance,
         CancellationToken ct = default);
 
+    /// <inheritdoc />
+    /// <remarks>Nothing, unless a provider meters the key. Only OpenRouter answers this at all —
+    /// z.ai, the Anthropic API and the two local servers publish no spending endpoint — and an invented
+    /// figure on a card is worse than a card that is not drawn.</remarks>
+    public virtual Task<AiUsageReport?> UsageAsync(AiProviderInstance instance,
+        CancellationToken ct = default) =>
+        Task.FromResult<AiUsageReport?>(null);
+
     /// <summary>The headers this provider authenticates with. Nothing, where it needs no key.</summary>
     protected virtual void Authenticate(HttpRequestMessage request, AiProviderInstance instance)
     {

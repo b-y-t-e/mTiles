@@ -390,6 +390,26 @@ public abstract class AiAgent : IAiAgent
         }
     }
 
+    /// <summary>Nothing, unless an agent publishes its allowance.</summary>
+    /// <remarks>The default is <c>null</c> rather than an empty report, and the distinction is the one
+    /// <see cref="IAiAgent.UsageAsync"/> spells out: three of these five CLIs have no endpoint and no
+    /// file that says how much is left, and a card reading "0%" for them would be a figure this
+    /// application invented.</remarks>
+    public virtual Task<AiUsageReport?> UsageAsync(AiSignIn? signIn, CancellationToken ct = default) =>
+        Task.FromResult<AiUsageReport?>(null);
+
+    /// <summary>The key one account's readings are filed under.</summary>
+    /// <remarks>The agent's id and the sign-in's, never a name: nothing makes a sign-in's name unique
+    /// and the user can retype it, so a renamed row would either start a fresh history or adopt
+    /// somebody else's. Here rather than on each agent that answers usage, so two of them cannot file
+    /// the same account under two keys.</remarks>
+    protected string UsageSourceId(AiSignIn? signIn) => signIn is null ? Id : $"{Id}:{signIn.Id}";
+
+    /// <summary>What the card is titled: the CLI, and which of its logins where there is more than
+    /// one.</summary>
+    protected string UsageSourceName(AiSignIn? signIn) =>
+        signIn?.Name is { Length: > 0 } named ? $"{DisplayName} · {named}" : DisplayName;
+
     /// <summary>Reads one string out of a JSON file, or null for anything that did not work.</summary>
     /// <remarks><para>Shared by the agents that can name their account, and it never throws: these
     /// files belong to somebody else's CLI, they are read while a Settings page is being drawn, and

@@ -22,6 +22,13 @@ public static class TileKindIds
     public const string Database = "database";
     public const string Goal = "goal";
 
+    /// <summary>What is left of every account's allowance, and when it comes back.</summary>
+    /// <remarks>Nothing is added to <see cref="TileContentType"/> for it, and <see cref="ToLegacy"/>
+    /// finds no name — which is the right answer here and not a gap: this tile holds no work and starts
+    /// nothing, so a build Velopack has rolled back reading it as an empty tile costs a click, where
+    /// pretending it is a terminal would open a shell nobody asked for.</remarks>
+    public const string Usage = "usage";
+
     /// <summary>An AI agent in a tile, run from an <c>AiAgentInstance</c> rather than from a shell
     /// profile the user has to write.</summary>
     /// <remarks>Nothing is added to <see cref="TileContentType"/> for it — that enum is closed and is

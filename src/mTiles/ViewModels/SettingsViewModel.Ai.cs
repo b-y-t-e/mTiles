@@ -881,6 +881,7 @@ public partial class SettingsViewModel
 
         EditSignInAgentName = tool;
         OnPropertyChanged(nameof(CanChooseSignInAgent));
+        OnPropertyChanged(nameof(CanOpenEditedSignInFolder));
 
         BeginEditing(ref _isEditingSignIn);
     }
@@ -1013,6 +1014,45 @@ public partial class SettingsViewModel
 
         if (RunInstallPlan is not { } run || !await run(plan))
             await ShowProblemAsync("Sign in", "Open a workspace first — the tool runs in a tile there.");
+    }
+
+    /// <summary>
+    /// Opens the account's own directory in the file manager.
+    /// </summary>
+    /// <remarks><para>The one place the CLI's own files for this account are — <c>.claude.json</c>,
+    /// <c>.credentials.json</c>, codex's <c>sessions/</c> — and until now the only way to see them was
+    /// to copy the path out of a confirmation dialog. Read-only in spirit: it opens a window, it does
+    /// not create the directory. <see cref="AiSignInStore.Ensure"/> is for the paths that are about to
+    /// be written into, and making one here would answer "show me what is in there" by making an empty
+    /// folder.</para>
+    /// <para>Says so when there is nothing there rather than opening a file manager on a path that does
+    /// not exist, which on Windows is a silent no-op.</para></remarks>
+    [RelayCommand]
+    private Task OpenSignInFolderAsync(AiSignInViewModel row) => OpenAccountFolderAsync(row.SignIn);
+
+    /// <summary>The same from the form, for the sign-in it is open on.</summary>
+    /// <remarks>A second command rather than a parameter, because the form has no row to hand it: it
+    /// edits an <see cref="AiSignIn"/> that is not in the list at all while it is new.</remarks>
+    [RelayCommand]
+    private Task OpenEditedSignInFolderAsync() =>
+        _editingSignIn is { } signIn ? OpenAccountFolderAsync(signIn) : Task.CompletedTask;
+
+    /// <summary>Whether the form has a directory to show — only once the sign-in has been saved.</summary>
+    public bool CanOpenEditedSignInFolder => _editingSignIn is not null && !CanChooseSignInAgent;
+
+    private async Task OpenAccountFolderAsync(AiSignIn signIn)
+    {
+        var directory = AiSignInStore.DirectoryFor(signIn);
+        if (!Directory.Exists(directory))
+        {
+            await ShowProblemAsync("Account folder",
+                $"{directory} is not there yet - it is made when the sign-in is saved, and filled in "
+                + "when the tool logs in.");
+            return;
+        }
+
+        if (!FileHelper.OpenFolder(directory))
+            await ShowProblemAsync("Account folder", $"Could not open {directory}.");
     }
 
     /// <summary>

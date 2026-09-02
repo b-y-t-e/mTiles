@@ -150,4 +150,17 @@ public interface IAiProvider
     /// an agent's environment as a fact.</para></remarks>
     Task<long?> ContextWindowAsync(AiProviderInstance instance, string model,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// What is left on this key and what the last windows cost, or null when the service reports
+    /// nothing of the kind.
+    /// </summary>
+    /// <remarks><para>Null is "there is no such question here" — the local servers meter nothing and
+    /// the hosted ones but one publish no spending endpoint — and nothing is recorded at all. A report
+    /// carrying a <c>Problem</c> is a key that exists and could not be asked, and its sentence reaches
+    /// the log through <c>AiUsageService.Explain</c>. Neither draws a card. Neither is ever a zero
+    /// either: an unmetered key and an exhausted one must not read alike, the same tri-state
+    /// <see cref="ProviderCheck.Balance"/> already carries.</para>
+    /// <para>Never throws, for the reason <see cref="TestAsync"/> does not.</para></remarks>
+    Task<AiUsageReport?> UsageAsync(AiProviderInstance instance, CancellationToken ct = default);
 }
