@@ -32,6 +32,27 @@
         <Style Selector="TextBlock.readout.heading">
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
         </Style>
+
+        <!-- A refresh reaches three services over the network and takes seconds, and a tile that looks
+             identical while it is asking is a tile whose button reads as broken. The turning arc is the
+             same mark the workspace row uses for the same idea, and it turns rather than sitting still
+             because what it reports is work in progress: a still mark cannot be told apart from a state
+             somebody left switched on.
+
+             The animation hangs off a second class, never off the base one, so an infinite animation is
+             not left ticking on an idle tile for the whole session. -->
+        <Style Selector="mi|MaterialIcon.spin.spinning">
+            <Style.Animations>
+                <Animation Duration="0:0:1.1" IterationCount="INFINITE" Easing="LinearEasing">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="RotateTransform.Angle" Value="0" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="RotateTransform.Angle" Value="360" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
     </UserControl.Styles>
 
     <!-- Full-bleed in the card: this tile's content is its own chrome, so it runs to the edge and takes
@@ -44,9 +65,11 @@
                     Command="{Binding RefreshCommand}"
                     IsEnabled="{Binding !IsBusy}"
                     ToolTip.Tip="Ask every account again">
-                <mi:MaterialIcon Kind="Refresh" Width="12" Height="12" />
+                <mi:MaterialIcon Kind="Refresh" Width="12" Height="12"
+                                 Classes="spin" Classes.spinning="{Binding IsBusy}" />
             </Button>
             <TextBlock Classes="readout" Text="{Binding LastRefreshLabel}"
+                       ToolTip.Tip="{Binding LastRefreshTooltip}"
                        HorizontalAlignment="Right" Margin="0,0,6,0" />
         </DockPanel>
 
@@ -169,6 +192,20 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
+
+            <!-- Nothing asked is not nothing found, so what stands here before the first round answers
+                 is the round itself rather than a sentence about the machine — centred, in the same
+                 readout the figures are written in, so the tile does not change character between the
+                 wait and the answer. -->
+            <StackPanel IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="6"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                <mi:MaterialIcon Kind="Loading" Width="12" Height="12"
+                                 Classes="spin spinning"
+                                 VerticalAlignment="Center"
+                                 Foreground="{DynamicResource AccentDefault}" />
+                <TextBlock Classes="readout" Text="asking every account…"
+                           VerticalAlignment="Center" />
+            </StackPanel>
 
             <!-- A fact, not an error: most CLIs and most services publish nothing, so a machine can
                  legitimately have no card to draw. Shown only once something has actually been asked. -->

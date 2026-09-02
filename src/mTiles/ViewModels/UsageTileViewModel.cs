@@ -60,7 +60,22 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
     [ObservableProperty] private bool _isEmpty;
 
     /// <summary>When the figures were last replaced, or an empty string before the first answer.</summary>
+    /// <remarks>The word is part of the reading. A bare <c>13:16</c> at the top of a tile full of clock
+    /// times — five-hour windows, resets, countdowns — is one more time of day among them, and the one
+    /// question it answers (how old is everything below this) is the one nobody could tell it was
+    /// answering. The full instant is in the tooltip, since the line itself only has room for the
+    /// minute.</remarks>
     [ObservableProperty] private string _lastRefreshLabel = "";
+
+    /// <summary>The whole instant, spelled out, for the line that only has room for the minute.</summary>
+    [ObservableProperty] private string _lastRefreshTooltip = "";
+
+    /// <summary>Nothing has been asked yet — which is not the same as nothing having been found.</summary>
+    /// <remarks>The complement of <see cref="IsEmpty"/> among the states with no card to draw: before
+    /// the first round answers there is no fact about this machine to state, so what stands in the
+    /// middle of the tile is the round itself. Without it the tile is blank for as long as the round
+    /// takes, and Claude Code alone allows fifteen seconds of it.</remarks>
+    [ObservableProperty] private bool _isLoading;
 
     /// <summary>What an empty tile says, which is a fact and not an error.</summary>
     /// <remarks>Every one of the six CLIs and six services is asked; most of them publish nothing, so a
@@ -77,6 +92,7 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
     private async Task RefreshAsync(bool force)
     {
         IsBusy = true;
+        IsLoading = Accounts.Count == 0 && !IsEmpty;
         try { await _usage.RefreshAsync(force); }
         finally { IsBusy = _usage.IsRefreshing; }
     }
@@ -108,8 +124,20 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
                 Accounts.Add(new UsageAccountViewModel(report, now));
 
         IsEmpty = Accounts.Count == 0 && _usage.LastRefresh is not null;
+        IsLoading = Accounts.Count == 0 && !IsEmpty;
         IsBusy = _usage.IsRefreshing;
-        LastRefreshLabel = _usage.LastRefresh is { } last ? last.ToLocalTime().ToString("HH:mm") : "";
+
+        if (_usage.LastRefresh is { } last)
+        {
+            var local = last.ToLocalTime();
+            LastRefreshLabel = "updated " + local.ToString("HH:mm");
+            LastRefreshTooltip = "Last updated " + local.ToString("dddd, d MMMM yyyy, HH:mm:ss");
+        }
+        else
+        {
+            LastRefreshLabel = "";
+            LastRefreshTooltip = "";
+        }
     }
 
     public void Dispose()
