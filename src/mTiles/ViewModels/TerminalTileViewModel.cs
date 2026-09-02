@@ -12,7 +12,7 @@ using mTiles.Services.Speech;
 namespace mTiles.ViewModels;
 
 public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICustomBackgroundTile,
-    ITileActions, ITextInputTile, IProcessTile
+    ITileActions, ITextInputTile, IProcessTile, IMaximizableTile
 {
     /// <inheritdoc />
     /// <remarks>Virtual for the one kind that is this tile with a different source of scripts — see

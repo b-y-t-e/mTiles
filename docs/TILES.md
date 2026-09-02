@@ -88,7 +88,51 @@ public interface IProcessTile : ITile
 {
     int? ChildProcessId { get; }        // the process it started; null between sessions
 }
+
+public interface IMaximizableTile : ITile
+{
+}                                       // no members — see below
 ```
+
+### `IMaximizableTile` — worth the whole workspace
+
+The one capability with **no members**, and the emptiness is the answer rather than an omission.
+Filling the workspace is done *to* a `LeafTileNodeViewModel` by `TileMaximizeScope`; that is layout, and
+none of the content's business. What only the content can say is whether the gesture means anything for
+it — a yes or a no. A `bool CanMaximize` on `ITile` would be the same answer written where every kind
+has to repeat it, four of them as `false`.
+
+**Who implements it is a decision about what the extra room buys.** A terminal, an agent, a note and a
+todo list are the four whose content is simply *more of the same* at a larger size: more scrollback,
+more text, more rows. The git, database, goal and usage tiles lay themselves out in panes and columns
+already sized to their own content — making them larger stretches whitespace rather than showing
+anything more, and the two that own a splitter would end up with a splitter inside a tile with no
+splitter around it.
+
+**How it is shown, and why nothing moves.** `TileMaximizeScope` (one per workspace, exactly like
+`TileActivationScope`, for the same reason: "only one at a time" is a fact about the workspace) writes
+`SplitTileNodeViewModel.Solo` on every split between the root and the chosen leaf. A soloed split draws
+that one child at full size instead of two children and a splitter — same `TileNodeView` children, same
+`LeafTileView`, same `TerminalControl`. Nothing is re-parented into a second view, which is the one
+thing a terminal could not survive: its control lives in the view, so a full-screen view built as a
+*second* view of the same tile would hand the tile back afterwards with an empty shell.
+
+**Nothing is persisted.** `Solo` is not serialized: maximizing is a way of looking at a layout, not a
+change to one, and a workspace that reopened with half its tiles hidden and nothing on screen saying why
+is a bug with no symptom. Switching workspaces keeps it, because the scope lives as long as the
+workspace's view models do.
+
+**Every way out puts the layout back.** Closing the maximized tile (`Dispose` → `Forget`), splitting it
+(a new tile beside an off-screen one is a tile nobody can see), and clearing the root all restore first.
+The path is *remembered* rather than re-walked, because each of those leaves the leaf pointing at
+parents it no longer has — and a split left soloed on an unreachable child is half a workspace invisible
+for the rest of the session.
+
+On the header it is one button that changes shape: `Fullscreen` → `FullscreenExit`, lit while it is on
+(`Button.tile-btn-on`), with **Ctrl+Shift+F** and an overflow entry. It never stands down at a narrow
+width — the tile most worth expanding is the narrow one — while the split buttons stand down *because*
+the tile is maximized: splitting restores first, so offering it there would read as "split this
+full-screen view in two", which is not what happens.
 
 ### `IDescribedTile` — what the tile is *running*
 
@@ -134,15 +178,15 @@ public interface ITileKind
 
 Who implements what:
 
-| Kind | `IBusyTile` | `IFileContent` | `ITileActions` | `ITextInputTile` | `ICustomBackgroundTile` | `IProcessTile` | `IDescribedTile` |
-|---|---|---|---|---|---|---|---|
-| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ | ✔ Agent tiles only |
-| Note | | ✔ | | | | | |
-| Todo | | ✔ | | | | | |
-| Git | | | ✔ Refresh, Commit, Push | | | | |
-| Database | | | | | | | |
-| Goal | ✔ | | ✔ Continue, Pause, Commit work | | | ✔ | |
-| Usage | ✔ | | | | | | |
+| Kind | `IBusyTile` | `IFileContent` | `ITileActions` | `ITextInputTile` | `ICustomBackgroundTile` | `IProcessTile` | `IDescribedTile` | `IMaximizableTile` |
+|---|---|---|---|---|---|---|---|---|
+| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ | ✔ Agent tiles only | ✔ |
+| Note | | ✔ | | | | | | ✔ |
+| Todo | | ✔ | | | | | | ✔ |
+| Git | | | ✔ Refresh, Commit, Push | | | | | |
+| Database | | | | | | | | |
+| Goal | ✔ | | ✔ Continue, Pause, Commit work | | | ✔ | | |
+| Usage | ✔ | | | | | | | |
 
 **The usage tile implements exactly one, and the empty columns are the design.** It starts nothing, so
 there is no `IProcessTile` answer to give — a dashboard that reported a working set would be reporting
@@ -231,6 +275,10 @@ Something earns its own interface only when all three are true:
 2. **It varies while the tile is alive.** If it does not, it is data on the kind, not an interface member.
 3. **Somebody has to ask "can you do this?"** — that question is written `is` / `as`, which is what an
    interface is for.
+
+`IMaximizableTile` passes all three and carries nothing: it is optional (four kinds of eight), it varies
+while the tile is alive (an empty tile becomes a terminal), and the question is asked with `is`. A
+capability may be a marker — what it must not be is a member half the implementations cannot honour.
 
 `ITileActions` is the one that was close. `Actions` alone could sit on `ITile` returning an empty list —
 an empty list is not a lie. But `InvokeAsync` travels with it, and on a tile with no actions that is a

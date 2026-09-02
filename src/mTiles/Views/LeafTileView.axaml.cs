@@ -87,7 +87,10 @@ public partial class LeafTileView : UserControl
     /// </remarks>
     private void ApplyHeaderWidth(double width)
     {
-        var roomToSplit = width >= SplitButtonsNeedWidth;
+        // Splitting a tile that is filling the workspace puts a tile beside it that nobody can see, so
+        // the command restores the layout first — but offering it here would still read as "split this
+        // full-screen view in two", which is not what happens. Width *and* state, in the one writer.
+        var roomToSplit = width >= SplitButtonsNeedWidth && _subscribedLeaf?.IsMaximized != true;
         SplitRightButton.IsVisible = roomToSplit;
         SplitDownButton.IsVisible = roomToSplit;
 
@@ -103,6 +106,36 @@ public partial class LeafTileView : UserControl
         // property at the same priority is how the Restart button came to depend on whether the tile had
         // been resized or its content changed more recently.
         TileHeaderNote.IsVisible = width >= HeaderNoteNeedsWidth && TileHeaderNote.Text?.Length > 0;
+
+        // No width of its own: whether this tile can fill the workspace is the whole condition. A tile
+        // narrow enough for the splits to stand down is the one this button is most wanted on.
+        var canMaximize = _subscribedLeaf?.CanMaximize == true;
+        MaximizeButton.IsVisible = canMaximize;
+        MaximizeMenuItem.IsVisible = canMaximize;
+    }
+
+    /// <summary>
+    /// Which way the full-screen button will go, said on the button itself.
+    /// </summary>
+    /// <remarks>The glyph and the tooltip, because the way back out has to be as findable as the way in
+    /// — the header of a maximized tile is the only chrome left on screen. The visibility is
+    /// <see cref="ApplyHeaderWidth"/>'s, which this calls: one writer for the picture, one for the flag.
+    /// </remarks>
+    private void UpdateMaximizeButton(LeafTileNodeViewModel leaf)
+    {
+        var kind = leaf.IsMaximized ? MaterialIconKind.FullscreenExit : MaterialIconKind.Fullscreen;
+        MaximizeGlyph.Kind = kind;
+        MaximizeMenuGlyph.Kind = kind;
+
+        var label = leaf.IsMaximized ? "Exit full screen (Ctrl+Shift+F)" : "Full screen (Ctrl+Shift+F)";
+        ToolTip.SetTip(MaximizeButton, label);
+        MaximizeMenuItem.Header = leaf.IsMaximized ? "Exit full screen" : "Full screen";
+
+        // The one button on this header that stays lit rather than only changing shape: it is the only
+        // thing on screen saying that the rest of the workspace is still there.
+        MaximizeButton.Classes.Set("tile-btn-on", leaf.IsMaximized);
+
+        ApplyHeaderWidth(TileToolbar.Bounds.Width);
     }
 
     /// <summary>
@@ -133,6 +166,16 @@ public partial class LeafTileView : UserControl
 
     private void OnTileKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        {
+            if (DataContext is LeafTileNodeViewModel { CanMaximize: true } maximizable)
+            {
+                maximizable.ToggleMaximizeCommand.Execute(null);
+                e.Handled = true;
+            }
+            return;
+        }
+
         if (e.Key == Key.R && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
         {
             if (DataContext is LeafTileNodeViewModel { CanRestart: true } leaf)
@@ -166,7 +209,7 @@ public partial class LeafTileView : UserControl
                 return result == ButtonResult.Yes;
             };
             UpdateTypeGlyph(leaf);
-            ApplyHeaderWidth(TileToolbar.Bounds.Width);
+            UpdateMaximizeButton(leaf);
             UpdateActiveIndicator(leaf);
             UpdateDictationIndicator(leaf);
             UpdateContentDisplay(leaf);
@@ -181,8 +224,11 @@ public partial class LeafTileView : UserControl
         {
             UpdateTypeGlyph(leaf);
             UpdateContentDisplay(leaf);
-            ApplyHeaderWidth(TileToolbar.Bounds.Width);
+            UpdateMaximizeButton(leaf);
         }
+        else if (e.PropertyName is nameof(LeafTileNodeViewModel.IsMaximized)
+                 or nameof(LeafTileNodeViewModel.CanMaximize))
+            UpdateMaximizeButton(leaf);
         // The property the strip is drawn from, not the two it is computed from. Listening to the inputs
         // meant the strip was repainted while one of them had not been updated yet: on the way in the
         // recording flag arrived before IsDictating, so the strip was still lit and showed through the

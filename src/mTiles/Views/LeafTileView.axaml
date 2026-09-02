@@ -135,6 +135,15 @@
                                             </MenuItem.Styles>
                                         </MenuItem>
                                         <Separator />
+                                        <MenuItem x:Name="MaximizeMenuItem"
+                                                  Header="Full screen"
+                                                  InputGesture="Ctrl+Shift+F"
+                                                  Command="{Binding ToggleMaximizeCommand}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon x:Name="MaximizeMenuGlyph"
+                                                                 Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                        </MenuItem>
                                         <MenuItem Header="Split right"
                                                   Command="{Binding SplitVerticalCommand}">
                                             <MenuItem.Icon>
@@ -161,6 +170,16 @@
                                     Command="{Binding SplitHorizontalCommand}"
                                     ToolTip.Tip="Split Down">
                                 <mi:MaterialIcon Kind="DockBottom" Width="14" Height="14" />
+                            </Button>
+                            <!-- Full screen, and the way back out of it. Never stood down by
+                                 ApplyHeaderWidth, unlike the splits beside it: the tile most worth
+                                 filling the workspace with is the narrow one, which is exactly the
+                                 width at which a button that gives way would not be there. It is in
+                                 the overflow as well, for the tile that is narrower still. -->
+                            <Button x:Name="MaximizeButton"
+                                    Classes="tile-btn"
+                                    Command="{Binding ToggleMaximizeCommand}">
+                                <mi:MaterialIcon x:Name="MaximizeGlyph" Width="14" Height="14" />
                             </Button>
                             <Button Classes="tile-btn-close"
                                     Command="{Binding CloseCommand}"

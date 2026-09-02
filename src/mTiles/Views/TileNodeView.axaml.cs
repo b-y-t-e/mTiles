@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -47,7 +47,8 @@ public partial class TileNodeView : UserControl
         if (_vm is SplitTileNodeViewModel split &&
             e.PropertyName is nameof(SplitTileNodeViewModel.First)
                 or nameof(SplitTileNodeViewModel.Second)
-                or nameof(SplitTileNodeViewModel.Orientation))
+                or nameof(SplitTileNodeViewModel.Orientation)
+                or nameof(SplitTileNodeViewModel.Solo))
         {
             Rebuild();
         }
@@ -121,6 +122,15 @@ public partial class TileNodeView : UserControl
     /// way the views were built.</remarks>
     private TileNodeView? _owner;
 
+    /// <summary>The child view holding this split's soloed child, or null when nothing is soloed here.</summary>
+    private TileNodeView? SoloView(SplitTileNodeViewModel split)
+    {
+        if (split.Solo is not { } solo) return null;
+        if (ReferenceEquals(solo, split.First)) return _firstChild;
+        if (ReferenceEquals(solo, split.Second)) return _secondChild;
+        return null;
+    }
+
     private void ShowSplit(SplitTileNodeViewModel split)
     {
         _firstChild ??= new TileNodeView { _owner = this };
@@ -133,6 +143,25 @@ public partial class TileNodeView : UserControl
             _firstChild.DataContext = split.First;
         if (_secondChild.DataContext != split.Second)
             _secondChild.DataContext = split.Second;
+
+        // A maximized tile is shown by the splits above it drawing one child and nothing else — no
+        // grid, no splitter, no gutter. The child views are the ones this split has always held, so the
+        // tile that fills the workspace is the same control it was in the layout: its terminal is not
+        // rebuilt, its scrollback is not lost, and putting the layout back is this method running again
+        // with Solo cleared. The other side is detached from the visual tree, which does not end a
+        // session — only its UI timers pause.
+        // Asked as "which of the two is it", never as "is it the first, otherwise the second": a Solo
+        // left behind by a tile that has since been re-parented — the other side of this split closed,
+        // so the survivor was lifted into the grandparent — is a child of neither, and answering
+        // "second" for it draws a branch nobody maximized while the maximized tile disappears along
+        // with the header that could bring it back. A stale Solo simply draws the split.
+        if (SoloView(split) is { } soloView)
+        {
+            ControlHelper.DetachFromParent(_firstChild);
+            ControlHelper.DetachFromParent(_secondChild);
+            Content = soloView;
+            return;
+        }
 
         var grid = new Grid();
         var splitter = new GridSplitter

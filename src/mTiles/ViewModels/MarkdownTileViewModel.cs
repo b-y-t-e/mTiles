@@ -1,4 +1,4 @@
-using Avalonia.Threading;
+﻿using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
 using mTiles.Services;
@@ -14,7 +14,7 @@ namespace mTiles.ViewModels;
 /// <see cref="TodoTileViewModel"/> are, and they differ by what they are called and where their files
 /// go rather than by any of this.
 /// </remarks>
-public abstract partial class MarkdownTileViewModel : ObservableObject, IFileContent
+public abstract partial class MarkdownTileViewModel : ObservableObject, IFileContent, IMaximizableTile
 {
     /// <inheritdoc />
     public abstract string KindId { get; }

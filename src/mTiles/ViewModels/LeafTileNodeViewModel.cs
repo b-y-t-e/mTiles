@@ -130,10 +130,69 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// workspace's any more.</remarks>
     public int? ChildProcessId => _disposed ? null : (Content as IProcessTile)?.ChildProcessId;
 
+    /// <summary>Whether giving this tile the whole workspace would show anything more
+    /// (<see cref="IMaximizableTile"/>), and whether there is a workspace to give.</summary>
+    /// <remarks><para>Asked of the content rather than of the kind, for the reason
+    /// <see cref="CanRestart"/> is: a kind added later gets the button by implementing the capability,
+    /// and this class learns nothing about it. The scope is null in a tile built by hand — a test —
+    /// where there is no workspace to fill.</para>
+    /// <para>And there has to be a split above it. A tile that is the whole tree — the one a first run
+    /// opens with — already fills the workspace, so there is nothing for the gesture to do: without this
+    /// the press changed nothing on screen while the button lit up, the glyph turned into
+    /// <c>FullscreenExit</c> and the splits stood down, offering the user a way out of something they
+    /// had never gone into.</para></remarks>
+    public bool CanMaximize =>
+        !_disposed && Content is IMaximizableTile && MaximizeScope is not null
+        && Parent is SplitTileNodeViewModel;
+
+    /// <summary>True while this tile is the one filling the workspace.</summary>
+    /// <remarks>Written by <see cref="TileMaximizeScope"/> and by nothing else: the scope is what knows
+    /// that only one tile can be maximized at a time, and a tile setting its own flag would be a second
+    /// tile lit up beside the one actually on screen.</remarks>
+    [ObservableProperty]
+    private bool _isMaximized;
+
+    /// <summary>The workspace's answer to "which tile has the whole of it", handed to every tile the
+    /// same way its dictation service is.</summary>
+    public TileMaximizeScope? MaximizeScope { get; set; }
+
+    /// <summary>
+    /// Gives this tile the whole workspace, or hands it back.
+    /// </summary>
+    /// <remarks>One command for both directions, because it is one button: the header shows which way
+    /// it will go by the glyph on it, and a tile that filled the screen with no way back on the same
+    /// button is the thing a maximize gesture is most often wrong about.</remarks>
+    [RelayCommand]
+    private void ToggleMaximize()
+    {
+        if (!CanMaximize) return;
+        MaximizeScope!.Toggle(this);
+
+        // Both ways through, the tile's view is detached from the visual tree and put back — as the
+        // split's only content on the way in, into the grid on the way out — and Avalonia drops the
+        // keyboard focus with it. Without this the terminal that just filled the screen stopped taking
+        // what was typed, and Ctrl+Shift+F never reached the header that would have brought the layout
+        // back, so the only way out was the mouse.
+        Activate();
+        RequestFocus();
+    }
+
+    /// <summary>Keeps what the tile can do in step with where it hangs in the tree.</summary>
+    /// <remarks>A tile is moved between parents by a close, a split and a drop, and none of those goes
+    /// anywhere near this class — but a leaf lifted into the root's own slot stops having a full screen
+    /// to go to, and the header is the last thing that would find out.</remarks>
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.PropertyName == nameof(Parent))
+            OnPropertyChanged(nameof(CanMaximize));
+    }
+
     partial void OnContentChanged(ITile? oldValue, ITile? newValue)
     {
         WatchContent(oldValue, newValue);
         OnPropertyChanged(nameof(HasSession));
+        OnPropertyChanged(nameof(CanMaximize));
         RefreshAgentInstances();
         OnPropertyChanged(nameof(IsBusy));
         RaiseActionsChanged();
@@ -378,6 +437,12 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
         Dictation = null;
 
+        // Before anything else: a maximized tile being closed leaves the splits above it soloed on a
+        // child that is about to be taken out of the tree, and the workspace would come back showing
+        // one branch of itself with nothing able to put the rest back.
+        MaximizeScope?.Forget(this);
+        OnPropertyChanged(nameof(CanMaximize));
+
         var content = Content;
         WatchContent(content, null);
         // Said out loud, because the content is no longer there to say it: the workspace is still
@@ -516,6 +581,12 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
     private LeafTileNodeViewModel Split(Orientation orientation)
     {
+        // A split puts a tile beside this one, and a maximized tile is the only thing on screen — so the
+        // new tile would be created, focused and invisible. Restoring first is also what keeps the
+        // soloed splits honest: this call inserts a new split above this leaf, which the scope's
+        // remembered path knows nothing about.
+        MaximizeScope?.Restore();
+
         var newLeaf = new LeafTileNodeViewModel(TileKindIds.None, null, _workingDirectory,
             _activationScope, _catalog, _context, _nameFactory)
         {
@@ -539,6 +610,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
             newLeaf.RootReplaced = RootReplaced;
             newLeaf.RootCleared = RootCleared;
             newLeaf.Dictation = Dictation;
+            newLeaf.MaximizeScope = MaximizeScope;
         }
 
         var oldParent = Parent;

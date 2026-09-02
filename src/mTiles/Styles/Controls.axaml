@@ -1,4 +1,4 @@
-<Styles xmlns="https://github.com/avaloniaui"
+﻿<Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:mi="using:Material.Icons.Avalonia"
         xmlns:ae="using:AvaloniaEdit">
@@ -160,6 +160,18 @@
     </Style>
     <Style Selector="Button.tile-btn-recording:pointerover">
         <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+    </Style>
+
+    <!-- A tile-btn whose state the header has to show — the full-screen button while this tile has the
+         whole workspace. The accent rather than danger: nothing is at risk, something is switched on.
+         Colour and ground only, like the microphone above it, so the glyph does not move out from under
+         the finger about to press it again. -->
+    <Style Selector="Button.tile-btn-on">
+        <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+    </Style>
+    <Style Selector="Button.tile-btn-on:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
     </Style>
 
     <!-- ======== DICTATION: the tile border while it is being spoken into ========

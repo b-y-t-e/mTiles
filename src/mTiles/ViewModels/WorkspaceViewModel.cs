@@ -68,6 +68,12 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private readonly TileActivationScope _activationScope = new();
 
+    /// <summary>Which of this workspace's tiles has the whole of it, if any.</summary>
+    /// <remarks>Per workspace like the activation scope beside it, and for the same reason: switching to
+    /// another workspace must not put a maximized tile away, and coming back must find it as it was
+    /// left.</remarks>
+    private readonly TileMaximizeScope _maximizeScope = new();
+
     /// <summary>Every name this workspace has given a tile, by kind id.</summary>
     /// <remarks>A dictionary rather than a field per kind: five fields meant five parameters on the
     /// allocator and a five-armed <c>else if</c> reading them back out of a saved layout, and a seventh
@@ -220,11 +226,18 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         // arrangement that let a new callback be added here and forgotten there.
         leaf.LayoutChanged = ScheduleSave;
         leaf.Dictation = _dictation;
+        leaf.MaximizeScope = _maximizeScope;
         // Passed on to every tile, so a tile created by splitting is configured by this same method
         // rather than by whatever its parent remembered to copy.
         leaf.ConfigureNewLeaf = ConfigureLeafCallbacks;
         leaf.RootReplaced = newRoot => RootTile = ConfigureRoot(newRoot);
-        leaf.RootCleared = () => { RootTile = CreateEmptyLeaf(); ScheduleSave(); };
+        leaf.RootCleared = () =>
+        {
+            // The tree this workspace is about to throw away is the one the soloed splits are on.
+            _maximizeScope.Restore();
+            RootTile = CreateEmptyLeaf();
+            ScheduleSave();
+        };
         leaf.PropertyChanged -= OnLeafPropertyChanged;
         leaf.PropertyChanged += OnLeafPropertyChanged;
         // A tile arriving is a change to the answer too — splitting anything but the root leaves
