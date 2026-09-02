@@ -624,16 +624,22 @@ readers take trouble to write was constructed and thrown away, and a genuinely b
 in silence. The layers underneath log their own failures, but only the ones that are a failed call —
 nothing down there knows that eight rollouts in a row carried no reading.
 
-**One login reached two ways is one card.** A machine that exports `CLAUDE_CONFIG_DIR` — which is
-exactly what an mTiles sign-in sets for the tiles it launches — has its *default* account inside one of
-those sign-in directories, so both sources read one file and the tile drew the same figures twice under
-two names. `AiUsageReport.AccountKey` is what says they are the same: the canonicalised path of the file
-or directory the reading came from, never the credential, because the question is whether two rows point
-at one login on this disk. **A report with no key is never merged with anything** — two accounts wrongly
-folded together is a subscription missing from the screen, which is worse than the repetition. Which
-name survives is decided by `UsageSources.AccountsOf` listing an agent's sign-ins *before* its default
-account: the row the user named and can find in Settings is the better of the two to keep, and a machine
-with no sign-ins still gets its default because nothing came before it.
+**One login reached two ways is one card.** The same subscription can be logged into twice — the CLI's
+own default account and an mTiles sign-in — and then it is two directories holding two unrelated
+`.credentials.json` files that answer with one set of figures. `AiUsageReport.AccountKey` is what says
+they are the same, and for Claude Code it is the account's own id: `oauthAccount.accountUuid` out of
+`.claude.json`, prefixed so it cannot collide, compared in memory and never stored, shown or logged.
+Measured on a machine with three logins — the default and one sign-in carry the same uuid, which was
+exactly the pair the tile drew twice. Where the id is not there (a directory logged into whose
+`.claude.json` the CLI has not written yet) the canonicalised path is the fallback, and it is honest
+about being weaker: two rows on one path are certainly one login, which is the case `CLAUDE_CONFIG_DIR`
+produces and is what codex's key still is. The read is `AiAgent.ReadJsonString`, which stops at the
+answer — that file carries a Claude Code installation's whole per-project history. **A report with no key
+is never merged with anything** — two accounts wrongly folded together is a subscription missing from
+the screen, which is worse than the repetition. Which name survives is decided by
+`UsageSources.AccountsOf` listing an agent's sign-ins *before* its default account: the row the user
+named and can find in Settings is the better of the two to keep, and a machine with no sign-ins still
+gets its default because nothing came before it.
 
 **A 200 in the wrong shape is a failure, not an empty card.** `OpenRouterProvider.UsageAsync` answers
 `AiUsageReport.Failed` when the answer carries no `data` object: built as an ordinary report it came out

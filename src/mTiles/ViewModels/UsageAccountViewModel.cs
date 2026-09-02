@@ -131,12 +131,12 @@ public sealed class UsageAccountViewModel
     public string RemainingLabel { get; }
     public bool HasRemaining => RemainingLabel.Length > 0;
 
-    /// <summary>What is left on the key.</summary>
-    /// <remarks><b>The balance and nothing beside it.</b> What each window cost is already on that
-    /// window's own row; a row of daily bars and a note saying how many of those days this application
-    /// had been watching for was a second line answering a question nobody was asking. What a metered
-    /// account is looked at for is how much money is left.</remarks>
-    public string MoneyLabel => HasRemaining ? $"{RemainingLabel} left" : "";
+    /// <summary>What is left on the key, written the way every other figure on the row is.</summary>
+    /// <remarks><b>A caption and a figure, not a figure and a word.</b> "$4.38 left" put the amount
+    /// first and the noun after it, in the row's bright ink, which is the opposite of every window
+    /// beside it — those read <c>today: $0.22</c>, the name muted and the figure bright. It is the same
+    /// kind of fact and it now looks like one.</remarks>
+    public string MoneyCaption => "left:";
 
-    public bool HasMoney => MoneyLabel.Length > 0;
+    public bool HasMoney => HasRemaining;
 }

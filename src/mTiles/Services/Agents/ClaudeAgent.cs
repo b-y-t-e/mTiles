@@ -313,12 +313,11 @@ public sealed class ClaudeAgent : AiAgent
         CancellationToken ct = default)
     {
         var directory = signIn is null ? null : AiSignInStore.DirectoryFor(signIn);
-        var credentialsFile = FilesFor(directory).Credentials;
+        var (settingsFile, credentialsFile) = FilesFor(directory);
         var name = UsageSourceName(signIn);
         var sourceId = UsageSourceId(signIn);
         var now = DateTimeOffset.Now;
-
-        var accountKey = UsageAccountKey(credentialsFile);
+        var accountKey = AccountKeyFor(settingsFile, credentialsFile);
 
         if (ReadJsonString(credentialsFile, "claudeAiOauth", "accessToken") is not { Length: > 0 } token)
             return signIn is null
@@ -331,6 +330,31 @@ public sealed class ClaudeAgent : AiAgent
         return await ClaudeUsageReader.ReadAsync(sourceId, name,
             plan is { Length: > 0 } ? Capitalised(plan) : null, token, now, accountKey, ct);
     }
+
+    /// <summary>
+    /// Which login this is, so that two rows reading one subscription draw one card.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The account's own id, not the file it was read from.</b> The same subscription logged
+    /// into twice — the CLI's default account and an mTiles sign-in — is two directories holding two
+    /// unrelated <c>.credentials.json</c> files, and a path told them apart when the question was
+    /// whether they are the same account. Measured on a machine with three logins: the default and one
+    /// sign-in carry the same <c>oauthAccount.accountUuid</c>, which is exactly the pair the tile was
+    /// drawing twice. It is an identifier and not a credential, it is compared in memory and never
+    /// stored, shown or logged, and it is prefixed so it cannot collide with the fallback.</para>
+    /// <para>The path is still the answer where the id is not there — a directory that has been logged
+    /// into but whose <c>.claude.json</c> the CLI has not written yet. That is weaker and it is honest
+    /// about being weaker: two rows on one path are certainly one login, which is the case
+    /// <c>CLAUDE_CONFIG_DIR</c> produces.</para>
+    /// <para>Read per refresh rather than remembered, for the reason <c>SignInStatus</c> is: a login
+    /// swapped in a terminal must not leave this naming the account that used to be there. The read is
+    /// the token-walking <see cref="AiAgent.ReadJsonString"/>, which stops at the answer — that file
+    /// carries a Claude Code installation's whole per-project history and runs to megabytes.</para>
+    /// </remarks>
+    private static string? AccountKeyFor(string settingsFile, string credentialsFile) =>
+        ReadJsonString(settingsFile, "oauthAccount", "accountUuid") is { Length: > 0 } account
+            ? $"claude-account:{account}"
+            : UsageAccountKey(credentialsFile);
 
     /// <summary>"max" is what the file says; "Max" is what the subscription is called.</summary>
     private static string Capitalised(string word) =>

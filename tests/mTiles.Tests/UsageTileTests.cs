@@ -169,7 +169,8 @@ public class UsageTileTests
 
         // The separator is the reader's own, so the expectation is written the same way the card is:
         // what is pinned is that the figure and the word are there, not which locale drew them.
-        Assert.Equal($"${20.60m:0.00} left", card.MoneyLabel);
+        Assert.True(card.HasMoney);
+        Assert.Equal($"${20.60m:0.00}", card.RemainingLabel);
     }
 
     /// <summary>What each window cost is on the window's own row, so the seven days the goal asks about

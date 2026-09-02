@@ -154,10 +154,15 @@
                                     </ItemsControl>
 
                                     <!-- What is left on the key: the last thing on the line, and the
-                                         one figure a metered account is looked at for. -->
-                                    <TextBlock Grid.Column="1" Classes="readout value"
-                                               Text="{Binding MoneyLabel}"
-                                               IsVisible="{Binding HasMoney}" />
+                                         one figure a metered account is looked at for. Written the way
+                                         every window beside it is - the name muted, the figure bright -
+                                         because it is the same kind of fact. -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                IsVisible="{Binding HasMoney}">
+                                        <TextBlock Classes="readout" Text="{Binding MoneyCaption}" />
+                                        <TextBlock Classes="readout value" Text="{Binding RemainingLabel}"
+                                                   Margin="5,0,0,0" />
+                                    </StackPanel>
                                 </Grid>
                             </StackPanel>
                         </DataTemplate>
