@@ -614,6 +614,23 @@ last `token_count` event in the newest `~/.codex/sessions/**/rollout-*.jsonl` �
 `backend-api/codex/usage` answers 403 at the edge (`CodexUsageReader`) — and **OpenRouter** through
 `api/v1/key` plus `api/v1/credits`. z.ai, the Anthropic API, ccs, LM Studio and Ollama publish nothing.
 
+**A token this application did not issue is also one nothing else renews** (`ClaudeCredentialStore`).
+Claude Code refreshes lazily, when it is *run*, so a login the user works in on Tuesdays carries an
+expired `accessToken` for the rest of the week: the usage endpoint answers 401 and a perfectly good
+subscription loses its card — measured 2026-09-02 on a machine with three logins, two of them expired
+and the one card on screen being whichever account had been used that hour. The exchange is
+`POST api.anthropic.com/v1/oauth/token` with Claude Code's own public client id, and two details are
+load-bearing: every other plausible spelling of that path answers 404, and a request with **no user
+agent** is refused at the edge by Cloudflare with a 403 carrying `error code: 1010` — which is not an
+OAuth answer at all and would read here as a dead refresh token. **The refresh token rotates and the old
+one dies the moment it is spent**, which decides everything else: the renewal is written back into the
+CLI's own file — whole, through a temporary file and a move, owner-only — because keeping it in memory
+would leave Claude Code holding a token Anthropic has already invalidated, which is a **logout**. One
+refresh at a time per file, since a machine whose default account lives inside a sign-in's directory
+asks about that one file twice in the same round and a rotating token cannot be spent twice. A refused
+exchange hands back the stale token and changes nothing, so the failure arrives as the sentence the card
+already knows how to say.
+
 **Three distinctions the whole tile rests on, and each is a card that would otherwise lie:**
 
 - **`null` is not a failure and a failure is not a zero.** `null` means *there is no such question

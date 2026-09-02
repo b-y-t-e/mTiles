@@ -9,9 +9,11 @@ namespace mTiles.Services;
 /// Writes a file only the owner can read.
 /// </summary>
 /// <remarks>
-/// <para>On Windows there is nothing to do: everything written this way lives under <c>%APPDATA%</c>,
-/// whose ACL already grants the owning user and administrators only, and a file inherits it. Writing an
-/// explicit ACL there would replace a correct inherited one with a hand-made one, for no gain.</para>
+/// <para>On Windows there is nothing to do: everything written this way lives inside the user's own
+/// profile — under <c>%APPDATA%</c>, or, since <c>ClaudeCredentialStore</c>, in a CLI's own directory
+/// beside it such as <c>~/.claude</c> — whose ACL already grants the owning user and administrators
+/// only, and a file inherits it. Writing an explicit ACL there would replace a correct inherited one
+/// with a hand-made one, for no gain.</para>
 /// <para>On Unix the default is <c>umask</c>-dependent and routinely group- or world-readable, and that
 /// matters more here than it looks: <see cref="ProtectedStringConverter"/> has no DPAPI to call outside
 /// Windows, so the API keys and database passwords in <c>settings.json</c> are in it as plain text. The

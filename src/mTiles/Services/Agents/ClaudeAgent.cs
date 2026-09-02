@@ -308,7 +308,12 @@ public sealed class ClaudeAgent : AiAgent
     /// at all.</para>
     /// <para>The token is read here and handed straight to <see cref="ClaudeUsageReader"/>, held for the
     /// length of one call: what it authenticates is somebody else's service, and nothing in this
-    /// application stores, logs or shows it.</para></remarks>
+    /// application stores, logs or shows it.</para>
+    /// <para><b>An expired token is renewed rather than sent.</b> The CLI refreshes lazily, when it is
+    /// run, so a perfectly good login that has not been used since this morning answers 401 and loses
+    /// its card. <see cref="ClaudeCredentialStore"/> is where that is done, and where the one
+    /// consequence worth knowing lives: the refresh token rotates, so the renewal is written back into
+    /// the CLI's own file — not doing so would log the user out of Claude Code.</para></remarks>
     public override async Task<AiUsageReport?> UsageAsync(AiSignIn? signIn,
         CancellationToken ct = default)
     {
@@ -319,7 +324,10 @@ public sealed class ClaudeAgent : AiAgent
         var now = DateTimeOffset.Now;
         var accountKey = AccountKeyFor(settingsFile, credentialsFile);
 
-        if (ReadJsonString(credentialsFile, "claudeAiOauth", "accessToken") is not { Length: > 0 } token)
+        // Renewed where it has expired, because nothing but running the CLI renews it otherwise - and a
+        // login the user works in twice a week would then have no card for the other five days. See
+        // ClaudeCredentialStore for why the renewal has to be written back into the CLI's own file.
+        if (await ClaudeCredentialStore.AccessTokenAsync(credentialsFile, ct) is not { Length: > 0 } token)
             return signIn is null
                 ? null
                 : AiUsageReport.Failed(sourceId, name,
