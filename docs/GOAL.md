@@ -372,9 +372,24 @@ worktrees and want different sentences, and the tile has an arbiter for exactly 
 there were no refusals, the empty worktree goes to the **reviewer once** (`ReviewUnchangedTreeAsync`,
 unscoped — the work predates the run): met, and the stop is `Met` — "Goal completed after 1 attempt"
 over a goal that was done; not met, and the `NoChange` sentence carries the review's outstanding list.
-Once, either way — the loop ends here, and Resume cannot re-run the review against a tree nothing has
+Once, either way — Resume cannot re-run the review against a tree nothing has
 touched. A refused run skips the call entirely, because a review of work nobody was allowed to do would
 answer what the summary already says.
+
+**And where that review says something new, the loop spends the next attempt rather than asking for a
+click.** The whole argument for stopping on an unchanged tree is that the same prompt over the same
+tree gets the same nothing — which holds only while the prompt *is* the same. The commonest way into
+this stop is an attempt opened over a tree that already holds the work: a goal detected from
+uncommitted changes, or a plan written against them. The tool reads the tree, answers "this is already
+done", writes nothing, and the review that follows is the first thing in the run to name a defect.
+Stopping there put a button in front of the user whose only job was to say *yes, carry on* — measured
+twice, on two unrelated goals, and Continue fixed the finding on the very next attempt both times. So
+a `NoChange` verdict carrying **structured findings the implementation was never given**, with budget
+left, becomes the next attempt with those findings in its prompt. Structured only, the rule
+`RepeatsPrevious` follows and for the same reason: an unstructured review's "feedback" is its own
+prose, which differs from the last one by a comma and would hand the loop a fresh question every lap.
+Bounded by construction — an attempt that again writes nothing comes back here holding the feedback it
+was given, which is now the feedback it has, and stops as the dead end it is.
 
 **And that verdict is carried, not thrown away.** The review of the unchanged tree produces findings
 like any other, and they are recorded (`RecordReviewFeedback`, with the fingerprint beside them) exactly

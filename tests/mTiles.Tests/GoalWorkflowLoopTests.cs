@@ -77,6 +77,12 @@ public class GoalWorkflowLoopTests : IDisposable
     private const string CleanReview =
         "```json\n{\"goalMet\":true,\"findings\":[]}\n```";
 
+    /// <summary>A structured review carrying one warning and nothing else — the shape a run that
+    /// changed no files most often gets back, and the one the tolerated-warnings limit blocks on.</summary>
+    private const string WarningReview =
+        "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"warning\"," +
+        "\"title\":\"stale scope\",\"file\":\"a.cs\"}]}\n```";
+
     /// <summary>A structured review carrying one error, which is what closes the commit offer.</summary>
     private const string ErrorReview =
         "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"error\"," +
@@ -357,12 +363,14 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     /// <summary>
-    /// The review of the unchanged tree is carried forward, so the attempt Continue starts knows what
+    /// The review of the unchanged tree is carried forward, so the attempt that follows it knows what
     /// it found.
     /// </summary>
-    /// <remarks>Without it the continued implementation begins over a tree that has just been reviewed
+    /// <remarks>Without it the next implementation begins over a tree that has just been reviewed
     /// knowing nothing of the review — the bug <c>RunReviewOnlyAsync</c> already guards against, on the
-    /// one path where that review is the only new thing there is.</remarks>
+    /// one path where that review is the only new thing there is. Which attempt that is has moved: the
+    /// loop spends it itself where the findings are new and the budget allows, and Continue starts it
+    /// where the budget is gone. The feedback is the same either way, which is what this pins.</remarks>
     [Fact]
     public void The_findings_of_an_unchanged_tree_reach_the_attempt_that_continues()
     {
@@ -392,12 +400,8 @@ public class GoalWorkflowLoopTests : IDisposable
             vm.InputText = "ok";
             await vm.SubmitCommand.ExecuteAsync(null);
 
-            Assert.True(vm.CanContinue);
-
-            var before = prompts.Count;
-            await vm.ContinueRunCommand.ExecuteAsync(null);
-
-            Assert.Contains(prompts.Skip(before),
+            // The implement prompt that followed the unchanged tree's review, wherever it was spent.
+            Assert.Contains(prompts,
                 prompt => prompt.Contains("Fix these findings from the previous review")
                           && prompt.Contains("the leftover cast"));
         });
@@ -488,6 +492,71 @@ public class GoalWorkflowLoopTests : IDisposable
             {
                 WorktreeReader.ReadObserved = null;
             }
+        });
+    }
+
+    /// <summary>
+    /// An attempt that wrote nothing, whose review then found something nobody had been told about,
+    /// gets the next attempt instead of a button.
+    /// </summary>
+    /// <remarks>
+    /// <para>The commonest way into the no-change stop is an attempt opened over a tree that already
+    /// holds the work — a goal detected from uncommitted changes, or a plan written against them. The
+    /// tool reads the tree, answers "this is already done", writes nothing, and the review that follows
+    /// is the first thing in the run to name a defect. Stopping there offered a Continue whose only job
+    /// was to say "yes, carry on": measured twice, on two unrelated goals, and the very next attempt
+    /// fixed the finding both times.</para>
+    /// <para>The stop itself is intact — see the test below it. What it turns on is whether the prompt
+    /// has moved, which is the only thing that ever justified it.</para>
+    /// </remarks>
+    [Fact]
+    public void Findings_the_implementation_never_saw_buy_another_attempt_rather_than_a_button()
+    {
+        OnUiThread(async () =>
+        {
+            // The tree never moves: every attempt writes nothing, which is the case under test.
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
+
+
+
+            var asked = 0;
+            var prompts = new List<string>();
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                asked++;
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(asked switch
+                {
+                    1 => "Which files?",
+                    2 => NoMoreQuestions,
+                    3 => "The plan",
+                    4 => "Everything the plan asks for is already here.",
+                    _ => WarningReview,
+                });
+            };
+
+            using var vm = NewTile();
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+
+            // Seven calls: clarify, no-more, plan, implement, review — and then the second attempt the
+            // review paid for, with its own review. Five would be the old behaviour.
+            Assert.Equal(7, asked);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Re-implementing with those findings (attempt 2)"));
+
+            // And the finding reached that attempt, which is the whole reason for spending it.
+            Assert.Contains("stale scope", prompts[5]);
+
+            // The second attempt wrote nothing either, and its review reached the same conclusion — so
+            // this time the stop is the dead end it says it is.
+            Assert.Contains(vm.Messages, m => m.Text.Contains("Stopped after 2 attempts: the agent changed no files"));
         });
     }
 

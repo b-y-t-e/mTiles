@@ -1888,6 +1888,11 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                 }
                 else
                 {
+                    // What this implementation was told before it ran. The no-change stop below turns
+                    // on it: an attempt that wrote nothing is a dead end only when it had the review's
+                    // findings in front of it and wrote nothing anyway.
+                    var feedbackBeforeImplement = _engine.LastReviewFeedback;
+
                     var impl = await RunLoopPhaseAsync(
                         GoalPhase.Implement,
                         $"AI is implementing (attempt {attempt}/{_engine.MaxIter})...",
@@ -1928,9 +1933,13 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                     // sentence about a dead end over an account of a goal that was done. So the empty
                     // worktree goes to the reviewer once, to arbitrate what the attempt only claimed:
                     // met, and the run says so; not met, and the dead-end sentence carries what the
-                    // reviewer found outstanding. Once — the loop ends here either way, and a refused
-                    // run skips the call entirely, because a review of work nobody was allowed to do
-                    // answers what the summary already says.
+                    // reviewer found outstanding. A refused run skips the call entirely, because a
+                    // review of work nobody was allowed to do answers what the summary already says.
+                    //
+                    // Whether the loop ends here is then the question the block below the review asks:
+                    // it does, unless that review has just produced findings the implementation was
+                    // never given, in which case the next attempt is a different question and is worth
+                    // an attempt rather than a button.
                     if (await ImplementationChangedNothingAsync(treeBeforeImplement))
                     {
                         // Captured before anything can overwrite it: the review below runs its own AI
@@ -1946,6 +1955,52 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
                         var verdict = await ReviewUnchangedTreeAsync(criteria);
                         if (verdict is null) return;
                         (stopReason, outstanding) = verdict.Value;
+
+                        // Unless that review has just said something the implementation never heard.
+                        //
+                        // The whole argument for stopping here is that the same prompt over the same
+                        // tree gets the same nothing — and it holds only while the prompt *is* the
+                        // same. The commonest way into this stop is an attempt that opened over a tree
+                        // already holding the work (a goal detected from uncommitted changes, or a plan
+                        // written against them): the tool reads the tree, answers "this is already
+                        // done", writes nothing, and the review that follows is the first thing in the
+                        // run to name a defect. Stopping there put a button in front of the user whose
+                        // only job was to say "yes, carry on" — measured twice, on two unrelated goals,
+                        // and Continue fixed the finding on the next attempt both times.
+                        //
+                        // So: new findings and budget left means the next attempt is a different
+                        // question, and the loop asks it. Bounded by construction — an attempt that
+                        // again writes nothing comes back here with the feedback it was given, which is
+                        // now the feedback it has, and stops as the dead end it is.
+                        // Structured only, the rule RepeatsPrevious follows and for the same reason:
+                        // an unstructured review's "feedback" is its own prose, which differs from the
+                        // last one by a comma and would hand the loop a fresh question every lap.
+                        if (stopReason == GoalStopReason.NoChange
+                            && _engine.LastReviewFingerprint is not null
+                            && _engine.LastReviewFeedback is { Length: > 0 } freshFeedback
+                            && freshFeedback != feedbackBeforeImplement
+                            && GoalLoopPolicy.NextAttempt(_engine.IterationCount, _engine.MaxIter, false)
+                                is { } afterNoChange)
+                        {
+                            // The pause is honoured the way the loop's own review honours it: what is
+                            // owed next is an implementation, so the phase is moved to it and the run
+                            // is left resumable rather than summarised over a stop the user interrupted.
+                            if (PauseRequested)
+                            {
+                                _engine.IterationCount = afterNoChange;
+                                _engine.CurrentPhase = GoalPhase.Implement;
+                                SyncFromEngine();
+                                PhaseLabel = _engine.GetPhaseLabel();
+                                return;
+                            }
+
+                            await AddMessageAsync(GoalMessageRole.System,
+                                $"The attempt changed no files, and the review found {outstanding}. " +
+                                $"Re-implementing with those findings (attempt {afterNoChange})...",
+                                GoalPhase.Review);
+                            continue;
+                        }
+
                         break;
                     }
                 }
