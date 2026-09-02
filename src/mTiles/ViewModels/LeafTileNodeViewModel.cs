@@ -336,7 +336,15 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// </remarks>
     public bool ShowsActiveOutline => IsActive && !IsDictating;
 
-    partial void OnIsActiveChanged(bool value) => OnPropertyChanged(nameof(ShowsActiveOutline));
+    partial void OnIsActiveChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowsActiveOutline));
+
+        // Only on the way in, and only for content that asked: see IActivatableTile. Guarded on
+        // _disposed like every other reach into Content here — Dispose leaves the reference in place.
+        if (value && !_disposed && Content is IActivatableTile activatable)
+            activatable.OnActivated();
+    }
     partial void OnIsDictatingChanged(bool value) => OnPropertyChanged(nameof(ShowsActiveOutline));
 
     /// <summary>

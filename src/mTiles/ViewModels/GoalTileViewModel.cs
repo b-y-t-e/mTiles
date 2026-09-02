@@ -31,7 +31,7 @@ namespace mTiles.ViewModels;
 /// workflow can be driven from anywhere, which is exactly the belief that makes a race look acceptable.
 /// </para>
 /// </remarks>
-public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActions, IProcessTile
+public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActions, IProcessTile, IActivatableTile
 {
     /// <inheritdoc />
     public string KindId => TileKindIds.Goal;
@@ -1107,17 +1107,37 @@ public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActio
     // ── Detecting a goal from the working tree ──────────
 
     /// <summary>
+    /// Somebody has just made this the active tile, so what it offers is about to be read.
+    /// </summary>
+    /// <remarks>
+    /// <para>The changes a goal is detected from are made in the tiles next door, and nothing here hears
+    /// about them. Asking on the way in is one <c>git status</c> at the moment the answer starts
+    /// mattering, which is what keeps the two detect buttons from being missing over a tree that has
+    /// since acquired changes, or offered over one that has since been committed.</para>
+    /// <para>Only where the answer is on screen — the same two conditions <see cref="CanDetectGoal"/>
+    /// asks besides the tree itself. A tile mid-run, or mid-conversation in a phase that offers no
+    /// detect button, would spend a git call on a question nobody can see the answer to; the workflow
+    /// refreshes this itself as it goes.</para>
+    /// </remarks>
+    public void OnActivated()
+    {
+        if (!IsRunning && CurrentPhase is GoalPhase.Goal or GoalPhase.Summary)
+            RefreshDetectAvailability();
+    }
+
+    /// <summary>
     /// Asks git whether there is anything to detect a goal from, without making anybody wait for it.
     /// <para>Fire and forget on purpose: the answer only decides whether two buttons are shown, and the
     /// user is not blocked on either.</para>
     /// <para><b>It is asked at moments, not continuously</b>, and the moments are named rather than
-    /// implied: when the tile is built, when a run ends, when a detection finds nothing, and when a
-    /// fresh goal is started. It is emphatically <em>not</em> watching the working tree — the changes
-    /// it asks about are made in the terminal tiles next door, so between those moments the answer can
-    /// be stale and the buttons can be missing from a tree that has since acquired changes, or offered
-    /// over one that has since been committed. Both are recoverable in a click; a filesystem watcher
-    /// over an entire worktree, per Goal tile, is not a price worth paying for a button's visibility,
-    /// and the run itself re-reads the tree rather than trusting this.</para>
+    /// implied: when the tile is built, when a run ends, when a detection finds nothing, when a fresh
+    /// goal is started, and when the tile becomes the active one. It is emphatically <em>not</em>
+    /// watching the working tree — the changes it asks about are made in the terminal tiles next door,
+    /// and a filesystem watcher over an entire worktree, per Goal tile, is not a price worth paying for
+    /// a button's visibility; the run itself re-reads the tree rather than trusting this. What closes
+    /// the gap instead is <see cref="OnActivated"/>: clicking into the tile is the gesture that precedes
+    /// reading it, so the answer is refreshed when somebody is about to look at it rather than
+    /// continuously.</para>
     /// </summary>
     private void RefreshDetectAvailability()
     {
