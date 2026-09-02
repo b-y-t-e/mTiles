@@ -31,7 +31,8 @@ namespace mTiles.ViewModels;
 /// workflow can be driven from anywhere, which is exactly the belief that makes a race look acceptable.
 /// </para>
 /// </remarks>
-public partial class GoalTileViewModel : ObservableObject, IBusyTile, ITileActions, IProcessTile, IActivatableTile
+public partial class GoalTileViewModel
+    : ObservableObject, IBusyTile, ITileActions, IProcessTile, IActivatableTile, IMaximizableTile
 {
     /// <inheritdoc />
     public string KindId => TileKindIds.Goal;

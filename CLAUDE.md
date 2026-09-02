@@ -277,8 +277,8 @@ whole session, on every save, not just the one a migration asks for — to write
 this build does not know. The dual write is a bridge with an end: when no supported build reads the old
 fields, the getters go.
 
-**A tile can take the whole workspace, and four kinds may** (`IMaximizableTile` — terminal, agent, note,
-todo). The gesture is a header button that changes shape (`Fullscreen` → `FullscreenExit`, lit while it
+**A tile can take the whole workspace, and five kinds may** (`IMaximizableTile` — terminal, agent, note,
+todo, goal). The gesture is a header button that changes shape (`Fullscreen` → `FullscreenExit`, lit while it
 is on), Ctrl+Shift+F, and an overflow entry. It is drawn by `TileMaximizeScope` — one per workspace, like
 `TileActivationScope` — writing `SplitTileNodeViewModel.Solo` on every split between the root and that
 leaf, so each of them draws one child at full size: the same `LeafTileView` and the same
@@ -287,8 +287,12 @@ same tile hands the tile back with an empty shell. **Nothing is persisted and no
 and every way out — closing the tile, splitting it, clearing the root — restores first, from a
 *remembered* path rather than a re-walked one: each of those leaves the leaf pointing at parents it no
 longer has, and a split soloed on an unreachable child is half a workspace invisible for the session.
-The kinds that lay themselves out in panes of their own (git, database, goal, usage) implement nothing —
-more room stretches their whitespace and would put a splitter inside a tile with no splitter around it.
+The goal tile qualifies for the same reason the first four do rather than as an exception: it is a
+conversation in one column with nothing docked beside it, so the room buys more transcript — and a plan,
+a diff and a review full of file paths are what it has to show in the 300px column a workspace of four
+tiles leaves it. The kinds that lay themselves out in panes of their own (git, database, usage)
+implement nothing — more room stretches their whitespace and would put a splitter inside a tile with no
+splitter around it.
 
 **Restart shell is `IsDestructive`, so it is a header action and not a phone one.** It kills whatever the
 shell is running, which is why the header asks first — and a phone that cannot be shown what is about to

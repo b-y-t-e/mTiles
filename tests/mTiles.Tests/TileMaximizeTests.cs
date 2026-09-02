@@ -75,7 +75,7 @@ public class TileMaximizeTests : IDisposable
         return (split, Assert.IsType<LeafTileNodeViewModel>(split.First), second);
     }
 
-    /// <summary>The four kinds whose content is simply more of the same at a larger size say yes.
+    /// <summary>The five kinds whose content is simply more of the same at a larger size say yes.
     /// </summary>
     /// <remarks>And the ones that lay themselves out in panes of their own say no — the list is the
     /// decision <see cref="IMaximizableTile"/> documents, so it is worth a test rather than being
@@ -87,7 +87,7 @@ public class TileMaximizeTests : IDisposable
     [InlineData(TileKindIds.Todo, true)]
     [InlineData(TileKindIds.Git, false)]
     [InlineData(TileKindIds.Database, false)]
-    [InlineData(TileKindIds.Goal, false)]
+    [InlineData(TileKindIds.Goal, true)]
     [InlineData(TileKindIds.Usage, false)]
     public void Only_the_kinds_that_gain_from_the_room_offer_it(string kindId, bool expected)
     {

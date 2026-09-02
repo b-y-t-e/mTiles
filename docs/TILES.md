@@ -100,14 +100,17 @@ The one capability with **no members**, and the emptiness is the answer rather t
 Filling the workspace is done *to* a `LeafTileNodeViewModel` by `TileMaximizeScope`; that is layout, and
 none of the content's business. What only the content can say is whether the gesture means anything for
 it — a yes or a no. A `bool CanMaximize` on `ITile` would be the same answer written where every kind
-has to repeat it, four of them as `false`.
+has to repeat it, three of them as `false`.
 
 **Who implements it is a decision about what the extra room buys.** A terminal, an agent, a note and a
-todo list are the four whose content is simply *more of the same* at a larger size: more scrollback,
-more text, more rows. The git, database, goal and usage tiles lay themselves out in panes and columns
-already sized to their own content — making them larger stretches whitespace rather than showing
-anything more, and the two that own a splitter would end up with a splitter inside a tile with no
-splitter around it.
+todo list are content that is simply *more of the same* at a larger size: more scrollback, more text,
+more rows. **The goal tile is the fifth, by the same rule rather than as an exception to it** — it is a
+conversation in a single column with nothing docked beside it, so the room buys more transcript, and it
+is the tile whose content suffers most in the 300px column a workspace of four tiles leaves it: a plan,
+a diff and a review full of file paths. The git, database and usage tiles lay themselves out in panes
+and columns already sized to their own content — making them larger stretches whitespace rather than
+showing anything more, and the two that own a splitter would end up with a splitter inside a tile with
+no splitter around it.
 
 **How it is shown, and why nothing moves.** `TileMaximizeScope` (one per workspace, exactly like
 `TileActivationScope`, for the same reason: "only one at a time" is a fact about the workspace) writes
@@ -185,7 +188,7 @@ Who implements what:
 | Todo | | ✔ | | | | | | ✔ |
 | Git | | | ✔ Refresh, Commit, Push | | | | | |
 | Database | | | | | | | | |
-| Goal | ✔ | | ✔ Continue, Pause, Commit work | | | ✔ | | |
+| Goal | ✔ | | ✔ Continue, Pause, Commit work | | | ✔ | | ✔ |
 | Usage | ✔ | | | | | | | |
 
 **The usage tile implements exactly one, and the empty columns are the design.** It starts nothing, so
@@ -276,7 +279,7 @@ Something earns its own interface only when all three are true:
 3. **Somebody has to ask "can you do this?"** — that question is written `is` / `as`, which is what an
    interface is for.
 
-`IMaximizableTile` passes all three and carries nothing: it is optional (four kinds of eight), it varies
+`IMaximizableTile` passes all three and carries nothing: it is optional (five kinds of eight), it varies
 while the tile is alive (an empty tile becomes a terminal), and the question is asked with `is`. A
 capability may be a marker — what it must not be is a member half the implementations cannot honour.
 
