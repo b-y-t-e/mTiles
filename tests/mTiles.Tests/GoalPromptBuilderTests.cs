@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using mTiles.Models;
 using mTiles.Services;
 using Xunit;
@@ -319,5 +319,59 @@ public class GoalPromptBuilderTests
         var prompt = new GoalPromptBuilder().BuildDetectGoal("a diff");
 
         Assert.DoesNotContain("same language as the goal", prompt);
+    }
+
+    /// <summary>
+    /// A run started by "Set goal &amp; run" tells the tool nobody is waiting, and shows it the answer
+    /// that shape of run wants.
+    /// </summary>
+    /// <remarks>
+    /// The example is the half that is easy to leave behind: the ordinary one shows
+    /// <c>needsClarification</c> true with a question under it, and an example contradicting the
+    /// instruction above it is the one thing a model follows — which here is a round of questions
+    /// asked of nobody.
+    /// </remarks>
+    [Fact]
+    public void A_run_that_stops_for_nothing_asks_for_no_questions()
+    {
+        var builder = new GoalPromptBuilder();
+
+        var asking = builder.BuildClarify("a goal", []);
+        var running = builder.BuildClarify("a goal", [], noQuestions: true);
+
+        Assert.Contains("will not stop for questions", running);
+        Assert.Contains("Set needsClarification to false", running);
+        Assert.Contains("\"needsClarification\":false", running);
+        Assert.DoesNotContain("\"needsClarification\":true", running);
+
+        // The ordinary round is untouched: it still asks the tool to decide, and still shows it a
+        // question.
+        Assert.Contains("Decide whether the goal is specific", asking);
+        Assert.Contains("\"needsClarification\":true", asking);
+        Assert.DoesNotContain("will not stop for questions", asking);
+
+        // The carve-out every prompt carries — see the language test above.
+        Assert.Contains("same language as the goal", running);
+    }
+
+    /// <summary>
+    /// The assumptions this run asks for are allowed to exist: the prompt asks for a paragraph and
+    /// must not, one line later, forbid everything but the json block.
+    /// </summary>
+    /// <remarks>
+    /// It did — the example was borrowed from the ordinary round's "one fenced json block and nothing
+    /// else" — and the example is what a model follows, so the one thing a user sees before a plan
+    /// written without questions was the thing least likely to be written. The paragraph is read from
+    /// what stands before the fence, so the order is the assertion: assumptions first, block last.
+    /// </remarks>
+    [Fact]
+    public void A_run_that_stops_for_nothing_leaves_room_for_what_it_is_assuming()
+    {
+        var running = new GoalPromptBuilder().BuildClarify("a goal", [], noQuestions: true);
+
+        Assert.Contains("what you are assuming", running);
+        Assert.DoesNotContain("json block and nothing else", running);
+        Assert.True(running.IndexOf("paragraph first", StringComparison.Ordinal)
+                    < running.IndexOf("```json", StringComparison.Ordinal));
     }
 }

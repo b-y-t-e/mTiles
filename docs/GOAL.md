@@ -8,6 +8,64 @@ the reasoning is the part that stops it being reintroduced.
 
 **Two ways in.** Typing a goal describes work that has not started. **Detect goal** reads the uncommitted changes and works out what the user was in the middle of — which is the commoner way somebody arrives at a tile like this, half-finished and wanting it finished. It is offered only where a goal is what is wanted next (Goal or Summary) and only when `git status --porcelain` says there is something to read (`WorktreeReader.HasChangesAsync`, asked at named moments — when the tile is built, when a run ends, when a detection finds nothing, when a fresh goal is started — and **not** continuously): a button that reads the working tree has nothing to say about a clean one. It is deliberately not a watcher: the changes it asks about are made in the terminal tiles next door, so between those moments the answer can be stale in either direction, and both cases cost a click. A filesystem watcher over a whole worktree, per Goal tile, is not a price worth paying for a button's visibility — and the run itself re-reads the tree rather than trusting this. The tree is read **before** the transcript is cleared, and that order is load-bearing: the button is shown on the strength of `git status`, which is a different command from the one that builds the prompt, so a commit made in between — or a repository with no HEAD — ended with nothing to detect from and the user having paid for it with their session. **Both detect buttons adopt the goal**; they differ only in what comes next. **Detect goal** works the sentence out, makes it the goal, says it in the transcript as the user's own turn and carries on into **Clarify** — still inside goal-setting, where the tool can ask what it cannot decide and the user can still change what this is about before a line of code is written. It used to park the sentence in the composer and wait for Send, on the argument that a detected goal is the tool's reading of half-finished work and should be edited first. That cost a click and a phase — the tile sat saying it was waiting for a goal it had already written — and it bought editing that Clarify does better. It also carried a set of careful rules about never overwriting what the user had typed, all of which existed to protect a draft nobody had asked to keep. What does **not** move is `OriginalGoal`: it is fixed at that sentence and carried by every later prompt, so a badly detected goal is corrected with **+** rather than talked round. **Detect & run** skips the conversation and enters the loop with `startAtReview: true` — the parameter the interrupted-resume already needed — because the changes are on disk and what is owed first is a judgement of them rather than another implementation.
 
+
+**Five ways in, under one button.** The composer used to carry a bare send arrow with a row of three
+conditional buttons under it — `Detect goal`, `Review`, `Detect & run` — which is four controls, three
+of which appear and vanish with `CanDetectGoal` as the user types. They are now one split button
+(`GoalTileView.axaml`, the composer's `run-split`): a primary segment whose label follows the box
+(`GoalTileViewModel.PrimaryActionLabel` — **Set goal** where something is typed, **Detect goal** where
+the box is empty and there is something uncommitted to read) and a caret opening the five entries.
+**The label follows the phase before it follows the box**, and that is a correction: the composer is up
+in four phases and only two of them adopt what is sent as the goal, so in Clarify the same box sends an
+answer to a round of questions and in Plan it approves or corrects a plan. A button reading `Set goal`
+there names an act it does not perform — nothing is adopted, `StartFreshGoal` is never reached — which
+the bare arrow it replaced could not get wrong because it named nothing at all. It reads **Send answer**
+in Clarify and **Send** elsewhere mid-conversation, the tooltip moves with it (`PrimaryActionHint`), and
+the menu's own `Set goal` entry is down (`CanSetGoal`) wherever the composer is answering rather than
+starting.
+Enter goes through that primary segment (`GoalTileView.axaml.cs`, `InputBox_KeyDown`) and **only with
+something typed**: on an empty box it stays the no-op it has always been. Wired to the segment
+unconditionally it stopped being one — an empty box beside uncommitted changes reads as `Detect
+goal`, and a fresh tile has no transcript to discard, so `ConfirmDiscardAsync` waves it through and
+a stray Enter starts a paid AI run nobody asked for. Detection is a click; the key sends what is in
+the box. **Every entry keeps its own gate and none of
+them is hidden or greyed out by what is in the box**: typed words beside a detection are a *scope*
+narrowing it — see *Typed beside a detection, the composer becomes a scope* below — so disabling the
+detect entries while the composer has text would close that route from the only control that offers it.
+
+**`Set goal & run` is the typed twin of `Detect & run`**, and it is the one new capability the menu
+brought with it. A typed goal always went through Clarify and then waited for a plan to be approved by
+hand, so "I have written what I want, now just do it" had no control at all — the nearest thing to it,
+`Detect & run`, reads the goal out of the diff, which is how a user who typed a feature description
+with a design doc uncommitted in the tree had the *doc* adopted as "the changes that were just made".
+It runs through `SubmitCore` with one argument rather than beside it (`TypedGoalStart`): the confirmation before a
+transcript is discarded, the pause, the `@` scope read off the typed text and the baseline are every bit
+as owed here as to the plain send. What `TypedGoalStart.Unattended` changes is only what happens after the goal is set —
+Clarify is told **nobody is waiting** (`GoalPromptBuilder.BuildClarify`'s `noQuestions`, which asks for
+`needsClarification:false` and carries its own worked example, since the ordinary one shows the opposite
+and an example contradicting the instruction above it is the one thing a model follows — which is why
+that example asks for the assumptions as a paragraph *before* the json block rather than for "one
+fenced json block and nothing else": the assumptions are the only thing the user sees before a plan
+written without questions, and the example is what decides whether they are written at all), and the plan is
+approved as it arrives. A tool that asks anyway is not a reason to stop a run started with one click:
+what it asked goes into the transcript **and** into the clarification history, so the plan is written
+knowing what is still open. The approval itself is `AdoptProposedPlan`, the same step a typed "ok"
+takes, so the automatic path and the hand-approved one cannot drift — and it is silent about a plan
+that never arrived, since a planning run that failed or was paused has already written its own
+explanation. The transcript says the plan was approved automatically, because nobody was asked.
+
+**Review is contextual, and it is one entry rather than two.** With an empty composer it is what it
+always was — work the goal out of the changes, then judge the tree against it once. With something
+typed it adopts those words as the goal and judges the tree against **that**, with
+`ReviewsExistingWork` set for the same reason the detect path sets it. The question the user is asking is
+the same either way; reading a second goal out of the diff when they have just said what the work was
+meant to be answers one nobody asked. **All three typed entries are one method** — `SubmitCore` with a
+`TypedGoalStart` — because adopting a typed goal is eight steps (the confirmation before a transcript is
+discarded, the blank-answer guard, the pause, `StartFreshGoal`, the scope read off the text, the
+transcript entry, the baseline) and every one of them is owed whichever entry was pressed. Written out a
+second time beside it they were a second set to keep in step, and had already begun to drift; the mode
+carries the only thing the three actually differ in, which is what happens once the goal is set.
+
 **Clarify is a loop with a budget, and it can be skipped entirely.** The prompt asks for `{"needsClarification": …, "questions":[{question, why, options}]}`; `needsClarification:false` plans immediately, so a goal that is already precise no longer costs a round trip and a reply. An answer goes back for *another* round rather than straight to the plan, so the tool decides when it has enough — bounded by `GoalWorkflowEngine.MaxClarifyRounds` (3, deliberately not configurable: a model that keeps finding one more thing to ask is not a setting the user should have to discover). **The questions decide whether a round is a question**, and the flag does not get a vote: a tool that says it needs clarification and then asks nothing has asked nothing, and the tile used to print the raw JSON as the question, file it in the clarification history, hand it to the planner and then wait for a reply to it. Questions are rendered numbered and the composer is **prefilled with the numbering and nothing else**, so answering is editing rather than transcribing — the tool's first option used to be filled in beside each number, which turned Enter into "send the tool's own guess back as my answer", from a box the user may not have read; the options are still printed under the question, where they are an offer rather than a default — a blank box under three questions asks the user to reproduce the numbering, and the ones who do not leave answers nothing can be matched to. Both spellings are `1.`, because an answer is matched to its question by eye. **The questions go into `ClarificationHistory` alongside the answers, labelled with who said what**: that list is joined into the next Clarify prompt and into the Plan prompt, and holding answers alone was survivable while both were prose and stopped being so the moment answers became numbered — the next round was handed `1. appsettings.json` with no record of what question 1 had been, which unties the very thing the numbering exists to tie. And an answer that is **only** the numbering is refused rather than sent (`GoalTranscript.IsBlankAnswer`): the composer is prefilled, so Enter alone used to spend one of the three rounds on `1.\n2.`. Prefilling never overwrites something already in the box, either — a round takes as long as the tool takes, and a user who spent it typing had it deleted on arrival. Questions win over a contradicting flag: a tool that says it needs nothing and then asks three questions has asked three questions. Staying in Clarify is also what makes an interrupted answer resumable — the file says Clarify with the user's message last, `WasInterrupted` reads that as a run that was cut off, and re-asking with the answer in hand is exactly what was owed.
 
 **Review returns findings, not a verdict string.** `VERDICT: PASS` was a substring search, and it was wrong three ways: "I cannot say VERDICT: PASS until…" passed, "VERDICT: PASSED" failed, and one word carried both "the code is sound" and "the code does what was asked", so a clean implementation of the wrong thing passed. The prompt now asks for a fenced JSON block — `{"goalMet": bool, "findings":[{severity, category, file, line, title, detail}]}` — with **four severities**: `blocker`, `error` (wrong: broken, incorrect or missing), `warning` (works but should not stay — a risk, or a Clean Code/SOLID violation) and `suggestion` (never counted, never blocking). **`blocker` is the level for a change that works and still must not stand** — it breaks a stated constraint or assumption of the goal, or fails outside the case in front of the reviewer: a platform limit, a race, data loss, a security hole. Its own level rather than a loud `error`, because it answers a different question — an error says the code is *wrong*, a blocker says it is *unacceptable* — and forcing that into the other two made the choice bad either way: "error" claims something is broken when it demonstrably runs, "warning" invites it to be tolerated. It is also the one severity with **no threshold, in the panel or anywhere else**: a tolerance for blockers would be a setting whose only use is to ship what the reviewer said must not ship. The prompt draws the line explicitly and tells the tool not to reach for `blocker` to add weight to an error. `goalMet` is a **separate axis rather than a fourth severity**, because "no bugs" and "does what was asked" are different questions. The user's thresholds are deliberately **not** in the prompt: a reviewer told one warning is allowed has been told how to pass, and the severities are the one thing in its answer nothing else can check.
@@ -631,7 +689,7 @@ bubble phase would reach it after the box's own handler had already sent a goal 
 `@go` in it. **A folder is a step rather than an answer**: taking one types it without the trailing
 space and leaves the list up on what is inside, so Enter walks down a tree exactly as Tab does.
 
-**Typed beside the three buttons, the composer becomes a scope** — and it is two mechanisms, not one.
+**Typed beside a detection, the composer becomes a scope** — and it is two mechanisms, not one.
 The words travel as a narrowing block (`"The user narrowed this detection/review"` — soft, and all a
 phrase like "tylko zmiany dotyczące agentów" can be, since a phrase names no files to filter by); the
 paths it names as `@` mentions are the hard half: `GoalScopeFilter` extracts them (`@path`, and
@@ -642,9 +700,10 @@ user's scope matched nothing — a block gone silent about every file must not r
 the note rides on the diff alone, because the untracked list and the stat empty as a matter of course
 under any scope that names one file. The fingerprint is taken from the raw diff on purpose, so the
 no-change check compares what the tree *is*, not what the prompt was allowed to say about it. Where
-the words land is deliberately uneven: **Detect** and **Detect & run** carry them into the detection
-whose goal then carries the narrowing for the rest of the run; **Review** and **Detect & Review**
-carry them into the one review the button produces — as parameters, never onto the session scope,
+the words land is deliberately uneven: **Detect goal** and **Detect & run** carry them into the
+detection whose goal then carries the narrowing for the rest of the run; **Review** over an empty
+composer and **Re-review** carry them into the one review the entry produces — while **Review** with
+something typed takes those words as the goal itself rather than as a narrowing on top of one — as parameters, never onto the session scope,
 because a narrowing typed for a single look at the tree must not be inherited by a Continue that
 comes after. **The composer is consumed only where the words are acted on**: a detection that ends
 without a goal leaves the draft in the box.

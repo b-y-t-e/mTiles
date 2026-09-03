@@ -264,7 +264,7 @@ public class GoalWorkflowLoopTests : IDisposable
                 Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
 
             using var vm = NewTile();
-            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+            await vm.ReviewCommand.ExecuteAsync(null);
 
             // The goal, then the review. Nothing implemented anything.
             Assert.Equal(2, runs);
@@ -1663,7 +1663,7 @@ public class GoalWorkflowLoopTests : IDisposable
 
             // Detect & review: work out the goal from the tree, judge it, stop.
             AnswerWith("Finish the cart", "VERDICT: PASS");
-            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+            await vm.ReviewCommand.ExecuteAsync(null);
 
             // The sentence the commit path prints in a directory that is no repository. Reaching it
             // would mean the tile had gone looking for something to commit.
@@ -2393,7 +2393,7 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
-    public void A_composer_text_beside_detect_and_review_narrows_the_review_it_produces()
+    public void A_composer_text_beside_a_detect_button_narrows_the_goal_it_adopts()
     {
         OnUiThread(async () =>
         {
@@ -2409,18 +2409,22 @@ public class GoalWorkflowLoopTests : IDisposable
             };
 
             using var vm = NewTile();
+            var path = vm.FilePath;
 
-            // Detect & Review's only result is the review — so the narrowing typed beside the button
-            // has to reach it, and it once did not: the text was consumed by the detection and the
-            // review after it ran unwidened.
+            // The words narrow the detection itself, and the @ path they name stays on the goal that
+            // detection adopts — so every read after it, the review included, sees that file alone.
+            // The composer is the only copy of those words, so it is cleared only once they are spent.
             Directory.CreateDirectory(Path.Combine(_dir, "src/mTiles/Services"));
             File.WriteAllText(Path.Combine(_dir, "src/mTiles/Services/GoalResponseParser.cs"), "// p");
             vm.InputText = "skup sie tylko na @src/mTiles/Services/GoalResponseParser.cs";
-            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+            await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
 
             Assert.Contains("The user narrowed this detection", prompts[0]);
-            Assert.Contains("The user narrowed this review", prompts[1]);
             Assert.Equal("", vm.InputText);
+
+            vm.Dispose();
+            var state = new GoalStatePersistence().Load(path);
+            Assert.Equal(["src/mTiles/Services/GoalResponseParser.cs"], state!.ScopePaths);
         });
     }
 
@@ -3068,7 +3072,7 @@ public class GoalWorkflowLoopTests : IDisposable
 
             AnswerWith("Finish the cart", "VERDICT: PASS");
 
-            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+            await vm.ReviewCommand.ExecuteAsync(null);
             vm.Dispose();
 
             var state = new GoalStatePersistence().Load(path);
@@ -3103,7 +3107,7 @@ public class GoalWorkflowLoopTests : IDisposable
             var path = vm.FilePath;
 
             AnswerWith("Finish the cart", "VERDICT: PASS");
-            await vm.DetectGoalAndReviewCommand.ExecuteAsync(null);
+            await vm.ReviewCommand.ExecuteAsync(null);
 
             // One for the baseline, one for the end this review established.
             Assert.Equal(2, captures);
@@ -3120,6 +3124,134 @@ public class GoalWorkflowLoopTests : IDisposable
             vm.Dispose();
 
             Assert.Equal("ref-2", new GoalStatePersistence().Load(path)!.EndRef);
+        });
+    }
+
+    /// <summary>
+    /// "Set goal &amp; run" takes the typed goal all the way: no questions asked, and no plan waiting
+    /// to be approved by hand.
+    /// </summary>
+    /// <remarks>
+    /// The two halves are what the button is for — a clarify round that stopped for questions, or a
+    /// plan that sat there waiting for an "ok", would each leave the run parked exactly where the plain
+    /// send parks it, which is the thing this path exists not to do.
+    /// </remarks>
+    [Fact]
+    public void Set_goal_and_run_asks_nothing_and_approves_its_own_plan()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var answers = new Queue<string>([NoMoreQuestions, "The plan", "Implemented it", CleanReview]);
+
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers.Count > 0 ? answers.Dequeue() : "Implemented it");
+            };
+
+            using var vm = NewTile();
+            vm.InputText = "a typed goal";
+
+            Assert.True(vm.CanSetGoalAndRun);
+            await vm.SetGoalAndRunCommand.ExecuteAsync(null);
+
+            // The typed words became the goal — not a narrowing on top of one read from the diff.
+            Assert.Contains(vm.Messages, m => m.Role == GoalMessageRole.User && m.Text == "a typed goal");
+
+            // The tool was told nobody is waiting.
+            Assert.Contains(prompts, prompt => prompt.Contains("will not stop for questions"));
+
+            // Nothing is waiting to be approved, and the run went the whole way.
+            Assert.False(vm.ShowApproval);
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("approved automatically"));
+        });
+    }
+
+    /// <summary>
+    /// Review over a typed goal adopts what was typed, whole — a pasted image included.
+    /// </summary>
+    /// <remarks>
+    /// The markers are what the goal refers to its images by, so dropping them here loses the picture
+    /// the user pasted to be reviewed against, silently. The plain send keeps them; this is its twin.
+    /// </remarks>
+    [Fact]
+    public void Review_over_a_typed_goal_keeps_what_was_typed()
+    {
+        OnUiThread(async () =>
+        {
+            using var vm = NewTile();
+            vm.HasUncommittedChanges = true;
+            vm.InputText = $"match the design {GoalImageMarker.For(1)}";
+
+            AnswerWith(CleanReview);
+            await vm.ReviewCommand.ExecuteAsync(null);
+
+            Assert.Contains(vm.Messages, m => m.Role == GoalMessageRole.User
+                                              && m.Text.Contains(GoalImageMarker.For(1)));
+        });
+    }
+
+    /// <summary>
+    /// The one button under the composer says what the box says, and the typed fast path is offered
+    /// only while there is something typed to run.
+    /// </summary>
+    [Fact]
+    public void The_button_under_the_composer_follows_the_box()
+    {
+        OnUiThread(() =>
+        {
+            using var vm = NewTile();
+
+            // An empty box with nothing uncommitted to read has only the one thing to offer.
+            Assert.Equal("Set goal", vm.PrimaryActionLabel);
+            Assert.False(vm.CanSetGoalAndRun);
+
+            vm.HasUncommittedChanges = true;
+            Assert.Equal("Detect goal", vm.PrimaryActionLabel);
+            Assert.True(vm.CanDetectGoal);
+
+            vm.InputText = "a typed goal";
+            Assert.Equal("Set goal", vm.PrimaryActionLabel);
+            Assert.True(vm.CanSetGoalAndRun);
+
+            // Typed words do not close the detect entries: beside a detection they are a scope
+            // narrowing it, which is the only control that route is reachable from.
+            Assert.True(vm.CanDetectGoal);
+
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Mid-conversation the same box is answering, not setting a goal, and the button says so — the
+    /// entries that name a goal are down with it.
+    /// </summary>
+    [Fact]
+    public void The_button_under_the_composer_follows_the_phase()
+    {
+        OnUiThread(() =>
+        {
+            using var vm = NewTile();
+            vm.HasUncommittedChanges = true;
+            vm.InputText = "a typed goal";
+
+            vm.CurrentPhase = GoalPhase.Clarify;
+            Assert.Equal("Send answer", vm.PrimaryActionLabel);
+            Assert.False(vm.CanSetGoal);
+            Assert.False(vm.CanSetGoalAndRun);
+
+            vm.CurrentPhase = GoalPhase.Plan;
+            Assert.Equal("Send", vm.PrimaryActionLabel);
+            Assert.False(vm.CanSetGoal);
+
+            vm.CurrentPhase = GoalPhase.Summary;
+            Assert.Equal("Set goal", vm.PrimaryActionLabel);
+            Assert.True(vm.CanSetGoal);
+            Assert.True(vm.CanSetGoalAndRun);
+
+            return Task.CompletedTask;
         });
     }
 }

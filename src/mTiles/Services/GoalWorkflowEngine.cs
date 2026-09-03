@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using mTiles.Models;
 
 namespace mTiles.Services;
@@ -264,8 +264,11 @@ public sealed partial class GoalWorkflowEngine
     /// <param name="budget">How many characters the chosen tool can be handed on a command line, or
     /// null when there is no such limit — see <see cref="AiProcessRunner.PromptBudget"/>. Passed all the
     /// way down rather than looked up in the builder, which is pure and knows nothing about tools.</param>
-    public string BuildClarifyPrompt(int? budget = null) =>
-        _promptBuilder.BuildClarify(OriginalGoal, ClarificationHistory, budget);
+    /// <param name="noQuestions">Whether this run stops for questions at all — see
+    /// <see cref="GoalPromptBuilder.BuildClarify"/>. Passed through rather than decided here: what
+    /// knows nobody is waiting is the button that was pressed.</param>
+    public string BuildClarifyPrompt(int? budget = null, bool noQuestions = false) =>
+        _promptBuilder.BuildClarify(OriginalGoal, ClarificationHistory, budget, noQuestions);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
     public string BuildPlanPrompt(int? budget = null) =>

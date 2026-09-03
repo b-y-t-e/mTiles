@@ -513,9 +513,17 @@ public partial class GoalTileView : UserControl
     {
         if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None && !IsPickingAFile)
         {
-            if (DataContext is GoalTileViewModel vm && vm.SubmitCommand.CanExecute(null))
+            // Only with something typed, and that is the whole rule: Enter is what sends what is in
+            // the box, and on an empty box it has always been a no-op. Wired straight to the primary
+            // segment it stopped being one — an empty box beside uncommitted changes reads as
+            // "Detect goal", so a stray Enter on a fresh tile started a paid run (the tile has nothing
+            // to discard, so the confirmation lets it through in silence) that nobody asked for.
+            // Detection is a click, not a keystroke; the primary command still dispatches for both, so
+            // a typed goal goes the one way its label says.
+            if (DataContext is GoalTileViewModel { HasTypedGoal: true } vm &&
+                vm.PrimaryActionCommand.CanExecute(null))
             {
-                vm.SubmitCommand.Execute(null);
+                vm.PrimaryActionCommand.Execute(null);
                 e.Handled = true;
             }
         }

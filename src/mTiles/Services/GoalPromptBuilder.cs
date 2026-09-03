@@ -145,6 +145,31 @@ public sealed class GoalPromptBuilder
         "\"options\":[\"appsettings.json\",\"launchSettings.json\"]}]}\n" +
         "```";
 
+    /// <summary>
+    /// The same answer asked for by a run nobody is going to answer questions in — see
+    /// <see cref="BuildClarify"/>'s <c>noQuestions</c>.
+    /// </summary>
+    /// <remarks>
+    /// A second example rather than the one above with a note beside it: <see cref="ClarifyExample"/>
+    /// shows <c>needsClarification</c> true with a question under it, which is the opposite of what
+    /// this run wants — and an example contradicting the instruction above it is the one thing a
+    /// model follows. Which is also why this one asks for the assumptions <em>first</em> and the json
+    /// block last, the shape <see cref="ReviewExample"/> uses: "one fenced json block and nothing
+    /// else" forbids the very paragraph the instruction above it asks for, and the example is what
+    /// wins — leaving the one run nobody answers questions in with nothing at all to read before the
+    /// plan is written. That paragraph is what <see cref="GoalTranscript"/> keeps as the round's
+    /// aside, and it is read from what stands before the fence.
+    /// </remarks>
+    private const string ClarifyNoQuestionsExample =
+        "Write your assumptions as a short paragraph first, then one fenced json block as the last " +
+        "thing in your reply.\n\n" +
+        "Example:\n" +
+        "I am assuming the port belongs in appsettings.json, since launchSettings.json is not " +
+        "deployed.\n\n" +
+        "```json\n" +
+        "{\"needsClarification\":false,\"questions\":[]}\n" +
+        "```";
+
     private const string ReviewExample =
         "Answer with your reasoning first, then one fenced json block as the last thing in your reply.\n\n" +
         "Example:\n" +
@@ -185,10 +210,17 @@ public sealed class GoalPromptBuilder
         "Answer in the same language as the goal above. Keep json keys, severity values, marker " +
         "words, code and identifiers in English.\n\n";
 
-    public string BuildClarify(string goal, IReadOnlyList<string> clarificationHistory, int? budget = null) =>
-        Fit(cap => ComposeClarify(goal, clarificationHistory, cap), budget);
+    /// <param name="noQuestions">Whether this run will stop for questions at all. False is the
+    /// ordinary round. True is the run started by "Set goal &amp; run", where nobody is waiting to
+    /// answer — so the tool is told that rather than being asked something that would go
+    /// unanswered, and is asked to say what it is assuming instead, which is the last thing the
+    /// user sees before a plan is written against it.</param>
+    public string BuildClarify(string goal, IReadOnlyList<string> clarificationHistory,
+        int? budget = null, bool noQuestions = false) =>
+        Fit(cap => ComposeClarify(goal, clarificationHistory, cap, noQuestions), budget);
 
-    private string ComposeClarify(string goal, IReadOnlyList<string> clarificationHistory, int cap)
+    private string ComposeClarify(string goal, IReadOnlyList<string> clarificationHistory, int cap,
+        bool noQuestions)
     {
         var prompt = "You are helping implement a goal in a software project.\n\n"
                      + Block("The goal is", goal, GoalCap(cap))
@@ -197,6 +229,19 @@ public sealed class GoalPromptBuilder
         // and Recent would otherwise contribute a block containing only "… earlier turns omitted."
         if (clarificationHistory.Count > 0 && cap > 0)
             prompt += Block("Previous conversation", Recent(clarificationHistory, Cap(cap)), int.MaxValue);
+
+        if (noQuestions)
+        {
+            prompt += "This run will not stop for questions — nobody is there to answer them.\n" +
+                      "- Set needsClarification to false and send no questions.\n" +
+                      "- Before the json, say in one short paragraph what you are assuming about " +
+                      "anything the goal leaves open, so the user can see it before the plan is " +
+                      "written.\n" +
+                      "Do not implement anything yet.\n\n" +
+                      AnswerLanguage +
+                      ClarifyNoQuestionsExample;
+            return prompt;
+        }
 
         prompt += "Decide whether the goal is specific, measurable and achievable in code.\n" +
                   "- If anything material is missing, ask at most 3 short questions, each about one " +

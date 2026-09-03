@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
@@ -522,6 +522,24 @@
                  lane is here and not on the whole column, which would push the composer, the ask
                  blocks and every message off their own right edge to fix one row. -->
             <Setter Property="Margin" Value="4,8,18,0" />
+        </Style>
+
+        <!-- ======== The one control under the composer ========
+             Two buttons drawn as one: the primary segment squares off its right edge, the caret its
+             left, so the pair reads as a single control with a divider rather than as two buttons that
+             happen to touch. The radius is the one every small control here uses; only the two inner
+             corners are given up. -->
+        <Style Selector="StackPanel.run-split">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+        </Style>
+        <Style Selector="Button.run-primary">
+            <Setter Property="CornerRadius" Value="4,0,0,4" />
+        </Style>
+        <Style Selector="Button.run-more">
+            <Setter Property="CornerRadius" Value="0,4,4,0" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="Margin" Value="1,0,0,0" />
         </Style>
 
         <!-- One question, being asked or already answered — the space that separates it from the next.
@@ -1374,14 +1392,63 @@
                     <TextBlock DockPanel.Dock="Left"
                                Classes="gutter gutter-user"
                                Margin="0,2,0,0" />
-                    <Button DockPanel.Dock="Right"
-                            Classes="tile-btn"
-                            VerticalAlignment="Bottom"
-                            Command="{Binding SubmitCommand}"
-                            IsEnabled="{Binding !IsRunning}"
-                            ToolTip.Tip="Send (Enter)">
-                        <mi:MaterialIcon Kind="Send" Width="13" Height="13" />
-                    </Button>
+                    <!-- One control where four used to stand: the primary segment does what the
+                         phase and the box say it will (Set goal for typed words, Detect goal for an
+                         empty box, Send answer mid-conversation — see PrimaryActionLabel), and the
+                         caret beside it holds the other four ways in. Every entry stays on its own gate — nothing is hidden or greyed out by
+                         what is in the box: typed words beside a detection are a scope narrowing it
+                         (see docs/GOAL.md), which is a route the menu must not close. -->
+                    <StackPanel DockPanel.Dock="Right"
+                                Classes="run-split"
+                                VerticalAlignment="Bottom">
+                        <Button Classes="goal-action primary run-primary"
+                                Command="{Binding PrimaryActionCommand}"
+                                IsEnabled="{Binding !IsRunning}"
+                                Content="{Binding PrimaryActionLabel}"
+                                ToolTip.Tip="{Binding PrimaryActionHint}" />
+                        <Button Classes="goal-action run-more"
+                                IsEnabled="{Binding !IsRunning}"
+                                ToolTip.Tip="Other ways to start">
+                            <mi:MaterialIcon Kind="ChevronDown" Width="13" Height="13" />
+                            <Button.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight">
+                                    <!-- Down with the rest of the menu wherever the composer is
+                                         answering rather than starting: mid-conversation the same
+                                         send is an answer or an approval, and an entry named after
+                                         the goal it does not set would be the label the primary
+                                         segment was corrected away from. -->
+                                    <MenuItem Header="Set goal"
+                                              Command="{Binding SubmitCommand}"
+                                              IsEnabled="{Binding CanSetGoal}"
+                                              ToolTip.Tip="Set what you have typed as the goal and go on to the questions about it" />
+                                    <!-- The typed twin of Detect &amp; run: no questions, and the
+                                         plan is approved as it arrives. -->
+                                    <MenuItem Header="Set goal &amp; run"
+                                              Command="{Binding SetGoalAndRunCommand}"
+                                              IsEnabled="{Binding CanSetGoalAndRun}"
+                                              ToolTip.Tip="Set what you have typed as the goal and run it to the end without stopping" />
+                                    <Separator />
+                                    <MenuItem Header="Detect goal"
+                                              Command="{Binding DetectGoalCommand}"
+                                              IsEnabled="{Binding CanDetectGoal}"
+                                              ToolTip.Tip="Read the uncommitted changes, adopt the goal and go on to the questions about it" />
+                                    <MenuItem Header="Detect &amp; run"
+                                              Command="{Binding DetectGoalAndRunCommand}"
+                                              IsEnabled="{Binding CanDetectGoal}"
+                                              ToolTip.Tip="Read the goal from your changes and start reviewing and fixing straight away" />
+                                    <Separator />
+                                    <!-- Contextual, unlike the two above it: with something typed it
+                                         judges the tree against that, and with an empty box against
+                                         a goal read from the changes. Both answer the same question,
+                                         so they are one entry. -->
+                                    <MenuItem Header="Review"
+                                              Command="{Binding ReviewCommand}"
+                                              IsEnabled="{Binding CanDetectGoal}"
+                                              ToolTip.Tip="Judge the working tree once, against what you typed or against a goal read from your changes. Nothing is changed." />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
                     <TextBox x:Name="InputBox"
                              Classes="goal-input"
                              Text="{Binding InputText}"
@@ -1444,38 +1511,6 @@
                         ToolTip.Tip="Carry on into the implement and review loop, keeping the conversation" />
             </StackPanel>
 
-            <!-- ======== The other way in ========
-                 Directly *under* the composer, and last in the conversation: the composer's own
-                 placeholder is the alternative being offered — type a goal, or have one read out of
-                 what you have already changed — so these read as the answer to the box they follow
-                 rather than as something standing over it. Above it they were the first thing the eye
-                 landed on and the caret was somewhere below them. Only shown where a goal is what is
-                 wanted next and only when git says there is something uncommitted to read — see
-                 CanDetectGoal.
-
-                 Directly under the finished-run actions, which are the other row of the same kind:
-                 both say what the tile is offering, and both stand where the offer is read.
-
-                 No sentence saying there are uncommitted changes: the row is shown only when there are,
-                 so it was a line spent restating why it was on screen. The tooltips say what the two
-                 buttons read from. -->
-            <StackPanel Classes="chat-actions" IsVisible="{Binding CanDetectGoal}">
-                <Button Classes="goal-action"
-                        Command="{Binding DetectGoalCommand}"
-                        Content="Detect goal"
-                        ToolTip.Tip="Read the uncommitted changes, adopt the goal and go on to the questions about it" />
-                <!-- Same first half as the other two — work the goal out — and then one review and
-                     nothing else. For looking at what is already in the tree without letting anything
-                     write to it. -->
-                <Button Classes="goal-action"
-                        Command="{Binding DetectGoalAndReviewCommand}"
-                        Content="Review"
-                        ToolTip.Tip="Work the goal out, then judge the working tree against it once. Nothing is changed." />
-                <Button Classes="goal-action primary"
-                        Command="{Binding DetectGoalAndRunCommand}"
-                        Content="Detect &amp; run"
-                        ToolTip.Tip="Read the goal and start reviewing and fixing straight away" />
-            </StackPanel>
 
             </StackPanel>
         </ScrollViewer>

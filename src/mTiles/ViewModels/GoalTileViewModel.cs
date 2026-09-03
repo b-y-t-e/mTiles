@@ -210,6 +210,62 @@ public partial class GoalTileViewModel
     public bool CanDetectGoal =>
         HasUncommittedChanges && !IsRunning && CurrentPhase is GoalPhase.Goal or GoalPhase.Summary;
 
+    /// <summary>Whether the composer holds anything to send. What tells a typed goal from a detected
+    /// one, and therefore what every label and gate below follows.</summary>
+    public bool HasTypedGoal => InputText.Trim().Length > 0;
+
+    /// <summary>
+    /// Whether the composer is where a <em>goal</em> is typed at all.
+    /// </summary>
+    /// <remarks>
+    /// The composer is up in four phases and only two of them adopt what is sent as the goal — see
+    /// <see cref="SubmitCore"/>'s own switch. In Clarify the same box sends an answer to a round of
+    /// questions and in Plan it approves or corrects a plan, so every label and gate that names a goal
+    /// asks this first.
+    /// </remarks>
+    private bool ComposerSetsGoal => CurrentPhase is GoalPhase.Goal or GoalPhase.Summary;
+
+    /// <summary>Whether the menu's "Set goal" entry does what it says. Phase alone, because Set goal on
+    /// an empty box is Enter on an empty box — it has nothing to send, which is not the same as being
+    /// the wrong action.</summary>
+    public bool CanSetGoal => !IsRunning && ComposerSetsGoal;
+
+    /// <summary>
+    /// Whether a goal typed into the composer can be set and run without stopping on the way.
+    /// </summary>
+    /// <remarks>
+    /// The typed half of <see cref="CanDetectGoal"/>, and gated on the same two phases: this starts a
+    /// fresh goal, which is only what is wanted where a goal is what the tile is waiting for.
+    /// </remarks>
+    public bool CanSetGoalAndRun => HasTypedGoal && CanSetGoal;
+
+    /// <summary>
+    /// What the button under the composer says.
+    /// </summary>
+    /// <remarks>
+    /// The phase first, the box second. Where a goal is what is wanted the label follows the box the
+    /// way the plan block's button does — typed words are a goal to set, an empty box is a goal to go
+    /// and read. Everywhere else the same box is answering something, and a button reading "Set goal"
+    /// over a round of clarifying questions names an act it does not perform: nothing is adopted as a
+    /// goal there and <see cref="StartFreshGoal"/> is never reached.
+    /// </remarks>
+    public string PrimaryActionLabel => CurrentPhase switch
+    {
+        GoalPhase.Clarify => "Send answer",
+        _ when !ComposerSetsGoal => "Send",
+        _ when !HasTypedGoal && CanDetectGoal => "Detect goal",
+        _ => "Set goal",
+    };
+
+    /// <summary>What that button promises, which has to move with its label or it describes the act the
+    /// label was corrected away from.</summary>
+    public string PrimaryActionHint => CurrentPhase switch
+    {
+        GoalPhase.Clarify => "Send your answers back and go on (Enter)",
+        _ when !ComposerSetsGoal => "Send what you have typed (Enter)",
+        _ => "Set the goal you have typed (Enter), or, with the box empty, read one from your changes",
+    };
+
     /// <summary>
     /// Whether the finished run can be carried on.
     /// </summary>
@@ -300,7 +356,11 @@ public partial class GoalTileViewModel
             : Math.Min(_engine.IterationCount + GoalCompletionPolicy.Attempts(_engine.Criteria),
                        GoalCompletionPolicy.MostAttempts) - _engine.IterationCount;
 
-    partial void OnHasUncommittedChangesChanged(bool value) => OnPropertyChanged(nameof(CanDetectGoal));
+    partial void OnHasUncommittedChangesChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanDetectGoal));
+        RefreshComposerActions();
+    }
 
     /// <summary>Pausing and resuming move the button in the conversation, not only the header's glyph.
     /// </summary>
@@ -311,6 +371,7 @@ public partial class GoalTileViewModel
         OnPropertyChanged(nameof(IsBusy));
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
+        RefreshComposerActions();
         RefreshFinishedRunActions();
         RefreshAsk();
     }
@@ -320,13 +381,29 @@ public partial class GoalTileViewModel
         OnPropertyChanged(nameof(RunStage));
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
+        RefreshComposerActions();
         RefreshFinishedRunActions();
         RefreshAsk();
     }
 
     /// <summary>The plan block's button reads the box, so it has to be told when the box changes.
     /// </summary>
-    partial void OnInputTextChanged(string value) => OnPropertyChanged(nameof(ApprovalActionLabel));
+    partial void OnInputTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(ApprovalActionLabel));
+        RefreshComposerActions();
+    }
+
+    /// <summary>What the one button under the composer offers, and what its menu allows. Every one of
+    /// them reads the box, the run and the phase, so they move together or not at all.</summary>
+    private void RefreshComposerActions()
+    {
+        OnPropertyChanged(nameof(HasTypedGoal));
+        OnPropertyChanged(nameof(CanSetGoal));
+        OnPropertyChanged(nameof(CanSetGoalAndRun));
+        OnPropertyChanged(nameof(PrimaryActionLabel));
+        OnPropertyChanged(nameof(PrimaryActionHint));
+    }
 
     // ── What the tile is asking for right now ───────────
 
@@ -1232,9 +1309,21 @@ public partial class GoalTileViewModel
     [RelayCommand]
     private Task DetectGoalAndRunAsync() => DetectAsync(andRun: true);
 
-    /// <summary>Work the goal out and judge the working tree against it, once, changing nothing.</summary>
+    /// <summary>
+    /// Judge the working tree, once, changing nothing — against the goal the composer holds, or against
+    /// one read from the changes when it holds none.
+    /// </summary>
+    /// <remarks>
+    /// One entry rather than two, because the question the user is asking is the same either way: is
+    /// what is in the tree right? Where they have said what it was meant to be, that is the goal to
+    /// judge it against — reading a second one out of the diff and judging against that would answer a
+    /// question nobody asked, which is the whole fault this menu was built to close.
+    /// </remarks>
     [RelayCommand]
-    private Task DetectGoalAndReviewAsync() => DetectAsync(andRun: false, andReview: true);
+    private Task ReviewAsync() =>
+        HasTypedGoal
+            ? SubmitCore(echoTyped: true, TypedGoalStart.ReviewOnly)
+            : DetectAsync(andRun: false, andReview: true);
 
     /// <summary>
     /// Judge the working tree again against the goal already set — the second button a review-only run
@@ -1487,10 +1576,10 @@ public partial class GoalTileViewModel
 
             // The tree has just been read to work the goal out, and nothing has touched it since — so
             // it is read again rather than kept, for one reason: that read was capped for the *detect*
-            // prompt, and this one is capped for the review's. The narrowing travels: this review is
-            // the whole of what Detect & Review produces, and the goal's scope — just adopted below —
-            // is the hard half of it.
-            await RunReviewOnlyAsync(guideline);
+            // prompt, and this one is capped for the review's. No guideline is passed: this branch is
+            // Review's empty-composer half, so there are no typed words to narrow with — what survives
+            // is the goal's own scope, adopted above, which every read from here filters by.
+            await RunReviewOnlyAsync();
             return;
         }
 
@@ -1584,12 +1673,64 @@ public partial class GoalTileViewModel
     [RelayCommand]
     private Task Submit() => SubmitCore(echoTyped: true);
 
+    /// <summary>What the one button under the composer does, which is whatever its label says — see
+    /// <see cref="PrimaryActionLabel"/>. Dispatching here rather than in the markup keeps the label and
+    /// the action reading the same box.</summary>
+    [RelayCommand]
+    private Task PrimaryActionAsync() =>
+        !HasTypedGoal && ComposerSetsGoal && CanDetectGoal ? DetectGoalAsync() : Submit();
+
+    /// <summary>
+    /// Sets the typed goal and runs it to the end without stopping — the typed twin of
+    /// <see cref="DetectGoalAndRunAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// Through <see cref="SubmitCore"/> rather than beside it: the confirmation before a transcript is
+    /// discarded, the pause, the scope read off the typed text and the baseline are every bit as owed
+    /// here as they are to the plain send, and a second copy of them is a second set to keep in step.
+    /// What the mode changes is only what happens once the goal is set — no questions, and no waiting
+    /// for the plan to be approved by hand.
+    /// </remarks>
+    [RelayCommand]
+    private Task SetGoalAndRunAsync() =>
+        CanSetGoalAndRun ? SubmitCore(echoTyped: true, TypedGoalStart.Unattended) : Task.CompletedTask;
+
+    /// <summary>
+    /// What a goal typed into the composer does once it has been adopted — and the <em>only</em> thing
+    /// the three typed entries differ in.
+    /// </summary>
+    /// <remarks>
+    /// A mode rather than a pair of flags, and a mode rather than three methods. Adopting a typed goal
+    /// is eight steps — the confirmation before a transcript is discarded, the blank-answer guard, the
+    /// pause, <see cref="StartFreshGoal"/>, the scope read off the text, the transcript entry and the
+    /// baseline — and every one of them is owed whichever of the three was pressed. Written out a
+    /// second time beside <see cref="SubmitCore"/> they were a second set to keep in step, and had
+    /// already begun to drift. Flags would have described combinations none of the three is.
+    /// </remarks>
+    private enum TypedGoalStart
+    {
+        /// <summary>Ask about it, plan it, and wait for the plan to be approved by hand — Enter, and
+        /// what this tile has always done with a typed goal.</summary>
+        Conversation,
+
+        /// <summary>No questions, and the plan approved as it arrives — "Set goal &amp; run".</summary>
+        Unattended,
+
+        /// <summary>One judgement of the tree as it stands, changing nothing — the composer's
+        /// Review.</summary>
+        ReviewOnly,
+    }
+
     /// <param name="echoTyped">Whether what is being sent is also written into the transcript as a turn
     /// of the user's own. Off for the answers to a round of questions, which have just been recorded
     /// under the questions they answer — see <see cref="SendAnswers"/>. It gates the transcript and
     /// nothing else: what goes to the tool, and the clarification history it is remembered in, are the
     /// same either way.</param>
-    private async Task SubmitCore(bool echoTyped)
+    /// <param name="start">What happens once a typed goal has been adopted. Only the phases that start
+    /// a goal read it — everything else this method does is owed whichever of the three was
+    /// pressed.</param>
+    private async Task SubmitCore(bool echoTyped,
+        TypedGoalStart start = TypedGoalStart.Conversation)
     {
         var text = InputText.Trim();
         if (string.IsNullOrEmpty(text) || IsRunning) return;
@@ -1654,7 +1795,25 @@ public partial class GoalTileViewModel
                     await WorkingAsync(async () =>
                     {
                         await CaptureBaselineAsync();
-                        await RunClarifyAsync();
+
+                        if (start == TypedGoalStart.ReviewOnly)
+                        {
+                            // The same fact the detected review path records, and for the same reason:
+                            // what is being judged was in the tree before this run started, so every
+                            // diff from now on measures from HEAD rather than from the baseline
+                            // photographed over it.
+                            _engine.ReviewsExistingWork = true;
+                            await RunReviewOnlyAsync();
+
+                            // This is the one start that ends in Summary, where the detect entries are
+                            // offered again over a tree the review has just read — the same ask
+                            // DetectAsync makes on its way out. The other two end mid-conversation,
+                            // in a phase that does not offer them at all.
+                            RefreshDetectAvailability();
+                            return;
+                        }
+
+                        await RunClarifyAsync(noQuestions: start == TypedGoalStart.Unattended);
                     });
                     break;
 
@@ -1671,7 +1830,7 @@ public partial class GoalTileViewModel
                     _engine.RecordClarification(text);
                     if (echoTyped)
                         await AddMessageAsync(GoalMessageRole.User, text, GoalPhase.Clarify);
-                    await WorkingAsync(RunClarifyAsync);
+                    await WorkingAsync(() => RunClarifyAsync());
                     break;
 
                 case GoalPhase.Plan:
@@ -1682,7 +1841,7 @@ public partial class GoalTileViewModel
                         // nothing to approve — an empty or failed run leaves this phase paused with no
                         // plan in it — and it used to be dug out of the transcript as "the last assistant
                         // message, whatever that was", which in that case is the clarifying questions.
-                        if (!_engine.ApprovePlan())
+                        if (!AdoptProposedPlan())
                         {
                             await SayOnceAsync("There is no plan to approve yet. Click Resume to ask " +
                                                "for one, or describe what you want changed.");
@@ -1694,18 +1853,12 @@ public partial class GoalTileViewModel
                             break;
                         }
 
-                        // The phase moves before the run starts: approving first means a crash here
-                        // resumes with a plan, and moving the phase means it resumes into the
-                        // implementation rather than asking to have the plan approved a second time.
-                        _engine.CurrentPhase = GoalPhase.Implement;
-                        SyncFromEngine();
-
                         await WorkingAsync(() => RunImplementReviewLoopAsync());
                     }
                     else
                     {
                         _engine.RecordClarification(text);
-                        await WorkingAsync(RunClarifyAsync);
+                        await WorkingAsync(() => RunClarifyAsync());
                     }
                     break;
 
@@ -1738,7 +1891,10 @@ public partial class GoalTileViewModel
     /// plan the user can still reject, which is a better place to argue from than a fourth question.
     /// </para>
     /// </summary>
-    private async Task RunClarifyAsync()
+    /// <param name="noQuestions">Whether this run stops for questions at all. Set by "Set goal &amp;
+    /// run": the tool is told nobody is waiting, and the plan it goes on to write is approved as it
+    /// arrives.</param>
+    private async Task RunClarifyAsync(bool noQuestions = false)
     {
         // First, before the budget is even looked at. Whatever is on screen is about to be answered by
         // a fresh set, by none, or by the tile giving up and planning — and that last path returns
@@ -1762,12 +1918,13 @@ public partial class GoalTileViewModel
 
             _engine.CurrentPhase = GoalPhase.Plan;
             SyncFromEngine();
-            await RunPlanAsync();
+            await RunPlanAsync(autoApprove: noQuestions);
             return;
         }
 
         await RunPhaseAsync(GoalPhase.Clarify, "AI is checking the goal...",
-            _engine.BuildClarifyPrompt(PromptBudget()), OnClarifyAnsweredAsync);
+            _engine.BuildClarifyPrompt(PromptBudget(), noQuestions),
+            answer => OnClarifyAnsweredAsync(answer, noQuestions));
     }
 
     /// <summary>
@@ -1778,10 +1935,43 @@ public partial class GoalTileViewModel
     /// vague can be asked about again on the next round rather than only after a plan is rejected.
     /// </para>
     /// </summary>
-    private async Task OnClarifyAnsweredAsync(string answer)
+    /// <inheritdoc cref="RunClarifyAsync"/>
+    private async Task OnClarifyAnsweredAsync(string answer, bool noQuestions)
     {
         var clarify = GoalResponseParser.ParseClarify(answer);
         _engine.ClarifyRounds++;
+
+        // A run nobody is going to answer plans whatever came back. The tool was told not to ask, and
+        // a tool that asked anyway is not a reason to stop a run the user started with one click — but
+        // what it asked is neither hidden nor thrown away: it goes into the transcript and into the
+        // clarification history, so the plan is written knowing what is still open.
+        if (noQuestions)
+        {
+            // Split exactly the way the answered path below splits it, and on the same question: a
+            // structured answer with nothing in its `questions` array said something on its way past,
+            // and anything else asked whatever it wrote. The prompt's instruction not to ask does not
+            // get a vote here — `GoalResponseParser` sets `NeedsClarification` from the questions
+            // themselves, so a tool that told us it needed nothing and then listed three has listed
+            // three, and all three go into the transcript and the history for the plan to read.
+            if (clarify.WasStructured && !clarify.NeedsClarification)
+            {
+                if (GoalTranscript.Aside(clarify) is { Length: > 0 } assumed)
+                    await AddMessageAsync(GoalMessageRole.Assistant, assumed, GoalPhase.Clarify, markdown: true);
+            }
+            else if (GoalTranscript.Questions(clarify) is { Length: > 0 } asked)
+            {
+                await AddMessageAsync(GoalMessageRole.Assistant, asked, GoalPhase.Clarify, markdown: true);
+                _engine.RecordClarification(asked, fromUser: false);
+            }
+
+            await AddMessageAsync(GoalMessageRole.System,
+                "No questions on this run — planning now.", GoalPhase.Clarify);
+
+            _engine.CurrentPhase = GoalPhase.Plan;
+            SyncFromEngine();
+            await RunPlanAsync(autoApprove: true);
+            return;
+        }
 
         // Prose is a legitimate answer: a tool that ignored the schema still asked something, and the
         // old behaviour — show it, wait for a reply — is exactly right for it.
@@ -1843,9 +2033,55 @@ public partial class GoalTileViewModel
         await AddMessageAsync(GoalMessageRole.Assistant, questions, GoalPhase.Clarify, markdown: true);
     }
 
-    private async Task RunPlanAsync() =>
+    /// <param name="autoApprove">Whether the plan is approved as it arrives rather than waiting for
+    /// the user — see <see cref="SetGoalAndRunAsync"/>.</param>
+    private async Task RunPlanAsync(bool autoApprove = false)
+    {
         await RunPhaseAsync(GoalPhase.Plan, "AI is creating a plan...",
             _engine.BuildPlanPrompt(PromptBudget()));
+
+        if (autoApprove) await ApproveAndImplementAsync();
+    }
+
+    /// <summary>
+    /// Approves the plan that has just arrived and goes straight on with it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Silent about a plan that never arrived: a planning run that was paused, failed or said
+    /// nothing has already written its own explanation and paused the tile, and a second sentence here
+    /// would be this tile explaining the same stop twice.</para>
+    /// <para>The approval itself is <see cref="AdoptProposedPlan"/>, the same step the typed "ok" takes,
+    /// so the automatic path and the hand-approved one cannot drift.</para>
+    /// </remarks>
+    private async Task ApproveAndImplementAsync()
+    {
+        if (PauseRequested || _engine.ProposedPlan is not { Length: > 0 }) return;
+
+        // Said, because nobody approved it. The plan is above this line in the transcript and the user
+        // is entitled to know it was acted on without being asked.
+        await AddMessageAsync(GoalMessageRole.System,
+            "Plan approved automatically — implementing now.", GoalPhase.Plan);
+
+        if (AdoptProposedPlan()) await RunImplementReviewLoopAsync();
+    }
+
+    /// <summary>
+    /// Makes the proposed plan this run's plan and moves the tile into the implementation.
+    /// </summary>
+    /// <remarks>
+    /// The phase moves before the run starts: approving first means a crash here resumes with a plan,
+    /// and moving the phase means it resumes into the implementation rather than asking to have the
+    /// plan approved a second time. False is the phase having no plan in it — an empty or failed
+    /// planning run — which each caller answers in its own way.
+    /// </remarks>
+    private bool AdoptProposedPlan()
+    {
+        if (!_engine.ApprovePlan()) return false;
+
+        _engine.CurrentPhase = GoalPhase.Implement;
+        SyncFromEngine();
+        return true;
+    }
 
     /// <summary>
     /// Runs one of the two phases the user answers, and leaves the tile saying where it now stands.
@@ -2374,8 +2610,8 @@ public partial class GoalTileViewModel
         // whatever anybody else has done since the last implementation.
         //
         // **Unless there is no end to preserve.** `RunReviewOnlyAsync` serves two buttons: Re-review,
-        // which follows an implementation and must keep that implementation's end, and Detect & Review,
-        // where nothing ran before it and `EndRef` is still null. Refusing on both left the second one
+        // which follows an implementation and must keep that implementation's end, and Review, where
+        // nothing ran before it and `EndRef` is still null. Refusing on both left the second one
         // unbounded — `end` falls back to the tree as it is *now*, `touchedSince` compares that tree
         // with itself and comes out empty, and on the detect path `LeftAlone` is empty by design — so
         // every dirty file in the workspace, another tile's included, was offered as this goal's work
@@ -3652,10 +3888,10 @@ public partial class GoalTileViewModel
                         startAtReview: GoalTilePolicy.ResumesAtReview(CurrentPhase)));
                     break;
                 case GoalPhase.Clarify:
-                    await WorkingAsync(RunClarifyAsync);
+                    await WorkingAsync(() => RunClarifyAsync());
                     break;
                 case GoalPhase.Plan:
-                    await WorkingAsync(RunPlanAsync);
+                    await WorkingAsync(() => RunPlanAsync());
                     break;
 
                 default:
