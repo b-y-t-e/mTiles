@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using mTiles.Services;
 using mTiles.ViewModels;
@@ -22,6 +23,10 @@ public partial class MainWindow : Window
         Title = $"mTiles {AppInfo.Version}";
         SizeChanged += (_, _) => UpdateSettingsDialogSize();
         TerminalClipboardCoordinator.Attach(this);
+
+        // Tunneled, like the clipboard coordinator: a terminal consumes F11 as an escape sequence for
+        // the child, so a bubbling handler never sees it while the focus sits in a terminal.
+        AddHandler(InputElement.KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
     }
 
     public void BindWindowState(SettingsService settingsService)
@@ -280,6 +285,35 @@ public partial class MainWindow : Window
         base.OnKeyDown(e);
     }
 
+    /// <summary>Set when F11 puts the window into full screen, so the second press restores it.</summary>
+    /// <remarks>Never a maximized flag read back from the live window: exiting full screen by any other
+    /// route (the taskbar, a window manager gesture) leaves it stale, and a stale answer is the state
+    /// the toggle would come back to.</remarks>
+    private WindowState _windowStateBeforeFullScreen = WindowState.Normal;
+
+    private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.F11 || e.KeyModifiers != KeyModifiers.None)
+            return;
+
+        ToggleFullScreen();
+        e.Handled = true;
+    }
+
+    private void ToggleFullScreen()
+    {
+        if (WindowState == WindowState.FullScreen)
+        {
+            WindowState = _windowStateBeforeFullScreen;
+            return;
+        }
+
+        // A minimized window holds no keyboard focus, so this is nearly unreachable — but a restore
+        // that lands on Minimized would read as a key that did nothing.
+        _windowStateBeforeFullScreen = WindowState == WindowState.Minimized ? WindowState.Normal : WindowState;
+        WindowState = WindowState.FullScreen;
+    }
+
     private void SettingsOverlay_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (DataContext is MainWindowViewModel vm)
@@ -342,7 +376,13 @@ public partial class MainWindow : Window
         if (_settingsService == null) return;
         var s = _settingsService.Settings;
 
-        s.WindowMaximized = WindowState == WindowState.Maximized;
+        // Closing in full screen: the state worth remembering is the one the window had before it went
+        // full screen — restoring a FullScreen flag would lose the maximization answer, and the live
+        // bounds now are the monitor's. The bounds below therefore stay keyed on the live state: in
+        // full screen they are not written, so the last known normal ones survive.
+        var stateToSave = WindowState == WindowState.FullScreen ? _windowStateBeforeFullScreen : WindowState;
+
+        s.WindowMaximized = stateToSave == WindowState.Maximized;
 
         if (WindowState == WindowState.Normal)
         {
