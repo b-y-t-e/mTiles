@@ -210,6 +210,24 @@ public sealed class GoalPromptBuilder
         "Answer in the same language as the goal above. Keep json keys, severity values, marker " +
         "words, code and identifiers in English.\n\n";
 
+    /// <summary>
+    /// The one sentence that keeps a hand-written JSON block parseable, asked for wherever one is.
+    /// </summary>
+    /// <remarks>
+    /// It is the first line of defence against the one malformed shape no reading of the brackets
+    /// repairs: a quote left unescaped inside a string value. The review prompt has carried it since
+    /// a reviewer put a C# interpolation with its own quotes inside a finding's detail and the block
+    /// died for every reader this tile has (measured live, 2026-09-01). The
+    /// clarification did not, and it is the phase most likely to need it: what a round quotes is the
+    /// user's own goal and the documents around it, in the user's own language — and a Polish
+    /// quotation closes with an ordinary double quote, which ends the JSON string in the middle of a
+    /// sentence. A prompt is a request rather than a protocol, so <see cref="JsonRepair"/> stands
+    /// behind this; the sentence is what makes the repair the exception instead of the rule.
+    /// </remarks>
+    private const string JsonEscaping =
+        "Inside string values, escape every double quote as \\\" so the block is strictly valid " +
+        "JSON.\n\n";
+
     /// <param name="noQuestions">Whether this run will stop for questions at all. False is the
     /// ordinary round. True is the run started by "Set goal &amp; run", where nobody is waiting to
     /// answer — so the tool is told that rather than being asked something that would go
@@ -239,6 +257,7 @@ public sealed class GoalPromptBuilder
                       "written.\n" +
                       "Do not implement anything yet.\n\n" +
                       AnswerLanguage +
+                      JsonEscaping +
                       ClarifyNoQuestionsExample;
             return prompt;
         }
@@ -252,6 +271,7 @@ public sealed class GoalPromptBuilder
                   "- Offer options when the sensible answers are few and knowable.\n" +
                   "Do not implement anything yet.\n\n" +
                   AnswerLanguage +
+                  JsonEscaping +
                   ClarifyExample;
         return prompt;
     }
@@ -709,27 +729,20 @@ public sealed class GoalPromptBuilder
                   "there is nothing to report.\n\n" +
                   AnswerLanguage +
                   ReviewExample +
-                  // First line of defence against the one malformed shape that no reading of the
-                  // brackets repairs: a quote left unescaped inside a string value. Measured live,
-                  // 2026-09-01 — a reviewer put a C# interpolation with its own quotes inside a
-                  // finding's detail and the block died for every reader this tile has. A prompt is a
-                  // request rather than a protocol, so the parser's salvage round stands behind this;
-                  // the sentence is what makes the round the exception instead of the rule.
-                  "\nInside string values, escape every double quote as \\\" so the block is strictly " +
-                  "valid JSON." +
+                  "\n" + JsonEscaping +
                   // Asked for as well as the block, and not as a belt-and-braces flourish: it is the
                   // fallback's trigger. GoalResponseParser reads an answer with no JSON in it by
                   // looking for these words, and while nothing asked for them a tool that ignores the
                   // schema could never say the goal was met — so it burned the whole budget and ended
                   // every goal unfinished. A fallback whose phrase is never requested is not a
                   // fallback.
-                  "\n\nIf you cannot produce the json block, end your reply with the line " +
+                  "If you cannot produce the json block, end your reply with the line " +
                   "VERDICT: PASS or VERDICT: FAIL instead.";
         return prompt;
     }
 
     /// <summary>
-    /// Asks the tool to re-send a review block it wrote as invalid JSON, as valid JSON.
+    /// Asks the tool to re-send a block it wrote as invalid JSON, as valid JSON.
     /// </summary>
     /// <remarks>
     /// <para>The salvage round's prompt, and <b>the answer travels alone</b> — no goal, no diff, no
@@ -744,9 +757,12 @@ public sealed class GoalPromptBuilder
     /// rare answer big enough to matter.</para>
     /// </remarks>
     public string BuildJsonSalvage(string brokenAnswer) =>
-        "The text below was meant to be a single JSON review block, but it is not valid JSON. The " +
+        // Not "review block", though the round was written for one: the clarification asks for the
+        // same shape and breaks in the same place, and a prompt naming the review told a tool
+        // repairing a set of questions that it was looking at something else.
+        "The text below was meant to be a single JSON block, but it is not valid JSON. The " +
         "usual cause is a double quote or a newline inside a string value.\n\n" +
-        "Return exactly the same JSON — every key and every value unchanged, finding for finding — " +
+        "Return exactly the same JSON — every key and every value unchanged, entry for entry — " +
         "with every double quote inside a string value escaped as \\\" and every newline inside a " +
         "string value written as \\n. No prose, no code fence: your whole reply is the JSON.\n\n" +
         Block("The answer to repair", brokenAnswer);

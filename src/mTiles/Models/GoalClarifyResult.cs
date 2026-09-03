@@ -65,7 +65,7 @@ public sealed class GoalQuestion
 /// whole blob went back as "previous conversation". Numbering them is what lets an answer be filed
 /// against a question.</para>
 /// </summary>
-public sealed class GoalClarifyResult
+public sealed class GoalClarifyResult : IGoalParsedBlock
 {
     /// <summary>
     /// False when the tool says the goal is already clear enough to plan.

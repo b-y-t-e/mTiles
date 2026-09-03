@@ -7,7 +7,7 @@ namespace mTiles.Models;
 /// VERDICT: PASS until the null check is fixed" passed, "VERDICT: PASSED" failed, and the whole review
 /// — nits included — went back into the next implement prompt as one undifferentiated blob.</para>
 /// </summary>
-public sealed class GoalReviewResult
+public sealed class GoalReviewResult : IGoalParsedBlock
 {
     /// <summary>Whether the change does what the goal asked for. Separate from the findings on
     /// purpose: a clean implementation of the wrong thing has no findings and is not done.</summary>

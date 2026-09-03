@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -1938,7 +1938,8 @@ public partial class GoalTileViewModel
     /// <inheritdoc cref="RunClarifyAsync"/>
     private async Task OnClarifyAnsweredAsync(string answer, bool noQuestions)
     {
-        var clarify = GoalResponseParser.ParseClarify(answer);
+        var clarify = await SalvagedAsync(GoalResponseParser.ParseClarify(answer),
+            GoalResponseParser.ParseClarify, "round");
         _engine.ClarifyRounds++;
 
         // A run nobody is going to answer plans whatever came back. The tool was told not to ask, and
@@ -2354,7 +2355,8 @@ public partial class GoalTileViewModel
 
                 if (reviewRun is not { } reviewed) return;
 
-                var review = await SalvagedReviewAsync(GoalResponseParser.ParseReview(reviewed.Text));
+                var review = await SalvagedAsync(GoalResponseParser.ParseReview(reviewed.Text),
+                    GoalResponseParser.ParseReview, "review");
                 ShowFindings(review);
                 // The head as text, the findings as findings. They used to be one string, so the one
                 // part of the transcript arranged to be scanned was also the one part with no colour
@@ -2671,7 +2673,8 @@ public partial class GoalTileViewModel
 
         if (reviewRun is not { } reviewed) return null;
 
-        var review = await SalvagedReviewAsync(GoalResponseParser.ParseReview(reviewed.Text));
+        var review = await SalvagedAsync(GoalResponseParser.ParseReview(reviewed.Text),
+            GoalResponseParser.ParseReview, "review");
         ShowFindings(review);
         await AddMessageAsync(GoalMessageRole.Assistant,
             GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
@@ -2746,7 +2749,8 @@ public partial class GoalTileViewModel
         // needs to know whether the words it handed over were spent.
         if (run is not { } reviewed) return false;
 
-        var review = await SalvagedReviewAsync(GoalResponseParser.ParseReview(reviewed.Text));
+        var review = await SalvagedAsync(GoalResponseParser.ParseReview(reviewed.Text),
+            GoalResponseParser.ParseReview, "review");
         ShowFindings(review);
         await AddMessageAsync(GoalMessageRole.Assistant,
             GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
@@ -3009,31 +3013,42 @@ public partial class GoalTileViewModel
     // ── AI process execution ────────────────────────────
 
     /// <summary>
-    /// One salvage round for a review that arrived as the JSON this tile asked for and broke on the way.
+    /// One re-send for a block that arrived as the JSON this tile asked for and broke on the way.
     /// </summary>
     /// <remarks>
     /// <para>Measured live, 2026-09-01: a reviewer answering in Polish put a C# interpolation with its
     /// own unescaped quotes inside a finding's detail, the block died for every reader this tile has —
     /// fenced, balanced, span — and a review whose JSON said the goal was met fell through to the prose
-    /// verdict, which said the opposite. The repair belongs to the tool that wrote the block, so the
-    /// answer goes back to it <b>alone</b> — no goal, no diff — for one re-send; a second AI call of a
-    /// few hundred characters instead of a review re-run over the whole working tree.</para>
-    /// <para>The round fires only when the text still <em>looks</em> like the requested shape
-    /// (<see cref="GoalResponseParser.LooksLikeJson"/>): a prose answer earns no second call. When the
-    /// re-send fails too, today's behaviour stands — the soup is shown and the prose verdict answers —
-    /// which is why the original review, not the salvage attempt, is what returns.</para>
+    /// verdict, which said the opposite. Measured again 2026-09-03 in a clarify round quoting the
+    /// document it was reading — <c>„z pytaniem do użytkownika"</c>, a Polish quotation closing on an
+    /// ordinary double quote — where the failure is worse: a broken review at least falls back to a
+    /// prose verdict, while a broken clarification is printed into the transcript as raw braces for the
+    /// user to answer and filed in the clarification history for the planner to be handed.</para>
+    /// <para><b>One method for every phase, and that is the point.</b> Nothing here reads a question or
+    /// a finding — only <see cref="IGoalParsedBlock"/>, which is why the entry rule and the fallback
+    /// cannot drift between two copies, and why the commit plan or the detected goal can be given the
+    /// same round by passing their own parser rather than by growing a third copy of this.</para>
+    /// <para>The repair belongs to the tool that wrote the block, so the answer goes back to it
+    /// <b>alone</b> — no goal, no diff — for one re-send; a second AI call of a few hundred characters
+    /// instead of a re-run of the phase over the whole working tree. It fires only when the text still
+    /// <em>looks</em> like the requested shape (<see cref="GoalResponseParser.LooksLikeJson"/>): a prose
+    /// answer earns no second call. <see cref="JsonRepair"/> has already run, free, inside the parser,
+    /// so this is for what no rule can mend — and when the re-send fails too, the original result is
+    /// what returns, so today's behaviour stands behind it.</para>
     /// </remarks>
-    private async Task<GoalReviewResult> SalvagedReviewAsync(GoalReviewResult review)
+    /// <param name="subject">What the tile calls this block in the note it shows while re-asking.</param>
+    private async Task<TBlock> SalvagedAsync<TBlock>(
+        TBlock parsed, Func<string?, TBlock> reread, string subject) where TBlock : IGoalParsedBlock
     {
-        if (review.WasStructured || !GoalResponseParser.LooksLikeJson(review.RawText)) return review;
+        if (parsed.WasStructured || !GoalResponseParser.LooksLikeJson(parsed.RawText)) return parsed;
 
         await AddMessageAsync(GoalMessageRole.System,
-            "The review came back as JSON this tile could not parse — asking the tool to re-send the " +
-            "same block in a valid form.", CurrentPhase);
+            $"The {subject} came back as JSON this tile could not parse — asking the tool to re-send " +
+            "the same block in a valid form.", CurrentPhase);
 
-        var salvaged = await RunAiAsync(_engine.BuildJsonSalvagePrompt(review.RawText), announceFailure: false);
-        var second = GoalResponseParser.ParseReview(salvaged.Text);
-        return second.WasStructured ? second : review;
+        var salvaged = await RunAiAsync(_engine.BuildJsonSalvagePrompt(parsed.RawText), announceFailure: false);
+        var second = reread(salvaged.Text);
+        return second.WasStructured ? second : parsed;
     }
 
     /// <summary>

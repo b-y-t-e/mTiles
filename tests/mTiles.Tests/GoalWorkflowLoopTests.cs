@@ -1048,6 +1048,48 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
+    public void A_clarify_block_broken_past_repairing_is_asked_for_again_rather_than_shown_raw()
+    {
+        OnUiThread(async () =>
+        {
+            // Measured live, 2026-09-03: a round quoted the document it was reading and the Polish
+            // quotation closed on an ordinary double quote, which ended the JSON string mid-sentence.
+            // JsonRepair mends that one for free; what is left here is the shape no rule can resolve —
+            // a quote, a comma, and then something that looks exactly like the next pair. It used to
+            // reach the user as raw braces to answer and the planner as a question, because the
+            // salvage round the review has had for months was never wired to this phase.
+            var broken = "{\"needsClarification\":true,\"questions\":[{\"question\":" +
+                         "\"Plan mówi \"a\", \"b\" — gdzie pytamy?\"}]}";
+            var prompts = new List<string>();
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(++asked switch
+                {
+                    1 => broken,
+                    _ => "```json\n{\"needsClarification\":true,\"questions\":[{\"question\":\"Gdzie pytamy?\"}]}\n```",
+                });
+            };
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // Two calls: the round, and the re-send of its own answer — the answer alone, not the
+            // clarify prompt with the goal and the history again.
+            Assert.Equal(2, prompts.Count);
+            Assert.Contains("exactly the same JSON", prompts[1]);
+            Assert.Contains(broken, prompts[1]);
+
+            // The question is a box the user can answer, and the braces are nowhere near the
+            // transcript.
+            Assert.Contains(vm.Questions, q => q.Question.Contains("Gdzie pytamy?"));
+            Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("needsClarification"));
+        });
+    }
+
+    [Fact]
     public void A_round_that_asks_nothing_goes_straight_to_the_plan()
     {
         OnUiThread(async () =>
@@ -2433,12 +2475,14 @@ public class GoalWorkflowLoopTests : IDisposable
     {
         OnUiThread(async () =>
         {
-            // The shape captured live, 2026-09-01: a reviewer answering in Polish put a C#
-            // interpolation with its own unescaped quotes inside a finding's detail. The block dies for
-            // every reader the tile has — and its own JSON said the goal was met, which the prose
-            // fallback then read as not met, spending an attempt on work that was already done.
+            // What reaches this round now: a block whose quoting JsonRepair cannot resolve. The
+            // quoted word is followed by a comma and then by what looks exactly like the next pair,
+            // so the free repair reads the value as ending there and leaves a member with no key —
+            // text that still does not parse, which is the whole trigger for asking the tool itself.
+            // An ordinary unescaped quote never gets this far any more; that case is pinned in
+            // JsonRepairTests.A_quoted_line_of_code_inside_a_finding_no_longer_costs_the_review.
             var broken = "```json\n{\"goalMet\": true, \"findings\": [{\"severity\": \"warning\", " +
-                         "\"detail\": \"throw new ExportException($\"Nie udało się\" — the outer catch swallows it)\"}]}\n```";
+                         "\"detail\": \"he said \"a\", \"b\" and the outer catch swallows it\"}]}\n```";
             var prompts = new List<string>();
             var asked = 0;
             GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
@@ -2477,8 +2521,10 @@ public class GoalWorkflowLoopTests : IDisposable
     {
         OnUiThread(async () =>
         {
+            // Past repairing for the same reason: the quote is followed by a comma and then by
+            // something shaped like the next pair, so no rule can say where the value ended.
             var broken = "{\"goalMet\": false, \"findings\": [{\"severity\": \"error\", " +
-                         "\"title\": \"Swallowed \"quote\" here\"}]}";
+                         "\"title\": \"Swallowed \"a\", \"b\" here\"}]}";
             var prompts = new List<string>();
             var asked = 0;
             GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
@@ -2519,7 +2565,7 @@ public class GoalWorkflowLoopTests : IDisposable
             // stream, the unasked retry is still that same quiet round, so its failure must stay quiet
             // too — "review reported a failure" over it would name a failure the phase did not have.
             var broken = "{\"goalMet\": true, \"findings\": [{\"severity\": \"warning\", " +
-                         "\"detail\": \"throw new ExportException($\"Nie\"}]}";
+                         "\"detail\": \"he said \"a\", \"b\" and then stopped\"}]}";
             var prompts = new List<string>();
             var asked = 0;
             GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
