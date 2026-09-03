@@ -292,7 +292,15 @@ public sealed class GoalPromptBuilder
                   "Plan only what the goal asks for. Do not invent files, requirements or constraints, " +
                   "do not name the principles above or justify the steps, and do not describe anything " +
                   "you are not changing.\n" +
-                  "Do not implement anything yet.\n\n" +
+                  "Do not implement anything yet.\n" +
+                  // The phase runs read-only, which for Claude Code is `--permission-mode plan` — and
+                  // in a headless run that mode is handed no ExitPlanMode tool to leave it with. So the
+                  // tool noticed the missing exit and said so in the plan: "Since ExitPlanMode isn't
+                  // available in this session, I'll summarize here instead", a paragraph of apology
+                  // above the plan the user is being asked to approve. Told up front, it writes the
+                  // plan and says nothing about the tool it does not have.
+                  "This is a headless run with no plan-approval tool available to you: write the plan " +
+                  "as plain text in your reply and do not remark on the missing tool.\n\n" +
                   "Example shape:\n" +
                   "Goal: one sentence restating what will be true when this is done.\n" +
                   "Steps:\n" +
