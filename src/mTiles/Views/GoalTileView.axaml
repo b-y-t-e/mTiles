@@ -195,6 +195,25 @@
             <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
         </Style>
 
+        <!-- The same copy button with a word on it, for the pair that takes a whole review's findings
+             at once. Quiet by default and permanently there: it names how many rows it would take, and
+             a count is worth reading without pressing anything. -->
+        <Style Selector="Button.list-copy">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.list-copy:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        </Style>
+
         <!-- A note from the tile itself: quieter, and closer to whatever it is a note about — it is a
              footnote to the message above, not a turn of its own. -->
         <Style Selector="Border.row-system">
@@ -1178,6 +1197,54 @@
                                                 <DataTemplate DataType="m:GoalMessage">
                                                     <StackPanel>
                                                         <SelectableTextBlock Classes="msg" Text="{Binding Text}" />
+                                                        <!-- ======== Taking the list away whole ========
+                                                             Every row already copies itself, which is
+                                                             the wrong unit for the thing people
+                                                             actually do with a review: paste it into
+                                                             an issue, or hand it to another tool. Two
+                                                             buttons, because those are the two lists
+                                                             worth having - everything, and everything
+                                                             that is a defect rather than a nit.
+
+                                                             Under the verdict rather than under the
+                                                             list. The counts they follow are the
+                                                             sentence directly above them, so the
+                                                             labels need no explaining; and a review is
+                                                             a screenful or six, so an action at the
+                                                             foot of it is an action you have to go
+                                                             looking for. Nothing else in the
+                                                             conversation is docked to a bottom edge
+                                                             either.
+
+                                                             Not hidden until the pointer arrives, as
+                                                             the per-row buttons are: those repeat on
+                                                             every row and would be a column of icons
+                                                             down the review, while this pair appears
+                                                             once and carries a count, which is worth
+                                                             reading whether or not anyone is about to
+                                                             press it. -->
+                                                        <StackPanel Orientation="Horizontal"
+                                                                    Margin="0,5,0,1"
+                                                                    Spacing="4"
+                                                                    IsVisible="{Binding CanCopyAllFindings}">
+                                                            <Button Classes="list-copy"
+                                                                    Click="CopyAllFindings_Click"
+                                                                    ToolTip.Tip="Copy every finding here, without the verdict line">
+                                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                    <mi:MaterialIcon Kind="ContentCopy" Width="11" Height="11" />
+                                                                    <TextBlock Text="{Binding Findings.Count, StringFormat='Copy all ({0})'}" />
+                                                                </StackPanel>
+                                                            </Button>
+                                                            <Button Classes="list-copy"
+                                                                    Click="CopyProblems_Click"
+                                                                    IsVisible="{Binding CanCopyProblems}"
+                                                                    ToolTip.Tip="Copy the blockers, errors and warnings, leaving the suggestions out">
+                                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                    <mi:MaterialIcon Kind="ContentCopy" Width="11" Height="11" />
+                                                                    <TextBlock Text="{Binding ProblemCount, StringFormat='Copy problems ({0})'}" />
+                                                                </StackPanel>
+                                                            </Button>
+                                                        </StackPanel>
                                                         <ItemsControl ItemsSource="{Binding Findings}"
                                                                       ItemTemplate="{StaticResource FindingTemplate}" />
                                                     </StackPanel>

@@ -222,4 +222,86 @@ public class GoalMessageRenderingTests
 
         Assert.Equal(sb.ToString(), GoalTranscript.Copyable(message));
     }
+
+    /// <summary>
+    /// The two buttons under a review's verdict hand over the list and not the bookkeeping.
+    /// </summary>
+    /// <remarks>
+    /// Copying the whole list is the same text as copying every row of it one at a time, which is what
+    /// makes the bulk button worth having rather than a second spelling of the review. The verdict line
+    /// stays out: what is being pasted somewhere else is the defects, and this tile's counts in the
+    /// middle of them are noise where they land.
+    /// </remarks>
+    [Fact]
+    public void Copying_a_whole_list_of_findings_reads_as_the_rows_do()
+    {
+        var first = Finding(GoalSeverity.Error, "Total ignores discounts", "Sum() runs first.");
+        var second = Finding(GoalSeverity.Suggestion, "Rename the local");
+
+        var both = GoalTranscript.Copyable([first, second]);
+
+        Assert.StartsWith(GoalTranscript.Copyable(first), both);
+        Assert.EndsWith(GoalTranscript.Copyable(second), both);
+        Assert.DoesNotContain("Goal not met", both);
+    }
+
+    /// <summary>
+    /// The shape a copied finding lands in, pinned: a bracketed severity and its place on one line,
+    /// then the title, then the detail, with a blank line between two of them.
+    /// </summary>
+    /// <remarks>
+    /// This text is only ever read somewhere this application has no say over — an issue, a message,
+    /// another tool's prompt — so the things that make a monospace column (a padded severity, a
+    /// two-space indent under it) are noise there, and <c>suggest</c> is a word with its ending cut
+    /// off. Written down because it is the sort of formatting that gets tidied back the other way by
+    /// somebody reading only the transcript.
+    /// </remarks>
+    [Fact]
+    public void A_copied_finding_reads_as_a_tag_a_title_and_its_detail()
+    {
+        var copied = GoalTranscript.Copyable([
+            new GoalFinding
+            {
+                Severity = GoalSeverity.Suggestion,
+                File = "src/Basket.cs", Line = 12, Category = "naming",
+                Title = "Rename the local", Detail = "It is called x.\nTwice.",
+            },
+            Finding(GoalSeverity.Error, "Total ignores discounts"),
+        ]);
+
+        Assert.Equal(
+            "[suggestion] src/Basket.cs:12 [naming]\n" +
+            "Rename the local\n" +
+            "It is called x.\n" +
+            "Twice.\n" +
+            "\n" +
+            "[error]\n" +
+            "Total ignores discounts",
+            copied);
+    }
+
+    /// <summary>
+    /// Which of the two bulk buttons a review offers, and what "problems" counts.
+    /// </summary>
+    /// <remarks>
+    /// Both are hidden where they would repeat something already on screen: one finding already has its
+    /// own copy button, and a list that is all problems — or none — would put two buttons side by side
+    /// that hand over identical text.
+    /// </remarks>
+    [Theory]
+    // findings, expected problem count, all-button, problems-button
+    [InlineData(new[] { GoalSeverity.Error }, 1, false, false)]
+    [InlineData(new[] { GoalSeverity.Error, GoalSeverity.Blocker }, 2, true, false)]
+    [InlineData(new[] { GoalSeverity.Suggestion, GoalSeverity.Suggestion }, 0, true, false)]
+    [InlineData(new[] { GoalSeverity.Warning, GoalSeverity.Suggestion }, 1, true, true)]
+    public void A_review_offers_the_bulk_buttons_that_say_something_new(
+        GoalSeverity[] severities, int problems, bool canCopyAll, bool canCopyProblems)
+    {
+        var message = Message(GoalMessageRole.Assistant, "Goal not met", markdown: true,
+            [..severities.Select(s => Finding(s, s.ToString()))]);
+
+        Assert.Equal(problems, message.ProblemCount);
+        Assert.Equal(canCopyAll, message.CanCopyAllFindings);
+        Assert.Equal(canCopyProblems, message.CanCopyProblems);
+    }
 }

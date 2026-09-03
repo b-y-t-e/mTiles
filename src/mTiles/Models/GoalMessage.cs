@@ -123,6 +123,39 @@ public sealed class GoalMessage
     public bool HasFindings => Findings.Count > 0;
 
     /// <summary>
+    /// The findings that are problems rather than nits — everything except a suggestion.
+    /// </summary>
+    /// <remarks>
+    /// <para>The same line <see cref="Services.GoalTranscript.Feedback"/> draws when it decides what
+    /// goes back to the tool on the next attempt, so what "the problems" means on the clipboard is what
+    /// it means to the run. Decided here rather than in the view because it is a fact about the
+    /// review.</para>
+    /// <para>The list and not only a count: the button's label and the text it copies have to be the
+    /// same set, and written twice they are two rules that drift apart into a button offering three
+    /// problems and handing over some other three.</para>
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyList<GoalFinding> Problems =>
+        Findings.Where(f => f.Severity != GoalSeverity.Suggestion).ToList();
+
+    /// <summary>How many of the findings are problems — the count of <see cref="Problems"/>, which is
+    /// what the button beside it copies.</summary>
+    [JsonIgnore]
+    public int ProblemCount => Problems.Count;
+
+    /// <summary>Whether copying the whole list is worth offering: one finding already has its own
+    /// button, and a second one saying the same thing beside it is a choice with no difference.
+    /// </summary>
+    [JsonIgnore]
+    public bool CanCopyAllFindings => Findings.Count > 1;
+
+    /// <summary>Whether copying only the problems says anything the all-findings button does not.
+    /// A review whose findings are all problems — or none of them — would otherwise offer two buttons
+    /// that put the same text on the clipboard.</summary>
+    [JsonIgnore]
+    public bool CanCopyProblems => ProblemCount > 0 && ProblemCount < Findings.Count;
+
+    /// <summary>
     /// A round of clarifying questions and what was answered to them, kept as questions rather than
     /// only as the block of text they were flattened into.
     /// </summary>

@@ -213,7 +213,52 @@ public partial class GoalTileView : UserControl
     /// </remarks>
     private async void CopyItem_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button button || TextOf(button.DataContext) is not { Length: > 0 } text) return;
+        if (sender is not Button button) return;
+        await CopyAsync(button, TextOf(button.DataContext));
+    }
+
+    /// <summary>
+    /// Every finding in this review, as one block on the clipboard.
+    /// </summary>
+    /// <remarks>
+    /// The findings and not the message: the verdict line above them is this tile's own bookkeeping,
+    /// and what the list is being taken away for is the defects in it. The message-level button beside
+    /// the verdict is still the one that hands over the whole review.
+    /// </remarks>
+    private async void CopyAllFindings_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.DataContext is not GoalMessage message) return;
+        await CopyAsync(button, GoalTranscript.Copyable(message.Findings));
+    }
+
+    /// <summary>
+    /// The problems in this review — blockers, errors and warnings — without the suggestions.
+    /// </summary>
+    /// <remarks>
+    /// The set is <see cref="GoalMessage.Problems"/>, which is also what the button's own count comes
+    /// from, so the label and the clipboard cannot disagree about which findings those are. Suggestions are the
+    /// part of a review a reader skims and a tracker does not want; taking them out is most of why a
+    /// second button earns its place beside the first.
+    /// </remarks>
+    private async void CopyProblems_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.DataContext is not GoalMessage message) return;
+        await CopyAsync(button, GoalTranscript.Copyable(message.Problems));
+    }
+
+    /// <summary>
+    /// Puts text on the clipboard and answers on the button that asked for it.
+    /// </summary>
+    /// <remarks>
+    /// One body for every copy button in the tile, whatever it copies: the clipboard's failure path and
+    /// the tick that says it worked are the parts that quietly stop matching when each button carries
+    /// its own copy of them. The tick lands on the button's icon wherever it is — on its own as the
+    /// content, or beside a word inside a panel — because the label is what must not move: a word
+    /// swapped for "Copied" changes the control's width in the middle of a list.
+    /// </remarks>
+    private async Task CopyAsync(Button button, string text)
+    {
+        if (text.Length == 0) return;
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
 
         try
@@ -227,7 +272,7 @@ public partial class GoalTileView : UserControl
             return;
         }
 
-        if (button.Content is not MaterialIcon icon) return;
+        if (IconIn(button.Content) is not { } icon) return;
 
         icon.Kind = MaterialIconKind.Check;
         await Task.Delay(CopiedFeedback);
@@ -237,6 +282,15 @@ public partial class GoalTileView : UserControl
         // off.
         if (icon.Kind == MaterialIconKind.Check) icon.Kind = MaterialIconKind.ContentCopy;
     }
+
+    /// <summary>The icon a copy button answers on: its whole content, or the one beside its label.
+    /// </summary>
+    private static MaterialIcon? IconIn(object? content) => content switch
+    {
+        MaterialIcon icon => icon,
+        Panel panel => panel.Children.OfType<MaterialIcon>().FirstOrDefault(),
+        _ => null,
+    };
 
     /// <summary>
     /// What each of the four things a copy button can be attached to reads as, on the clipboard.

@@ -57,26 +57,32 @@ internal static class GoalTranscript
     }
 
     /// <summary>
-    /// The findings as text: a severity and a place on one line, the title and the detail indented
-    /// under it.
+    /// The findings as text: a bracketed severity and a place on one line, then the title, then the
+    /// detail. This is the clipboard's shape and nothing else reads it.
     /// </summary>
     /// <remarks>
-    /// Still the shape a goal file written before the rows existed holds, which is why it is kept
-    /// rather than tidied: those messages have no findings of their own and are drawn straight out of
-    /// their text, exactly as they always were. It is also what the clipboard gets.
+    /// <para>It used to be the transcript's shape as well — a padded severity in a monospace column
+    /// (<c>error&#xA0;&#xA0;</c>, <c>suggest</c>) with everything under it indented two spaces, which
+    /// is what a column of terminal text needs to scan. The transcript draws findings as rows now, so
+    /// the only place this text ever lands is somewhere else: an issue, a message, another tool's
+    /// prompt. There the padding is invisible noise, the indent turns into a quotation nobody asked
+    /// for, and <c>suggest</c> is a word with its ending cut off.</para>
+    /// <para>So the severity is spelled out and bracketed — <c>[suggestion]</c> — which reads as a tag
+    /// in prose and in markdown alike, and the two lines under it are left at the margin, where a
+    /// paste keeps whatever shape the reviewer wrote.</para>
     /// </remarks>
     public static void AppendFindings(StringBuilder sb, IEnumerable<GoalFinding> findings)
     {
         foreach (var f in findings)
         {
-            sb.Append('\n').Append('\n').Append(Label(f.Severity));
+            sb.Append('\n').Append('\n').Append(Tag(f.Severity));
 
             var where = Where(f);
-            if (where.Length > 0) sb.Append("  ").Append(where);
+            if (where.Length > 0) sb.Append(' ').Append(where);
 
-            sb.Append('\n').Append("  ").Append(f.Title);
+            sb.Append('\n').Append(f.Title);
             if (f.Detail.Length > 0)
-                sb.Append('\n').Append("  ").Append(f.Detail.ReplaceLineEndings("\n  "));
+                sb.Append('\n').Append(f.Detail.ReplaceLineEndings("\n"));
         }
     }
 
@@ -107,6 +113,25 @@ internal static class GoalTranscript
     {
         var sb = new StringBuilder();
         AppendFindings(sb, [finding]);
+        return sb.ToString().TrimStart('\n');
+    }
+
+    /// <summary>
+    /// A set of findings as text: what the two buttons under a review's verdict hand over — every
+    /// finding, or only the ones that are problems.
+    /// </summary>
+    /// <remarks>
+    /// <para>The findings alone, without the verdict line above them. That is the difference from
+    /// <see cref="Copyable(GoalMessage)"/>, and it is the point: what is being taken next door is the
+    /// list of defects, to be pasted into an issue or handed to another tool, and "Goal met · 2
+    /// warnings · 1 suggestion" is this tile's own bookkeeping in the middle of it.</para>
+    /// <para>The same <see cref="AppendFindings"/> the review and the single-row button use, so the
+    /// three read as one shape however much of the list is taken.</para>
+    /// </remarks>
+    public static string Copyable(IEnumerable<GoalFinding> findings)
+    {
+        var sb = new StringBuilder();
+        AppendFindings(sb, findings);
         return sb.ToString().TrimStart('\n');
     }
 
@@ -425,13 +450,30 @@ internal static class GoalTranscript
     private static IEnumerable<GoalFinding> Ordered(IEnumerable<GoalFinding> findings) =>
         findings.OrderBy(f => (int)f.Severity);
 
-    /// <summary>Padded to one width, so the severities line up as a column that can be read down.</summary>
+    /// <summary>Padded to one width, so the severities line up as a column that can be read down.
+    /// <para>What <see cref="Feedback"/> puts in front of each defect it hands back to the tool, where
+    /// the lines are one per finding and the column is what makes the list scannable. Not what the
+    /// clipboard gets — see <see cref="Tag"/>.</para></summary>
     private static string Label(GoalSeverity severity) => severity switch
     {
         GoalSeverity.Blocker => "BLOCKER",
         GoalSeverity.Error => "error  ",
         GoalSeverity.Warning => "warning",
         _ => "suggest",
+    };
+
+    /// <summary>The severity spelled out and bracketed, for text that is going to be pasted somewhere
+    /// this application has no say over.
+    /// <para>Separate from <see cref="Label"/> deliberately: one is a column in a fixed-width list and
+    /// pads to reach it, the other is a tag in a paragraph and would carry that padding into somebody
+    /// else's issue tracker as trailing spaces. <c>suggest</c> is the plainest case — a word cut short
+    /// to fit a column that only exists in the other one.</para></summary>
+    private static string Tag(GoalSeverity severity) => severity switch
+    {
+        GoalSeverity.Blocker => "[blocker]",
+        GoalSeverity.Error => "[error]",
+        GoalSeverity.Warning => "[warning]",
+        _ => "[suggestion]",
     };
 
     private static string Where(GoalFinding f)
