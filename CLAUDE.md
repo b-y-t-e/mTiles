@@ -608,11 +608,74 @@ and none of the other tile interfaces.
 
 **Two questions, each asked of the thing that knows.** `IAiAgent.UsageAsync(AiSignIn?, ct)` and
 `IAiProvider.UsageAsync(AiProviderInstance, ct)`, both defaulting to `null`. Measured 2026-09-01, and
-only three of the twelve answer at all: **Claude Code** through `GET api.anthropic.com/api/oauth/usage`
+only four of the twelve answer at all: **Claude Code** through `GET api.anthropic.com/api/oauth/usage`
 with the OAuth token out of the CLI's own `.credentials.json` (`ClaudeUsageReader`), **codex** out of the
 last `token_count` event in the newest `~/.codex/sessions/**/rollout-*.jsonl` — there is no endpoint,
-`backend-api/codex/usage` answers 403 at the edge (`CodexUsageReader`) — and **OpenRouter** through
-`api/v1/key` plus `api/v1/credits`. z.ai, the Anthropic API, ccs, LM Studio and Ollama publish nothing.
+`backend-api/codex/usage` answers 403 at the edge (`CodexUsageReader`) — **agy** through
+`POST daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary` (`AntigravityUsageReader`,
+below) and **OpenRouter** through `api/v1/key` plus `api/v1/credits`. z.ai, the Anthropic API, ccs, LM
+Studio and Ollama publish nothing.
+
+**agy's is the one answer gated on a header, and the header's absence names the wrong cause**
+(`AntigravityUsageReader`, measured 2026-09-03 against agy 1.1.22). The service reads the word
+`antigravity` in the request's user agent as "this is the client that may ask": with it the answer is
+200, and with anything else — a default user agent, or `agy/1.1.22`, which is what the binary is
+actually called — it is `403 … You do not have a valid license of this product (#3501)` against a
+consumer account that is perfectly well licensed. So the one plausible reading of that error is the
+wrong one, which is why the constant carrying the word is documented rather than tidy. The answer is
+**two groups of models with two windows each** — Gemini's family and the third-party one (Claude, GPT)
+have separate allowances — so an agy card carries four windows where a Claude Code card carries two, and
+`UsageWindowsPanel` stacks them. It is proto3 over JSON, where a field at its default is omitted, so a
+bucket carrying **no** `remainingFraction` is read as *nothing left* rather than skipped: dropping it
+would take the card silent at exactly the moment somebody is looking at it to find out why agy stopped
+answering.
+
+**agy keeps its login in the OS keyring, not in a file** (`AntigravityCredentialStore`). Measured
+2026-09-03: `~/.gemini/oauth_creds.json` is the *gemini-cli* login and can be months stale — this
+machine's had expired in June — while the credential the CLI runs on is a generic Windows Credential
+Manager entry named `gemini:antigravity`. Renewal goes to Google's own token endpoint with agy's client
+id and the secret out of its binary (public in the same sense gemini-cli's is), and **nothing is written
+back**: the exchange returns no new refresh token, so unlike `ClaudeCredentialStore` — which has to
+rewrite the CLI's own file or log the user out — this holds the renewal in memory for its hour and
+touches nobody's storage.
+
+**That client pair will stop working one day, and this is how it is replaced.** It is Google's, not
+ours, so it moves when Google moves it; the symptom is an agy card that says Antigravity would not
+answer, with `Refreshing the Antigravity token answered 400` in `%APPDATA%/mTiles/logs`. Both halves
+live in the installed binary:
+
+```bash
+strings -n 10 ~/AppData/Local/agy/bin/agy.exe | grep -oE "GOCSPX-[A-Za-z0-9_-]{20,}" | sort -u
+```
+
+That answers more than one — the current pairing was found by trying each against the token endpoint
+with a live refresh token, where the wrong one answers `invalid_client`. The **id** is not in the
+binary in a greppable form and is easier read off the login itself: `tokeninfo` names the client the
+token was issued to.
+
+```bash
+curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=$TOKEN"   # -> "azp": the client id
+```
+
+`$TOKEN` is the `access_token` inside the `gemini:antigravity` credential (PowerShell + `CredRead`, or
+just read it while agy is running). Both go into `AntigravityCredentialStore` **XOR-ed with `0x5A` and
+base64-encoded**, which is what `Unscramble` there undoes:
+
+```bash
+python -c "import base64;print(base64.b64encode(bytes(b^0x5A for b in input().encode())).decode())"
+```
+
+That protects nothing — it is undone two lines below the constants — and is only there because GitHub's
+push protection matches the literal shape of a Google client secret and cannot tell one published in a
+download from one that leaked. **Plain base64 does not get past it**: measured, the scanner decodes it
+and blocks the push just the same, which is the whole reason for the XOR. Say all of that in the comment
+when replacing them, or the next reader will take the encoding for a safeguard.
+
+**Windows only**, and that is a limit rather than a gap: on Linux agy uses the
+secret service over D-Bus, which this application has no reader for, so the agent answers `null` and the
+tile draws no card, exactly as on a machine with no agy at all. There are no sign-in rows here
+(`SupportsSignIns` is false — agy switches Google accounts itself), so one machine is one card, keyed
+by the address in `~/.gemini/google_accounts.json`.
 
 **A token this application did not issue is also one nothing else renews** (`ClaudeCredentialStore`).
 Claude Code refreshes lazily, when it is *run*, so a login the user works in on Tuesdays carries an
@@ -742,12 +805,18 @@ the card without a grid holding them there, and it makes the tile read as part o
 the terminal beside it. An account's name is a **section heading with a rule running to the edge**,
 which is also what separates one account from the next — no boxes, no gap doing the job.
 
-**A bar is a row of cells and the clock's share is one of them** (`Views/UsageBar.cs`, a control rather
-than converters doing arithmetic in the markup): cells of a fixed size, so two bars are compared by
-counting rather than by measuring, and any spending at all lights the first one — rounding would
-otherwise swallow every figure under half a cell, which on a sixteen-cell bar is three per cent. Cells
-past the clock's mark are the danger colour and are the only colour on this tile carrying meaning, so
-one glance answers *am I overspending* without a second widget. **A money account has no
+**A bar is a row of cells and the clock's share is a line between two of them** (`Views/UsageBar.cs`, a
+control rather than converters doing arithmetic in the markup): cells of a fixed size, so two bars are
+compared by counting rather than by measuring, and any spending at all lights the first one — rounding
+would otherwise swallow every figure under half a cell, which on a sixteen-cell bar is three per cent.
+Cells past the clock's mark are the danger colour and are the only colour on this tile carrying meaning,
+so one glance answers *am I overspending* without a second widget. **The mark is a line in the gap
+rather than a cell of its own, and that is a correction**: as a differently-coloured cell it could only
+be drawn where the fill had not reached, so it disappeared under the fill at the one moment it is worth
+looking for — leaving the accent-to-danger boundary as the only evidence of where the clock is, which is
+legible once you know to look for it and invisible until then. The gutter belongs to no cell, so the
+line survives being overtaken and both states carry the same marker. The arithmetic behind it is pure
+and pinned by a table test. **A money account has no
 bar at all**, so what its row carries is the amount, beside the window it belongs to — summarising one
 window into a line under the card left the other two nowhere on screen. Empty
 state is a fact rather than an error — most CLIs and most services publish nothing — with a button
@@ -788,9 +857,12 @@ The threshold is **derived rather than chosen**: what has to fit is a window's p
 things the busiest account puts on its line — a bar's worth of width where anything on the tile draws
 one, and a metered row's where nothing does, so a machine whose only account is a key does not stack at a
 width its rows fit in. An account with two windows therefore stays horizontal in a column where one with
-four cannot. The rule is pure and argued in a table test; the view reads its own width and the view model
-says only how many items there are and whether any draws a bar, because those are facts about the answers
-and not about the drawing. The tile is the only thing that
+four cannot. **The label is measured and not assumed**, because it was written for `7d` and agy names two
+families of models — the family is in every one of its four labels (`Claude and GPT 7d`), which at the old
+threshold shared a line at widths where the label took what the figure needed and the clip ate the figure,
+the exact failure this rule exists to prevent. The rule is pure and argued in a table test; the view reads
+its own width and the view model says only how many items there are, how long the longest label is and
+whether any draws a bar, because those are facts about the answers and not about the drawing. The tile is the only thing that
 knows how much room it was given, so nothing above it is asked and nothing is persisted — the shape is
 recomputed from `Bounds`, and a control that has not been measured yet stays horizontal rather than
 starting stacked and springing sideways on its first layout pass.

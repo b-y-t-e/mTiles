@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -81,6 +81,15 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
     /// <inheritdoc cref="WindowsPerAccount" />
     [ObservableProperty] private bool _hasBarWindows;
 
+    /// <summary>How long the longest window label on the tile is, in characters.</summary>
+    /// <remarks><b>A fact about the answers, like the two above it.</b> Not every service names its
+    /// windows in two characters: agy reports two families of models with two windows each, so the
+    /// family is part of every one of its labels (<c>Claude and GPT 7d</c>). A shared line measured
+    /// against <c>7d</c> therefore had room for four windows it could only draw by clipping the figure,
+    /// which is the one part of the row the design promises to keep — so the length goes to
+    /// <c>UsageLayout</c> rather than the threshold assuming it.</remarks>
+    [ObservableProperty] private int _longestWindowLabel;
+
     /// <summary>Nothing has been asked yet — which is not the same as nothing having been found.</summary>
     /// <remarks>The complement of <see cref="IsEmpty"/> among the states with no card to draw: before
     /// the first round answers there is no fact about this machine to state, so what stands in the
@@ -136,6 +145,11 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
 
         WindowsPerAccount = Accounts.Count == 0 ? 0 : Accounts.Max(account => account.LineItems.Count);
         HasBarWindows = Accounts.Any(account => account.HasBars);
+        LongestWindowLabel = Accounts
+            .SelectMany(account => account.LineItems)
+            .Select(item => item.Label.Length)
+            .DefaultIfEmpty(0)
+            .Max();
 
         IsEmpty = Accounts.Count == 0 && _usage.LastRefresh is not null;
         IsLoading = Accounts.Count == 0 && !IsEmpty;

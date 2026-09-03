@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using mTiles.ViewModels;
@@ -57,7 +57,8 @@ public partial class UsageTileView : UserControl
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(UsageTileViewModel.WindowsPerAccount)
-            or nameof(UsageTileViewModel.HasBarWindows)) Apply();
+            or nameof(UsageTileViewModel.HasBarWindows)
+            or nameof(UsageTileViewModel.LongestWindowLabel)) Apply();
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -71,6 +72,6 @@ public partial class UsageTileView : UserControl
         if (DataContext is not UsageTileViewModel tile) return;
 
         IsVerticalLayout = UsageLayout.IsVerticalFor(Bounds.Width - CardMargins,
-            tile.WindowsPerAccount, tile.HasBarWindows);
+            tile.WindowsPerAccount, tile.HasBarWindows, tile.LongestWindowLabel);
     }
 }

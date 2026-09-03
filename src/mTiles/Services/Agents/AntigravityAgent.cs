@@ -161,6 +161,57 @@ public sealed class AntigravityAgent : AiAgent
         psi.ArgumentList.Add(prompt);
     }
 
+    /// <summary>
+    /// The four windows this subscription reports, or null where nobody is logged in here.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>One account and no sign-in rows</b>, which is the whole of what
+    /// <see cref="SupportsSignIns"/> being false means for this: agy switches Google accounts itself,
+    /// so there is one login on this machine and one card. A sign-in reaching here is a row that cannot
+    /// exist, and it answers null rather than reporting the default account's figures under somebody
+    /// else's name.</para>
+    /// <para><b>Null where the login cannot be read, a sentence where it can and the service would not
+    /// answer.</b> On Linux — and on a Windows machine nobody has run agy on — there is no credential
+    /// this application can open, and that is an account this machine does not have as far as the tile
+    /// is concerned. See <see cref="AntigravityCredentialStore"/> for why that is a limit rather than a
+    /// gap.</para>
+    /// <para>The token is read here and handed straight to <see cref="AntigravityUsageReader"/>, held
+    /// for the length of one call: what it authenticates is somebody else's service, and nothing in
+    /// this application stores, logs or shows it.</para>
+    /// </remarks>
+    public override async Task<AiUsageReport?> UsageAsync(AiSignIn? signIn,
+        CancellationToken ct = default)
+    {
+        if (signIn is not null) return null;
+
+        if (await AntigravityCredentialStore.AccessTokenAsync(ct) is not { Length: > 0 } token)
+            return null;
+
+        return await AntigravityUsageReader.ReadAsync(UsageSourceId(null), UsageSourceName(null),
+            token, DateTimeOffset.Now, UsageAccountKeyFor(null), ct);
+    }
+
+    /// <inheritdoc />
+    /// <remarks><b>The account agy says is active, out of the file agy keeps it in.</b>
+    /// <c>~/.gemini/google_accounts.json</c> is <c>{"active": …, "old": […]}</c> — the switch this agent
+    /// deliberately has no sign-in rows over the top of — so the address in it is what one card here is
+    /// a card <em>of</em>. It is an identifier and not a credential, compared in memory and never
+    /// stored, shown or logged, and prefixed so it cannot collide with another agent's answer. There is
+    /// only one agy row, so nothing is deduplicated against it today; it is here so that a card of this
+    /// account is recognisable as one if a second route to the same login is ever added.</remarks>
+    public override string? UsageAccountKeyFor(AiSignIn? signIn)
+    {
+        if (signIn is not null) return null;
+
+        var file = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".gemini", "google_accounts.json");
+
+        return ReadJsonString(file, "active") is { Length: > 0 } account
+            ? $"agy-account:{account}"
+            : null;
+    }
+
     /// <summary>In front of <c>--print</c>, because the prompt is that flag's own value.</summary>
     /// <remarks>The base rule puts the extras in front of a trailing prompt, which here would separate
     /// the flag from its value: agy would read the first extra argument as what to print and leave the
