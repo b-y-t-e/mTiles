@@ -151,7 +151,7 @@
                                                                         TrackBrush="{DynamicResource BgElevated}"
                                                                         FillBrush="{DynamicResource AccentHover}"
                                                                         OverBrush="{DynamicResource DangerText}"
-                                                                        TickBrush="{DynamicResource BorderStrong}" />
+                                                                        TickBrush="{DynamicResource TextMuted}" />
 
                                                         <TextBlock Grid.Column="2"
                                                                    Classes="readout value"

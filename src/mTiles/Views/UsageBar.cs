@@ -13,14 +13,16 @@ namespace mTiles.Views;
 /// overspending</i> — which is what the pace was asked for. Fill past the tick is drawn in the danger
 /// colour and fill behind it stays on the accent; that overspend is the only colour on this tile
 /// carrying meaning.</para>
-/// <para><b>The tick is a line in the gap between two cells, and it is drawn in both states.</b> It
-/// began as a differently-coloured <em>cell</em>, which could only be drawn where the fill had not
-/// reached — so the moment an account started overspending, which is the one moment the mark is worth
-/// looking for, it vanished under the fill and all that was left was the place where the accent turns
-/// to the danger colour. That boundary is legible once you know to look for it and invisible until
-/// then, which is the opposite of what a marker is for. A line in the gutter needs no cell of its own,
-/// so it survives being overtaken: one marker, the same one, whichever side of it the fill has
-/// reached.</para>
+/// <para><b>The tick is a cell, and it is drawn last.</b> It began as a track cell recoloured — one of
+/// the grey ones, named by the clock — which read perfectly wherever it was, and vanished the moment
+/// the fill reached it: a window spent past its pace covered the very mark that said so. A line in the
+/// gutter between cells survived the fill, but paid for it with the read — squeezed into a gap it was
+/// indistinguishable from the fill's own edge wherever the two met, which on an account spending on
+/// pace is exactly where it lands (measured against a Claude Code Pro card: 37% spent at 36% of the
+/// week gone, and the mark read as the boundary it stood on). So it is back to being a cell — the same
+/// size as the rest, which is what makes it read as one of them — and it is drawn over whatever the
+/// fill has put there: in the track it is the old mark, under the fill it is a hole punched through
+/// the colour, and either way it is where the clock is.</para>
 /// <para>A control rather than a grid of bound star columns, because a fraction is not a
 /// <see cref="GridLength"/> and every route from one to the other is a converter doing arithmetic in
 /// the markup. Three rectangles and a line are less code than that, and they land on whole pixels.</para>
@@ -119,11 +121,14 @@ public sealed class UsageBar : Control
                 new Rect(cell * (CellWidth + CellGap), 0, CellWidth, height));
         }
 
-        // Last, so that it is over whatever it lands on: the track behind the fill, the accent, or the
-        // danger colour. Its own place is the gutter, which belongs to no cell, so nothing it is drawn
-        // across is hidden by it.
+        // Last, so that it is over whatever it lands on. It is a cell — the same size as the rest —
+        // because that is what it was first, and what it still reads best as: one cell of the track
+        // named by the clock. Drawn in the pass it vanished the moment the fill reached it, which is
+        // the one moment the mark is worth looking for; drawn last it holds its place in the track
+        // exactly as before and survives the fill overrunning it.
         if (expected is { } tick && TickBrush is { } tickBrush)
-            context.FillRectangle(tickBrush, new Rect(MarkOffset(tick), 0, CellGap, height));
+            context.FillRectangle(tickBrush,
+                new Rect(tick * (CellWidth + CellGap), 0, CellWidth, height));
     }
 
     /// <summary>How many whole cells this width holds.</summary>
@@ -138,17 +143,13 @@ public sealed class UsageBar : Control
         usedPercent <= 0 ? 0 : Math.Clamp((int)Math.Round(Fraction(usedPercent) * cells), 1, cells);
 
     /// <summary>Which cell the clock has reached, or null when there is no pace to draw.</summary>
+    /// <remarks>The mark is a cell like the others, so its index is also its place on the bar; it is
+    /// clamped inside the bar rather than allowed to sit one past the end, because a cell drawn at
+    /// <c>cells</c> would be off it entirely.</remarks>
     internal static int? MarkCell(double? expectedPercent, int cells) =>
         expectedPercent is { } share
             ? Math.Clamp((int)Math.Round(Fraction(share) * cells), 0, cells - 1)
             : null;
-
-    /// <summary>Where the tick is drawn: the gap in front of its cell.</summary>
-    /// <remarks>A mark at the first cell has no gap in front of it, so it sits at the bar's own edge
-    /// rather than off it — the one place the line covers pixels a cell would otherwise have, and the
-    /// state (a window that has just reset) where there is nothing there to cover.</remarks>
-    internal static double MarkOffset(int cell) =>
-        Math.Max(0, cell * (CellWidth + CellGap) - CellGap);
 
     /// <summary>How wide one cell is drawn.</summary>
     /// <remarks>A segmented bar rather than a continuous fill, and the cells are a fixed size rather
