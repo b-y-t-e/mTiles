@@ -46,9 +46,17 @@ internal static partial class GoalResponseParser
     /// verdict invented by the fallback. The scan below walks the whole answer and hands back the
     /// <b>last</b> balanced object carrying any of the keys the caller reads — last, because that is
     /// the verdict rule the fenced reader already follows.</para>
-    /// <para>What the scan deliberately does not do: rescue an object whose strings carry raw newlines.
-    /// That answer is illegal JSON, no reading of the braces can repair it, and every path here still
-    /// ends in a usable answer — the prose fallback — which is the contract this class was written
+    /// <para><b>A candidate that fails to parse is offered to <see cref="JsonRepair"/> once</b>, and
+    /// only then given up on. What that catches is the one defect every reader here used to die on —
+    /// an unescaped quote or a raw newline inside a string value, which is what a block composed as
+    /// text rather than serialised produces — and it catches it for all four callers rather than for
+    /// the review alone, which is the one phase that had an AI salvage round behind it. It is asked
+    /// only after a refusal and its answer is used only if it parses, so it can turn a failure into an
+    /// answer and never the other way about.</para>
+    /// <para>What is still not rescued: an answer cut off part way through. The brackets that would
+    /// make the fragment legal are content nobody wrote, and inventing them would turn a visible
+    /// failure into a review with findings quietly missing from it — so those still end in a usable
+    /// answer the other way, through the prose fallback, which is the contract this class was written
     /// for.</para>
     /// <para>The fenced walk and the outermost span keep their places after it, and every caller that
     /// passes no markers behaves exactly as it did.</para>
@@ -103,11 +111,20 @@ internal static partial class GoalResponseParser
     /// header, and the one thing a salvage call would get back from it is more prose. The quote is what
     /// says this text was meant to be JSON — a broken block keeps its quoted keys however mangled its
     /// values are.</para>
+    /// <para><b>The clarification's own keys are here too</b>, and their absence was a hole rather
+    /// than a decision: a clarify block broken the same way had no second line at all, so it went
+    /// straight into the transcript as raw braces for the user to read and into the clarification
+    /// history for the planner to be handed. Measured live, 2026-09-03: a round quoting the document
+    /// it was reading — <c>„z pytaniem do użytkownika"</c>, whose closing mark is an ordinary quote —
+    /// died exactly as the review had.</para>
     /// </remarks>
     internal static bool LooksLikeJson(string? text) =>
-        (text ?? "").Contains("\"goalMet\"", StringComparison.OrdinalIgnoreCase)
-        || (text ?? "").Contains("\"goal_met\"", StringComparison.OrdinalIgnoreCase)
-        || (text ?? "").Contains("\"findings\"", StringComparison.OrdinalIgnoreCase);
+        Marker(text, "goalMet") || Marker(text, "goal_met") || Marker(text, "findings")
+        || Marker(text, "needsClarification") || Marker(text, "needs_clarification")
+        || Marker(text, "questions");
+
+    private static bool Marker(string? text, string key) =>
+        (text ?? "").Contains($"\"{key}\"", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The outermost balanced <c>{…}</c> spans of the text, reading strings and escapes as it goes.
@@ -161,10 +178,16 @@ internal static partial class GoalResponseParser
         var trimmed = candidate.Trim();
         if (!trimmed.StartsWith('{')) return null;
 
+        return Parsed(trimmed) ?? (JsonRepair.Repaired(trimmed) is { } repaired ? Parsed(repaired) : null);
+    }
+
+    /// <summary>One parse, or null when the text is not a JSON object this side can read.</summary>
+    private static JsonElement? Parsed(string text)
+    {
         try
         {
             // Cloned: the JsonDocument is disposed on the way out and its elements die with it.
-            using var doc = JsonDocument.Parse(trimmed,
+            using var doc = JsonDocument.Parse(text,
                 new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
             return doc.RootElement.ValueKind == JsonValueKind.Object ? doc.RootElement.Clone() : null;
         }
