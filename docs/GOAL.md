@@ -405,7 +405,23 @@ permission mode is wrong when it is not, while a missed one only leaves the old 
 the count is non-zero the summary names the cause and points at the strip instead of declaring the goal
 a dead end — the worktree looks identical in both cases and the reader's next move does not.
 
-**A review that arrives broken gets one repair round.** The reviewer is asked for a JSON block, and a
+**A broken block is repaired here first, and only then asked about.** Every block this tile reads is
+composed as text by a model rather than serialised by a library, and the characteristic way that fails
+is a double quote inside a string value that was never escaped — measured twice: a finding's detail
+quoting a line of C# (2026-09-01), and a clarify round quoting the document it was reading, where the
+Polish quotation `„z pytaniem do użytkownika"` closes on an ordinary double quote and ends the JSON
+string in the middle of a sentence (2026-09-03). `JsonRepair` is one pure rule inside
+`GoalResponseParser`'s own parse, so it serves the review, the clarification, the commit plan and the
+detected goal alike: walking the candidate, it escapes a quote inside a string unless what follows it
+is somewhere the grammar could go on — `:`, `}`, `]`, or a comma **with a value after it**, which is
+the test that tells `…",` at the end of a value from `…", ale …` in the middle of a sentence — and
+escapes raw newlines and control characters the same way. It is asked only for text that has already
+failed to parse and its answer is used only if it parses, so it can turn a failure into an answer and
+never the reverse. What it deliberately will not do is close an answer that was cut off part way
+through: the brackets that would make the fragment legal are content nobody wrote, and inventing them
+would turn a visible failure into a review with findings quietly missing from it.
+
+**A block the rule cannot mend gets one repair round, and both phases get it now.** The reviewer is asked for a JSON block, and a
 block that is not valid JSON — measured live 2026-09-01: a reviewer answering in Polish put a C#
 interpolation with its own unescaped quotes inside a finding's detail — dies for every reading this
 tile has, fenced, balanced or spanned, and its verdict then falls to the prose fallback, which can say
@@ -415,7 +431,15 @@ the opposite of what the JSON said. When the raw answer still *looks* like the r
 the tool: no goal, no diff, a few hundred characters rather than a re-run of the phase, because the
 only reader who knows what the block meant is its author. The re-send is asked to be strictly valid —
 every quote inside a string escaped, every newline as `\n` — and the review prompt itself asks for the
-same escaping up front, which is the cheap first line the round stands behind. If the re-send fails
+same escaping up front — as, since 2026-09-03, does the clarify prompt, which is the phase most likely
+to need it: what a round quotes is the user's own goal in the user's own language. **The clarification
+runs the same round**, and its absence there was a hole rather than a decision: a broken review at
+least falls back to a prose verdict, while a broken clarification was printed into the transcript as
+raw braces for the user to answer and filed in the clarification history for the planner to be handed,
+so the block nobody could read became part of what the plan was written against. **It is one round
+and not one per phase**: the re-send reads nothing but `IGoalParsedBlock` — whether the block parsed
+and the text it was read from — so the entry rule and the fallback cannot drift between two copies,
+and a phase that wants the round is given it by passing its own parser. If the re-send fails
 too, the original behaviour stands — the raw text is what the transcript shows and the prose fallback
 answers — and the round never announces a failure of its own (`RunAiAsync`'s quiet path), because the
 phase it belongs to succeeded; only its JSON did not. Prose answers that never named the keys earn no
