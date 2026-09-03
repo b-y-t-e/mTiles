@@ -1,45 +1,71 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
+             xmlns:mi="using:Material.Icons.Avalonia"
              x:Class="mTiles.Views.TerminalTileView"
              x:DataType="vm:TerminalTileViewModel">
-    <Panel>
-        <!-- TerminalControl created in code-behind for caching -->
-        <ContentControl x:Name="TerminalHost" />
-
+    <!-- The two banners take a strip off the top rather than floating over the terminal: drawn on top they
+         hid the first lines of whatever the tile is running, and with both up the notice covered the problem.
+         Docked children come first, so the host stays the fill child. -->
+    <DockPanel LastChildFill="True">
         <!-- Why nothing was launched. A refused launch leaves an empty tile, and an empty tile with no
              words in it is the silent failure this exists to end. -->
-        <Border IsVisible="{Binding HasLaunchProblem}"
-                VerticalAlignment="Top" HorizontalAlignment="Stretch"
-                Background="{DynamicResource BgSurface}"
+        <Border DockPanel.Dock="Top"
+                IsVisible="{Binding HasLaunchProblem}"
+                Background="{DynamicResource BgElevated}"
                 BorderBrush="{DynamicResource DangerText}"
-                BorderThickness="0,0,0,1"
-                Padding="12,10">
-            <TextBlock Text="{Binding LaunchProblem}"
-                       TextWrapping="Wrap"
-                       Foreground="{DynamicResource DangerText}" />
+                BorderThickness="1"
+                CornerRadius="{DynamicResource RadiusRow}"
+                Margin="0,6,0,6"
+                Padding="10,8">
+            <DockPanel LastChildFill="True">
+                <mi:MaterialIcon DockPanel.Dock="Left"
+                                 Kind="AlertCircleOutline"
+                                 Width="15" Height="15"
+                                 Margin="0,1,8,0"
+                                 VerticalAlignment="Top"
+                                 Foreground="{DynamicResource DangerText}" />
+                <TextBlock Text="{Binding LaunchProblem}"
+                           TextWrapping="Wrap"
+                           FontSize="12"
+                           LineHeight="17"
+                           Foreground="{DynamicResource DangerText}" />
+            </DockPanel>
         </Border>
 
-        <!-- What the tile had to be launched as. It *is* running underneath, so this can be put away —
+        <!-- What the tile had to be launched as. It *is* running below, so this can be put away —
              and it is drawn on the accent rather than the danger colour, because nothing failed. -->
-        <Border IsVisible="{Binding HasLaunchNotice}"
-                VerticalAlignment="Top" HorizontalAlignment="Stretch"
-                Background="{DynamicResource BgSurface}"
+        <Border DockPanel.Dock="Top"
+                IsVisible="{Binding HasLaunchNotice}"
+                Background="{DynamicResource BgElevated}"
                 BorderBrush="{DynamicResource AccentOutline}"
-                BorderThickness="0,0,0,1"
-                Padding="12,10">
+                BorderThickness="1"
+                CornerRadius="{DynamicResource RadiusRow}"
+                Margin="0,6,0,6"
+                Padding="10,8">
             <DockPanel LastChildFill="True">
+                <mi:MaterialIcon DockPanel.Dock="Left"
+                                 Kind="InformationOutline"
+                                 Width="15" Height="15"
+                                 Margin="0,1,8,0"
+                                 VerticalAlignment="Top"
+                                 Foreground="{DynamicResource AccentHover}" />
                 <Button DockPanel.Dock="Right"
                         Command="{Binding DismissLaunchNoticeCommand}"
                         Classes="outlined-sm"
-                        Margin="12,0,0,0"
+                        Margin="10,0,0,0"
                         VerticalAlignment="Top"
                         Content="Dismiss" />
                 <TextBlock Text="{Binding LaunchNotice}"
                            TextWrapping="Wrap"
+                           FontSize="12"
+                           LineHeight="17"
                            VerticalAlignment="Center"
                            Foreground="{DynamicResource TextPrimary}" />
             </DockPanel>
         </Border>
-    </Panel>
+
+        <!-- TerminalControl created in code-behind for caching -->
+        <ContentControl x:Name="TerminalHost" />
+    </DockPanel>
 </UserControl>
