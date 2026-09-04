@@ -163,4 +163,12 @@ public interface IAiProvider
     /// <see cref="ProviderCheck.Balance"/> already carries.</para>
     /// <para>Never throws, for the reason <see cref="TestAsync"/> does not.</para></remarks>
     Task<AiUsageReport?> UsageAsync(AiProviderInstance instance, CancellationToken ct = default);
+
+    /// <summary>The key one instance's readings are filed under.</summary>
+    /// <remarks>The same formula <see cref="UsageAsync"/> hands back as <c>AiUsageReport.SourceId</c>,
+    /// promoted here so <c>AiUsageService</c>'s per-account throttle can be keyed on it without asking
+    /// anybody anything first. The instance's own id by default, which is unique on its own; a provider
+    /// whose reports are filed under a prefixed key overrides it to match — see
+    /// <see cref="OpenRouterProvider.UsageSourceId"/>.</remarks>
+    string UsageSourceId(AiProviderInstance instance) => instance.Id;
 }

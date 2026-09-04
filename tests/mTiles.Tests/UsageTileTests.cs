@@ -1,4 +1,4 @@
-using mTiles.Models;
+﻿using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Tiles;
 using mTiles.ViewModels;
@@ -27,6 +27,8 @@ public class UsageTileTests
 
     private sealed class StubSource(AiUsageReport? answer) : IUsageSource
     {
+        public string Id { get; } = Guid.NewGuid().ToString();
+
         public Task<AiUsageReport?> ReadAsync(CancellationToken ct = default) =>
             Task.FromResult(answer);
     }
@@ -99,8 +101,8 @@ public class UsageTileTests
         Assert.Equal(1, source.Calls);
     }
 
-    /// <summary>The manual button has a reason this cannot see, so it asks however fresh the figures
-    /// are.</summary>
+    /// <summary>The manual button no longer breaks a single account's own 3-minute window: two presses
+    /// in a row, with no time passing between them, ask that account once.</summary>
     [Fact]
     public async Task The_manual_refresh_asks_again()
     {
@@ -110,7 +112,95 @@ public class UsageTileTests
         await service.RefreshAsync(force: true);
         await service.RefreshAsync(force: true);
 
+        Assert.Equal(1, source.Calls);
+    }
+
+    /// <summary>An account that has gone stale — its own window elapsed, however the round was started
+    /// — is asked again, manual button included.</summary>
+    [Fact]
+    public async Task The_manual_refresh_asks_again_once_the_source_is_stale()
+    {
+        var source = new CountingSource();
+        var now = Now;
+        var service = new AiUsageService(new SettingsService(), null, _ => [source], () => now);
+
+        await service.RefreshAsync(force: true);
+        now += AiUsageService.RefreshInterval + TimeSpan.FromSeconds(1);
+        await service.RefreshAsync(force: true);
+
         Assert.Equal(2, source.Calls);
+    }
+
+    /// <summary>A source still inside its own window is not asked at all — not even once — whatever
+    /// started the round.</summary>
+    [Fact]
+    public async Task A_source_inside_its_own_window_is_never_asked_twice()
+    {
+        var source = new CountingSource();
+        var now = Now;
+        var service = new AiUsageService(new SettingsService(), null, _ => [source], () => now);
+
+        await service.RefreshAsync(force: true);
+        now += TimeSpan.FromMinutes(1);
+        await service.RefreshAsync(force: true);
+
+        Assert.Equal(1, source.Calls);
+    }
+
+    /// <summary>A failed attempt following a good one keeps the last good report on screen rather than
+    /// clearing the card or replacing it with a bare sentence.</summary>
+    [Fact]
+    public async Task A_failed_attempt_after_a_good_one_keeps_the_last_good_report()
+    {
+        var good = Subscription("codex", 12);
+        var source = new ChangingSource(good);
+        var now = Now;
+        var service = new AiUsageService(new SettingsService(), null, _ => [source], () => now);
+
+        await service.RefreshAsync(force: true);
+        Assert.Equal(good, Assert.Single(service.Reports));
+
+        source.Answer = null;
+        now += AiUsageService.RefreshInterval + TimeSpan.FromSeconds(1);
+        await service.RefreshAsync(force: true);
+
+        Assert.Equal(good, Assert.Single(service.Reports));
+    }
+
+    /// <summary>Holding a good reading over is for a bad round, not for an account that has stopped
+    /// answering: past the mask limit the stale figures give way to the account's own report.</summary>
+    [Fact]
+    public async Task A_reading_older_than_the_mask_limit_stops_standing_in()
+    {
+        var good = Subscription("codex", 12);
+        var source = new ChangingSource(good);
+        var now = Now;
+        var service = new AiUsageService(new SettingsService(), null, _ => [source], () => now);
+
+        await service.RefreshAsync(force: true);
+
+        source.Answer = null;
+
+        // Every round from here on fails; the good reading stands in until it is older than the limit.
+        for (var elapsed = TimeSpan.Zero; elapsed < AiUsageService.MaskLimit;
+             elapsed += AiUsageService.RefreshInterval)
+        {
+            now += AiUsageService.RefreshInterval;
+            await service.RefreshAsync(force: true);
+        }
+
+        Assert.Empty(service.Reports);
+    }
+
+    /// <summary>A source whose answer can be changed between rounds, with a stable identity across
+    /// them — what the per-source cache is keyed on.</summary>
+    private sealed class ChangingSource(AiUsageReport? answer) : IUsageSource
+    {
+        public string Id { get; } = Guid.NewGuid().ToString();
+        public AiUsageReport? Answer { get; set; } = answer;
+
+        public Task<AiUsageReport?> ReadAsync(CancellationToken ct = default) =>
+            Task.FromResult(Answer);
     }
 
     /// <summary>A source that breaks the "never throws" contract must not cost the other cards their
@@ -128,6 +218,7 @@ public class UsageTileTests
 
     private sealed class CountingSource : IUsageSource
     {
+        public string Id { get; } = Guid.NewGuid().ToString();
         public int Calls { get; private set; }
 
         public Task<AiUsageReport?> ReadAsync(CancellationToken ct = default)
@@ -139,6 +230,8 @@ public class UsageTileTests
 
     private sealed class ThrowingSource : IUsageSource
     {
+        public string Id { get; } = Guid.NewGuid().ToString();
+
         public Task<AiUsageReport?> ReadAsync(CancellationToken ct = default) =>
             throw new InvalidOperationException("somebody else's CLI");
     }
@@ -250,13 +343,18 @@ public class UsageTileTests
     {
         var gate = new TaskCompletionSource();
         var source = new SlowSource(gate.Task);
-        var service = new AiUsageService(new SettingsService(), History(), _ => [source]);
+        var now = Now;
+        var service = new AiUsageService(new SettingsService(), History(), _ => [source], () => now);
 
         var first = service.RefreshAsync();
         var forced = service.RefreshAsync(force: true);
 
         Assert.NotSame(first, forced);
 
+        // The queued round only asks again once the source is actually stale — the round-in-flight
+        // behaviour under test and the per-source throttle are two different things, so the clock is
+        // moved past the window to isolate the first from the second.
+        now += AiUsageService.RefreshInterval + TimeSpan.FromSeconds(1);
         gate.SetResult();
         await forced;
 
@@ -317,6 +415,7 @@ public class UsageTileTests
     {
         private int _asked;
 
+        public string Id { get; } = Guid.NewGuid().ToString();
         public int Asked => Volatile.Read(ref _asked);
 
         public async Task<AiUsageReport?> ReadAsync(CancellationToken ct = default)

@@ -253,6 +253,14 @@ public interface IAiAgent
     /// <param name="signIn">The login to ask about, or null for the CLI's own default account.</param>
     Task<AiUsageReport?> UsageAsync(AiSignIn? signIn, CancellationToken ct = default);
 
+    /// <summary>The key one account's readings are filed under.</summary>
+    /// <remarks>The same formula <see cref="UsageAsync"/> hands back as <c>AiUsageReport.SourceId</c>,
+    /// promoted here so <c>AiUsageService</c>'s per-account throttle can be keyed on it without asking
+    /// anybody anything first — the agent's id and the sign-in's, never a name, since nothing makes a
+    /// sign-in's name unique and a renamed row must not start a fresh history or adopt somebody
+    /// else's.</remarks>
+    string UsageSourceId(AiSignIn? signIn);
+
     /// <summary>
     /// Which login this row is, where that can be told before anybody is asked anything.
     /// </summary>

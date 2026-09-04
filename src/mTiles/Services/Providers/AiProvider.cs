@@ -46,6 +46,14 @@ public abstract class AiProvider : IAiProvider
     /// <inheritdoc />
     public virtual bool IsLocal => false;
 
+    /// <inheritdoc />
+    /// <remarks>Declared here as well as on the interface because <b>this</b> is the class that declares
+    /// <see cref="IAiProvider"/>: interface mapping is fixed on it, so a public method on a derived
+    /// provider would not implement the member at all and every call through the interface — the
+    /// throttle's key among them — would quietly get the default answer instead. Virtual, so a provider
+    /// filing its reports under a prefixed key overrides it and the two cannot drift.</remarks>
+    public virtual string UsageSourceId(AiProviderInstance instance) => instance.Id;
+
     /// <summary>The word presented where a server takes no key — not empty, because an empty token is
     /// refused locally before any request is made, and nothing that could be mistaken for a
     /// credential, because a server that reads none of it ignores it. The measured reasoning is on

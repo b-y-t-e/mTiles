@@ -410,12 +410,12 @@ public abstract class AiAgent : IAiAgent
     /// that is the same call being made today.</remarks>
     public virtual string? UsageAccountKeyFor(AiSignIn? signIn) => null;
 
-    /// <summary>The key one account's readings are filed under.</summary>
+    /// <inheritdoc />
     /// <remarks>The agent's id and the sign-in's, never a name: nothing makes a sign-in's name unique
     /// and the user can retype it, so a renamed row would either start a fresh history or adopt
     /// somebody else's. Here rather than on each agent that answers usage, so two of them cannot file
     /// the same account under two keys.</remarks>
-    protected string UsageSourceId(AiSignIn? signIn) => signIn is null ? Id : $"{Id}:{signIn.Id}";
+    public string UsageSourceId(AiSignIn? signIn) => signIn is null ? Id : $"{Id}:{signIn.Id}";
 
     /// <summary>What the card is titled: the CLI, and which of its logins where there is more than
     /// one.</summary>

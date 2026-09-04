@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
 
 namespace mTiles.Services;
@@ -45,24 +45,50 @@ public sealed class AiUsageService : IDisposable
     /// <summary>How many days a money card shows.</summary>
     public const int HistoryDays = 7;
 
+    /// <summary>How long a good reading may go on standing in for an account that has stopped
+    /// answering.</summary>
+    /// <remarks><b>Masking is for a bad round, not for a broken account.</b> A logged-out or permanently
+    /// unreachable account would otherwise show figures from the moment it last worked for the life of
+    /// the process, with its own <c>Problem</c> never reaching the tile — <c>UsageTileViewModel.Rebuild</c>
+    /// keeps only <c>Answered</c> reports — and no visual sign that anything is wrong, since
+    /// <c>UsageDisplay.Age</c> stamps a reading only once it is older than the shortest window it
+    /// describes (five hours for Claude, seven days for a weekly-only account). Five refresh intervals:
+    /// long enough that a rate limit, a dropped socket or a token being renewed elsewhere passes
+    /// underneath it, short enough that a card cannot be hours wrong without saying so.</remarks>
+    public static readonly TimeSpan MaskLimit = TimeSpan.FromTicks(RefreshInterval.Ticks * 5);
+
+    /// <summary>One source's own cache entry: the last answer worth showing, when that answer was
+    /// taken, and when the source was last actually asked.</summary>
+    /// <remarks><see cref="LastGood"/> is only ever replaced by another <c>Answered</c> report — never by
+    /// a failure and never by nothing — which is what keeps a card from going blank the moment its
+    /// account has one bad round; <see cref="LastGoodAt"/> is what stops that courtesy becoming a lie,
+    /// through <see cref="MaskLimit"/>.</remarks>
+    private sealed record Entry(AiUsageReport? LastGood, DateTimeOffset LastGoodAt,
+        DateTimeOffset LastAttemptAt);
+
     private readonly SettingsService _settings;
     private readonly UsageHistory _history;
     private readonly Func<AppSettings, IReadOnlyList<IUsageSource>> _sources;
+    private readonly Func<DateTimeOffset> _now;
     private readonly Lock _gate = new();
+    private readonly Dictionary<string, Entry> _cache = new(StringComparer.Ordinal);
 
     private IReadOnlyList<AiUsageReport> _reports = [];
     private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
+    private DateTimeOffset _nextRoundDueAt = DateTimeOffset.MinValue;
     private Task? _inFlight;
     private System.Threading.Timer? _timer;
     private int _watchers;
     private bool _disposed;
 
     public AiUsageService(SettingsService settings, UsageHistory? history = null,
-        Func<AppSettings, IReadOnlyList<IUsageSource>>? sources = null)
+        Func<AppSettings, IReadOnlyList<IUsageSource>>? sources = null,
+        Func<DateTimeOffset>? now = null)
     {
         _settings = settings;
         _history = history ?? new UsageHistory();
         _sources = sources ?? UsageSources.From;
+        _now = now ?? (() => DateTimeOffset.Now);
     }
 
     /// <summary>Raised when the reports have been replaced. Never on the UI thread.</summary>
@@ -117,13 +143,18 @@ public sealed class AiUsageService : IDisposable
     }
 
     /// <summary>
-    /// Refreshes unless the last answer is still current.
+    /// Refreshes whatever account is overdue, unless nothing is.
     /// </summary>
-    /// <param name="force">True for the manual button, which must ask again however fresh the figures
-    /// are — a user pressing refresh has a reason this cannot see.</param>
+    /// <param name="force">True for the manual button. It starts a round however recently the last one
+    /// ran — the user has just changed something this cannot see — but it never breaks a single
+    /// account's own 3-minute window, which is <see cref="RefreshInterval"/> applied <em>per source</em>
+    /// rather than once for the whole round (<c>AskIfDue</c>). Pressing it twice in a row therefore
+    /// asks nobody the second time. The timer, having nothing new to react to, is turned away here
+    /// instead, so a tick on which every account is still fresh costs one comparison.</param>
     public Task RefreshAsync(bool force = false, CancellationToken ct = default)
     {
         TaskCompletionSource completion;
+        var now = _now();
 
         lock (_gate)
         {
@@ -134,7 +165,15 @@ public sealed class AiUsageService : IDisposable
             // started alongside it either, because two rounds writing _reports race and the loser is
             // whichever finishes last rather than whichever asked last.
             if (_inFlight is { } running) return force ? Queued(running, ct) : running;
-            if (!force && DateTimeOffset.Now - _lastRefresh < RefreshInterval) return Task.CompletedTask;
+            // The round-level early-out, and it is deliberately a *remembered instant* rather than a
+            // walk of today's sources: working out who exists reads this machine's own files —
+            // .claude.json runs to megabytes — and doing that under _gate would block every reader of
+            // Reports and IsRefreshing, the workspace's working light among them, on disk I/O every
+            // tick. So the timer is turned away by one comparison, and an account configured since the
+            // last round waits at most one tick to be noticed. A forced round is never turned away
+            // here: the user has just changed something this cannot see, and what keeps their press
+            // from costing anybody a request is the per-source window in AskIfDue, not this.
+            if (!force && now < _nextRoundDueAt) return Task.CompletedTask;
 
             // The handle is published *before* the work starts, because the work can finish before it
             // starts: every source answering from a cache makes RunAsync synchronous to its last line,
@@ -147,7 +186,7 @@ public sealed class AiUsageService : IDisposable
         // Started outside the lock, and that is the point: a run is synchronous up to its first real
         // await, so starting it under _gate held the lock through a source's own work and blocked every
         // reader of Reports and IsRefreshing — the workspace's working light among them.
-        _ = RunAsync(completion, ct);
+        _ = RunAsync(completion, now, ct);
         return completion.Task;
     }
 
@@ -163,7 +202,7 @@ public sealed class AiUsageService : IDisposable
         await RefreshAsync(force: true, ct);
     }
 
-    private async Task RunAsync(TaskCompletionSource completion, CancellationToken ct)
+    private async Task RunAsync(TaskCompletionSource completion, DateTimeOffset now, CancellationToken ct)
     {
         // A deadline for the whole round, because the answers are published together: one account on a
         // hanging socket held every card at its previous figures for as long as that instance's own
@@ -175,19 +214,21 @@ public sealed class AiUsageService : IDisposable
         try
         {
             var sources = _sources(_settings.Settings);
-            var answers = await Task.WhenAll(sources.Select(source => Ask(source, ct, deadline.Token)));
-            var reports = answers.OfType<AiUsageReport>().ToArray();
-
-            foreach (var report in reports)
-            {
-                Remember(report);
-                Explain(report);
-            }
+            var outcomes = await Task.WhenAll(sources.Select(source => AskIfDue(source, now, ct, deadline.Token)));
+            var reports = outcomes.Select(outcome => outcome.Report).OfType<AiUsageReport>().ToArray();
 
             lock (_gate)
             {
+                PruneCache(sources);
+                _nextRoundDueAt = EarliestDueAt(now);
                 _reports = reports;
-                _lastRefresh = DateTimeOffset.Now;
+
+                // Only when at least one source was actually asked this round: bumping it for a round
+                // that asked nobody (every source still within its own window) would tell the tile's
+                // "refreshed just now" line that the figures are fresh when they are, at best, the same
+                // ones it already had.
+                if (outcomes.Any(outcome => outcome.WasAsked))
+                    _lastRefresh = now;
             }
         }
         catch (Exception ex)
@@ -210,6 +251,106 @@ public sealed class AiUsageService : IDisposable
         try { Changed?.Invoke(); }
         catch (Exception ex) { Trace.TraceWarning("A usage listener failed: {0}", ex.Message); }
     }
+
+    /// <summary>One source's outcome for a round: what to draw for it, and whether it was actually
+    /// asked — the two <see cref="RunAsync"/> needs and neither can tell you the other.</summary>
+    private readonly record struct Outcome(AiUsageReport? Report, bool WasAsked);
+
+    /// <summary>
+    /// Asks one source, unless its own 3-minute window is not yet up — and never lets a bad answer
+    /// erase a good one.
+    /// </summary>
+    /// <remarks><b>The per-source throttle this whole class exists to keep.</b> A source within its
+    /// window is not asked at all, however the round was started — the manual button included — and
+    /// answers with whatever <see cref="Entry.LastGood"/> it is holding, which may be nothing at all for
+    /// a source that has never yet answered. A source that <em>is</em> asked and comes back with
+    /// nothing usable (null, or a report carrying a <c>Problem</c>) falls back to that same
+    /// <see cref="Entry.LastGood"/> rather than replacing it — a card with numbers on it never turns
+    /// into an empty one or a bare sentence because one round went badly.</remarks>
+    private async Task<Outcome> AskIfDue(IUsageSource source, DateTimeOffset now, CancellationToken ct,
+        CancellationToken deadline)
+    {
+        Entry? entry;
+        lock (_gate) _cache.TryGetValue(source.Id, out entry);
+
+        if (entry is not null && now - entry.LastAttemptAt < RefreshInterval)
+        {
+            Trace.TraceInformation(
+                "Usage of '{0}' is still within its 3-minute window; not asked again.", source.Id);
+            return new Outcome(StillWorthShowing(entry, now), WasAsked: false);
+        }
+
+        var fresh = await Ask(source, ct, deadline);
+        var updated = Keep(entry, fresh, now);
+
+        lock (_gate) _cache[source.Id] = updated;
+
+        if (fresh is not null)
+        {
+            Remember(fresh);
+            Explain(fresh);
+        }
+
+        if (fresh is not { Answered: true })
+            TraceMasking(source.Id, entry, updated);
+
+        return new Outcome(updated.LastGood ?? fresh, WasAsked: true);
+    }
+
+    /// <summary>What this round leaves in the cache for one source.</summary>
+    /// <remarks>A good answer replaces everything and restamps the age. Anything else keeps the last
+    /// good reading only while <see cref="MaskLimit"/> allows, and once it does not the entry is
+    /// emptied — which is what lets the account's own <c>Problem</c> reach the caller, and the card
+    /// disappear, rather than stale figures standing there for good.</remarks>
+    private static Entry Keep(Entry? entry, AiUsageReport? fresh, DateTimeOffset now)
+    {
+        if (fresh is { Answered: true }) return new Entry(fresh, now, now);
+
+        var masked = entry is null ? null : StillWorthShowing(entry, now);
+
+        return new Entry(masked, masked is null ? now : entry!.LastGoodAt, now);
+    }
+
+    /// <summary>The entry's last good reading while it is young enough to stand in for a fresh one, and
+    /// null once it is not.</summary>
+    private static AiUsageReport? StillWorthShowing(Entry entry, DateTimeOffset now) =>
+        entry.LastGood is not null && now - entry.LastGoodAt < MaskLimit ? entry.LastGood : null;
+
+    /// <summary>Says in the log which of the two things just happened to a failing account: its figures
+    /// are being held over, or they have been given up on and its own sentence is what the round
+    /// carries now.</summary>
+    private static void TraceMasking(string sourceId, Entry? before, Entry after)
+    {
+        if (after.LastGood is { } masked)
+            Trace.TraceInformation(
+                "Usage of '{0}' could not be refreshed; showing the reading from {1} instead.",
+                sourceId, masked.MeasuredAt);
+        else if (before?.LastGood is { } expired)
+            Trace.TraceWarning(
+                "Usage of '{0}' has not answered since {1}, which is longer than {2}; its last reading " +
+                "is no longer shown.", sourceId, expired.MeasuredAt, MaskLimit);
+    }
+
+    /// <summary>Drops the cache entries for accounts that no longer exist in settings — a removed
+    /// sign-in, a deleted provider instance — so the cache does not grow for the life of the
+    /// process.</summary>
+    /// <remarks>Called with <c>_gate</c> held, by the one place that already holds it.</remarks>
+    private void PruneCache(IReadOnlyList<IUsageSource> sources)
+    {
+        var live = new HashSet<string>(sources.Select(source => source.Id), StringComparer.Ordinal);
+
+        foreach (var staleId in _cache.Keys.Where(id => !live.Contains(id)).ToArray())
+            _cache.Remove(staleId);
+    }
+
+    /// <summary>The soonest any known account falls out of its own window — what the next round is
+    /// allowed to start at.</summary>
+    /// <remarks>Called with <c>_gate</c> held. An empty cache means nothing has been asked yet, so the
+    /// next round starts at once rather than never.</remarks>
+    private DateTimeOffset EarliestDueAt(DateTimeOffset now) =>
+        _cache.Count == 0
+            ? now
+            : _cache.Values.Min(entry => entry.LastAttemptAt) + RefreshInterval;
 
     /// <summary>
     /// Puts the reason an account could not be asked somewhere a person can find it.

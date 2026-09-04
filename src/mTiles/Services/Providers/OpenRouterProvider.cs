@@ -146,11 +146,11 @@ public sealed class OpenRouterProvider : AiProvider
     /// <summary>What this provider's amounts are in. OpenRouter prices in US dollars throughout.</summary>
     private const string Currency = "$";
 
-    /// <summary>The key this instance's daily snapshots are filed under.</summary>
+    /// <inheritdoc />
     /// <remarks>The instance's id and not its name: nothing makes a name unique — two keys for the same
     /// service are two identically spelled rows — and a renamed row must keep its own history rather
     /// than adopting another's.</remarks>
-    public static string UsageSourceId(AiProviderInstance instance) => $"openrouter:{instance.Id}";
+    public override string UsageSourceId(AiProviderInstance instance) => $"openrouter:{instance.Id}";
 
     /// <summary>What is left where no limit is set on the key, from the credits endpoint.</summary>
     /// <remarks>Asked only when <c>limit_remaining</c> was null, which is what an unlimited key answers:

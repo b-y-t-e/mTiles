@@ -104,7 +104,19 @@ public class OpenRouterUsageTests
         var instance = Instance();
         instance.Name = "renamed";
 
-        Assert.Equal("openrouter:abc", OpenRouterProvider.UsageSourceId(instance));
+        Assert.Equal("openrouter:abc", new OpenRouterProvider().UsageSourceId(instance));
+    }
+
+    /// <summary>And the same key through the interface, which is how the usage service's per-account
+    /// throttle asks — a public method on the derived class alone would not implement the member at
+    /// all, since the interface is declared on <c>AiProvider</c>, and every call through it would get
+    /// the bare instance id instead.</summary>
+    [Fact]
+    public void The_history_key_is_the_same_asked_through_the_interface()
+    {
+        IAiProvider provider = new OpenRouterProvider();
+
+        Assert.Equal("openrouter:abc", provider.UsageSourceId(Instance()));
     }
 
     /// <summary>

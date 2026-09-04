@@ -30,6 +30,14 @@ public interface IUsageSource
     /// only its answer can carry (a metered key, which has no duplicate to find) simply says
     /// nothing.</remarks>
     string? AccountKey => null;
+
+    /// <summary>The stable identity known before anybody is asked anything — the same key the source
+    /// eventually answers back as <see cref="AiUsageReport.SourceId"/>.</summary>
+    /// <remarks><c>AiUsageService</c> keys its per-account throttle on this, so it must be the very
+    /// formula the report is later filed under (<c>IAiAgent.UsageSourceId</c>,
+    /// <c>IAiProvider.UsageSourceId</c>) — a cache key and a report id computed two different ways would
+    /// eventually drift, and the throttle would be watching an account that never answers back.</remarks>
+    string Id { get; }
 }
 
 /// <summary>Every account this machine could ask, worked out from the settings.</summary>
@@ -115,6 +123,9 @@ public sealed class AgentUsageSource(IAiAgent agent, AiSignIn? signIn) : IUsageS
     /// <c>SignInStatus</c> is: a login swapped in a terminal must not leave this naming the account
     /// that used to be there.</remarks>
     public string? AccountKey => agent.UsageAccountKeyFor(signIn);
+
+    /// <inheritdoc />
+    public string Id => agent.UsageSourceId(signIn);
 }
 
 /// <summary>One configured key at a metered service.</summary>
@@ -123,4 +134,7 @@ public sealed class ProviderUsageSource(IAiProvider provider, AiProviderInstance
     /// <inheritdoc />
     public Task<AiUsageReport?> ReadAsync(CancellationToken ct = default) =>
         provider.UsageAsync(instance, ct);
+
+    /// <inheritdoc />
+    public string Id => provider.UsageSourceId(instance);
 }
