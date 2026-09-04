@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo/mtiles-banner.png" alt="mTiles — cross-platform terminal manager" width="560">
+</p>
+
 ![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat&logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black)
 

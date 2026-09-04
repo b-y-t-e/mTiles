@@ -36,7 +36,7 @@ jobs:
         run: dotnet tool install -g vpk
 
       - name: Create Velopack package
-        run: vpk pack --packId mTiles --packVersion ${{ env.VERSION }} --packDir ./publish --mainExe mTiles.exe
+        run: vpk pack --packId mTiles --packVersion ${{ env.VERSION }} --packDir ./publish --mainExe mTiles.exe --icon src/mTiles/mtiles.ico
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -88,7 +88,7 @@ jobs:
 
           # Copy icon for AppImage
           cp src/mTiles/Assets/mtiles-icon.png AppDir/mtiles.png
-          cp src/mTiles/Assets/mtiles-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/mtiles.png
+          cp src/mTiles/Assets/mtiles-icon-256.png AppDir/usr/share/icons/hicolor/256x256/apps/mtiles.png
 
       - name: Verify the AppImage tree
         shell: pwsh
