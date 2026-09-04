@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using mTiles.Models;
 
 namespace mTiles.Services.Database;
@@ -14,6 +14,12 @@ public sealed class DatabaseServiceManager : IDisposable
 
     private readonly ConcurrentDictionary<string, WorkspaceGrant> _workspaceGrants = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTime> _temporaryWriteGrants = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Where each registered workspace's agent-facing files live, so a service restart can
+    /// rewrite them all. Written by <see cref="UpdateDatabaseSkill"/>, which is the only route a
+    /// workspace has into this manager anyway.</summary>
+    private readonly ConcurrentDictionary<string, WorkspaceAgentFiles> _agentFiles =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly object _grantLock = new();
     private Timer? _stateChangedDebounce;
 
@@ -85,14 +91,21 @@ public sealed class DatabaseServiceManager : IDisposable
     {
         Stop();
         Start();
-        RegenerateAllClaudeLocalMd();
+        RegenerateAllDatabaseSkills();
     }
 
-    private void RegenerateAllClaudeLocalMd()
+    /// <summary>Rewrites every workspace's database skill after the service has been restarted.
+    /// </summary>
+    /// <remarks>A service that came back down is the second of the two triggers for the blind delete —
+    /// see <see cref="WorkspaceAgentFiles.RemoveSkillEverywhere"/>: no agent may keep a live database
+    /// address for a bridge that is not listening.</remarks>
+    private void RegenerateAllDatabaseSkills()
     {
-        var port = _settingsService.Settings.Database.HttpPort;
         foreach (var (workspaceDir, grant) in _workspaceGrants)
-            ClaudeLocalMdWriter.Update(workspaceDir, _started ? grant.Databases : [], _registry, port);
+        {
+            if (_agentFiles.TryGetValue(workspaceDir, out var agentFiles))
+                UpdateDatabaseSkill(agentFiles, _started ? grant.Databases : []);
+        }
     }
 
     public void RunDiscoveryNow()
@@ -179,10 +192,52 @@ public sealed class DatabaseServiceManager : IDisposable
             entry.Info.AllowModifications = IsDatabaseWriteAllowed(entry.Info.Key);
     }
 
-    public void UpdateClaudeLocalMd(string workspaceDir, List<WorkspaceDatabaseConfig> databases)
+    /// <summary>
+    /// Offers this workspace's databases to its agents as a skill, or takes the offer away.
+    /// </summary>
+    /// <remarks>The two are not symmetric, and that is the point: a skill is written only where an
+    /// agent tile in this workspace reads one, while withdrawing it reaches every directory any agent
+    /// could ever read. No database was selected, or the service is not running, and nothing may be
+    /// left saying otherwise.</remarks>
+    public void UpdateDatabaseSkill(WorkspaceAgentFiles agentFiles,
+        IReadOnlyList<WorkspaceDatabaseConfig> databases)
     {
-        var effectiveDbs = _started && databases.Count > 0 ? databases : [];
-        ClaudeLocalMdWriter.Update(workspaceDir, effectiveDbs, _registry, _settingsService.Settings.Database.HttpPort);
+        // Remembered so a restart of the service can rewrite every workspace without each tile having
+        // to be asked again — the same reason the grants are kept here.
+        _agentFiles[agentFiles.WorkspaceDirectory] = agentFiles;
+
+        // The two questions are separate, and reading the second as the first is what cost a tracked
+        // .gitignore its marked block on every launch. "Nothing is offered" is a decision — the service
+        // is off, or the last database was unticked. "Nothing could be built" is the registry not
+        // having answered yet: discovery runs on a timer off the thread pool, while a restored tile
+        // asks this from its own constructor, so at startup every discovered database is still unknown.
+        var withdrawn = !_started || databases.Count == 0;
+        var skill = withdrawn
+            ? null
+            : DatabaseSkillWriter.Build(databases, _registry, _settingsService.Settings.Database.HttpPort);
+
+        if (skill != null)
+            agentFiles.WriteSkill(DatabaseSkillWriter.SkillName, skill);
+        else if (withdrawn)
+            agentFiles.RemoveSkill(DatabaseSkillWriter.SkillName);
+        else
+            // The SKILL.md still goes — it would name an address the bridge is not publishing — but the
+            // line it put in the user's .gitignore stays, exactly as it does for a closing tile. The
+            // registry raises StateChanged once it knows, and the tile asks again.
+            agentFiles.ForgetSkill(DatabaseSkillWriter.SkillName);
+    }
+
+    /// <summary>
+    /// A database tile is closing: its skill goes, and the <c>.gitignore</c> line it added stays.
+    /// </summary>
+    /// <remarks>Not <see cref="UpdateDatabaseSkill"/> with an empty list, which is what a user
+    /// withdrawing access asks for — see <see cref="WorkspaceAgentFiles.ForgetSkill"/>. Closing the
+    /// window disposes every tile, so the two must not be the same call: one is a decision, the other
+    /// is the end of a session.</remarks>
+    public void ForgetDatabaseSkill(WorkspaceAgentFiles agentFiles)
+    {
+        _agentFiles.TryRemove(agentFiles.WorkspaceDirectory, out _);
+        agentFiles.ForgetSkill(DatabaseSkillWriter.SkillName);
     }
 
     private void RegisterManualConnections(DatabaseSettings settings)

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Text.Json;
 using Avalonia.Input.Platform;
 using Avalonia.Threading;
@@ -19,9 +19,15 @@ public partial class DatabaseTileViewModel : ObservableObject, ITile
     private readonly SettingsService _settingsService;
     private readonly DatabaseServiceManager _dbManager;
 
+    /// <summary>Where this workspace's agents read their skills. The tile says <em>what</em> the
+    /// databases are; this says <em>where</em> that goes, and the tile never touches an instruction
+    /// file again — see <c>docs/AGENTS-MD-SYNC.md</c>.</summary>
+    private readonly WorkspaceAgentFiles _agentFiles;
+
     [ObservableProperty] private string _fontFamily;
     [ObservableProperty] private double _fontSize;
     [ObservableProperty] private bool _isServiceRunning;
+    private bool _disposed;
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private string? _serviceError;
     public string StoppedLabel => ServiceError != null ? "Error" : "Stopped";
@@ -64,11 +70,12 @@ public partial class DatabaseTileViewModel : ObservableObject, ITile
     private const int MaxWorkspaceDatabases = 10;
 
     public DatabaseTileViewModel(string workingDirectory, SettingsService settingsService,
-        DatabaseServiceManager dbManager)
+        DatabaseServiceManager dbManager, WorkspaceAgentFiles agentFiles)
     {
         _workingDirectory = workingDirectory;
         _settingsService = settingsService;
         _dbManager = dbManager;
+        _agentFiles = agentFiles;
 
         var s = settingsService.Settings;
         _fontFamily = s.FontFamily;
@@ -85,6 +92,12 @@ public partial class DatabaseTileViewModel : ObservableObject, ITile
         LoadWorkspaceConfig();
         RefreshDatabaseList();
         SyncGrants();
+
+        // A restored tile has to publish — or withdraw — the skill exactly as a saved one does. It is
+        // also what tells the manager where this workspace's agent files are, and until it knows that,
+        // a service switched off in Settings cannot reach the SKILL.md a previous session wrote: a live
+        // localhost address left in somebody's repository for a bridge that is no longer listening.
+        _dbManager.UpdateDatabaseSkill(_agentFiles, _workspaceConfigs);
     }
 
     public Action? ScrollLogsToEnd { get; set; }
@@ -142,9 +155,16 @@ public partial class DatabaseTileViewModel : ObservableObject, ITile
     {
         Dispatcher.UIThread.Post(() =>
         {
+            // The handler is detached in Dispose, but a notification already posted is not: without
+            // this the tile would rewrite a SKILL.md it has just withdrawn.
+            if (_disposed) return;
             IsServiceRunning = _dbManager.IsRunning;
             ServiceError = _dbManager.LastError;
             RefreshDatabaseList();
+            // The registry is what the skill is built from, and at startup it answers after this tile
+            // has already asked once: discovery runs on a timer while the tile publishes from its own
+            // constructor. Without this the skill would be missing for the rest of the session.
+            _dbManager.UpdateDatabaseSkill(_agentFiles, _workspaceConfigs);
         });
     }
 
@@ -183,7 +203,7 @@ public partial class DatabaseTileViewModel : ObservableObject, ITile
         File.WriteAllText(configPath, json);
 
         SyncGrants();
-        _dbManager.UpdateClaudeLocalMd(_workingDirectory, _workspaceConfigs);
+        _dbManager.UpdateDatabaseSkill(_agentFiles, _workspaceConfigs);
         TileSettingsChanged?.Invoke();
     }
 
@@ -315,11 +335,15 @@ public partial class DatabaseTileViewModel : ObservableObject, ITile
 
     public void Dispose()
     {
+        _disposed = true;
         _settingsService.SettingsChanged -= OnSettingsChanged;
         _dbManager.StateChanged -= OnDbStateChanged;
         _dbManager.WriteAccessRequested -= OnWriteAccessRequested;
         _dbManager.Logger.EntryLogged -= OnLogEntryLogged;
         _dbManager.UnregisterWorkspace(_workingDirectory);
-        _dbManager.UpdateClaudeLocalMd(_workingDirectory, []);
+        // The tile is closing, which on a window close is every tile: the SKILL.md goes, the line it
+        // put in the user's .gitignore stays. Withdrawing that too would edit a tracked file on every
+        // exit and again on every launch (WorkspaceAgentFiles.ForgetSkill).
+        _dbManager.ForgetDatabaseSkill(_agentFiles);
     }
 }

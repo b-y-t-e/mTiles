@@ -25,7 +25,7 @@ public sealed class DatabaseTileKind(DatabaseServiceManager databases) : TileKin
     public override string NamePrefix => "DB";
 
     protected override DatabaseTileViewModel Create(TileContext context, JsonObject? state) =>
-        new(context.WorkingDirectory, context.Settings, databases)
+        new(context.WorkingDirectory, context.Settings, databases, context.AgentFiles)
         {
             TileSettingsChanged = context.RequestSave,
             OpenDatabaseSettings = () => context.OpenSettings?.Invoke(SettingsTabs.Database)
