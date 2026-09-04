@@ -21,6 +21,15 @@ namespace mTiles.Services.Agents;
 /// <para><b>It does have an effort flag</b> — <c>--effort low|medium|high</c> — which this application
 /// previously said it did not, so every agy run went out at whatever the model name implied. Three
 /// levels, so the canonical top two round down.</para>
+/// <para><b>Re-measured 2026-09-04 against agy 1.1.26, and nothing here has moved.</b>
+/// <c>--conversation</c>, <c>--print</c>, <c>--output-format json</c>, <c>--mode</c>, <c>--effort</c>
+/// and <c>--dangerously-skip-permissions</c> all still spelled as below; a known id resumes (the answer
+/// carries the same <c>conversation_id</c>), and an unknown one still warns <c>conversation "…" not
+/// found</c>, opens a <em>different</em> conversation and exits 0. Two entries in agy's own changelog
+/// are worth knowing about because they are exactly this path: 1.1.23 fixed subcommands hanging on an
+/// inherited standard input pipe, and 1.1.24 fixed a headless <c>--print</c> run hanging on exit when
+/// its output was piped — which is what <see cref="CaptureSessionAsync"/> does, so an agy older than
+/// 1.1.24 can leave the pre-create hanging until its timeout.</para>
 /// <para><b>Measured limitation:</b> <c>agy --print-timeout</c> defaults to five minutes, and nothing
 /// here raises it. The Goal tile's "a run has no wall-clock timeout" guarantee therefore does not hold
 /// on agy: a long implementation is cut off by the agent itself. Passing a larger value would be a flag

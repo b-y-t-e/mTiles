@@ -24,6 +24,18 @@ internal static partial class SessionCapture
     /// resumable, which is a loss and not a failure.</summary>
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
+    /// <summary>How long the pipes of an exited agent are given to drain before what they hold is
+    /// discarded. Short on purpose: this covers a CLI that died and left something holding the handles,
+    /// not output worth waiting for — by the time the process is gone, anything it meant to print has
+    /// been written.</summary>
+    internal static TimeSpan DrainTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>Watches a read this method stopped awaiting, so its eventual fault is seen and
+    /// swallowed rather than reported by the unobserved-task handler.</summary>
+    private static void ObserveAbandoned(Task task) =>
+        _ = task.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+
     /// <summary>
     /// Runs the agent once and returns everything it printed, or null if it could not be run.
     /// </summary>
@@ -81,13 +93,42 @@ internal static partial class SessionCapture
 
             await process.WaitForExitAsync(CancellationToken.None);
 
-            var text = await output;
-            var stderr = await errors;
+            // The reads are bounded separately, and that is the whole point of this being three
+            // statements rather than two awaits: a grandchild that inherited the redirected handles
+            // holds the pipes open for its own life, so `ReadToEndAsync` on a CLI that has already
+            // exited never completes — and it was awaited on a token of `None`, past the timeout, past
+            // the kill and past anything the tile could do about it. That is not a hypothetical: agy
+            // 1.1.24 lists it as a fix ("headless CLI invocations with piped standard output or
+            // standard error hanging on exit ... so child processes do not keep the caller's pipes
+            // open"), and this method is exactly such an invocation. What it cost was not a lost id: a
+            // capture is awaited by PrepareForLaunchAsync, so a hang here is a Restart shell that does
+            // nothing at all, for ever, without a line in the log.
+            var reads = Task.WhenAll(output, errors);
+            var drained = await Task.WhenAny(reads, Task.Delay(DrainTimeout, CancellationToken.None))
+                == reads && reads.IsCompletedSuccessfully;
+
+            // The reads left behind fault when the process handle goes; observed, or an unhandled one
+            // reaches TaskScheduler.UnobservedTaskException for something working as designed. The
+            // aggregate is observed too and for the same reason: neither WhenAny nor
+            // IsCompletedSuccessfully reads its Exception, so a faulted read reaches the unobserved
+            // handler through the WhenAll that wrapped it — logged by CrashHandler as an ERROR in the
+            // daily log, which is exactly the noise these three lines exist to prevent.
+            ObserveAbandoned(output);
+            ObserveAbandoned(errors);
+            ObserveAbandoned(reads);
+
+            if (!drained)
+            {
+                Trace.TraceWarning("{0} exited without releasing its output, so no session id was read "
+                    + "from it and the tile will start a new conversation.", executablePath);
+                return null;
+            }
 
             // Both, in that order. agy prints its warning about an unknown conversation on stderr and
             // the JSON on stdout, and a CLI that changes its mind about which stream to use would
             // otherwise turn a working capture into a silent null.
-            return string.IsNullOrWhiteSpace(text) ? stderr : text;
+            var text = output.Result;
+            return string.IsNullOrWhiteSpace(text) ? errors.Result : text;
         }
         catch (Exception ex)
         {
