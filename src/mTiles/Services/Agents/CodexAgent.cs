@@ -37,6 +37,12 @@ public sealed class CodexAgent : AiAgent
 
     public override string Id => "codex";
     public override string DisplayName => "Codex";
+
+    /// <summary>Measured 2026-09-03: <c>.agents/skills</c> — shared with pi and agy, which is what
+    /// <see cref="WorkspaceAgentFiles"/> exists to keep three tiles from deleting from under one
+    /// another.</summary>
+    public override string? SkillsDirectory(string workspaceDir) =>
+        Path.Combine(workspaceDir, ".agents", "skills");
     public override string BinaryName => "codex";
 
     /// <summary>

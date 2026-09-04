@@ -181,6 +181,36 @@ public interface IAiAgent
     bool SupportsSignIns { get; }
 
     /// <summary>
+    /// Where this CLI looks for the project's skills, or null when it reads none.
+    /// </summary>
+    /// <remarks>
+    /// <para>The same shape as <see cref="SignInEnv"/> and <see cref="SessionIdForTile"/>: a question
+    /// only the CLI itself can answer, measured once (2026-09-03, against the binaries installed on
+    /// this machine). The agent answers <em>where</em>; what goes in there is nothing it is told —
+    /// <c>Services/Agents/</c> never learns that databases exist.</para>
+    /// <para>Measured: claude <c>.claude/skills</c>, opencode <c>.opencode/skills</c>, and codex, pi
+    /// and agy all three <c>.agents/skills</c>. <b>That shared directory is the whole reason
+    /// <see cref="WorkspaceAgentFiles"/> exists</b>: closing a pi tile must not take the directory a
+    /// codex tile is still reading, so the rule is "recompute the set and delete the difference"
+    /// rather than "delete this agent's directory".</para>
+    /// <para>Null by default, like <see cref="UsageAsync"/>: an agent whose author forgets this gets no
+    /// skill, which is a loss and never a file written somewhere nobody measured.</para>
+    /// </remarks>
+    /// <param name="workspaceDir">The workspace's own directory, which is where every one of these
+    /// CLIs looks first.</param>
+    string? SkillsDirectory(string workspaceDir) => null;
+
+    /// <summary>
+    /// The project instruction file this CLI opens. <c>AGENTS.md</c> is the canon.
+    /// </summary>
+    /// <remarks>Measured 2026-09-03: opencode, codex, pi and agy all read <c>AGENTS.md</c>; only Claude
+    /// Code does not — it loads <c>CLAUDE.md</c> by a hard-coded path and has no discovery for
+    /// <c>AGENTS.md</c> at all. An agent that names its own file here gets a one-line shim
+    /// (<c>@AGENTS.md</c>) rather than a second copy of the content; see
+    /// <see cref="WorkspaceAgentFiles"/> and <c>docs/AGENTS-MD-SYNC.md</c>.</remarks>
+    string InstructionFile => WorkspaceAgentFiles.CanonicalInstructionFile;
+
+    /// <summary>
     /// The environment that points this CLI at one login's directory.
     /// </summary>
     /// <remarks><para>A whole block rather than a variable name and a value, for the reason

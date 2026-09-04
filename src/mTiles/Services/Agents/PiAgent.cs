@@ -20,6 +20,10 @@ public sealed class PiAgent : AiAgent
 {
     public override string Id => "pi";
     public override string DisplayName => "Pi Agent";
+
+    /// <inheritdoc cref="CodexAgent.SkillsDirectory"/>
+    public override string? SkillsDirectory(string workspaceDir) =>
+        Path.Combine(workspaceDir, ".agents", "skills");
     public override string BinaryName => "pi";
 
     /// <summary>

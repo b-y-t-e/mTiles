@@ -35,6 +35,10 @@ public sealed class AntigravityAgent : AiAgent
 
     public override string Id => "agy";
     public override string DisplayName => "Antigravity";
+
+    /// <inheritdoc cref="CodexAgent.SkillsDirectory"/>
+    public override string? SkillsDirectory(string workspaceDir) =>
+        Path.Combine(workspaceDir, ".agents", "skills");
     public override string BinaryName => "agy";
 
     /// <summary>

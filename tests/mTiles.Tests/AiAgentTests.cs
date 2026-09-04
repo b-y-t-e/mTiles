@@ -422,6 +422,48 @@ public class AiAgentTests
             codex.BehaviourFlagFor(AiBehaviour.Auto, Implementing)));
     }
 
+    // ── Skills and instruction files ────────────────────
+
+    /// <summary>Where each CLI looks for the project's skills, measured 2026-09-03.</summary>
+    [Theory]
+    [InlineData("claude", ".claude/skills")]
+    [InlineData("opencode", ".opencode/skills")]
+    [InlineData("codex", ".agents/skills")]
+    [InlineData("pi", ".agents/skills")]
+    [InlineData("agy", ".agents/skills")]
+    public void Each_agent_says_where_its_project_skills_live(string agentId, string expected)
+    {
+        var directory = AiAgentCatalog.Find(agentId)!.SkillsDirectory("/w");
+        Assert.Equal("/w/" + expected, directory!.Replace(Path.DirectorySeparatorChar, '/'));
+    }
+
+    /// <summary>Three agents share one directory, which is what makes "delete the directory of the
+    /// agent that left" wrong and <see cref="WorkspaceAgentFiles"/> necessary.</summary>
+    [Fact]
+    public void The_five_agents_name_three_skill_directories()
+    {
+        var directories = AiAgentCatalog.All
+            .Select(agent => agent.SkillsDirectory("/w"))
+            .Where(path => path != null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Assert.Equal(5, AiAgentCatalog.All.Count);
+        Assert.Equal(3, directories.Count);
+    }
+
+    /// <summary>Only Claude Code fails to read the canon, so only it is given a shim.</summary>
+    [Theory]
+    [InlineData("claude", "CLAUDE.md")]
+    [InlineData("opencode", "AGENTS.md")]
+    [InlineData("codex", "AGENTS.md")]
+    [InlineData("pi", "AGENTS.md")]
+    [InlineData("agy", "AGENTS.md")]
+    public void Each_agent_names_the_instruction_file_it_reads(string agentId, string expected)
+    {
+        Assert.Equal(expected, AiAgentCatalog.Find(agentId)!.InstructionFile);
+    }
+
     // ── Sessions ────────────────────────────────────────
 
     /// <summary>Each agent's strategy, which is what decides whether a tile's session id is ours to

@@ -27,6 +27,11 @@ public sealed class OpenCodeAgent : AiAgent
 {
     public override string Id => "opencode";
     public override string DisplayName => "OpenCode";
+
+    /// <summary>Measured 2026-09-03: <c>.opencode/skills</c> under the project — configurable through
+    /// its own <c>paths</c>, and this is the default.</summary>
+    public override string? SkillsDirectory(string workspaceDir) =>
+        Path.Combine(workspaceDir, ".opencode", "skills");
     public override string BinaryName => "opencode";
 
     /// <summary>

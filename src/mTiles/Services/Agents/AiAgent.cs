@@ -360,6 +360,12 @@ public abstract class AiAgent : IAiAgent
     public virtual bool SupportsSignIns => false;
 
     /// <inheritdoc />
+    public virtual string? SkillsDirectory(string workspaceDir) => null;
+
+    /// <inheritdoc />
+    public virtual string InstructionFile => WorkspaceAgentFiles.CanonicalInstructionFile;
+
+    /// <inheritdoc />
     public virtual IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
         new Dictionary<string, string?>(StringComparer.Ordinal);
 
