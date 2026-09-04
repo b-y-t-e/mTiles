@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
 
 namespace mTiles.Services;
@@ -112,6 +112,17 @@ public static class AppPaths
 
     public static string GetLogsDirectory() =>
         Path.Combine(GetAppDataDirectory(), AppDefaults.LogSubdirectory);
+
+    /// <summary>
+    /// Where a Goal tile writes the whole of what it did - every prompt, every answer, every decision.
+    /// </summary>
+    /// <remarks>Its own directory rather than a few more lines in <c>logs/</c>, because what goes in
+    /// here is whole prompts and whole answers: written into the application's own daily log it would
+    /// bury every other line in it. What it carries is this project's diff and the code the tool wrote,
+    /// so it goes through <see cref="PrivateFile"/> for the reason <c>usage/</c> does - outside Windows
+    /// nothing else narrows it. See <c>GoalLog</c>.</remarks>
+    public static string GetGoalLogsDirectory() =>
+        Path.Combine(GetAppDataDirectory(), "goal-logs");
 
     public static string GetWorkspacesDirectory() =>
         Path.Combine(GetAppDataDirectory(), "workspaces");

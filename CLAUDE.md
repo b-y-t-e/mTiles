@@ -1213,6 +1213,14 @@ It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (
   through its own environment variable. **Contains a refresh token and the whole conversation history
   that came with the account**, so it is created owner-only and nothing in this application ever deletes
   one: removing the sign-in row removes the row
+- `goal-logs/goal-YYYY-MM-DD-<goal id>.log` — the whole of what one Goal tile did: every prompt as it
+  was actually sent, every answer as it came back, the verdict each was given, every phase change,
+  parse, salvage round, baseline, commit and stop reason (`GoalLog`). **Deliberately not in
+  `logs/`** — these are whole prompts and whole answers, and in the daily log they would bury every
+  other line in it. One file per tile per day, pruned by the same `AppDefaults.LogRetentionDays` sweep,
+  owner-only through `PrivateFile` because a prompt carries this project's diff and an answer carries
+  the code the tool wrote. Always on, off the caller's thread, and every failure swallowed: a log that
+  cannot be written must never be a goal that stops. See [`docs/GOAL.md`](docs/GOAL.md)
 - `usage/history.json` — the daily spending snapshots
   (`UsageHistory`): `{ sourceId: { "2026-09-01": 18.09, … } }`, 60 days kept, owner-only through
   `PrivateFile` because it is a record of what somebody's accounts cost. **These are ours and nobody

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -378,6 +378,7 @@ public partial class GoalTileViewModel
 
     partial void OnCurrentPhaseChanged(GoalPhase value)
     {
+        _log?.Event($"Phase -> {value}.");
         OnPropertyChanged(nameof(RunStage));
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
@@ -866,6 +867,20 @@ public partial class GoalTileViewModel
 
     public string FilePath => _filePath;
 
+    /// <summary>
+    /// The whole of what this tile did, on disk: every prompt, every answer, every decision.
+    /// </summary>
+    /// <remarks><para>Nullable and always reached through <c>?.</c>, which is not defensiveness about
+    /// the constructor: a log that could not be opened answers with a null path and keeps working, but
+    /// this field is also read from <see cref="OnCurrentPhaseChanged"/>, which the source generator
+    /// calls from a property setter that <see cref="LoadState"/> reaches while the tile is still being
+    /// built.</para>
+    /// <para>What goes in it is deliberately more than the transcript shows: the transcript is what the
+    /// user is meant to read, and this is what nobody is meant to have to read until something has gone
+    /// strangely wrong - the prompt as it was actually sent, the answer as it actually came back, and
+    /// the verdict each of them was given.</para></remarks>
+    private GoalLog? _log;
+
     public GoalTileViewModel(string workingDirectory, SettingsService settingsService,
         WorkspaceGitWatcher? gitWatcher = null)
     {
@@ -876,6 +891,9 @@ public partial class GoalTileViewModel
 
         var goalsDir = WorkspacePaths.Combine(workingDirectory, "goals");
         _filePath = Path.Combine(goalsDir, $"{Guid.NewGuid():N}.json");
+
+        _log = new GoalLog(_filePath);
+        _log.Event($"Goal tile opened in {workingDirectory} (new goal).");
 
         // The store before the editor, as in the other constructor. The editor's callbacks reach the
         // store, and although they are only invoked later, two constructors building the same object in
@@ -899,6 +917,12 @@ public partial class GoalTileViewModel
         _workingDirectory = workingDirectory;
         _settingsService = settingsService;
         _filePath = filePath;
+
+        // Before LoadState, which is what puts the phase back and therefore the first thing with
+        // anything to say.
+        _log = new GoalLog(_filePath);
+        _log.Event($"Goal tile reopened in {workingDirectory} from {filePath}.");
+
         FileMentions = NewFileMentions();
         _store = NewStore();
         WatchQuestions();
@@ -2077,7 +2101,13 @@ public partial class GoalTileViewModel
     /// </remarks>
     private bool AdoptProposedPlan()
     {
-        if (!_engine.ApprovePlan()) return false;
+        if (!_engine.ApprovePlan())
+        {
+            _log?.Event("USER     approved a plan, but the phase held none.");
+            return false;
+        }
+
+        _log?.Block("USER     approved the plan", _engine.ApprovedPlan);
 
         _engine.CurrentPhase = GoalPhase.Implement;
         SyncFromEngine();
@@ -2472,6 +2502,18 @@ public partial class GoalTileViewModel
         // once never offered again for the rest of its life.
         _committed = false;
 
+        var criteria = _engine.Criteria;
+        _log?.Block(
+            $"GOAL     started - max {criteria.MaxIterations} attempts, "
+            + $"errors <= {criteria.MaxErrors}, warnings <= {criteria.MaxWarnings}, "
+            + $"goal met {criteria.RequireGoalMet}, build {criteria.RequireBuild}, "
+            + $"tests {criteria.RequireTestsPass}, commit when done {criteria.CommitWhenDone}, "
+            + $"SOLID {criteria.Solid}"
+            + (_engine.ScopePaths.Count > 0
+                ? $" - scoped to {string.Join(", ", _engine.ScopePaths)}"
+                : ""),
+            goal);
+
         // StartNewGoal empties the counts; this only has to take the badges down afterwards. Clearing
         // them here as well was the same reset written twice, in two files, with nothing keeping the
         // pair in step.
@@ -2590,6 +2632,10 @@ public partial class GoalTileViewModel
     private async Task ShowSummaryAsync(GoalStopReason reason, string? outstanding = null,
         int implementationDenials = 0, bool autoCommit = true, bool wroteChanges = true)
     {
+        _log?.Event($"STOP  {reason}"
+            + (outstanding is { Length: > 0 } ? $" - outstanding: {outstanding}" : "")
+            + $" - denials {implementationDenials}, autoCommit {autoCommit}, wroteChanges {wroteChanges}.");
+
         // Kept with the goal, not merely said in the transcript: the Summary offers Continue for one of
         // the four reasons only, and a tile reopened tomorrow has nothing to read that back out of.
         _engine.LastStopReason = reason;
@@ -2962,6 +3008,7 @@ public partial class GoalTileViewModel
             {
                 var made = await committer.CommitAsync(commits, _cts?.Token ?? CancellationToken.None);
                 _committed = made > 0;
+                _log?.Event($"COMMIT   {made} of {commits.Count} planned commits made.");
                 await AddMessageAsync(GoalMessageRole.System,
                     GoalCommitPlan.Made(commits, made, scope), GoalPhase.Summary);
             }
@@ -2976,6 +3023,7 @@ public partial class GoalTileViewModel
                 // it stopped. Said in that order, because the first two are about their repository and
                 // the third is about this run.
                 _committed = stopped.Made > 0;
+                _log?.Event($"COMMIT   stopped after {stopped.Made} of {commits.Count}: {stopped.Message}");
                 await AddMessageAsync(GoalMessageRole.System,
                     $"{GoalCommitPlan.Made(commits, stopped.Made, scope)}\n\n{stopped.Message}",
                     GoalPhase.Summary);
@@ -3040,7 +3088,20 @@ public partial class GoalTileViewModel
     private async Task<TBlock> SalvagedAsync<TBlock>(
         TBlock parsed, Func<string?, TBlock> reread, string subject) where TBlock : IGoalParsedBlock
     {
-        if (parsed.WasStructured || !GoalResponseParser.LooksLikeJson(parsed.RawText)) return parsed;
+        if (parsed.WasStructured)
+        {
+            _log?.Event($"PARSED   {subject} - structured.");
+            return parsed;
+        }
+
+        if (!GoalResponseParser.LooksLikeJson(parsed.RawText))
+        {
+            _log?.Event($"PARSED   {subject} - not structured and not JSON-shaped, taken as prose.");
+            return parsed;
+        }
+
+        _log?.Block($"PARSED   {subject} - JSON-shaped and unparseable, re-asking the tool for it",
+            parsed.RawText);
 
         await AddMessageAsync(GoalMessageRole.System,
             $"The {subject} came back as JSON this tile could not parse — asking the tool to re-send " +
@@ -3048,6 +3109,10 @@ public partial class GoalTileViewModel
 
         var salvaged = await RunAiAsync(_engine.BuildJsonSalvagePrompt(parsed.RawText), announceFailure: false);
         var second = reread(salvaged.Text);
+
+        _log?.Event($"PARSED   {subject} - the re-send "
+            + (second.WasStructured ? "parsed." : "did not parse either; keeping the first answer."));
+
         return second.WasStructured ? second : parsed;
     }
 
@@ -3099,6 +3164,7 @@ public partial class GoalTileViewModel
 
         if (AgentFor(phase) is not { } chosen)
         {
+            _log?.Event($"RUN      {phase} - refused: no agent this machine can run.");
             await AddMessageAsync(GoalMessageRole.System,
                 MissingAgentMessage(phase), phase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, toolMissing: true), null);
@@ -3134,6 +3200,7 @@ public partial class GoalTileViewModel
 
             if (modelProblem is not null)
             {
+                _log?.Event($"RUN      {phase} - refused by {chosen.Label}: {modelProblem}");
                 await AddMessageAsync(GoalMessageRole.System,
                     $"{chosen.Label} was not run: {modelProblem}", phase);
                 return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
@@ -3150,6 +3217,22 @@ public partial class GoalTileViewModel
                 AgentRuntime.For(_settingsService.Settings, chosen.Instance, resolvedModel,
                     chosen.Agent,
                     windows?.AutoCompactWindow, windows?.MaxContextTokens);
+
+            // Everything the run is about to happen under, and then the prompt itself. Written
+            // *before* the call rather than beside its answer, because the interesting failure is the
+            // one where no answer ever comes: a tool that hangs leaves this entry as the only account
+            // of what it was asked, and a run that is cancelled leaves nothing else at all.
+            var (loggedBehaviour, loggedEffort) = AiProcessRunner.Fit(chosen.Agent, CurrentUsage,
+                _settingsService.Settings.GoalPermissionMode, _settingsService.Settings.GoalEffort,
+                chosen.Instance);
+
+            _log?.Block(
+                $"PROMPT   {phase} - {chosen.Label} ({chosen.Agent.Id}) - "
+                + $"model {(chosen.Agent.QualifiedModel(runtime) is { Length: > 0 } m ? m : "(the tool's own)")} - "
+                + $"behaviour {loggedBehaviour}, effort {loggedEffort} - {prompt.Length} chars",
+                prompt);
+
+            var startedAt = DateTimeOffset.UtcNow;
 
             var result = AiRunnerFactory is { } run
                 ? await run(chosen, prompt, _workingDirectory, token)
@@ -3201,6 +3284,14 @@ public partial class GoalTileViewModel
 
             _lastRunDenials = result.PermissionDenials;
 
+            _log?.Block(
+                $"RESPONSE {phase} - {(result.Failed ? "the tool reported a failure" : "answered")} in "
+                + $"{(DateTimeOffset.UtcNow - startedAt).TotalSeconds:F1}s - {result.Text.Length} chars"
+                + (result.PermissionDenials > 0
+                    ? $" - {result.PermissionDenials} tool calls refused"
+                    : ""),
+                result.Text);
+
             // The failure the tool reported about itself, carried beside its words rather than read out
             // of them. A run that ended in a turn limit or a refused key comes back with text in it —
             // an apology, a half-finished note — and judged on the text alone that was Answered: the
@@ -3217,6 +3308,8 @@ public partial class GoalTileViewModel
                 if (_brokenStreamRetriesLeft > 0 && GoalTilePolicy.LooksLikeBrokenStream(result.Text))
                 {
                     _brokenStreamRetriesLeft--;
+                    _log?.Event($"RETRY    {phase} - the provider dropped the stream; "
+                        + $"{_brokenStreamRetriesLeft} retries left after this one.");
                     await AddMessageAsync(GoalMessageRole.System,
                         "The provider dropped the stream mid-run — retrying this run on its own.",
                         phase);
@@ -3271,6 +3364,11 @@ public partial class GoalTileViewModel
                             ? $"{AiEfforts.RejectedEffortAdvice} "
                             : "";
 
+                _log?.Event($"FAILED   {phase} - "
+                    + (cause.Length > 0 ? cause.Trim() : "no recognised cause")
+                    + $" (permission flag {(permissionFlag is { Length: > 0 } ? permissionFlag : "none")}, "
+                    + $"effort flag {(effortFlag is { Length: > 0 } ? effortFlag : "none")}).");
+
                 // Quiet is the salvage round's answer: the run it retries succeeded — only the
                 // re-send of its broken JSON failed — and "review reported a failure" over that would
                 // name a failure the phase did not have.
@@ -3282,10 +3380,13 @@ public partial class GoalTileViewModel
                 return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
             }
 
-            return new AiRun(GoalLoopPolicy.Judge(result.Text, cancelled: false), result.Text);
+            var verdict = GoalLoopPolicy.Judge(result.Text, cancelled: false);
+            _log?.Event($"VERDICT  {phase} - {verdict}.");
+            return new AiRun(verdict, result.Text);
         }
         catch (OperationCanceledException)
         {
+            _log?.Event($"CANCELLED {phase} - the run was stopped.");
             // Every cancellation now has a pause recorded before it — Pause and Dispose both set it
             // first — so there is one message rather than a branch, and the branch that said "Operation
             // cancelled." is gone with the window that made it reachable.
@@ -3296,6 +3397,7 @@ public partial class GoalTileViewModel
         }
         catch (Exception ex)
         {
+            _log?.Block($"ERROR    {phase} - the run threw.", ex.ToString());
             await AddMessageAsync(GoalMessageRole.System,
                 $"{NameOf(CurrentPhase)} failed: {ex.Message}. {Capitalised(TryAgain())}", CurrentPhase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
@@ -3753,6 +3855,8 @@ public partial class GoalTileViewModel
             // took: bounding at the previous end is wrong by however much this run added, while
             // bounding at *now* is wrong by whatever every other tile in the workspace has done.
             if (result.Ref is { Length: > 0 } taken) _engine.EndRef = taken;
+
+            _log?.Event($"END REF  {(result.Ref is { Length: > 0 } ? result.Ref : "not taken")}.");
         }
         catch (OperationCanceledException)
         {
@@ -3807,6 +3911,9 @@ public partial class GoalTileViewModel
         }
 
         _engine.BaselineRef = result.Ref;
+
+        _log?.Event($"BASELINE {(result.Ref is { Length: > 0 } r ? r : "not taken")}"
+            + (result.NoRepository ? " - this workspace is not a repository." : "."));
 
         if (result.Ref is { } saved)
         {
@@ -3873,6 +3980,8 @@ public partial class GoalTileViewModel
         // while IsPaused was still false, and the handler below then wrote "Operation cancelled." into
         // the transcript — a system message as the last line, which is exactly what makes WasInterrupted
         // read an unanswered Clarify as one that has its answer.
+        _log?.Event($"USER     paused the run in {CurrentPhase}.");
+
         _engine.IsPaused = true;
         IsPaused = true;
 
@@ -3888,6 +3997,9 @@ public partial class GoalTileViewModel
         // that window started a second implement/review loop alongside the one still shutting down —
         // two AI processes on one working tree, both writing the same file.
         if (!IsPaused || IsRunning) return;
+
+        _log?.Event($"USER     resumed in {CurrentPhase}.");
+
         _engine.IsPaused = false;
         IsPaused = false;
 
@@ -4028,6 +4140,17 @@ public partial class GoalTileViewModel
             Findings = findings is null ? [] : [..findings],
             Questions = questions is null ? [] : [..questions],
         };
+
+        // The assistant's own words are already in the log, in full, under the RESPONSE heading the
+        // run wrote - so what is recorded here is that they reached the transcript, and how much of
+        // them did. Everything else (the system's sentences, and what the user typed) has no other
+        // record at all, so it goes down whole.
+        if (role == GoalMessageRole.Assistant)
+            _log?.Event($"MESSAGE  {role} - {phase} - {text.Length} chars"
+                + (findings is { Count: > 0 } ? $", {findings.Count} findings" : "")
+                + (questions is { Count: > 0 } ? $", {questions.Count} questions" : ""));
+        else
+            _log?.Block($"MESSAGE  {role} - {phase}", text);
 
         if (Dispatcher.UIThread.CheckAccess())
             Messages.Add(message);
@@ -4241,6 +4364,9 @@ public partial class GoalTileViewModel
 
         _disposed = true;
 
+        _log?.Event($"Goal tile closed in phase {CurrentPhase}"
+            + (IsRunning ? " while a run was in flight." : "."));
+
         // A running DispatcherTimer is rooted by the dispatcher and its handler holds this tile, so a
         // closed tile that was mid-run would go on ticking a label nobody can see, for ever.
         StopElapsed();
@@ -4271,5 +4397,10 @@ public partial class GoalTileViewModel
         // has no use for the answer. Last, because it is the only thing here that cannot affect the
         // save above.
         FileMentions.Dispose();
+
+        // After everything above has had its say, since some of it writes here. Bounded, so a disk that
+        // has stopped answering cannot hold the window open for a log entry.
+        _log?.Dispose();
+        _log = null;
     }
 }

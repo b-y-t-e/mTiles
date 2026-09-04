@@ -848,3 +848,34 @@ the keyboard at once, so there is only ever one list on screen.
 What a phase says while it waits comes from `GoalWorkflowEngine.GetPhaseLabel` and nowhere else: the same four sentences used to exist in three places — the engine, the labels passed into `RunPhaseAsync`, and the summary — with nothing keeping them in step. The phase is the one saturated colour in the tile, and it is set as a style class (`phase-clarify`…) rather than a brush resolved in code-behind, so it repaints on a theme change. Its five colours come from the ANSI palette (`ThemeBridge`) and are pulled toward the foreground on a light theme — a six-pixel dot in ANSI yellow is invisible on white.
 
 **Services:** `AiProcessRunner` — process launcher with `ArgumentList`-based arg passing and concurrent stdout/stderr reading (deadlock-safe); `IAiAgent` / `ClaudeAgent` live beside it. `GoalWorkflowEngine` holds the phase machine, `GoalPromptBuilder` the prompts, `GoalStatePersistence` the `.mtiles/goals/*.json` round trip, `WorktreeReader` the git commands, which now answer with a `WorktreeSnapshot` — the text **and whether anybody managed to look**, because inferring the second from the first was wrong in a way nothing noticed: a workspace that is not a repository produces the same answer on every read, so comparing two of them said the implementation had changed nothing and every goal there ended after one attempt with a confident and false explanation. "I could not tell" is not "nothing happened". It carries a **fingerprint** as well, and for the same reason one layer along: the snapshot's text is clipped to fit a command line, so two reads of a large working tree are character-for-character identical whenever the change falls past the cut — which is the ordinary case on exactly the resume-after-a-big-implementation the no-change stop exists for. The fingerprint is a digest of the whole git output before any of it was cut (a digest, because two snapshots are held at once and a diff is measured in megabytes), and `ProvablyUnchangedFrom` compares only that: what goes in the prompt is what fits, and what stops a run has to be what happened. Every command carries `--no-optional-locks`, because they run unprompted in a repository the user is working in and git refreshes its index while reading unless told not to: taking that lock behind somebody's back is how a rebase in the terminal tile next door fails with `index.lock: File exists` because a tile was deciding whether to show a button. `.mterminal` is excluded by pathspec on **both** tree commands: the listing would otherwise hand the agent the path to this tile's own transcript, and a goal file that has been committed — nothing adds `.mterminal/` to `.gitignore` except the Git tile — shows up in `diff HEAD` with its contents — and `GoalDiffContext` the assembly of what they return, `GoalLoopPolicy` and `GoalTilePolicy` the rules — the view model drives them and owns none of the rules.
+
+**Every run writes itself down, in full, outside the transcript** (`GoalLog`, one file per tile per
+day at `%APPDATA%/mTiles/goal-logs/goal-YYYY-MM-DD-<goal id>.log`). The transcript is what the user is
+meant to read; this is what nobody should have to read until something has gone strangely wrong, and
+it holds the things the transcript deliberately leaves out: the prompt **as it was actually sent** —
+after the trimming, the scope filter and the budget have had their say — the settings it went out
+under (agent, instance, resolved model, fitted behaviour and effort), the answer **as it actually came
+back** before any parsing, how long it took, how many tool calls were refused, the verdict each answer
+was given, every phase change, every parse and every salvage round, the baseline and end refs, what
+was committed, and the stop reason with the criteria that produced it.
+
+Three decisions in it are worth knowing:
+
+- **Not `Trace`.** The application's own daily log is where a *failure* goes — one line and a reason.
+  These entries are whole prompts and whole answers, several per attempt; written into
+  `mtiles-YYYY-MM-DD.log` they would bury every other line in a file that already carries a day of
+  binding traces.
+- **One file per tile.** Two goals running side by side in two workspaces is the ordinary case, and
+  interleaving them costs the one thing this exists for — reading a run from the top. The date leads
+  the id in the name so the same `prefix + date` sweep `FileLogWriter` uses can prune it, under the
+  same `AppDefaults.LogRetentionDays`: a full transcript of somebody's repository is not something to
+  keep for ever by accident. It is written through `PrivateFile` for the reason `usage/` is — a prompt
+  carries this project's diff and its file names, an answer carries the code the tool wrote.
+- **Nothing in it may cost a run.** The writes go on a chain off the caller's thread — the callers are
+  the UI thread and an entry can be a megabyte — every failure is swallowed, and a log that cannot be
+  opened at all leaves the tile running exactly as it ran before any of this existed. `Dispose` waits
+  on the chain, bounded at two seconds, so a closing tile does not abandon its last entries and a disk
+  that has stopped answering cannot hold the window open.
+
+The one thing it is not is a debug switch: it is always on, because the scenarios it exists to catch
+are the ones nobody saw coming and therefore nobody turned it on for.

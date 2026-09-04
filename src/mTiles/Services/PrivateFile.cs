@@ -50,6 +50,34 @@ public static class PrivateFile
         Protect(path);
     }
 
+    /// <summary>Adds to a file, creating it owner-only where it is not there yet.</summary>
+    /// <remarks>The mode goes on at creation for the reason <see cref="WriteAllBytes"/> sets it there:
+    /// narrowing an existing file afterwards leaves a window - and, if the process dies inside it, a
+    /// permanent one - in which whatever the first write carried is readable by every other user on the
+    /// machine.</remarks>
+    public static void AppendAllText(string path, string contents)
+    {
+        var bytes = new UTF8Encoding(false).GetBytes(contents);
+
+        // The branch is not an optimisation: FileStreamOptions.UnixCreateMode throws
+        // PlatformNotSupportedException on Windows even when what it is being given is null.
+        if (OperatingSystem.IsWindows())
+        {
+            using var inherited = new FileStream(path, FileMode.Append, FileAccess.Write);
+            inherited.Write(bytes);
+            return;
+        }
+
+        using var file = new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.Append,
+            Access = FileAccess.Write,
+            UnixCreateMode = OwnerOnly,
+        });
+
+        file.Write(bytes);
+    }
+
     /// <summary>Takes an existing file out of reach of other users on this machine.</summary>
     /// <remarks>Best effort: a mode that cannot be set is worth a line in the log and nothing more —
     /// the alternative is losing the write that carries the user's settings.</remarks>
