@@ -1564,7 +1564,7 @@
                 <Button Classes="goal-action"
                         Command="{Binding ReReviewCommand}"
                         IsVisible="{Binding CanReReview}"
-                        Content="Re-review"
+                        Content="Review · +1"
                         ToolTip.Tip="Judge the working tree against the same goal again, changing nothing" />
                 <Button Classes="goal-action"
                         Command="{Binding CommitWorkCommand}"
