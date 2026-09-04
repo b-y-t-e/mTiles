@@ -57,6 +57,18 @@ public sealed record TileContext(
         // it asks through the git this installation is configured with, exactly as the git tile does.
         directory => new GitService(directory, GitService.ResolveGitPath(Settings.Settings.GitPath)));
 
+    private readonly AgentFilesCache _agentFilesCache = new();
+
+    /// <summary>
+    /// The one thing that keeps this workspace's agent-facing files — its skills and its instruction
+    /// shim — in step with the tiles it holds.
+    /// </summary>
+    /// <remarks>Held in a field for the reason <see cref="GitWatcher"/> is: a record's <c>with</c>
+    /// copies fields by reference, so the copy a tile makes of its context reaches the same object
+    /// rather than a second one recomputing the same paths from a different idea of what is here.
+    /// </remarks>
+    public WorkspaceAgentFiles AgentFiles => _agentFilesCache.Get(WorkingDirectory);
+
     private readonly ShellCache _shellCache = new();
 
     /// <summary>
@@ -126,6 +138,27 @@ public sealed record TileContext(
                 _shells = ShellTerminalCatalog.Detect();
                 _detectedAt = DateTime.UtcNow;
                 return _shells;
+            }
+        }
+    }
+
+    /// <summary>The agent files, made once per working directory and shared by every copy of the
+    /// context, on the same rule as <see cref="GitWatcherCache"/>.</summary>
+    private sealed class AgentFilesCache
+    {
+        private readonly Lock _gate = new();
+        private WorkspaceAgentFiles? _files;
+
+        public WorkspaceAgentFiles Get(string workingDirectory)
+        {
+            lock (_gate)
+            {
+                if (_files is { } current
+                    && string.Equals(current.WorkspaceDirectory, workingDirectory,
+                        StringComparison.OrdinalIgnoreCase))
+                    return current;
+
+                return _files = new WorkspaceAgentFiles(workingDirectory);
             }
         }
     }

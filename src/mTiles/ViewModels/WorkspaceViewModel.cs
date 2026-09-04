@@ -116,7 +116,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             // every AI tile anybody has comes back as a bare shell.
             var becameAgents = AgentTileMigration.Apply(state.RootTile, settingsService.Settings);
 
-            var load = _serializer.Deserialize(state.RootTile, ScheduleSave);
+            var load = _serializer.Deserialize(state.RootTile, OnLayoutChanged);
             RootTile = load.Root;
             _lastActiveLeaf = load.ActiveLeaf;
 
@@ -144,7 +144,52 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         {
             RootTile = CreateEmptyLeaf();
         }
+
+        // Once per workspace, and before anything is written: the section the old writer left in
+        // claude.local.md and AGENTS.md names this machine's servers and its bridge port.
+        LegacyDatabaseSectionCleanup.Run(WorkingDirectory);
+
+        // A restored layout reaches here without ever asking for a save, so this is the only pass that
+        // a workspace opened and left alone would get.
+        SyncAgentFiles();
+        WithdrawDatabaseSkillIfNoTileOffersIt();
     }
+
+    /// <summary>
+    /// Clears the database skill from every directory any agent reads when this workspace no longer
+    /// holds a database tile.
+    /// </summary>
+    /// <remarks>The blind delete is otherwise reachable only from a database tile or from the service
+    /// being stopped, and a tile removed from the layout between two sessions is neither: the next
+    /// session opens with no tile to notice, so a <c>SKILL.md</c> naming this machine's servers and its
+    /// bridge port would sit there advertising a bridge that grants nothing. Same rule as the section
+    /// cleanup above — no agent may find out about a bridge that is no longer there.
+    /// <para>Guarded by the tiles rather than run unconditionally, because a database tile writes its
+    /// skill from its own constructor, which has already run by the time the tree is loaded.</para>
+    /// </remarks>
+    private void WithdrawDatabaseSkillIfNoTileOffersIt()
+    {
+        if (EnumerateLeaves(RootTile).Select(leaf => leaf.Content).OfType<DatabaseTileViewModel>().Any())
+            return;
+
+        WorkspaceAgentFiles.RemoveSkillEverywhere(
+            WorkingDirectory, Services.Database.DatabaseSkillWriter.SkillName);
+    }
+
+    /// <summary>
+    /// Tells this workspace's agent-facing files which agents are in here now.
+    /// </summary>
+    /// <remarks>The tile tree is the source of truth rather than what is installed on the machine: a
+    /// project you only ever open Claude Code in has no business growing an <c>.opencode/skills</c>
+    /// directory. The set is recomputed whole every time, because three agents share
+    /// <c>.agents/skills</c> and "delete the directory of the agent that left" would take it out from
+    /// under the two still standing.</remarks>
+    private void SyncAgentFiles() =>
+        _tileContext.AgentFiles.Follow(EnumerateLeaves(RootTile)
+            .Select(leaf => leaf.Content)
+            .OfType<AgentTileViewModel>()
+            .Select(tile => Services.Agents.AiAgentCatalog.Find(tile.AgentId))
+            .OfType<Services.Agents.IAiAgent>());
 
     private LeafTileNodeViewModel CreateEmptyLeaf()
     {
@@ -224,7 +269,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         // Including this one. It was the single callback Split still copied by hand, which is exactly the
         // arrangement that let a new callback be added here and forgotten there.
-        leaf.LayoutChanged = ScheduleSave;
+        leaf.LayoutChanged = OnLayoutChanged;
         leaf.Dictation = _dictation;
         leaf.MaximizeScope = _maximizeScope;
         // Passed on to every tile, so a tile created by splitting is configured by this same method
@@ -236,7 +281,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             // The tree this workspace is about to throw away is the one the soloed splits are on.
             _maximizeScope.Restore();
             RootTile = CreateEmptyLeaf();
-            ScheduleSave();
+            OnLayoutChanged();
         };
         leaf.PropertyChanged -= OnLeafPropertyChanged;
         leaf.PropertyChanged += OnLeafPropertyChanged;
@@ -272,15 +317,15 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private TileNodeViewModel ConfigureRoot(TileNodeViewModel node)
     {
-        node.LayoutChanged = ScheduleSave;
+        node.LayoutChanged = OnLayoutChanged;
         PropagateCallbacks(node);
-        ScheduleSave();
+        OnLayoutChanged();
         return node;
     }
 
     private void PropagateCallbacks(TileNodeViewModel node)
     {
-        node.LayoutChanged = ScheduleSave;
+        node.LayoutChanged = OnLayoutChanged;
         if (node is LeafTileNodeViewModel leaf)
         {
             ConfigureLeafCallbacks(leaf);
@@ -325,6 +370,17 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
         if (node.TileName is { Length: > 0 } tileName && node.Kind is { Length: > 0 } kindId)
             UsedNames(kindId).Add(tileName);
+    }
+
+    /// <summary>The tree itself changed: republish what the agents here read, then write the layout.</summary>
+    /// <remarks>Separate from <see cref="ScheduleSave"/>, which is also <c>TileContext.RequestSave</c> —
+    /// every tile asking for its own content to be persisted. Only a change to the tree can change which
+    /// agents are in here, and only this route may create directories and files in the user's repository.
+    /// </remarks>
+    private void OnLayoutChanged()
+    {
+        SyncAgentFiles();
+        ScheduleSave();
     }
 
     /// <summary>Writes this workspace's layout out, unless doing so would lose a tile.</summary>

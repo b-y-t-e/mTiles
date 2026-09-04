@@ -290,6 +290,10 @@ public partial class MainWindowViewModel : ObservableObject
             vm.Dispose();
         _workspaceCache.Clear();
         _workspacesPanel.Dispose();
+        // The tiles above may have queued a .gitignore edit on their way out, and that chain is the one
+        // thing here nobody else waits on: abandoned mid-write it leaves a .gitignore.mtiles-tmp in the
+        // user's repository. Bounded — a shutdown is not held up for housekeeping.
+        Services.GitIgnoreEditQueue.WaitForAll(TimeSpan.FromSeconds(2));
     }
 
     private void OnWorkspaceRemoved(string workspaceId)
