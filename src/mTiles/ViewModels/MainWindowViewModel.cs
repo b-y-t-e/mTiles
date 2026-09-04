@@ -14,6 +14,7 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly PersistenceService _persistenceService;
     private readonly SettingsService _settingsService;
     private readonly TileCatalog _catalog;
+    private readonly AgentFileSyncCoordinator? _agentFileSync;
     private readonly UpdateService _updateService;
     private readonly Dictionary<string, WorkspaceViewModel> _workspaceCache = new();
     private readonly IProcessMemoryProbe _memoryProbe;
@@ -30,6 +31,10 @@ public partial class MainWindowViewModel : ObservableObject
 
     /// <summary>The phone bridge, null when it was never wired up.</summary>
     internal Services.Phone.PhoneBridgeManager? PhoneBridge { get; }
+
+    /// <summary>The CLAUDE.md/AGENTS.md sync coordinator, null when it was never wired up. Exposed so
+    /// the shell can wire its one dialog Func.</summary>
+    internal AgentFileSyncCoordinator? AgentFileSync => _agentFileSync;
 
     /// <summary>
     /// Whether to offer the QR button at all.
@@ -107,12 +112,14 @@ public partial class MainWindowViewModel : ObservableObject
         SettingsService settingsService, TileCatalog catalog, DatabaseServiceManager? dbManager = null,
         Services.Speech.DictationService? dictation = null,
         Services.Phone.PhoneBridgeManager? phoneBridge = null,
-        IProcessMemoryProbe? memoryProbe = null)
+        IProcessMemoryProbe? memoryProbe = null,
+        AgentFileSyncCoordinator? agentFileSync = null)
     {
         _memoryProbe = memoryProbe ?? new ProcessTreeMemory();
         _persistenceService = persistenceService;
         _settingsService = settingsService;
         _catalog = catalog;
+        _agentFileSync = agentFileSync;
 
         // The switch lives on another dialog, so nothing else would tell this to look again — and a
         // button that appears only after a restart reads as a broken setting.
@@ -120,7 +127,7 @@ public partial class MainWindowViewModel : ObservableObject
         Dictation = dictation;
         PhoneBridge = phoneBridge;
         _updateService = new UpdateService();
-        _workspacesPanel = new WorkspacesPanelViewModel(workspaceService, settingsService);
+        _workspacesPanel = new WorkspacesPanelViewModel(workspaceService, settingsService, _agentFileSync);
         _settings = new SettingsViewModel(settingsService, dbManager, dictation);
 
         // An install command runs in a tile, and only this object knows which workspace is open. Null
@@ -160,6 +167,9 @@ public partial class MainWindowViewModel : ObservableObject
             {
                 foreach (var id in _workspaceCache.Keys.ToList())
                     OnWorkspaceRemoved(id);
+                // A file-watching sync engine outlives the workspace view model: the panel's toggle
+                // starts one for a row that was never opened, which OnWorkspaceRemoved cannot reach.
+                _agentFileSync?.UnloadAll();
             }
             // Remove only, and not "anything with OldItems": a Move carries the item it moved in
             // OldItems too, so re-ordering the list would dispose the workspace's tiles.
@@ -167,7 +177,13 @@ public partial class MainWindowViewModel : ObservableObject
                      && e.OldItems != null)
             {
                 foreach (WorkspaceItemViewModel item in e.OldItems)
+                {
                     OnWorkspaceRemoved(item.Id);
+                    // By path as well as by id: a row the user never opened has no view model here, and
+                    // its sync engine (started by the panel's toggle alone) would otherwise go on
+                    // mirroring the files of a workspace that is no longer on the list.
+                    _agentFileSync?.Unload(item.DirectoryPath);
+                }
             }
         };
 
@@ -301,6 +317,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (!_workspaceCache.Remove(workspaceId, out var vm)) return;
 
         vm.PropertyChanged -= OnWorkspaceActivityChanged;
+        _agentFileSync?.Unload(vm.WorkingDirectory);
         vm.Dispose();
         ShowUnloadedInPanel(workspaceId);
         WorkspaceRemoved?.Invoke(workspaceId);
@@ -430,7 +447,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (!_workspaceCache.TryGetValue(workspace.Id, out var vm))
         {
             vm = new WorkspaceViewModel(workspace, _persistenceService, _settingsService, _catalog,
-                Dictation, OpenSettingsOn);
+                Dictation, OpenSettingsOn, _agentFileSync);
             _workspaceCache[workspace.Id] = vm;
             ShowActivityInPanel(vm);
         }

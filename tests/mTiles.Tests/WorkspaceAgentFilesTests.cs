@@ -112,40 +112,10 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         Assert.True(File.Exists(Path.Combine(mine, "SKILL.md")));
     }
 
+    /// <summary>A splitter dragged is a layout change, and the unchanged set has to be nothing to do,
+    /// or every drag frame rewrites every SKILL.md.</summary>
     [Fact]
-    public void A_claude_tile_brings_the_shim_and_the_last_one_leaving_takes_it()
-    {
-        var shim = Path_("CLAUDE.md");
-        File.WriteAllText(Path_("AGENTS.md"), "# Project\n");
-        var files = new WorkspaceAgentFiles(_dir);
-
-        files.Follow([Agent("claude")]);
-        Assert.Equal(WorkspaceAgentFiles.ShimContent, File.ReadAllText(shim).Trim());
-
-        files.Follow([Agent("codex")]);
-        Assert.False(File.Exists(shim));
-    }
-
-    /// <summary>An import to nowhere is litter: without a canon there is nothing to point at.</summary>
-    [Fact]
-    public void No_shim_is_written_where_there_is_no_canon_to_point_it_at()
-    {
-        var files = new WorkspaceAgentFiles(_dir);
-
-        files.Follow([Agent("claude")]);
-        Assert.False(File.Exists(Path_("CLAUDE.md")));
-
-        // And it arrives the moment the canon does, without the set of agents having to change.
-        File.WriteAllText(Path_("AGENTS.md"), "# Project\n");
-        files.Follow([Agent("claude")]);
-        Assert.Equal(WorkspaceAgentFiles.ShimContent, File.ReadAllText(Path_("CLAUDE.md")).Trim());
-    }
-
-    /// <summary>A splitter dragged is a layout change, and a workspace with no canon can never have a
-    /// shim to look for — so the unchanged set has to be nothing to do, or every drag frame rewrites
-    /// every SKILL.md.</summary>
-    [Fact]
-    public void An_unchanged_layout_rewrites_nothing_where_there_is_no_canon()
+    public void An_unchanged_layout_rewrites_nothing()
     {
         var files = new WorkspaceAgentFiles(_dir);
         files.WriteSkill(Skill, "body");
@@ -160,67 +130,30 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         Assert.Equal(written.AddDays(-1), File.GetLastWriteTimeUtc(skill));
     }
 
-    /// <summary>An outstanding shim is written on its own, never as a reason to rewrite every skill:
-    /// the layout has not moved, and a shim that cannot be created would otherwise turn every frame of
-    /// a dragged splitter into a full rewrite plus a .gitignore edit each.</summary>
+    /// <summary>Instruction-file content — CLAUDE.md/AGENTS.md — is no longer this class's concern at
+    /// all: it never creates, reconciles or removes either one. That is opt-in per workspace, in
+    /// <c>AgentFileSyncEngine</c>/<c>AgentFileSyncCoordinator</c>.</summary>
     [Fact]
-    public void An_outstanding_shim_is_written_without_rewriting_the_skills()
+    public void No_agent_ever_gets_an_instruction_file_written_for_it_here()
     {
-        File.WriteAllText(Path_("AGENTS.md"), "# Project\n");
-        var files = new WorkspaceAgentFiles(_dir);
-        files.WriteSkill(Skill, "body");
-        files.Follow([Agent("claude")]);
-
-        var skill = Path_(".claude", "skills", Skill, "SKILL.md");
-        var aged = File.GetLastWriteTimeUtc(skill).AddDays(-1);
-        File.SetLastWriteTimeUtc(skill, aged);
-        File.Delete(Path_("CLAUDE.md"));
-
-        files.Follow([Agent("claude")]);
-
-        Assert.Equal(WorkspaceAgentFiles.ShimContent, File.ReadAllText(Path_("CLAUDE.md")).Trim());
-        Assert.Equal(aged, File.GetLastWriteTimeUtc(skill));
-    }
-
-    /// <summary>Content says a file <em>is</em> a shim, never that it is ours — a repository that
-    /// commits the recommended shim keeps it when its last Claude Code tile closes.</summary>
-    [Fact]
-    public void A_shim_this_workspace_did_not_write_is_left_where_it_is()
-    {
-        var shim = Path_("CLAUDE.md");
-        File.WriteAllText(Path_("AGENTS.md"), "# Project\n");
-        File.WriteAllText(shim, WorkspaceAgentFiles.ShimContent + "\n");
-
-        var files = new WorkspaceAgentFiles(_dir);
-        files.Follow([Agent("claude")]);
-        files.Follow([Agent("codex")]);
-
-        Assert.True(File.Exists(shim));
-    }
-
-    [Fact]
-    public void An_agent_that_reads_the_canon_is_given_no_file_at_all()
-    {
-        new WorkspaceAgentFiles(_dir).Follow([Agent("codex"), Agent("opencode")]);
+        new WorkspaceAgentFiles(_dir).Follow([Agent("claude"), Agent("codex"), Agent("opencode")]);
 
         Assert.False(File.Exists(Path_("CLAUDE.md")));
         Assert.False(File.Exists(Path_("AGENTS.md")));
     }
 
-    /// <summary>The repository where both files already have content is a reconciliation only the user
-    /// can make, so until they do nothing is touched.</summary>
     [Fact]
-    public void A_hand_written_instruction_file_is_never_overwritten_nor_removed()
+    public void A_hand_written_instruction_file_is_never_touched()
     {
-        var shim = Path_("CLAUDE.md");
-        File.WriteAllText(shim, "# My project\n\nRules a person wrote.\n");
+        var claudeMd = Path_("CLAUDE.md");
+        File.WriteAllText(claudeMd, "# My project\n\nRules a person wrote.\n");
 
         var files = new WorkspaceAgentFiles(_dir);
         files.Follow([Agent("claude")]);
-        Assert.Contains("Rules a person wrote", File.ReadAllText(shim));
+        Assert.Contains("Rules a person wrote", File.ReadAllText(claudeMd));
 
         files.Follow([Agent("codex")]);
-        Assert.Contains("Rules a person wrote", File.ReadAllText(shim));
+        Assert.Contains("Rules a person wrote", File.ReadAllText(claudeMd));
     }
 
     // ── The one-time clear-up of what the old writer left behind ──
@@ -496,6 +429,54 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         var content = File.ReadAllText(canon);
         Assert.DoesNotContain("Database access", content);
         Assert.Contains("# Project", content);
+    }
+
+    // -- The shim the sync replaced --
+
+    /// <summary>A CLAUDE.md still holding the old one-line import reads to the sync wizard as a file
+    /// whose content differs, and picking it as the current one replaces the whole of AGENTS.md with
+    /// that line.</summary>
+    [Fact]
+    public void The_old_instruction_shim_is_removed()
+    {
+        File.WriteAllText(Path_("AGENTS.md"), "# Project" + Lf + Lf + "How to build." + Lf);
+        File.WriteAllText(Path_("CLAUDE.md"), "@AGENTS.md" + Lf);
+
+        LegacyInstructionShimCleanup.Run(_dir);
+
+        Assert.False(File.Exists(Path_("CLAUDE.md")));
+        Assert.Contains("How to build", File.ReadAllText(Path_("AGENTS.md")));
+    }
+
+    /// <summary>Content says what a file is: anything else in it is the user's own instructions.
+    /// </summary>
+    [Fact]
+    public void A_claude_md_the_user_wrote_is_left_alone()
+    {
+        File.WriteAllText(Path_("AGENTS.md"), "canon");
+        var mine = "@AGENTS.md" + Lf + Lf + "And one thing only Claude Code needs." + Lf;
+        File.WriteAllText(Path_("CLAUDE.md"), mine);
+
+        LegacyInstructionShimCleanup.Run(_dir);
+
+        Assert.Equal(mine, File.ReadAllText(Path_("CLAUDE.md")));
+    }
+
+    /// <summary>A shim whose target has gone is still a shim: it imports a file that is not there and
+    /// holds none of the user's words, and left unrecognised it is seeded into a new AGENTS.md whose
+    /// whole content is the circular <c>@AGENTS.md</c> — which codex, pi and agy read as the project's
+    /// instructions.</summary>
+    [Fact]
+    public void A_shim_whose_target_is_gone_is_still_recognised_and_taken_out()
+    {
+        File.WriteAllText(Path_("CLAUDE.md"), "@AGENTS.md" + Lf);
+
+        Assert.True(LegacyInstructionShimCleanup.IsPresentIn(_dir));
+
+        LegacyInstructionShimCleanup.Run(_dir);
+
+        Assert.False(File.Exists(Path_("CLAUDE.md")));
+        Assert.False(File.Exists(Path_("AGENTS.md")));
     }
 
     private const char Lf = '\n';

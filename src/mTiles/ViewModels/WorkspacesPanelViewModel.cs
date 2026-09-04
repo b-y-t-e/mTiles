@@ -13,6 +13,7 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
 {
     private readonly WorkspaceService _workspaceService;
     private readonly SettingsService? _settingsService;
+    private readonly AgentFileSyncCoordinator? _agentFileSync;
     private readonly DispatcherTimer _branchTimer;
     // The directory each watcher stands on is kept with it, because it is the one thing a
     // FileSystemWatcher will not tell anybody when it stops being right (see RefreshAllBranchesAsync).
@@ -59,10 +60,12 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
     public Func<string, string, Task>? ShowError { get; set; }
     public Action? FocusWorkspaceRequested { get; set; }
 
-    public WorkspacesPanelViewModel(WorkspaceService workspaceService, SettingsService? settingsService = null)
+    public WorkspacesPanelViewModel(WorkspaceService workspaceService, SettingsService? settingsService = null,
+        AgentFileSyncCoordinator? agentFileSync = null)
     {
         _workspaceService = workspaceService;
         _settingsService = settingsService;
+        _agentFileSync = agentFileSync;
 
         var s = settingsService?.Settings;
         _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
@@ -520,6 +523,21 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
         item != null && UnloadWorkspace is { } unload ? unload(item) : Task.CompletedTask;
 
     private static bool CanUnloadWorkspace(WorkspaceItemViewModel? item) => item is { IsLoaded: true };
+
+    /// <summary>Whether CLAUDE.md/AGENTS.md sync is on for this workspace right now, for the context
+    /// menu's checked state. Reads the workspace's own config off disk — works for a row that has never
+    /// been opened.</summary>
+    public bool IsAgentFileSyncEnabled(WorkspaceItemViewModel item) =>
+        _agentFileSync?.IsEnabled(item.DirectoryPath) ?? false;
+
+    /// <summary>Whether the sync feature can be offered on this row at all — hidden behind the global
+    /// switch, so a disabled menu item does not promise something Settings has turned off.</summary>
+    public bool CanToggleAgentFileSync => _agentFileSync != null && (_settingsService?.Settings.AgentFileSyncEnabled ?? false);
+
+    [RelayCommand]
+    private Task ToggleAgentFileSyncAsync(WorkspaceItemViewModel item) =>
+        _agentFileSync?.SetWorkspaceEnabledAsync(item.DirectoryPath, !IsAgentFileSyncEnabled(item))
+        ?? Task.CompletedTask;
 
     [RelayCommand]
     private async Task RemoveWorkspaceAsync(WorkspaceItemViewModel item)

@@ -3,14 +3,12 @@
 namespace mTiles.Services;
 
 /// <summary>
-/// The files this workspace puts where its AI agents look: the skills they may load, and the one-line
-/// shim that points an agent which does not read the canon at the canon.
+/// The files this workspace puts where its AI agents look: the skills they may load.
 /// </summary>
 /// <remarks>
 /// <para><b>The source of truth is this workspace's tile tree, not what is installed on the machine.</b>
-/// A project you only ever open Claude Code in gets <c>.claude/skills</c> and <c>CLAUDE.md</c> and
-/// nothing else — creating <c>.opencode/skills</c> in somebody's repository for a tool nobody here uses
-/// is littering.</para>
+/// A project you only ever open Claude Code in gets <c>.claude/skills</c> and nothing else — creating
+/// <c>.opencode/skills</c> in somebody's repository for a tool nobody here uses is littering.</para>
 /// <para><b>Why this cannot live in the tile that has something to write.</b> Measured 2026-09-03:
 /// codex, pi and agy all three read <c>.agents/skills</c>. So "the pi tile was closed, delete pi's
 /// directory" is wrong whenever a codex tile is still standing in the same workspace. The rule is
@@ -23,28 +21,20 @@ namespace mTiles.Services;
 /// at the tiles at all, and it is the rule that covers database access being switched off: no agent may
 /// find out about a bridge that is no longer there. Deleting something that was not there costs
 /// nothing; leaving a live database address in a directory nobody remembers costs the user.</para>
-/// <para>The shim is not covered by that: <c>CLAUDE.md</c> carries one line and no secret, so it goes
-/// the ordinary way — it appears with the first Claude Code tile and leaves with the last.</para>
 /// <para>What the writer this replaces left behind is somebody else's concern:
 /// <see cref="LegacyDatabaseSectionCleanup"/>, called explicitly by whoever opens the workspace, because
 /// a migration has its own reason to change and its own expiry date — and because editing files in
 /// somebody's repository is not something a constructor should do as a side effect of being reached.
 /// </para>
-/// <para>See <c>docs/AGENTS-MD-SYNC.md</c> for the measurements and for the alternatives that were
-/// rejected (symlinks, full copies, two-way sync by mtime).</para>
+/// <para><c>CLAUDE.md</c>/<c>AGENTS.md</c> content is no longer this class's concern: mirroring their
+/// content is <see cref="AgentFileSyncEngine"/>/<see cref="AgentFileSyncCoordinator"/>, opt-in per
+/// workspace. See <c>docs/AGENTS-MD-SYNC.md</c>.</para>
 /// </remarks>
 public sealed class WorkspaceAgentFiles
 {
-    /// <summary>The one file with content in it. Four of the five CLIs read it without being asked.
-    /// </summary>
+    /// <summary>The one file with content in it, by convention. Four of the five CLIs read it without
+    /// being asked.</summary>
     public const string CanonicalInstructionFile = "AGENTS.md";
-
-    /// <summary>The whole of a shim, and the only content this class will ever overwrite.</summary>
-    /// <remarks>A Claude Code <c>@</c>-import, and deliberately without a generated header carrying a
-    /// hash or a timestamp: that is what turns a shim into churn in every commit. Because it is exactly
-    /// one line, "is this file ours" is a string comparison rather than a guess — which is what lets a
-    /// <c>CLAUDE.md</c> somebody actually wrote survive untouched.</remarks>
-    public const string ShimContent = "@" + CanonicalInstructionFile;
 
     /// <summary>The file a skill is written as, the name all five CLIs use.</summary>
     private const string SkillFileName = "SKILL.md";
@@ -55,7 +45,6 @@ public sealed class WorkspaceAgentFiles
     /// <summary>What the last <see cref="Follow"/> worked out, so the next one can delete the
     /// difference rather than having to be told what left.</summary>
     private IReadOnlyList<string> _skillDirectories = [];
-    private IReadOnlyList<string> _shimFiles = [];
 
     /// <summary>The skills this session has already swept out of the paths a previous one wrote them to.
     /// </summary>
@@ -76,23 +65,6 @@ public sealed class WorkspaceAgentFiles
     /// there is what was remembered here.</remarks>
     private readonly Dictionary<string, string> _skills = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The shims this instance created, and the only ones it will ever delete.</summary>
-    /// <remarks>Recognising a shim by its content says it <em>is</em> one; it does not say it is
-    /// <em>ours</em>. A repository that commits <c>CLAUDE.md</c> holding <c>@AGENTS.md</c> — the layout
-    /// this whole feature recommends — would otherwise have that file deleted from its working tree the
-    /// moment its last Claude Code tile closed. So the rule is `GitIgnoreFile`'s: remove only what we
-    /// added, and a shim that outlives the session it was written in simply stays.</remarks>
-    private readonly HashSet<string> _shimsWeCreated = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>The shims this session tried to write and could not.</summary>
-    /// <remarks>A write that fails fails for a reason that does not go away by itself — a read-only
-    /// checkout, a file held open, a share that is gone — and <see cref="Follow"/> is asked on every
-    /// layout change, a dragged splitter included. Without remembering the refusal, a shim that cannot
-    /// be created is a file this class tries to write once per frame of a drag, for the life of the
-    /// window. The record is per session and is dropped as soon as the set of shims moves, so a
-    /// permission fixed while the workspace is open is picked up by the next tile added.</remarks>
-    private readonly HashSet<string> _unwritableShims = new(StringComparer.OrdinalIgnoreCase);
-
     public WorkspaceAgentFiles(string workspaceDir) => _workspaceDir = workspaceDir;
 
     /// <summary>The workspace whose files these are.</summary>
@@ -112,28 +84,15 @@ public sealed class WorkspaceAgentFiles
             .Select(agent => agent.SkillsDirectory(_workspaceDir))
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => path!));
-        var shimFiles = Distinct(present
-            .Select(agent => agent.InstructionFile)
-            .Where(file => !file.Equals(CanonicalInstructionFile, StringComparison.OrdinalIgnoreCase))
-            .Select(file => Path.Combine(_workspaceDir, file)));
 
         lock (_gate)
         {
             var swept = SweepOrphansOnce();
 
             // Every layout change asks — a splitter dragged as readily as a tile added — and the
-            // answer is the same nearly every time. Without this, a SKILL.md would be rewritten while
-            // the user drags a divider. A shim that has not been written yet is the one thing that
-            // makes an unchanged set worth acting on again: a workspace whose AGENTS.md appears later
-            // has to get its shim then, and nothing else will ask — so that one outstanding piece of
-            // work is done **on its own**, never as a reason to rewrite every skill and re-enqueue
-            // every .gitignore edit behind it.
-            if (!swept && Same(_skillDirectories, skillDirectories) && Same(_shimFiles, shimFiles))
-            {
-                foreach (var shim in shimFiles)
-                    WriteShim(shim);
+            // answer is the same nearly every time.
+            if (!swept && Same(_skillDirectories, skillDirectories))
                 return;
-            }
 
             foreach (var gone in Missing(_skillDirectories, skillDirectories))
                 foreach (var skill in _skills.Keys)
@@ -142,18 +101,10 @@ public sealed class WorkspaceAgentFiles
                     // spells out: a workspace closed and reopened must not read as a .gitignore edit.
                     DeleteSkillIn(_workspaceDir, gone, skill, unlistFromGitIgnore: false);
 
-            foreach (var gone in Missing(_shimFiles, shimFiles))
-                DeleteShim(gone);
-
             _skillDirectories = skillDirectories;
-            _shimFiles = shimFiles;
-            _unwritableShims.Clear();
 
             foreach (var (name, content) in _skills)
                 WriteSkillIn(skillDirectories, name, content);
-
-            foreach (var shim in shimFiles)
-                WriteShim(shim);
         }
     }
 
@@ -365,79 +316,5 @@ public sealed class WorkspaceAgentFiles
         var git = Path.Combine(workspaceDir, ".git");
         // A file rather than a directory is a worktree or a submodule, and both are repositories.
         return Directory.Exists(git) || File.Exists(git);
-    }
-
-    /// <summary>
-    /// Writes the shim, unless there is already a file there or there is no canon to point it at.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>A file with content in it is never overwritten.</b> The repository where
-    /// <c>CLAUDE.md</c> and <c>AGENTS.md</c> both exist with different content is a reconciliation only
-    /// the user can make — which of the two is the canon is not something this can guess — and until
-    /// they do, nothing is touched. That is also why the shim's content is a constant: "ours" is a
-    /// comparison, not an assumption.</para>
-    /// <para><b>And a shim is only worth having where the canon exists.</b> In a repository with no
-    /// instructions at all, opening a Claude Code tile would otherwise leave an untracked
-    /// <c>CLAUDE.md</c> importing a file that is not there — an import to nowhere, and the same
-    /// littering the skill directories are careful not to do.</para>
-    /// </remarks>
-    private void WriteShim(string path)
-    {
-        try
-        {
-            // A file that is already there is either our shim — rewriting it would only churn its
-            // mtime — or somebody's own instructions, which are not ours to replace.
-            if (File.Exists(path)) return;
-            if (_unwritableShims.Contains(path)) return;
-            if (!CanonExists()) return;
-
-            File.WriteAllText(path, ShimContent + Environment.NewLine);
-            _shimsWeCreated.Add(path);
-        }
-        catch (Exception ex)
-        {
-            // See _unwritableShims: asked again on every layout change, so a refusal has to be
-            // remembered or it is retried once per frame of a dragged splitter.
-            _unwritableShims.Add(path);
-            System.Diagnostics.Trace.TraceWarning(
-                "Could not write the instruction shim '{0}': {1}", path, ex.Message);
-        }
-    }
-
-    /// <summary>Takes the shim away when the last tile that needed it goes, and only if we put it
-    /// there ourselves and it is still a shim.</summary>
-    /// <remarks>See <see cref="_shimsWeCreated"/>: content says what a file is, not whose it is.
-    /// </remarks>
-    private void DeleteShim(string path)
-    {
-        try
-        {
-            if (!_shimsWeCreated.Remove(path)) return;
-            if (IsShim(path))
-                File.Delete(path);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning(
-                "Could not remove the instruction shim '{0}': {1}", path, ex.Message);
-        }
-    }
-
-    /// <summary>Whether there is anything for a shim to point at.</summary>
-    private bool CanonExists() => File.Exists(Path.Combine(_workspaceDir, CanonicalInstructionFile));
-
-    private static bool IsShim(string path)
-    {
-        try
-        {
-            return File.Exists(path)
-                   && File.ReadAllText(path).Trim().Equals(ShimContent, StringComparison.Ordinal);
-        }
-        catch
-        {
-            // Unreadable is not ours: the one thing that must not happen is deleting a file whose
-            // content nobody could look at.
-            return false;
-        }
     }
 }

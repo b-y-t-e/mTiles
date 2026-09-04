@@ -22,6 +22,7 @@ public partial class App : Application
     private DictationService? _dictation;
     private PhoneBridgeManager? _phoneBridge;
     private AiUsageService? _usage;
+    private AgentFileSyncCoordinator? _agentFileSync;
 
     public override void Initialize()
     {
@@ -56,6 +57,10 @@ public partial class App : Application
         // looking at, the rule discovery already follows.
         _usage = new AiUsageService(_settingsService);
 
+        // One per application, like the database manager beside it: it holds the live watcher for every
+        // workspace currently loaded and reacts to the global switch in Settings.
+        _agentFileSync = new AgentFileSyncCoordinator(_settingsService);
+
         // Captured before the view model exists, and read only when a phone actually streams — which
         // breaks the circle between the two without either of them holding a half-built reference.
         MainWindowViewModel? mainVmRef = null;
@@ -63,7 +68,8 @@ public partial class App : Application
             () => mainVmRef?.CurrentWorkspace?.ActiveTile);
 
         var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
-            BuildTileCatalog(_dbManager, _usage), _dbManager, _dictation, _phoneBridge);
+            BuildTileCatalog(_dbManager, _usage), _dbManager, _dictation, _phoneBridge,
+            agentFileSync: _agentFileSync);
         mainVmRef = mainVm;
 
         // The other half of the Func above: it says what the active tile is, this says when to look
@@ -121,6 +127,7 @@ public partial class App : Application
                 Shutdown("dictation", () => _dictation?.Dispose());
                 Shutdown("database bridge", () => _dbManager?.Dispose());
                 Shutdown("usage service", () => _usage?.Dispose());
+                Shutdown("agent file sync", () => _agentFileSync?.Dispose());
             };
         }
 

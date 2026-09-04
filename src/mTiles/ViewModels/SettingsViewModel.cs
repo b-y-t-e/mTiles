@@ -118,6 +118,9 @@ public partial class SettingsViewModel : ObservableObject
     private bool _gitIgnoreWorkspaceDir;
 
     [ObservableProperty]
+    private bool _agentFileSyncEnabled;
+
+    [ObservableProperty]
     private string _gitPath;
 
     [ObservableProperty]
@@ -347,6 +350,7 @@ public partial class SettingsViewModel : ObservableObject
         _fontFamily = s.FontFamily;
         _fontSize = s.FontSize;
         _gitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
+        _agentFileSyncEnabled = s.AgentFileSyncEnabled;
         _gitPath = s.GitPath;
 
         _ = DetectGitAsync();
@@ -382,6 +386,7 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnFontFamilyChanged(string value) { _settingsService.Settings.FontFamily = value; _settingsService.NotifyChanged(); }
     partial void OnFontSizeChanged(double value) { _settingsService.Settings.FontSize = value; _settingsService.NotifyChanged(); }
     partial void OnGitIgnoreWorkspaceDirChanged(bool value) { _settingsService.Settings.GitIgnoreWorkspaceDir = value; _settingsService.NotifyChanged(); }
+    partial void OnAgentFileSyncEnabledChanged(bool value) { _settingsService.Settings.AgentFileSyncEnabled = value; _settingsService.NotifyChanged(); }
     partial void OnGitPathChanged(string value) { _settingsService.Settings.GitPath = value; _settingsService.NotifyChanged(); _ = DetectGitAsync(); }
 
     [RelayCommand]

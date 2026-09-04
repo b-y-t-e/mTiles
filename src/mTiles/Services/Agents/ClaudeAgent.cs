@@ -34,7 +34,8 @@ public sealed class ClaudeAgent : AiAgent
     /// <summary>The one agent that does not read the canon.</summary>
     /// <remarks>Measured 2026-09-03: loading is hard-coded — <c>case "Project": return
     /// join(dir,"CLAUDE.md")</c> — and the only mention of <c>AGENTS.md</c> in the binary is a
-    /// one-shot importer from codex. So this tile writes it a shim rather than a copy.</remarks>
+    /// one-shot importer from codex. That is what an opt-in <c>AgentFileSyncEngine</c> mirror closes:
+    /// with sync on for the workspace, this file always carries the same content as AGENTS.md.</remarks>
     public override string InstructionFile => "CLAUDE.md";
     public override string BinaryName => "claude";
     public override string? InstallUrl => "https://docs.anthropic.com/en/docs/claude-code";

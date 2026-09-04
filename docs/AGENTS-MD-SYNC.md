@@ -1,4 +1,4 @@
-# Synchronizacja CLAUDE.md / AGENTS.md — wnioski z researchu (2026-09)
+﻿# Synchronizacja CLAUDE.md / AGENTS.md — wnioski z researchu (2026-09)
 
 > **Sekcje poniżej to notatki z researchu sprzed pomiarów i są miejscami nieaktualne**
 > (m.in. `GEMINI.md`). Obowiązuje **Decyzja i plan (2026-09-03)** na końcu pliku —
@@ -38,6 +38,14 @@
 ---
 
 # Decyzja i plan (2026-09-03)
+
+> **Wdrożone 2026-09-04.** `IAiAgent.SkillsDirectory`/`InstructionFile` (pięć pomiarów przypiętych
+> w `AiAgentTests`), `Services/WorkspaceAgentFiles.cs`, `ClaudeLocalMdWriter` → `DatabaseSkillWriter`,
+> plus jednorazowe sprzątnięcie `claude.local.md` i sekcji `# Database access` z `AGENTS.md`,
+> oraz wpis w `.gitignore` na nasz własny podkatalog skilla (tylko w repozytorium, przez
+> `GitIgnoreFile` — ten sam oznaczony blok co `.mtiles/`).
+> Nie wdrożone: CI sprawdzające shim, przeniesienie tego repozytorium na kanon `AGENTS.md`,
+> oraz pomiary z rozdziału 7 (bramka zaufania w pi i codex).
 
 Pomiary poniżej zrobione na binarkach zainstalowanych na tej maszynie: agy 1.1.22,
 opencode, claude, codex (`@openai/codex`), pi (`@earendil-works/pi-coding-agent`).
@@ -303,3 +311,147 @@ ostatni kafelek Claude'a.
    powiedzieć **na kaflu**, bo inaczej jest to cichy tryb awarii.
 2. **Czy opis rzeczywiście triggeruje.** Jedyny sposób to odpalić realne pytanie o dane
    w workspace ze skillem i sprawdzić, czy agent go otworzy zamiast czytać kod.
+
+## 8. Decyzja zaktualizowana (2026-09-04): shim zastąpiony pełną dwukierunkową synchronizacją
+
+**Rozdział 2 powyżej jest historyczny.** Shim (`CLAUDE.md` = jedna linia `@AGENTS.md`) został
+usunięty z `WorkspaceAgentFiles` i zastąpiony osobnym mechanizmem: `Services/AgentFileSyncEngine.cs`
+(jeden na workspace, `FileSystemWatcher` na dokładnie dwie nazwy plików w katalogu głównym) i
+`Services/AgentFileSyncCoordinator.cs` (jeden na aplikację, decyduje kiedy zapytać i trzyma
+silniki dla załadowanych workspace'ów). `WorkspaceAgentFiles` wraca do tego, czym było przed
+rozdziałem 2 — samych katalogów skilli.
+
+Powód zmiany: użytkownik chciał, żeby oba pliki **zawsze** niosły tę samą, pełną treść — nie import,
+tylko dwukierunkowe lustro — z jawną zgodą per-workspace i kreatorem rozstrzygającym konflikt, gdy
+oba pliki już istnieją z różną treścią.
+
+**Cztery powody przeciw synchronizacji z rozdziału 2 — dlaczego już nie obowiązują:**
+
+1. *"Shim nie synchronizuje"* — to teraz cel, nie wada: `AgentFileSyncEngine.ReconcileAsync`
+   rzeczywiście kopiuje treść w obie strony.
+2. *"Dwie pełne kopie w gicie, podwojone diffy"* — zaakceptowane świadomie; to jest teraz cena,
+   którą użytkownik wybrał, płacąc za identyczną treść w obu plikach.
+3. *"Działa tylko gdy mTiles chodzi"* — nadal prawda i nadal ograniczenie: silnik żyje tylko, gdy
+   dany workspace jest załadowany (`AgentFileSyncCoordinator.Unload` go zatrzymuje). Edycja w innym
+   edytorze na maszynie bez mTiles nadal nie jest widziana — ale przy następnym otwarciu workspace'u
+   w mTiles pierwsza zmiana, jaką silnik zobaczy po starcie, i tak trafia do drugiego pliku.
+4. *"Jednoczesna zmiana obu plików gubi jedną stronę po cichu"* — rozwiązane jawną regułą: silnik
+   propaguje na podstawie **rzeczywistego mtime** ("zawsze od najnowszego"), a **usunięcie** jednego
+   pliku przy włączonej synchronizacji jest odtwarzane z drugiego, nigdy nie czytane jako rezygnacja
+   z synchronizacji — na to służy osobny przełącznik (menu kontekstowe workspace'u / Ustawienia →
+   Ogólne).
+
+**Pogodzenie treści różniącej się nie jest już jednorazową migracją poza mechanizmem — jest jego
+częścią.** Kreator (`Views/AgentFileSyncWizard`) pyta, który plik jest aktualny (pokazując rozmiar i
+datę modyfikacji), gdy oba pliki istnieją z różną treścią — zarówno przy pierwszym otwarciu
+workspace'u, jak i przy ręcznym włączeniu synchronizacji z menu kontekstowego.
+
+**Zapobieganie pętli zapis→watcher→zapis jest pamięcią, nie blokadą zapisu.** Każdy zapis silnika
+natychmiast aktualizuje własną pamięć podręczną (mtime + treść) tej ścieżki, więc kolejne zdarzenie
+`FileSystemWatcher` na tej samej ścieżce — wywołane przez ten właśnie zapis — czyta ten sam mtime,
+który już ma w pamięci, i nic nie robi. Prawdziwa zewnętrzna edycja to jedyna rzecz, która zostawia
+mtime różny od zapamiętanego.
+
+**Globalny wyłącznik i ustawienie per-workspace to dwie osobne rzeczy.** `AppSettings.AgentFileSyncEnabled`
+(domyślnie włączony, Ustawienia → Ogólne) jest nadrzędny — wyłączenie go zatrzymuje każdy załadowany
+silnik i blokuje kreator wszędzie. Każdy workspace ma własny plik `.mtiles/agent-file-sync.json`
+(`Enabled` + `WizardAnswered`) — brak pliku znaczy "nigdy nie pytano", nie "wyłączone".
+
+**Wyłączony globalny przełącznik wycisza pytanie, nie odpowiada na nie.** Dopóki jest wyłączony,
+`AgentFileSyncPolicy.Decide` zwraca `None` i nic nie trafia na dysk — więc ponowne włączenie jest
+dokładnie tym momentem, w którym załadowane workspace'y stają się pytalne, i `OnSettingsChanged`
+przepuszcza je przez pełną ocenę, a nie tylko przez start/stop silników. Inaczej workspace, którego
+nigdy nie zapytano, czekałby na zmianę drzewa kafelków albo ponowne otwarcie.
+
+**Plik, którego nie da się odczytać, to trzecia odpowiedź** — nie "nie istnieje". Uzgodnienie nie
+zapisuje niczego i **samo uzbraja kolejną próbę** (do pięciu): zdarzenie, które je wywołało, jest już
+skonsumowane, więc plik chwilowo trzymany przez edytor, antywirusa albo klienta chmury zostawiłby oba
+pliki cicho rozjechane aż do następnego zapisu użytkownika. Ograniczenie do pięciu prób jest po to,
+żeby plik zablokowany na stałe nie uzbrajał timera do końca sesji.
+
+**Każde uruchomienie silnika dostaje własny budżet prób.** Licznik nieudanych odczytów jest zerowany
+przy starcie, nie tylko po udanym odczycie: `Stop()` + `StartAsync()` — czyli globalny przełącznik i
+odpowiedź kreatora dla działającego lustra — trafiałyby inaczej w licznik wyczerpany przez poprzedni
+przebieg i poddawały się bez uzbrojenia ani jednej próby.
+
+**Lista śledzonych workspace'ów to suma dwóch tablic, nie sam rejestr silników.** `_agentsSeen` zna
+workspace oceniony (nawet jeśli nigdy nie potrzebował silnika), `_engines` — ten, dla którego silnik
+wystartował przełącznik z menu wiersza, którego drzewa kafelków nikt tu nie widział. Czytanie samego
+`_engines` po cichu wypuszczałoby z ponownej oceny dokładnie te workspace'y, którym globalny
+przełącznik ją jest winien.
+
+**Trzy klasy zamiast jednej.** `AgentFileSyncConfigStore` (gdzie mieszka odpowiedź i w jakim
+kształcie) i `WorkspaceWorkGate` (jedna decyzja na workspace naraz, z *generacją załadowania*, bo
+decyzja rozciągnięta na kreator nie może dotykać workspace'u odładowanego w międzyczasie) są osobno od
+koordynatora: każda z nich zmienia się z innego powodu niż reguły pytania.
+
+**Start silnika to uzgodnienie, nie samo zasianie cache'u.** Gdy aplikacja nie działa, nikt nie
+obserwuje plików — `git pull`, `checkout` albo edycja w innym narzędziu potrafi je rozjechać. Zapisanie
+takiego stanu do cache'u czyni z rozjazdu nowe „bez zmian", więc pierwsza późniejsza edycja jednej
+strony po cichu nadpisałaby offline'owe zmiany drugiej. Para, która się zgadza, trafia do cache'u i nic
+nie jest zapisywane; para, która się nie zgadza, zostaje poza cache'em i jest uzgadniana tą samą regułą
+„zawsze od najnowszego", już po uruchomieniu obserwatora — żeby własny zapis silnika wrócił do niego
+jako własny.
+
+**`SettingsChanged` leci z każdej właściwości okna Ustawień** (per naciśnięty klawisz w polu tekstowym),
+a ta funkcja czyta z niego jedno pole. Koordynator pamięta więc ostatnią wartość globalnego przełącznika
+i pełną ocenę robi tylko wtedy, gdy przełącznik naprawdę się ruszył.
+
+**Zasiew należy do silnika.** Odpowiedź kreatora ("ten plik jest aktualny") trafia do
+`AgentFileSyncEngine.StartAsync(authoritativeFileName)`, a nie do własnej kopiującej ścieżki w
+koordynatorze: to jest to samo uzgodnienie co każda późniejsza edycja, tylko ze zwycięzcą wskazanym
+zamiast wyliczonym z mtime. Reguła mieszka więc w jednej klasie — tej, która ma testy.
+
+**Własny zapis wraca do cache'u tylko wtedy, gdy z dysku wraca to, co zapisano.** Edycja trafiona w
+okno między zapisem a odczytem byłaby zapamiętana jako własny zapis silnika, czytana potem jako "bez
+zmian" i nigdy nieprzeniesiona na drugą stronę — oba pliki zostałyby trwale rozjechane. Pozostawiona
+poza cache'em, jest propagowana przez najbliższe uzgodnienie.
+
+**Zasiew zostawia kopię pliku, który przegrywa.** To jedyny zapis, który potrafi zastąpić treść nigdy
+przez nas nienoszoną — np. niezacommitowany `AGENTS.md` — a użytkownik odpowiada na pytanie "który plik
+jest aktualny", a nie zgadza się na utratę drugiego. Przegrywający ląduje więc obok jako
+`<nazwa>.pre-sync-<data>` (ta sama reguła co `{id}.pre-kind.json`), kreator mówi o tym nad przyciskami,
+a kopia, której nie da się zapisać, **wstrzymuje** nadpisanie zamiast puszczać je bez zabezpieczenia.
+Każde późniejsze lustrzane odbicie to już synchronizacja, którą użytkownik włączył — bez kopii.
+
+**Każde uruchomienie silnika ma numer** (`_epoch`). Odpowiedź kreatora dla już działającego lustra to
+`Stop()` i zaraz po nim `StartAsync(authoritative)` na tej samej instancji, więc uzgodnienie
+zakolejkowane tuż przed `Stop()` widziałoby `IsRunning` znów jako `true` i rozstrzygnęłoby parę po
+mtime — nadpisując dokładnie ten plik, który użytkownik właśnie wskazał jako aktualny. Uzgodnienie
+niesie więc numer uruchomienia, pod którym je zakolejkowano, i przedawnione nie robi nic.
+
+**Błąd watchera to przebudowa, nie rezygnacja.** Filtry nazw stosowane są w kodzie zarządzanym, więc
+natywny bufor zbiera wszystko, co produkuje katalog, i duży `git checkout` w korzeniu workspace'u
+wystarcza, by go przepełnić — a to straty zdarzeń, nie martwy serwer lustra. `Stop()` na `Error`
+zostawiałby oba pliki wolno rozjeżdżać się do końca sesji, podczas gdy config dalej mówi `Enabled=true`
+i menu kontekstowe pokazuje synchronizację jako włączoną; kafel git w tym samym repozytorium odpowiada
+na to samo zdarzenie odświeżeniem, a nie poddaniem się. Odpowiednikiem odświeżenia jest tu przebudowa:
+świeży watcher i zasiew, czyli to samo uzgodnienie, które dostaje okno offline. Ograniczone tak jak
+`RelaunchBudget` — trzy na dziesięć minut, stawką po oknie, nie sumą — bo system plików, którego
+watchery padają tak szybko, jak się je podnosi, nie może kręcić kółem. Bufor jest też wielkości tego,
+co nosi watcher gita w tym samym katalogu (51200).
+
+**Sprawdzenie epoki tylko przed I/O nie domyka wyścigu.** `Stop()` nie czeka na bramę uzgodnienia, więc
+uzgodnienie, które weszło do sekcji krytycznej tuż przed `Stop()` + `StartAsync(authoritative)`,
+dokoczyłoby mirror po mtime — a zasiew zastałby parę już zgodną, `alreadyAgrees=true`, i nigdy nie
+wywołałby uzgodnienia z nazwą wskazaną przez użytkownika: wybór przepadłby bez kopii `.pre-sync-`,
+czyli dokładnie to, przed czym `_epoch` miało chronić. Epoka jest więc pytana jeszcze raz po odczycie
+obu plików i jeszcze raz po kopii zapasowej zasiewu — po każdym `await`, w którym odpowiedź może
+wpaść — a przedawnione uzgodnienie, które już oba pliki przeczytało, nie robi nic wcale.
+
+**Shim znika tylko tam, gdzie naprawdę ruszy silnik.** Przełącznik z menu wiersza da się nacisnąć przy
+wyłączonym globalnym przełączniku (widoczność pozycji menu liczona jest w chwili budowania menu), a
+cały ten ciąg istnieje po to, by silnik wystartował — więc przy wyłączonym przełączniku zapisuje
+odpowiedź i nie rusza plików: skasowanie shimu przed startem, który nigdy nie nastąpi, zostawiłoby
+workspace bez jedynego pliku, jaki Claude Code czyta, i nic go tu nie odtwarza. Bezpiecznikiem dla
+odpowiedzi, która poczekała, jest sam start silnika: zabiera napotkany shim i wskazuje `AGENTS.md` jako
+aktualny, bo plik nie niosący żadnych słów użytkownika nie jest jedną z dwóch wersji do rozstrzygnięcia
+po mtime.
+
+**Shim bez `AGENTS.md` obok to nadal shim.** Stara linia `@AGENTS.md` importuje plik, którego nie ma,
+wię nie niosąca żadnych słów użytkownika jest niezależnie od tego, czy cel istnieje — a nierozpoznana
+(docelowo wymagano jego obecności) trafia do kreatora jako jedna z dwóch wersji i jest zasiewana do
+nowego `AGENTS.md`, którego cała treść to cykliczne `@AGENTS.md`, czytane potem przez codexa, pi i agy
+jako instrukcje projektu. Rozpoznanie patrzy więc tylko na treść `CLAUDE.md`; włączenie synchronizacji
+zabiera shim i nie sieje niczego — obie strony lustra startują puste, a pierwszy zapis po którejkolwiek
+stronie przenosi się jak zwykle. Odmowa (i wyłączony globalny przełącznik) zostawia plik bez zmian.

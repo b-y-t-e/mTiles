@@ -86,6 +86,7 @@ public partial class WorkspacesPanelView : UserControl
                     Command = vm.UnloadWorkspaceCommand,
                     CommandParameter = item
                 },
+                BuildAgentFileSyncMenuItem(vm, item),
                 new Separator(),
                 new MenuItem
                 {
@@ -97,6 +98,26 @@ public partial class WorkspacesPanelView : UserControl
         };
 
         menu.Open(anchor);
+    }
+
+    private static MenuItem BuildAgentFileSyncMenuItem(WorkspacesPanelViewModel vm, WorkspaceItemViewModel item)
+    {
+        var canToggle = vm.CanToggleAgentFileSync;
+        var menuItem = new MenuItem
+        {
+            Header = "Sync CLAUDE.md ↔ AGENTS.md",
+            // A real checkbox rather than an appended "✓" — the same ToggleType Avalonia's MenuItem
+            // already gives the tile header's "Run as" entries, so a checked state reads the same way
+            // everywhere in the app.
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = vm.IsAgentFileSyncEnabled(item),
+            IsEnabled = canToggle,
+            Command = vm.ToggleAgentFileSyncCommand,
+            CommandParameter = item
+        };
+        if (!canToggle)
+            ToolTip.SetTip(menuItem, "Enable this in Settings → General first");
+        return menuItem;
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

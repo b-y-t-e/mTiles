@@ -27,6 +27,15 @@
                        Foreground="{DynamicResource TextMuted}"
                        TextWrapping="Wrap" />
         </StackPanel>
+        <!-- The master switch; each workspace still keeps its own on/off flag, set from its own
+             wizard or its context menu. This one overrides every workspace's answer at once. -->
+        <StackPanel x:Key="AgentFileSyncCaption" x:Shared="False">
+            <TextBlock Text="Sync CLAUDE.md ↔ AGENTS.md" Classes="label" />
+            <TextBlock Text="Keeps the two instruction files identical, live, in workspaces that opt in — so every AI CLI reads the same instructions"
+                       FontSize="{DynamicResource FontXs}"
+                       Foreground="{DynamicResource TextMuted}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
     </UserControl.Resources>
 
     <!--
@@ -262,6 +271,17 @@
                                           VerticalAlignment="Center"
                                           OnContent="{StaticResource WorkspaceIgnoreCaption}"
                                           OffContent="{StaticResource WorkspaceIgnoreCaption}" />
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Agent instruction file sync -->
+                    <Border Classes="settings-group">
+                        <DockPanel>
+                            <ToggleSwitch IsChecked="{Binding AgentFileSyncEnabled}"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Center"
+                                          OnContent="{StaticResource AgentFileSyncCaption}"
+                                          OffContent="{StaticResource AgentFileSyncCaption}" />
                         </DockPanel>
                     </Border>
                 </StackPanel>

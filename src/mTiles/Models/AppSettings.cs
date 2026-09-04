@@ -169,6 +169,15 @@ public sealed class AppSettings
     public bool GitIgnoreWorkspaceDir { get; set; } = true;
 
     /// <summary>
+    /// The master switch for mirroring <c>CLAUDE.md</c> and <c>AGENTS.md</c> content between each other.
+    /// <para>Each workspace still has its own on/off flag (<see cref="Models.WorkspaceAgentFileSyncConfig"/>)
+    /// and its own first-run wizard; this is the one switch that overrides every workspace's answer at
+    /// once, for a user who never wants two files to shadow each other regardless of what any workspace
+    /// decided before this existed.</para>
+    /// </summary>
+    public bool AgentFileSyncEnabled { get; set; } = true;
+
+    /// <summary>
     /// The setting this replaced, read from existing files so an explicit "off" is honoured.
     /// <para>Without it, renaming the property means every user starts again at the default — and this
     /// default writes to their repository. Somebody who turned the old switch off had said, as clearly

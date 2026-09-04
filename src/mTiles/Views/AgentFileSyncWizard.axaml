@@ -1,0 +1,117 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="mTiles.Views.AgentFileSyncWizard"
+        Title="Sync CLAUDE.md ↔ AGENTS.md"
+        Width="420"
+        SizeToContent="Height"
+        MinWidth="360" MinHeight="160"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgElevated}"
+        ExtendClientAreaToDecorationsHint="True"
+        WindowDecorations="BorderOnly">
+
+    <Border Padding="16,12"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="{DynamicResource BorderThin}"
+            CornerRadius="{DynamicResource RadiusLg}">
+        <StackPanel Spacing="14">
+
+            <TextBlock x:Name="TitleText"
+                       Text="Sync CLAUDE.md ↔ AGENTS.md"
+                       FontFamily="{DynamicResource UiFontFamily}"
+                       FontSize="{DynamicResource FontLg}"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimary}" />
+
+            <!-- Which workspace the question concerns. One wizard at a time for the whole application,
+                 and held questions replay back to back, so two of these in a row must be tellable
+                 apart: without this line both read identically and the answer can land on the wrong
+                 workspace. Trims to its leaf, and the full path is the tooltip. -->
+            <TextBlock x:Name="WorkspaceText"
+                       TextTrimming="CharacterEllipsis"
+                       FontFamily="{DynamicResource UiFontFamily}"
+                       FontSize="{DynamicResource FontXs}"
+                       Foreground="{DynamicResource TextMuted}" />
+
+            <!-- Step 1: explain, then yes/no -->
+            <StackPanel x:Name="QuestionStep" Spacing="14">
+                <TextBlock x:Name="ExplanationText"
+                           TextWrapping="Wrap"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           FontSize="{DynamicResource UiFontSizeSm}"
+                           Foreground="{DynamicResource TextSecondary}" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                    <!-- on-elevated: this window's own background is BgElevated, same as the setup
+                         wizard's — the plain class would leave the button invisible against it. -->
+                    <Button x:Name="DeclineButton"
+                            Classes="outlined-sm on-elevated"
+                            Content="Not now"
+                            MinWidth="80" />
+                    <Button x:Name="EnableButton"
+                            Classes="accent"
+                            Content="Enable synchronization" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Step 2: the two files disagree, pick the authoritative one -->
+            <StackPanel x:Name="PickStep" Spacing="10" IsVisible="False">
+                <TextBlock Text="These files already have different content. Which one is current?"
+                           TextWrapping="Wrap"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           FontSize="{DynamicResource UiFontSizeSm}"
+                           Foreground="{DynamicResource TextSecondary}" />
+
+                <!-- The one destructive step in this feature, so it says so before the buttons rather
+                     than beside them: the version not chosen is replaced on disk. A copy is kept next
+                     to it, and naming the copy is what makes the sentence something the user can act
+                     on if they picked the wrong one. -->
+                <TextBlock Text="The other file's current content will be replaced. A copy of it is kept beside it as &#x2039;name&#x203a;.pre-sync-&#x2039;date&#x203a;."
+                           TextWrapping="Wrap"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           FontSize="{DynamicResource FontXs}"
+                           Foreground="{DynamicResource DangerText}" />
+
+                <Border Classes="settings-group" Padding="10">
+                    <DockPanel>
+                        <!-- Plain outlined-sm here, not on-elevated: this card is BgSurface, one step
+                             brighter than the window behind it, so the button already has its contrast. -->
+                        <Button x:Name="UseClaudeButton"
+                                Classes="outlined-sm"
+                                DockPanel.Dock="Right"
+                                Content="Use this version" />
+                        <StackPanel>
+                            <TextBlock x:Name="ClaudeName" Text="CLAUDE.md" FontWeight="SemiBold"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       Foreground="{DynamicResource TextPrimary}" />
+                            <TextBlock x:Name="ClaudeMeta"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}" />
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Classes="settings-group" Padding="10">
+                    <DockPanel>
+                        <Button x:Name="UseAgentsButton"
+                                Classes="outlined-sm"
+                                DockPanel.Dock="Right"
+                                Content="Use this version" />
+                        <StackPanel>
+                            <TextBlock x:Name="AgentsName" Text="AGENTS.md" FontWeight="SemiBold"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       Foreground="{DynamicResource TextPrimary}" />
+                            <TextBlock x:Name="AgentsMeta"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}" />
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

@@ -14,6 +14,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private readonly TileContext _tileContext;
     private readonly TileTreeSerializer _serializer;
     private readonly Services.Speech.DictationService? _dictation;
+    private readonly AgentFileSyncCoordinator? _agentFileSync;
 
     [ObservableProperty]
     private TileNodeViewModel? _rootTile;
@@ -89,7 +90,8 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// view model to do this.</param>
     public WorkspaceViewModel(Workspace workspace, PersistenceService persistenceService,
         SettingsService settingsService, TileCatalog catalog,
-        Services.Speech.DictationService? dictation = null, Action<int>? openSettings = null)
+        Services.Speech.DictationService? dictation = null, Action<int>? openSettings = null,
+        AgentFileSyncCoordinator? agentFileSync = null)
     {
         WorkspaceId = workspace.Id;
         WorkingDirectory = workspace.DirectoryPath;
@@ -97,6 +99,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         _settingsService = settingsService;
         _dictation = dictation;
         _catalog = catalog;
+        _agentFileSync = agentFileSync;
         _tileContext = new TileContext(WorkingDirectory, settingsService, ScheduleSave, openSettings);
 
         _serializer = new TileTreeSerializer(
@@ -149,10 +152,32 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         // claude.local.md and AGENTS.md names this machine's servers and its bridge port.
         LegacyDatabaseSectionCleanup.Run(WorkingDirectory);
 
+        // The old one-line @AGENTS.md import is deliberately *not* cleared up here: it is the only file
+        // Claude Code reads, so it is taken out by AgentFileSyncCoordinator at the moment the sync is
+        // actually switched on for this workspace — and written straight back as a copy of AGENTS.md.
+
         // A restored layout reaches here without ever asking for a save, so this is the only pass that
         // a workspace opened and left alone would get.
         SyncAgentFiles();
         WithdrawDatabaseSkillIfNoTileOffersIt();
+        EvaluateAgentFileSync();
+    }
+
+    /// <summary>Asks the coordinator whether this workspace's CLAUDE.md/AGENTS.md sync needs a decision
+    /// right now — opening the workspace, and again on every layout change (a new agent tile can be the
+    /// first thing that needs the file the other one doesn't have).</summary>
+    /// <remarks>Fire-and-forget: the coordinator does its own error handling, and a wizard is a dialog
+    /// the caller here has no business awaiting — nothing downstream of construction depends on its
+    /// answer.</remarks>
+    private void EvaluateAgentFileSync()
+    {
+        if (_agentFileSync is not { } coordinator) return;
+        var agents = EnumerateLeaves(RootTile)
+            .Select(leaf => leaf.Content)
+            .OfType<AgentTileViewModel>()
+            .Select(tile => Services.Agents.AiAgentCatalog.Find(tile.AgentId))
+            .OfType<Services.Agents.IAiAgent>();
+        _ = coordinator.EvaluateWorkspaceAsync(WorkingDirectory, agents);
     }
 
     /// <summary>
@@ -380,6 +405,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private void OnLayoutChanged()
     {
         SyncAgentFiles();
+        EvaluateAgentFileSync();
         ScheduleSave();
     }
 

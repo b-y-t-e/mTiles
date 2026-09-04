@@ -1606,6 +1606,7 @@ public partial class SettingsViewModel
         FontFamily = s.FontFamily;
         FontSize = s.FontSize;
         GitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
+        AgentFileSyncEnabled = s.AgentFileSyncEnabled;
         GitPath = s.GitPath;
         LoadDefaultShell();
         LoadAiInstances();

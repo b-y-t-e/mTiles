@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -108,6 +108,20 @@ public partial class MainWindow : Window
                 _ = OfferSpeechModelAsync(vm, dictation);
             }
 
+            if (vm.AgentFileSync is { } agentFileSync)
+            {
+                // The coordinator decides whether to ask on a thread-pool thread — reading the config
+                // and both instruction files is not the UI thread's work — so getting back onto it for
+                // the dialog is this end's job. And it waits for the window to be showing: the last
+                // workspace is restored while this window is still being built, so the question arrives
+                // before there is a visible owner to put a modal over, which Avalonia refuses.
+                agentFileSync.ShowWizard = request => Dispatcher.UIThread.InvokeAsync(async () =>
+                {
+                    await WhenShownAsync();
+                    return await AgentFileSyncWizard.ShowAsync(this, request);
+                });
+            }
+
             vm.ConfirmAction = async message =>
             {
                 var box = MsBox.Avalonia.MessageBoxManager.GetMessageBoxStandard(
@@ -118,6 +132,24 @@ public partial class MainWindow : Window
             };
             SwitchWorkspaceView(vm.CurrentWorkspace);
         }
+    }
+
+    /// <summary>Completes once this window is on screen, so a modal has an owner to sit over.</summary>
+    private Task WhenShownAsync()
+    {
+        if (IsVisible) return Task.CompletedTask;
+
+        var shown = new TaskCompletionSource();
+        void OnOpened(object? sender, EventArgs e)
+        {
+            Opened -= OnOpened;
+            shown.TrySetResult();
+        }
+        Opened += OnOpened;
+        // Opened can have fired between the check above and the subscription; the handler is idempotent,
+        // so asking again here costs nothing and closes the gap.
+        if (IsVisible) OnOpened(this, EventArgs.Empty);
+        return shown.Task;
     }
 
     /// <summary>
