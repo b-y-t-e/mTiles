@@ -82,6 +82,62 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         OnPropertyChanged(nameof(CanSwitchAgentInstance));
     }
 
+    /// <summary>The kinds this tile could become - every registered one but the kind it already is.
+    /// </summary>
+    /// <remarks>A tile keeps its place in the tree, its id and its activity across the change, so this
+    /// is a change to the tile rather than a new tile beside it. Read straight off the registry, so a
+    /// kind added later is offered here by being registered - the same list, in the same order, that an
+    /// empty tile's chooser draws its cards from.</remarks>
+    public IReadOnlyList<TileKindChoice> ChangeKindOptions { get; private set; } = [];
+
+    /// <summary>Whether the header's "Change type" menu has anything to offer.</summary>
+    public bool CanChangeKind => ChangeKindOptions.Count > 0;
+
+    /// <summary>Rebuilds that list, which is what opening the menu is for.</summary>
+    /// <remarks>Built when the menu opens rather than followed, for the reason
+    /// <see cref="RefreshAgentInstances"/> is: the answer changes with the tile's own kind, and the menu
+    /// asking for it is the one event that matters. An empty tile is offered nothing: it has a chooser
+    /// of its own, whose cards are this same list, and a second route to it would ask what changing
+    /// costs about a tile that is holding nothing.</remarks>
+    public void RefreshChangeKindOptions()
+    {
+        ChangeKindOptions = _disposed || _catalog is null || KindId.Length == 0
+            ? []
+            :
+            [
+                .. _catalog.Entries.Select(entry => entry.Kind)
+                    .Where(kind => !string.Equals(kind.Id, KindId, StringComparison.OrdinalIgnoreCase))
+                    .Select(kind => new TileKindChoice(kind.DisplayName, kind.IconId, kind.AccentKey,
+                        () => BeginChangeKindAsync(kind.Id)))
+            ];
+
+        OnPropertyChanged(nameof(ChangeKindOptions));
+        OnPropertyChanged(nameof(CanChangeKind));
+    }
+
+    /// <summary>
+    /// Starts turning this tile into another kind: the kind's own step if it has one, the question if it
+    /// does not.
+    /// </summary>
+    /// <remarks>Nothing is destroyed here, and that order is the whole of the decision - a terminal goes
+    /// on working while the shell for its successor is being chosen, and the question that follows is
+    /// the first point at which there is a complete answer to put to the user.</remarks>
+    [RelayCommand]
+    private async Task BeginChangeKindAsync(string? kindId)
+    {
+        if (kindId is not { Length: > 0 } || kindId == KindId || KindId.Length == 0) return;
+        if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
+
+        var options = kind.SetupOptions(context);
+        if (options.Count == 0)
+        {
+            await ConvertToAsync(kindId, state: null);
+            return;
+        }
+
+        ShowSetupStep(kindId, options, isConversion: true);
+    }
+
     /// <summary>
     /// Runs this tile as another configured instance of the same agent.
     /// </summary>
@@ -240,6 +296,14 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     public IReadOnlyList<TileSetupOption> SetupOptions { get; private set; } = [];
 
     private string _setupKindId = TileKindIds.None;
+
+    /// <summary>The kind a <em>conversion</em> is waiting on its setup step for, or none when the step
+    /// on screen is an empty tile being filled in.</summary>
+    /// <remarks>The one difference between the two ways through that step, kept as a field rather than
+    /// as a second step: both draw the same cards and both end in the same call taking the same state,
+    /// and a second path would be two branches that must produce identical results with nothing checking
+    /// that they do.</remarks>
+    private string _pendingKindId = TileKindIds.None;
 
     /// <summary>Every kind a tile can be given, in the order the chooser offers them.</summary>
     public IReadOnlyList<ITileKind> AvailableKinds =>
@@ -522,14 +586,21 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         var options = kind.SetupOptions(context);
         if (options.Count > 0)
         {
-            SetupOptions = options;
-            _setupKindId = kindId;
-            OnPropertyChanged(nameof(SetupOptions));
-            IsChoosingSetup = true;
+            ShowSetupStep(kindId, options, isConversion: false);
             return;
         }
 
         Adopt(kindId, state: null);
+    }
+
+    /// <summary>Draws a kind's own step in place of whatever the tile is showing.</summary>
+    private void ShowSetupStep(string kindId, IReadOnlyList<TileSetupOption> options, bool isConversion)
+    {
+        SetupOptions = options;
+        _setupKindId = kindId;
+        _pendingKindId = isConversion ? kindId : TileKindIds.None;
+        OnPropertyChanged(nameof(SetupOptions));
+        IsChoosingSetup = true;
     }
 
     /// <summary>
@@ -541,11 +612,16 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// produce identical results, with nothing checking that they do, is how they drift.
     /// </remarks>
     [RelayCommand]
-    private void SelectSetupOption(TileSetupOption option)
+    private async Task SelectSetupOptionAsync(TileSetupOption option)
     {
         var kindId = _setupKindId;
+        var isConversion = _pendingKindId.Length > 0;
         CancelSetup();
-        Adopt(kindId, option.State);
+
+        if (isConversion)
+            await ConvertToAsync(kindId, option.State);
+        else
+            Adopt(kindId, option.State);
     }
 
     [RelayCommand]
@@ -554,6 +630,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         IsChoosingSetup = false;
         SetupOptions = [];
         _setupKindId = TileKindIds.None;
+        _pendingKindId = TileKindIds.None;
         OnPropertyChanged(nameof(SetupOptions));
     }
 
@@ -567,6 +644,69 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         TileName = _nameFactory?.Invoke(kindId) ?? kind.DisplayName;
         (Content as IFileContent)?.RenameFile(TileName);
         NotifyLayoutChanged();
+    }
+
+    /// <summary>
+    /// Replaces this tile's content with a tile of another kind, in place.
+    /// </summary>
+    /// <remarks>
+    /// <para>The one place that takes a tile's content apart without closing the tile, and the only step
+    /// of the change that destroys anything - which is why the question comes first. An unwired
+    /// <see cref="ConfirmAction"/> lets it through, which is this class's convention rather than the
+    /// Settings dialog's.</para>
+    /// <para><b>The tile's id is kept</b>, because it is the same tile in the same place: a new one
+    /// would break its link with the full-screen scope and with the activation. The consequence is worth
+    /// saying out loud - an agent's conversation is keyed by that id, so <c>agent to note to agent</c>
+    /// comes back to the same conversation. That is a feature, not a leak.</para>
+    /// </remarks>
+    private async Task ConvertToAsync(string kindId, JsonObject? state)
+    {
+        if (_disposed || kindId == KindId) return;
+
+        // A setup step still on screen belongs to a conversion the user has walked away from - the
+        // header stays clickable while it is drawn, so Change type can be picked again from under it.
+        // Left standing it would hide the content this call is about to put in place, and picking one of
+        // its stale cards afterwards would convert a second time and dispose what was just built.
+        CancelSetup();
+
+        // Both guards are Adopt's own, asked here as well: it answers a kind or a context it cannot
+        // resolve by doing nothing, which after the swap below would be a tile left holding nothing.
+        if (_catalog?.Kind(kindId) is not { } kind || _context is null) return;
+        if (ConfirmAction is { } confirm
+            && !await confirm(TileConversion.Warning(KindId, kind.DisplayName)))
+            return;
+
+        // The question is the one point here where the tile can be closed underneath us: Dispose has
+        // already run, so content built now is content nobody will ever take apart - a terminal would
+        // leave its shell behind as an orphan. The same claim TileLauncher makes with IsCurrentLaunch,
+        // for the same reason.
+        if (_disposed) return;
+
+        // A recording this tile owns would deliver its transcript into content that is about to go.
+        // Asked of the service rather than of IsDictating, which is set from a dispatcher callback and
+        // still reads false between the start and that callback - the same rule as Dispose.
+        if (Dictation is { } dictation && ReferenceEquals(dictation.Owner, this))
+            dictation.Cancel();
+
+        // Everything a tile of the new kind needs is Adopt's business, and it stays Adopt's: a step
+        // added there - one more `as I*Tile` after the content is built - would otherwise be a step a
+        // converted tile silently never took. What is left here is only what a conversion has that
+        // filling an empty tile does not.
+        //
+        // The new content is in place before the old is taken apart: otherwise the busy light, the
+        // header's actions and the background are owned by nothing for a moment, and the view is handed
+        // a null it clears the host for and then rebuilds - a flicker on every change.
+        var previous = Content;
+        Adopt(kindId, state);
+        previous?.Dispose();
+
+        // Asked after the swap, because it is a question about the content there is now: a kind that
+        // cannot be maximized would otherwise leave the splits above it soloed on a tile with no way of
+        // putting them back - the failure Dispose calls Forget to avoid.
+        if (!CanMaximize)
+            MaximizeScope?.Forget(this);
+
+        RequestFocus();
     }
 
     /// <summary>

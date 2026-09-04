@@ -47,8 +47,13 @@ public partial class LeafTileView : UserControl
     /// <remarks>Instances are added, renamed and deleted in Settings while the tile lives, and the
     /// flyout's own bindings are evaluated once — so a list held from when the tile was built would be
     /// the one that was true then. The menu asking for it is the one event that matters.</remarks>
-    private void OnOverflowOpening(object? sender, EventArgs e) =>
-        (DataContext as LeafTileNodeViewModel)?.RefreshAgentInstances();
+    private void OnOverflowOpening(object? sender, EventArgs e)
+    {
+        if (DataContext is not LeafTileNodeViewModel leaf) return;
+
+        leaf.RefreshAgentInstances();
+        leaf.RefreshChangeKindOptions();
+    }
 
     /// <summary>Below this, the header stops offering to split the tile.</summary>
     private const double SplitButtonsNeedWidth = 260;
@@ -315,27 +320,32 @@ public partial class LeafTileView : UserControl
         if (leaf.KindId.Length == 0)
         {
             PopulateKindButtons(leaf);
-            UpdateChooserVisibility(leaf);
-            ContentHost.IsVisible = false;
             ContentHost.Children.Clear();
             _currentContentVm = null;
         }
         else
         {
-            ContentChooserScroll.IsVisible = false;
-            SetupChooserScroll.IsVisible = false;
-            ContentHost.IsVisible = true;
             SetContent(leaf.Content);
         }
+
+        UpdateChooserVisibility(leaf);
     }
 
+    /// <summary>Which of the three things a tile can be showing is on screen.</summary>
+    /// <remarks>A kind's own step is no longer only what an empty tile draws: a tile being changed into
+    /// another kind picks the new kind's shell or instance <em>before</em> anything is destroyed, so the
+    /// step is drawn over content that is still running. Which is why the content host stands down on
+    /// the step rather than on the tile having no kind.</remarks>
     private void UpdateChooserVisibility(LeafTileNodeViewModel leaf)
     {
-        if (leaf.KindId.Length > 0) return;
+        var empty = leaf.KindId.Length == 0;
+
         // The scroller is what is shown and hidden, not the panel inside it: a visible scroller wrapped
         // round a collapsed panel is still a hit-testable sheet lying over the tile's content.
-        ContentChooserScroll.IsVisible = !leaf.IsChoosingSetup;
+        ContentChooserScroll.IsVisible = empty && !leaf.IsChoosingSetup;
         SetupChooserScroll.IsVisible = leaf.IsChoosingSetup;
+        ContentHost.IsVisible = !empty && !leaf.IsChoosingSetup;
+
         if (leaf.IsChoosingSetup)
             PopulateSetupButtons(leaf);
     }

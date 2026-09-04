@@ -135,6 +135,37 @@
                                             </MenuItem.Styles>
                                         </MenuItem>
                                         <Separator />
+                                        <!-- Under the separator, with Full screen and the splits: this
+                                             is something done to the tile rather than to its content.
+                                             Menu only and no button in the strip - it is done once per
+                                             tile, and the header already gives its buttons up at a
+                                             narrow width. -->
+                                        <MenuItem Header="Change type"
+                                                  ItemsSource="{Binding ChangeKindOptions}"
+                                                  IsVisible="{Binding CanChangeKind}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="SwapHorizontal" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                            <!-- A style rather than an ItemContainerTheme, for the
+                                                 reason "Run as" gives above. The icon goes through a
+                                                 Template so each item gets a control of its own: a
+                                                 setter holding one control would be the same instance
+                                                 asked to live in every item. -->
+                                            <MenuItem.Styles>
+                                                <Style Selector="MenuItem > MenuItem"
+                                                       x:DataType="vm:TileKindChoice">
+                                                    <Setter Property="Header" Value="{Binding Label}" />
+                                                    <Setter Property="Command" Value="{Binding ChangeCommand}" />
+                                                    <Setter Property="Icon">
+                                                        <Template>
+                                                            <mi:MaterialIcon Width="14" Height="14"
+                                                                             Kind="{Binding IconId, Converter={x:Static views:TileIcons.Icon}}"
+                                                                             Foreground="{Binding AccentKey, Converter={x:Static views:TileIcons.Accent}}" />
+                                                        </Template>
+                                                    </Setter>
+                                                </Style>
+                                            </MenuItem.Styles>
+                                        </MenuItem>
                                         <MenuItem x:Name="MaximizeMenuItem"
                                                   Header="Full screen"
                                                   InputGesture="Ctrl+Shift+F"

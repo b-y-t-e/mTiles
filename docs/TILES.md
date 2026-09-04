@@ -371,6 +371,33 @@ public abstract class TileKind<T> : ITileKind where T : ITile
 because the file is on the user's disk and a number where a string was expected throws — a layout that
 will not open is a far worse answer than a tile that comes back with its default.
 
+### Changing a tile's kind, in place
+
+`… → Change type ▸` turns a tile into another kind without moving it: same `TileId`, same place in the
+tree, same activation. **The registry is what makes it nearly free** — `Create(context, state)` is one
+way in, the view resolves by `KindId` through a dictionary, and `TileNode` gates the legacy fields by
+kind, so nothing is left of the old kind in the layout. The only thing missing was that `Adopt` gives a
+tile content without taking the previous content apart, because its only caller was an empty tile.
+
+The order is the whole of the decision, and it is `LeafTileNodeViewModel.BeginChangeKindAsync` →
+`ConvertToAsync`:
+
+1. the kind is picked — nothing happens yet;
+2. its own `SetupOptions` step is drawn **over content that is still running**, so a terminal goes on
+   working while the shell for its successor is chosen, and Cancel has something to go back to
+   (`_pendingKindId` is the one field that tells that step from an empty tile being filled in);
+3. the question — one sentence from `TileConversion`, which says what this particular kind costs: a
+   shell and its children die, a note's file is simply left where it is. An unwired `ConfirmAction`
+   lets it through, this class's convention rather than the Settings dialog's;
+4. only then is anything destroyed, and the new content is put in place **before** the old is disposed
+   of, or the busy light, the header's actions and the background are owned by nothing for a moment.
+
+Three consequences worth knowing. Keeping the `TileId` means `agent → note → agent` comes back to the
+same conversation, because the session id *is* the tile id — a feature, not a leak. The name is
+generated afresh, so a hand-typed one is lost: there is no "the user renamed this" flag to consult. And
+the old kind's state is not remembered, so going back gives a *new* empty tile of that kind — the note's
+file stays on disk, but nothing points at it.
+
 ## Persistence and migration
 
 **The layout must come back looking exactly as it went in.** That is the acceptance criterion for the

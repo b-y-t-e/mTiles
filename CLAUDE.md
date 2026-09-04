@@ -294,6 +294,15 @@ tiles leaves it. The kinds that lay themselves out in panes of their own (git, d
 implement nothing — more room stretches their whitespace and would put a splitter inside a tile with no
 splitter around it.
 
+**A tile can be turned into another kind where it stands** (`… → Change type`, built from the same
+registry the chooser's cards are). It costs one method — `LeafTileNodeViewModel.ConvertToAsync` — and no
+change to the layout format or to `ITileKind`, which is the registry's best argument for itself: one
+`Create`, a view resolved by `KindId`, and legacy fields gated by kind. The order is the safety: the new
+kind's own setup step is drawn over content that is **still running**, the question (`TileConversion`,
+one sentence per kind about what that kind costs) comes after it, and only then is anything destroyed.
+The tile keeps its `TileId` — so `agent → note → agent` reopens the same conversation — and loses its
+name and the old kind's state. See [`docs/TILES.md`](docs/TILES.md) → *Changing a tile's kind, in place*.
+
 **Restart shell is `IsDestructive`, so it is a header action and not a phone one.** It kills whatever the
 shell is running, which is why the header asks first — and a phone that cannot be shown what is about to
 die must not be able to press it, confirmation or no (`PhoneTileActions`).
