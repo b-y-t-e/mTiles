@@ -1,11 +1,11 @@
 # Maintainer: Andrzej Ból <andrzej.bol@gmail.com>
 #
-# Generated from PKGBUILD.in by .github/workflows/arch-repo.yml — 0.4.42 and e8e5ae80e6e211aaa3ac723656fa24d85465257c7c2d269cc5e1bff6658cc6f5
+# Generated from PKGBUILD.in by .github/workflows/arch-repo.yml — 0.4.43 and 404e9809f53fc2f104904369f3f9a855a0a3a5cca981076d450a1c7bbd00da73
 # are substituted per release. The committed PKGBUILD beside this file is the rendered
 # result of the newest release, so `makepkg -si` in this directory works without CI.
 
 pkgname=mtiles-bin
-pkgver=0.4.42
+pkgver=0.4.43
 pkgrel=1
 pkgdesc="Tiling terminal manager with AI agent tiles — .NET 10 + Avalonia"
 arch=('x86_64')
@@ -22,8 +22,15 @@ conflicts=('mtiles')
 #   fontconfig   libSkiaSharp.so — text; pulls freetype2
 #   libglvnd     libSkiaSharp.so — libGL.so.1
 #   alsa-lib     libportaudio.so — the dictation microphone
-#   libx11/libice/libsm   Avalonia's X11 backend (XWayland on a Wayland session)
+#   libx11/libice/libsm   Avalonia's X11 backend, which is the fallback on an X11 session
+#   wayland               libwayland-client/-cursor/-egl, the backend used on a Wayland session
+#   libxkbcommon          the keyboard map, which a Wayland client is handed rather than told
+#   mesa / libdrm         libgbm.so.1 and libdrm.so.2, opened by the Wayland backend for rendering
 #   hicolor-icon-theme    owns /usr/share/icons/hicolor, which this package writes into
+#
+# The Wayland four are the ones namcap will never see: the backend dlopens them, and when they are
+# missing it falls back to X11 in silence — which on a HiDPI display is the tiny-interface bug this
+# package exists to have fixed, arriving as "it still does not scale" rather than as an error.
 #
 # namcap reports most of these as "included, but may not be needed", and it is wrong about all
 # of them for one reason: it reads ELF DT_NEEDED entries, and these libraries are opened with
@@ -33,6 +40,7 @@ conflicts=('mtiles')
 # ones it confirmed through DT_NEEDED: fontconfig and alsa-lib.
 depends=('glibc' 'gcc-libs' 'zlib' 'icu' 'openssl' 'krb5'
          'fontconfig' 'libglvnd' 'alsa-lib' 'libx11' 'libice' 'libsm'
+         'wayland' 'libxkbcommon' 'mesa' 'libdrm'
          'hicolor-icon-theme')
 
 # A self-contained .NET publish carries prebuilt native libraries that are not ours to strip:
@@ -42,7 +50,7 @@ options=('!strip' '!debug' '!lto')
 
 _tarball="mTiles-${pkgver}-linux-x64"
 source=("${_tarball}.tar.gz::${url}/releases/download/v${pkgver}/mTiles-linux-x64.tar.gz")
-sha256sums=('e8e5ae80e6e211aaa3ac723656fa24d85465257c7c2d269cc5e1bff6658cc6f5')
+sha256sums=('404e9809f53fc2f104904369f3f9a855a0a3a5cca981076d450a1c7bbd00da73')
 
 package() {
     # /opt rather than /usr/lib: 426 files of somebody else's runtime, versioned as one unit.
