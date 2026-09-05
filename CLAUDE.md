@@ -10,6 +10,10 @@ dotnet run --project src/mTiles
 dotnet test                     # tests/mTiles.Tests
 ```
 
+**"deploy"/"deploy + push"** always means running `python deploy2.py` — it bumps the patch version,
+commits `version.txt`, pushes, then tags and pushes the tag so CI builds Windows + Linux and cuts the
+release. Never a manual `git push` or a hand-written version bump.
+
 ## Structure
 
 - `src/mTiles/` — the application
