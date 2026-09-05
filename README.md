@@ -4,43 +4,81 @@
 
 ![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat&logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?style=flat&logo=dotnet&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green?style=flat)
 
 # mTiles
 
-Terminal manager built for AI-assisted development. Workspaces, split tiles, database bridge for LLM agents, git — in one window.
+**Close the window. Open it tomorrow. Your agents are still mid-conversation.**
+
+mTiles is a terminal manager for people who spend the day working *with* AI coding agents. It does not
+try to be one. It is the room they work in — five agents in split tiles, a database they can query
+without ever seeing a password, and a phone in your pocket that types into whichever tile is in front
+of you.
 
 ![mTiles](assets/screen1.png)
 
-## What makes it different
+## What it does
 
-Unlike Warp, Wave, or WezTerm — mTiles doesn't try to be an AI itself. It manages the environment your AI tools run in.
+**Reopen and carry on.** A tile’s id *is* the agent’s session id, so restarting mTiles drops you back
+into the same conversation — not a fresh prompt. Claude Code and pi take an id outright; OpenCode
+cannot be told one, so mTiles writes the document `opencode import` recreates the session from; Codex
+and agy name their own and mTiles reads it back afterwards. Five CLIs, four different mechanisms, one
+behaviour you can rely on.
 
-**Database bridge for LLM agents** — lets Claude Code, OpenCode, or any agent query SQL Server / PostgreSQL directly via a local HTTP server. No credentials are ever exposed to the agent.
+**Five agents, and you pick which account each one runs as.** Claude Code, OpenCode, Codex, pi and
+Antigravity (agy). You configure *instances* rather than tools — "Claude Code", or "Claude Code on GLM
+5.3 via OpenRouter" — so the same CLI can run on a different provider, model and login in the tile next
+door. Two subscriptions side by side is a supported setup, not a workaround.
 
-**SQL Guard** — write protection enabled by default. INSERT/UPDATE/DELETE require explicit per-database unlock. DROP/TRUNCATE/ALTER always blocked. If the agent attempts a write in read-only mode, a real-time confirmation dialog appears. Keyword scanning strips comments to prevent bypass.
+**When the agent dies, the tile brings it back.** A launch chain watches the exit code *and* how long
+the command ran, so a tool that crashed after two hours is restarted while one that fails in a second
+falls through to the next command instead of looping. Rate-limited, so nothing spins.
 
-**Agent tiles** — a tile whose commands are an AI CLI's own rather than a script you had to write: Claude Code, OpenCode, Codex, pi and agy, each a class that knows how to resume its own conversation, what it may do without asking and how hard it may think. Pick a configured *instance* — "Claude Code", or "Claude Code on GLM 5.3 via OpenRouter" — and the launch chain falls back to the next command when one fails and brings the agent back when it exits. Only agents this machine actually has are offered. The named shell profiles and the AI Tools table they were configured through are gone; the terminal tiles you had that ran an AI CLI become agent tiles on the first launch, and a copy of every layout is kept as `{id}.pre-agents.json` first.
+**Describe a goal, not a prompt.** The Goal tile asks its clarifying questions, writes a plan and waits
+for you to approve it, implements, then reviews its own work at four severities — blocker, error,
+warning, suggestion — and loops until the criteria you set are met. Before it starts it photographs
+your whole working tree, untracked files included, to a ref outside your history: nothing an agent does
+in there is unrecoverable, and your `git log` never moves.
 
-**Conversations that survive a restart** — a tile's id *is* the agent's session id, so reopening mTiles drops you back into the same conversation. Claude Code and pi take an id directly; **OpenCode** cannot be told one, so mTiles writes the session document `opencode import` creates a session from and the fallback command imports it and resumes; **Codex** and **agy** name their own session and mTiles reads it back — codex from the rollout file it leaves behind, agy by asking. Delete the conversation behind a tile and it is recreated on the next launch — the tile keeps its identity either way.
+**Your databases, without handing over the password.** A local HTTP bridge lets any agent query SQL
+Server and PostgreSQL, discovered on your machine or added by hand. The agent learns about it through a
+generated skill file and never sees a credential. **SQL Guard** blocks writes by default — unlock
+per database — and blocks `DROP`/`TRUNCATE`/`ALTER` always; a write against a read-only database raises
+a dialog in front of you while the query waits.
 
-**Dictation, including from your phone** — speak into a tile instead of typing; recognition runs entirely on this machine, with no account and nothing sent anywhere. A QR button beside Settings opens a panel: scan the code and your phone becomes the microphone —
-hold a button on it and speak, and the text lands in the active tile just as the keyboard shortcut would.
-This is what makes dictation usable over Remote Desktop, where the microphone is next to *you* and mTiles is on the far machine. mTiles works out which of its own addresses your phone can actually reach — it has several — and remembers which one worked, separately for local and remote sessions.
-The panel also reads the firewall rather than guessing at it: on Windows it says which of the four things is in the way — no rule, a block rule Windows wrote when its own prompt was dismissed, a network it treats as Public, or a policy that ignores local rules — and offers to fix the ones that can be fixed; on Linux it names the firewall that is actually running and gives the one command for it.
+**Talk to it, including from the sofa.** Speech recognition runs entirely on your machine — no account,
+no upload — on Parakeet or whisper.cpp. Hold a key and dictate into the active tile. Or press the QR
+button, scan it with your phone, and the phone becomes the microphone: which is what makes dictation
+work over **Remote Desktop**, where the microphone is next to *you* and mTiles is on the far machine.
 
 <p align="center">
-  <img src="assets/phone-dictation.png" alt="The page mTiles serves to a paired phone: a hold-to-talk button, arrow keys, Esc and Enter, and the name of the tile the speech will land in" width="300">
+  <img src="assets/phone-dictation.png" alt="The page mTiles serves to a paired phone: a hold-to-talk button, arrow keys, Esc and Enter, and the name of the tile the speech will land in" width="290">
 </p>
 
-That is the whole of what the phone gets — a page served by mTiles itself, no app to install. Hold the circle and talk; let go and the text lands in the tile named in the corner, which is whichever tile is active on the machine, not one the phone picks. **Enter, Escape and the four arrows** are there because dictating a command is only half of driving an agent from the sofa: the other half is the prompt it stops on and the screens it puts up. They are sent as keystrokes, not as bytes, so Up means what the tile currently thinks Up means. Nothing destructive is reachable from here — Restart shell is a header action and stays on the machine, because a phone cannot be shown what is about to be killed.
+That is the whole of what the phone gets — a page mTiles serves itself, no app to install. Hold the
+circle and talk; let go and the text lands in the tile named in the corner, which is whichever tile is
+active on the machine. **Enter, Escape and the four arrows** are there too, because dictating a command
+is only half of driving an agent from across the room — the other half is the prompt it stops on.
+Nothing destructive is reachable from the phone.
 
-**ThemeBridge** — terminal ANSI palette drives the entire UI. Change the color theme and every surface updates — not just the terminal background. 17 themes (Catppuccin, Tokyo Night, Gruvbox, Rosé Pine, One Dark, Solarized, and more), dark and light.
+**What is left on your accounts.** The Usage tile reads every account this machine can actually ask —
+Claude, Codex, Antigravity, OpenRouter — and shows how much of each window is gone, when it comes back,
+and whether you are spending the week faster than the week is passing.
 
-**Git tile** — staging, diff (unified + side-by-side), commit with message suggestions, stash, push/fetch, tags, undo last commit, unpushed commit markers. No need for a separate Git GUI.
+**The other tiles.** **Git** — staging, diff (unified and side-by-side), commit with message
+suggestions from your own history, stash, push/fetch, tags, undo the last commit, unpushed markers.
+**Note** — a markdown editor. **Todo** — a checklist. **Terminal** — PowerShell, Git Bash, bash, zsh or
+fish. All of them saved with the workspace, and any tile can be turned into another kind where it
+stands.
 
-**Workspaces** — each workspace is a directory with its own tile layout, database config, and git branch display. Switch instantly — terminals stay alive (cached views, no respawn).
+**Workspaces and split tiles.** Each workspace is a directory with its own layout, git branch and
+database grants; switching is instant because the terminals are never killed. Split any tile either way
+and nest as deep as you like — or press Ctrl+Shift+F and give one of them the whole window.
 
-**Split tiles** — recursive binary tree. Split any tile horizontally or vertically, nest arbitrarily. Each tile can be a terminal, note, todo, git, or database.
+**One palette for everything.** The terminal’s ANSI colours drive the entire UI, so changing the theme
+changes every surface rather than one rectangle. 17 themes — Catppuccin, Tokyo Night, Gruvbox, Rosé
+Pine, One Dark, Solarized and more — dark and light.
 
 ## Running
 
@@ -81,6 +119,9 @@ for the microphone — the phone bridge does not, since that audio arrives over 
 .NET 10, Avalonia 12, CommunityToolkit.Mvvm, AvaloniaEdit, and **Terminal.Avalonia** — our own terminal control (VT engine, ConPTY/forkpty, rendering), written for this app and published on NuGet.
 
 ## Roadmap
+
+<details>
+<summary>The things known to be missing or wrong, roughly in the order they bother us.</summary>
 
 Not promises with dates — the things known to be missing or wrong, roughly in the order they bother us.
 
@@ -124,6 +165,7 @@ is there.
 - **A first run with no agent installed should offer to install one.** The agent tile's chooser lists the agents that are actually on this machine, and on a fresh machine that list is empty — which is the correct answer and a useless screen. A short wizard at startup should name the agents mTiles knows, say which are installed, and offer to install one, running the install in a visible terminal tile rather than silently. Open questions: whether it appears once or whenever nothing is installed; how much it should promise on Linux and macOS, where each agent's installer differs; and whether an installation that needs elevation is offered at all or only described.
 - **A CCS provider — Claude Code on a Codex subscription.** [CCS](https://github.com/kaitranntt/ccs) runs a local OAuth proxy that lets Claude Code work on a ChatGPT/Codex subscription with no API key. Today it can be wired by hand (an Anthropic provider pointed at `http://127.0.0.1:8317`, the proxy started yourself); the planned provider detects whether `ccs` is installed, offers to install it and to run its one-time Codex login — both in a visible terminal tile — and starts the proxy itself when a launch needs it. Only the Codex subscription is wired at first; more subscriptions (Gemini, Kimi, …) come later as a choice on the form. Details in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+</details>
 
 ## License
 
