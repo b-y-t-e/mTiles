@@ -127,12 +127,15 @@ jobs:
           PKG=$(ls ./*.pkg.tar.zst)
           gpg --batch --yes --local-user "$FPR" --detach-sign --no-armor "$PKG"
           GPGKEY="$FPR" repo-add --sign --key "$FPR" mtiles.db.tar.gz "$PKG"
-          # repo-add leaves mtiles.db and mtiles.files as symlinks, and a release asset cannot be
-          # one. pacman asks for exactly those two names, so they are uploaded as real copies.
-          cp -L mtiles.db.tar.gz mtiles.db
-          cp -L mtiles.db.tar.gz.sig mtiles.db.sig
-          cp -L mtiles.files.tar.gz mtiles.files
-          cp -L mtiles.files.tar.gz.sig mtiles.files.sig
+          # repo-add makes mtiles.db a *symlink* to mtiles.db.tar.gz, and a release asset cannot
+          # be one. pacman asks for exactly that name, so it is uploaded as a real copy — and the
+          # symlink has to go first, or cp resolves the destination back to its own source and
+          # refuses with "are the same file", which is what broke the first run.
+          for n in db files; do
+            rm -f "mtiles.$n" "mtiles.$n.sig"
+            cp "mtiles.$n.tar.gz" "mtiles.$n"
+            cp "mtiles.$n.tar.gz.sig" "mtiles.$n.sig"
+          done
           ls -la
 
       - name: Publish the repository

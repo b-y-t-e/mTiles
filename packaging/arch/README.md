@@ -10,12 +10,12 @@ Import the signing key, then add the repository:
 ```bash
 curl -fsSL https://github.com/b-y-t-e/mTiles/releases/download/arch-repo/mtiles-repo.gpg \
   | sudo pacman-key --add -
-sudo pacman-key --lsign-key <FINGERPRINT>
+sudo pacman-key --lsign-key C425FE40B63D0BA5B3C193A4FEC939C56E4FF630
 ```
 
-The fingerprint is printed by `pacman-key --add` and shown in the Arch repository workflow's log.
-Signing it locally (`--lsign-key`) is what tells pacman you trust this key for this machine — the
-key alone is not enough, by design.
+Signing the key locally (`--lsign-key`) is what tells pacman you trust it on this machine — having
+the key is deliberately not enough on its own. The fingerprint above is also printed by
+`pacman-key --add` and by the Arch repository workflow, so you can check it against both.
 
 Then append to `/etc/pacman.conf`:
 

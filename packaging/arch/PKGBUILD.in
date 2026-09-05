@@ -23,9 +23,17 @@ conflicts=('mtiles')
 #   libglvnd     libSkiaSharp.so — libGL.so.1
 #   alsa-lib     libportaudio.so — the dictation microphone
 #   libx11/libice/libsm   Avalonia's X11 backend (XWayland on a Wayland session)
-# The list is verified on every release by namcap in the workflow rather than trusted here.
+#   hicolor-icon-theme    owns /usr/share/icons/hicolor, which this package writes into
+#
+# namcap reports most of these as "included, but may not be needed", and it is wrong about all
+# of them for one reason: it reads ELF DT_NEEDED entries, and these libraries are opened with
+# dlopen at runtime. .NET resolves libssl, libicu and libgssapi_krb5 that way, Avalonia does the
+# same for libX11, and Skia for libGL — none of it is visible to a linker-level check. What
+# namcap *is* right about is the one entry it reported as missing (hicolor-icon-theme) and the
+# ones it confirmed through DT_NEEDED: fontconfig and alsa-lib.
 depends=('glibc' 'gcc-libs' 'zlib' 'icu' 'openssl' 'krb5'
-         'fontconfig' 'libglvnd' 'alsa-lib' 'libx11' 'libice' 'libsm')
+         'fontconfig' 'libglvnd' 'alsa-lib' 'libx11' 'libice' 'libsm'
+         'hicolor-icon-theme')
 
 # A self-contained .NET publish carries prebuilt native libraries that are not ours to strip:
 # stripping libcoreclr/libSkiaSharp/libonnxruntime is at best pointless and at worst breaks the
@@ -41,6 +49,14 @@ package() {
     install -dm755 "$pkgdir/opt/mtiles"
     cp -a "$srcdir/$_tarball/bin/." "$pkgdir/opt/mtiles/"
     chmod 755 "$pkgdir/opt/mtiles/mTiles"
+
+    # The publish carries every runtime identifier its NuGet packages ship, so an x86_64 Linux
+    # package would otherwise install Windows DLLs, macOS dylibs and ARM shared objects that
+    # nothing here can load. Dead weight, and not only that: namcap reads them and reports an
+    # uninstalled ld-linux-aarch64.so.1 and a RUNPATH from whisper.net's own build machine,
+    # which buries the findings that are about this package. linux-x64 stays — whisper.net loads
+    # its libraries from there rather than from the root of the publish.
+    find "$pkgdir/opt/mtiles/runtimes" -mindepth 1 -maxdepth 1 -type d          -not -name 'linux-x64' -exec rm -rf {} +
 
     # The apphost resolves its runtime relative to its own path, so the wrapper execs the real
     # binary rather than symlinking to it — a symlink in /usr/bin would resolve $ORIGIN there.
