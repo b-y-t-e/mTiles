@@ -28,6 +28,12 @@ hold a button on it and speak, and the text lands in the active tile just as the
 This is what makes dictation usable over Remote Desktop, where the microphone is next to *you* and mTiles is on the far machine. mTiles works out which of its own addresses your phone can actually reach — it has several — and remembers which one worked, separately for local and remote sessions.
 The panel also reads the firewall rather than guessing at it: on Windows it says which of the four things is in the way — no rule, a block rule Windows wrote when its own prompt was dismissed, a network it treats as Public, or a policy that ignores local rules — and offers to fix the ones that can be fixed; on Linux it names the firewall that is actually running and gives the one command for it.
 
+<p align="center">
+  <img src="assets/phone-dictation.png" alt="The page mTiles serves to a paired phone: a hold-to-talk button, arrow keys, Esc and Enter, and the name of the tile the speech will land in" width="300">
+</p>
+
+That is the whole of what the phone gets — a page served by mTiles itself, no app to install. Hold the circle and talk; let go and the text lands in the tile named in the corner, which is whichever tile is active on the machine, not one the phone picks. **Enter, Escape and the four arrows** are there because dictating a command is only half of driving an agent from the sofa: the other half is the prompt it stops on and the screens it puts up. They are sent as keystrokes, not as bytes, so Up means what the tile currently thinks Up means. Nothing destructive is reachable from here — Restart shell is a header action and stays on the machine, because a phone cannot be shown what is about to be killed.
+
 **ThemeBridge** — terminal ANSI palette drives the entire UI. Change the color theme and every surface updates — not just the terminal background. 17 themes (Catppuccin, Tokyo Night, Gruvbox, Rosé Pine, One Dark, Solarized, and more), dark and light.
 
 **Git tile** — staging, diff (unified + side-by-side), commit with message suggestions, stash, push/fetch, tags, undo last commit, unpushed commit markers. No need for a separate Git GUI.
