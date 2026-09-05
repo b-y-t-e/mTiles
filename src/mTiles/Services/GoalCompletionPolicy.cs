@@ -166,7 +166,7 @@ internal static class GoalCompletionPolicy
     /// <summary>The ceiling <see cref="Attempts"/> clamps to. Named because Continue has to ask whether
     /// there is any room left above the attempts already spent: a button that raises a budget already
     /// at the ceiling would run the loop once round to no next attempt and summarise again.</summary>
-    public const int MostAttempts = 50;
+    public const int MostAttempts = 100;
 
     /// <summary>What was left unresolved, where the caller knows it, as the tail of a sentence.</summary>
     private static string Outstanding(string? outstanding) =>
