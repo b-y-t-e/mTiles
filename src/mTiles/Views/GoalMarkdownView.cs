@@ -142,17 +142,15 @@ public sealed class GoalMarkdownView : MarkdownViewer
         e.Handled = true;
 
         if (LinkToOpen(e.Url) is not { } opening) return;
-        if (TopLevel.GetTopLevel(this) is not Window window) return;
 
         try
         {
-            var box = MsBox.Avalonia.MessageBoxManager.GetMessageBoxStandard(
-                "Open link",
-                $"Open this address in your browser?\n\n{CommandDisplay.ForDialog(opening)}",
-                MsBox.Avalonia.Enums.ButtonEnum.YesNo,
-                MsBox.Avalonia.Enums.Icon.Question);
-
-            if (await box.ShowWindowDialogAsync(window) != MsBox.Avalonia.Enums.ButtonResult.Yes) return;
+            // No overlay to ask in means the link is not opened: sending the user\'s browser somewhere
+            // on the strength of a question nobody saw is the failure this confirmation exists for.
+            if (!await MessageDialog.ConfirmAsync(this, "Open link",
+                    $"Open this address in your browser?\n\n{CommandDisplay.ForDialog(opening)}",
+                    whenUnavailable: false, confirmText: "Open"))
+                return;
 
             Process.Start(new ProcessStartInfo(opening) { UseShellExecute = true });
         }

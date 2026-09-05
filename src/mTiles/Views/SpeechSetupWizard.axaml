@@ -1,22 +1,11 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="using:mTiles.ViewModels"
-        x:Class="mTiles.Views.SpeechSetupWizard"
-        x:DataType="vm:SpeechSetupViewModel"
-        Title="Set up dictation"
-        Width="520"
-        Height="440"
-        MinWidth="420" MinHeight="380"
-        CanResize="False"
-        WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource BgElevated}"
-        ExtendClientAreaToDecorationsHint="True"
-        WindowDecorations="BorderOnly">
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             x:Class="mTiles.Views.SpeechSetupWizard"
+             x:DataType="vm:SpeechSetupViewModel">
 
-    <Border Padding="18,16"
-            BorderBrush="{DynamicResource BorderSubtle}"
-            BorderThickness="{DynamicResource BorderThin}"
-            CornerRadius="{DynamicResource RadiusLg}">
+    <!-- The card is OverlayHost's; this draws only its own content. -->
+    <Border Padding="18,4,18,16">
         <DockPanel>
             <!-- Header -->
             <StackPanel DockPanel.Dock="Top" Spacing="2">
@@ -358,4 +347,4 @@
             </Panel>
         </DockPanel>
     </Border>
-</Window>
+</UserControl>

@@ -1,20 +1,11 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="using:mTiles.ViewModels"
-        xmlns:mi="using:Material.Icons.Avalonia"
-        x:Class="mTiles.Views.PhoneBridgeDialog"
-        x:DataType="vm:PhoneBridgeViewModel"
-        Title="Dictate from a phone"
-        Width="900"
-        SizeToContent="Height"
-        MaxHeight="880"
-        MinWidth="760" MinHeight="420"
-        WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource BgElevated}"
-        ExtendClientAreaToDecorationsHint="True"
-        WindowDecorations="BorderOnly">
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             x:Class="mTiles.Views.PhoneBridgeDialog"
+             x:DataType="vm:PhoneBridgeViewModel">
 
-    <Window.Styles>
+    <UserControl.Styles>
         <!-- The two scan targets. Everything they do not share lives inside them; everything they do
              share was moved out, because two cards carrying the same three sentences read as one thing —
              and picking the wrong one is the failure this panel exists to prevent. -->
@@ -44,12 +35,10 @@
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
-    </Window.Styles>
+    </UserControl.Styles>
 
-    <Border Padding="20,16"
-            BorderBrush="{DynamicResource BorderSubtle}"
-            BorderThickness="{DynamicResource BorderThin}"
-            CornerRadius="{DynamicResource RadiusTile}">
+    <!-- The card is OverlayHost's; this draws only its own content. -->
+    <Border Padding="20,4,20,16">
         <DockPanel>
 
             <!-- Header -->
@@ -356,4 +345,4 @@
             </ScrollViewer>
         </DockPanel>
     </Border>
-</Window>
+</UserControl>

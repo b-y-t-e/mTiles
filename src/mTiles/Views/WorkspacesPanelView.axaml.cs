@@ -7,8 +7,6 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
-using MsBox.Avalonia;
-using MsBox.Avalonia.Enums;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
@@ -142,23 +140,10 @@ public partial class WorkspacesPanelView : UserControl
                 return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
             };
 
-            vm.ShowError = async (title, message) =>
-            {
-                if (TopLevel.GetTopLevel(this) is not Window window) return;
-                await MessageBoxManager
-                    .GetMessageBoxStandard(title, message, ButtonEnum.Ok, Icon.Error)
-                    .ShowWindowDialogAsync(window);
-            };
-            vm.ConfirmAction = async message =>
-            {
-                var window = TopLevel.GetTopLevel(this) as Window;
-                if (window == null) return true;
-
-                var box = MessageBoxManager.GetMessageBoxStandard(
-                    "Confirm", message, ButtonEnum.YesNo, Icon.Question);
-                var result = await box.ShowWindowDialogAsync(window);
-                return result == ButtonResult.Yes;
-            };
+            vm.ShowError = (title, message) =>
+                MessageDialog.ShowAsync(this, title, message, MessageDialog.Tone.Error);
+            vm.ConfirmAction = message =>
+                MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: true);
         }
     }
 

@@ -37,22 +37,24 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.0.*" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.0.*" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.*" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.*" />
+    <PackageReference Include="Avalonia" Version="12.1.*" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.*" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.*" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.*" />
+    <!-- The compositor's own protocol on Linux, so a HiDPI display reports its scale — see
+         Program.BuildAvaloniaApp. Exists only from Avalonia 12.1, which is what that bump bought. -->
+    <PackageReference Include="Avalonia.Wayland" Version="12.1.*" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="Terminal.Avalonia" Version="0.3.0" />
+    <PackageReference Include="Terminal.Avalonia" Version="0.3.1" />
     <PackageReference Include="TodoList.Avalonia" Version="0.2.10" />
     <PackageReference Include="Notepad.Avalonia" Version="0.3.1" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.*" />
     <PackageReference Include="AvaloniaEdit.TextMate" Version="12.0.*" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />
     <PackageReference Include="Material.Icons.Avalonia" Version="3.0.2" />
-    <PackageReference Include="MessageBox.Avalonia" Version="12.0.0" />
     <PackageReference Include="Velopack" Version="0.0.*" />
     <!-- Dictation. PortAudioSharp2 is the wrapper that ships prebuilt portaudio for win-x64 and
          linux-x64, so recording works on both RIDs without this repository carrying binaries.

@@ -93,13 +93,8 @@ public partial class GoalTileView : UserControl
                 // model already refuses when nothing is wired at all, and this is the only other way
                 // the question can go unasked — answering yes here would have discarded a transcript
                 // on the strength of a question nobody saw.
-                var window = TopLevel.GetTopLevel(this) as Window;
-                if (window == null) return false;
-                var box = MsBox.Avalonia.MessageBoxManager.GetMessageBoxStandard(
-                    "Confirm", message,
-                    MsBox.Avalonia.Enums.ButtonEnum.YesNo, MsBox.Avalonia.Enums.Icon.Question);
-                var result = await box.ShowWindowDialogAsync(window);
-                return result == MsBox.Avalonia.Enums.ButtonResult.Yes;
+                return await MessageDialog.ConfirmAsync(this, "Confirm", message,
+                    whenUnavailable: false);
             };
             vm.PropertyChanged += OnVmPropertyChanged;
             UpdatePhaseDot(vm.CurrentPhase);

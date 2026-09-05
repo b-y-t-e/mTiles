@@ -85,7 +85,11 @@ public class SpeechSetupWizardKeyTests : IDisposable
 
     /// <summary>The wizard as the user meets it on the last step: shown, and with the focus still on the
     /// button they clicked to get there.</summary>
-    private (SpeechSetupWizard Window, SpeechSetupViewModel Model, DictationService Dictation,
+    /// <remarks>The wizard is a <see cref="UserControl"/> rather than a window — every dialog here is
+    /// drawn inside the main window now, see <c>OverlayHost</c> — so the test supplies the window it
+    /// would be drawn in. The keystrokes still have to enter through a top level, which is the whole
+    /// point of these tests: the tunnelling handlers are what route them.</remarks>
+    private (Window Window, SpeechSetupViewModel Model, DictationService Dictation,
         TempSettings Settings, Func<int> Closes) OnTheLastStep()
     {
         var settings = new TempSettings();
@@ -98,14 +102,16 @@ public class SpeechSetupWizardKeyTests : IDisposable
         var closes = 0;
         model.CloseRequested += () => closes++;
 
-        var window = new SpeechSetupWizard { DataContext = model };
-        window.Bind(model, dictation, settings.Service);
+        var wizard = new SpeechSetupWizard { DataContext = model };
+        wizard.Bind(model, dictation, settings.Service);
+
+        var window = new Window { Content = wizard };
         window.Show();
 
         model.Step = SpeechSetupStep.Test;
         Assert.Equal("Done", model.NextCaption);
 
-        var next = window.FindControl<Button>("NextButton");
+        var next = wizard.FindControl<Button>("NextButton");
         Assert.NotNull(next);
         next.Focus();
 

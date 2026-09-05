@@ -8,8 +8,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Material.Icons;
 using Material.Icons.Avalonia;
-using MsBox.Avalonia;
-using MsBox.Avalonia.Enums;
 using mTiles.Services.Tiles;
 using mTiles.ViewModels;
 
@@ -204,15 +202,8 @@ public partial class LeafTileView : UserControl
             _subscribedLeaf = leaf;
             leaf.PropertyChanged += OnLeafPropertyChanged;
             leaf.FocusRequested += FocusContent;
-            leaf.ConfirmAction = async message =>
-            {
-                var window = TopLevel.GetTopLevel(this) as Window;
-                if (window == null) return true;
-                var box = MessageBoxManager.GetMessageBoxStandard(
-                    "Confirm", message, ButtonEnum.YesNo, Icon.Question);
-                var result = await box.ShowWindowDialogAsync(window);
-                return result == ButtonResult.Yes;
-            };
+            leaf.ConfirmAction = message =>
+                MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: true);
             UpdateTypeGlyph(leaf);
             UpdateMaximizeButton(leaf);
             UpdateActiveIndicator(leaf);

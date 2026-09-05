@@ -77,7 +77,7 @@ Linked as NuGet packages; none of their source is copied here.
 |---|---|
 | Avalonia, Avalonia.Desktop, Themes.Fluent, Fonts.Inter, AvaloniaEdit, AvaloniaEdit.TextMate | MIT |
 | CommunityToolkit.Mvvm | MIT |
-| Material.Icons.Avalonia, MessageBox.Avalonia | MIT |
+| Material.Icons.Avalonia | MIT |
 | DiffPlex | Apache-2.0 |
 | Microsoft.Data.SqlClient, System.Security.Cryptography.ProtectedData | MIT |
 | Npgsql | PostgreSQL licence |

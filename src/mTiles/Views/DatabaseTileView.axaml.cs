@@ -1,8 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
-using MsBox.Avalonia;
-using MsBox.Avalonia.Enums;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
@@ -19,16 +17,8 @@ public partial class DatabaseTileView : UserControl
     {
         if (DataContext is not DatabaseTileViewModel vm) return;
 
-        vm.ConfirmAction = async message =>
-        {
-            var window = TopLevel.GetTopLevel(this) as Window;
-            if (window == null) return true;
-
-            var box = MessageBoxManager.GetMessageBoxStandard(
-                "Confirm", message, ButtonEnum.YesNo, Icon.Question);
-            var result = await box.ShowWindowDialogAsync(window);
-            return result == ButtonResult.Yes;
-        };
+        vm.ConfirmAction = message =>
+            MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: true);
 
         vm.ScrollLogsToEnd = () =>
         {

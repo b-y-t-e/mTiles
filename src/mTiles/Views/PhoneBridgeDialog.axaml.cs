@@ -14,11 +14,17 @@ namespace mTiles.Views;
 /// The QR panel: what to point a phone at, and what to do when it does not work.
 /// </summary>
 /// <remarks>
-/// A window rather than an overlay in the main window, because it has to be readable from arm's length
-/// while somebody holds a phone up to it — and because the codes it shows are secrets whose lifetime is
-/// exactly this window's.
+/// <para>An overlay in the main window like every other dialog here. It was a window of its own, on the
+/// argument that it has to be readable from arm's length while somebody holds a phone up to it — an
+/// argument a tiling window manager settles the other way: on Hyprland the panel is placed into the
+/// layout at whatever size the tiling decides, which is neither large nor where the user is looking.
+/// Centred over a dimmed application it is at least always in the same place.</para>
+/// <para>What went with the change is <c>KeepOnScreen</c>: capping the panel to its screen and
+/// re-centring it as it grew was work only a free-floating window needed. An overlay is clamped to the
+/// window it is drawn in by <see cref="OverlayHost"/>, once, for every dialog.</para>
+/// <para>The codes it shows are still secrets whose lifetime is exactly this panel's.</para>
 /// </remarks>
-public partial class PhoneBridgeDialog : Window
+public partial class PhoneBridgeDialog : UserControl
 {
     private PhoneBridgeViewModel? _model;
 
@@ -26,15 +32,19 @@ public partial class PhoneBridgeDialog : Window
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
-    internal static async Task ShowAsync(Window owner, PhoneBridgeManager manager)
+    internal static async Task ShowAsync(Visual owner, PhoneBridgeManager manager)
     {
+        if (OverlayHost.For(owner) is not { } host)
+            return;
+
         var model = new PhoneBridgeViewModel(manager);
         var window = new PhoneBridgeDialog { DataContext = model, _model = model };
 
-        // Wired from here for the same reason ConfirmAction is: the clipboard belongs to a window.
+        // Wired from here for the same reason ConfirmAction is: the clipboard belongs to a window —
+        // which this control no longer is, so it asks the one it is drawn in.
         model.CopyToClipboard = async text =>
         {
-            if (window.Clipboard is { } clipboard)
+            if (TopLevel.GetTopLevel(window)?.Clipboard is { } clipboard)
                 await clipboard.SetTextAsync(text);
         };
 
@@ -45,7 +55,7 @@ public partial class PhoneBridgeDialog : Window
         // unhandled-exception path, where it is a crash rather than a message. The panel has a place to
         // put a failure and is the right place to see one — the whole reason it is on screen is that
         // something about the network is being attempted.
-        window.Opened += async (_, _) =>
+        window.AttachedToVisualTree += async (_, _) =>
         {
             try
             {
@@ -58,89 +68,31 @@ public partial class PhoneBridgeDialog : Window
             }
         };
 
-        // CenterOwner places the window once, at the height it opens with. This one grows: a
-        // firewall verdict, a Tailscale hint or a startup failure each add a block to it, and
-        // SizeToContent grows a window downwards from where it already is - so the bottom of the panel,
-        // which is where those messages arrive, went off the bottom of the screen exactly when there
-        // was something new to read there. Re-centred on every size change, and capped to the screen
-        // it is on, so it cannot grow past what the screen can show in the first place.
-        window.Opened += (_, _) => KeepOnScreen(window);
-        window.SizeChanged += (_, _) => KeepOnScreen(window);
-
-        await window.ShowDialog(owner);
+        // The panel grows as it learns things — a firewall verdict, a Tailscale hint, a startup
+        // failure each add a block. As a window that needed re-centring and a cap against the screen
+        // on every size change; as an overlay it is centred and clamped by OverlayHost for free.
+        await host.ShowAsync<object>(window, width: 900);
     }
-
-    /// <summary>Caps the window to its screen and centres it there.</summary>
-    /// <remarks>
-    /// <para>Centred on the screen's working area rather than on the owner: the owner can be
-    /// half off screen, maximised across two monitors, or smaller than this panel, and centring on it
-    /// then puts a window the user has to read at arm's length half under a taskbar. The screen it is
-    /// already on is the one the user is looking at.</para>
-    /// <para>The cap is applied before the position is worked out, because a window taller than the
-    /// screen has no position that shows all of it - and <see cref="Window.MaxHeight"/> in DIPs against
-    /// a working area in device pixels is the one conversion here that has to be right on a scaled
-    /// display.</para>
-    /// </remarks>
-    private static void KeepOnScreen(Window window)
-    {
-        if (window.Screens.ScreenFromWindow(window) is not { } screen) return;
-
-        var area = screen.WorkingArea;
-        var scaling = screen.Scaling <= 0 ? 1 : screen.Scaling;
-
-        // Room for the frame the window manager draws around this, which is not in Bounds.
-        var cap = area.Height / scaling - 48;
-        if (cap > 0) window.MaxHeight = Math.Min(TallestUseful, cap);
-
-        var size = PixelSize.FromSize(window.FrameSize ?? window.Bounds.Size, scaling);
-        var at = window.Position;
-
-        // Only when it has to. This runs on every size change, and a panel that grew by one firewall
-        // message while the user had dragged it somewhere they wanted it would otherwise jump back to
-        // the middle — a window moving under the pointer for a reason nobody can see. Fits where it is:
-        // leave it. Hangs off an edge: put it back in the middle, which is the one position that is
-        // right whatever the size.
-        var fits = at.X >= area.X && at.Y >= area.Y
-                   && at.X + size.Width <= area.X + area.Width
-                   && at.Y + size.Height <= area.Y + area.Height;
-
-        if (fits) return;
-
-        window.Position = new PixelPoint(
-            area.X + Math.Max(0, (area.Width - size.Width) / 2),
-            area.Y + Math.Max(0, (area.Height - size.Height) / 2));
-    }
-
-    /// <summary>
-    /// Beyond this the panel is not easier to read, only longer to scan - the codes are at the top and
-    /// the troubleshooting below them scrolls.
-    /// </summary>
-    /// <remarks>
-    /// The same number is in the markup, and deliberately: this method returns early when the window
-    /// manager will not say which screen the window is on, and without a cap in the XAML a panel that
-    /// grew — a firewall verdict, a Tailscale hint — would then have nothing at all to stop it. Two
-    /// copies of a constant is the smaller fault; the other one is a window taller than the desktop
-    /// with its own close button below the edge of it.
-    /// </remarks>
-    private const double TallestUseful = 880;
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
         {
             e.Handled = true;
-            Close();
+            OverlayHost.CloseWith(this, null);
             return;
         }
 
         base.OnKeyDown(e);
     }
 
-    private void Close_Click(object? sender, RoutedEventArgs e) => Close();
+    private void Close_Click(object? sender, RoutedEventArgs e) => OverlayHost.CloseWith(this, null);
 
-    protected override async void OnClosed(EventArgs e)
+    /// <summary>What <c>OnClosed</c> was before this stopped being a window — see
+    /// <see cref="SpeechSetupWizard"/> for why leaving the visual tree is the equivalent.</summary>
+    protected override async void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        base.OnClosed(e);
+        base.OnDetachedFromVisualTree(e);
 
         if (_model is not { } model)
             return;

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -17,7 +18,7 @@ namespace mTiles.Views;
 /// where it is how somebody starts over. It replaced a single-screen prompt that asked which model to
 /// download and nothing else, which could not answer the only question that matters: does this work.
 /// </remarks>
-public partial class SpeechSetupWizard : Window
+public partial class SpeechSetupWizard : UserControl
 {
     private SpeechSetupViewModel? _model;
     private SettingsService? _settings;
@@ -56,7 +57,7 @@ public partial class SpeechSetupWizard : Window
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
-            Close();
+            OverlayHost.CloseWith(this, null);
     }
 
     /// <summary>
@@ -248,20 +249,24 @@ public partial class SpeechSetupWizard : Window
     /// dictation service, which outlives this window, and it may be holding the microphone — closing the
     /// window mid-sentence has to give both back.
     /// </remarks>
-    public static async Task ShowAsync(Window owner, DictationService dictation, SettingsService settings)
+    public static async Task ShowAsync(Visual owner, DictationService dictation, SettingsService settings)
     {
-        var model = new SpeechSetupViewModel(dictation, settings);
-        var window = new SpeechSetupWizard { DataContext = model };
-        window.Bind(model, dictation, settings);
+        if (OverlayHost.For(owner) is not { } host)
+            return;
 
-        model.CloseRequested += window.Close;
+        var model = new SpeechSetupViewModel(dictation, settings);
+        var view = new SpeechSetupWizard { DataContext = model };
+        view.Bind(model, dictation, settings);
+
+        void Close() => OverlayHost.CloseWith(view, null);
+        model.CloseRequested += Close;
         try
         {
-            await window.ShowDialog(owner);
+            await host.ShowAsync<object>(view, width: 520, height: 440);
         }
         finally
         {
-            model.CloseRequested -= window.Close;
+            model.CloseRequested -= Close;
             model.Dispose();
         }
     }
@@ -314,16 +319,18 @@ public partial class SpeechSetupWizard : Window
         _onDictationStateChanged = null;
     }
 
-    protected override void OnClosed(EventArgs e)
+    /// <summary>What <c>OnClosed</c> was before this stopped being a window.</summary>
+    /// <remarks>Leaving the visual tree is what closing an overlay is: OverlayHost removes the entry
+    /// from its children. It also fires if the whole window goes, which is the same set of cases the
+    /// window's own OnClosed covered. Also here rather than only in ShowAsync's finally, because the
+    /// X closes the overlay without going through it — disposing twice is harmless, leaving a
+    /// recording running is not.</remarks>
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        base.OnClosed(e);
+        base.OnDetachedFromVisualTree(e);
 
         Unlisten();
         _machine = null;
-
-        // Also here, because a window can be closed by the title bar without going through ShowAsync's
-        // finally in any way it could rely on. Disposing twice is harmless; leaving a recording running
-        // is not.
         _model?.Dispose();
     }
 

@@ -78,9 +78,9 @@ public partial class MainWindow : Window
                 // open must not leave the application behind a dark sheet it cannot dismiss.
                 vm.ShowPhoneBridge = async () =>
                 {
-                    DialogScrim.IsVisible = true;
-                    try { await PhoneBridgeDialog.ShowAsync(this, phoneBridge); }
-                    finally { DialogScrim.IsVisible = false; }
+                    // No scrim to raise here any more: the QR panel is an overlay like every other
+                    // dialog, and OverlayHost draws its own.
+                    await PhoneBridgeDialog.ShowAsync(this, phoneBridge);
                 };
 
                 // The same thing DictationHotkeys resolves, so a transcript arriving from a phone lands
@@ -122,14 +122,9 @@ public partial class MainWindow : Window
                 });
             }
 
-            vm.ConfirmAction = async message =>
-            {
-                var box = MsBox.Avalonia.MessageBoxManager.GetMessageBoxStandard(
-                    "Update Available", message,
-                    MsBox.Avalonia.Enums.ButtonEnum.YesNo, MsBox.Avalonia.Enums.Icon.Info);
-                var result = await box.ShowWindowDialogAsync(this);
-                return result == MsBox.Avalonia.Enums.ButtonResult.Yes;
-            };
+            vm.ConfirmAction = message => MessageDialog.ConfirmAsync(
+                this, "Update Available", message, whenUnavailable: false,
+                MessageDialog.Tone.Info, confirmText: "Update");
             SwitchWorkspaceView(vm.CurrentWorkspace);
         }
     }
@@ -249,9 +244,7 @@ public partial class MainWindow : Window
         try
         {
             _dictationErrorOnScreen = message;
-            var box = MsBox.Avalonia.MessageBoxManager.GetMessageBoxStandard(
-                "Dictation", message, MsBox.Avalonia.Enums.ButtonEnum.Ok, MsBox.Avalonia.Enums.Icon.Warning);
-            await box.ShowWindowDialogAsync(this);
+            await MessageDialog.ShowAsync(this, "Dictation", message, MessageDialog.Tone.Warning);
         }
         catch (Exception ex)
         {

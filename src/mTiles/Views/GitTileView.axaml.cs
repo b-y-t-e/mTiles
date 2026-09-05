@@ -5,8 +5,6 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using MsBox.Avalonia;
-using MsBox.Avalonia.Enums;
 using mTiles.Models;
 using mTiles.ViewModels;
 
@@ -92,34 +90,14 @@ public partial class GitTileView : UserControl
         _subscribedVm = vm;
         vm.PropertyChanged += OnVmPropertyChanged;
         vm.GetClipboard = () => TopLevel.GetTopLevel(this)?.Clipboard;
-        vm.ConfirmAction = async message =>
-        {
-            var window = TopLevel.GetTopLevel(this) as Window;
-            if (window == null) return true;
+        vm.ConfirmAction = message =>
+            MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: true);
 
-            var box = MessageBoxManager.GetMessageBoxStandard(
-                "Confirm", message, ButtonEnum.YesNo, Icon.Question);
-            var result = await box.ShowWindowDialogAsync(window);
-            return result == ButtonResult.Yes;
-        };
+        vm.PromptInput = (title, placeholder, suggestions) =>
+            InputDialog.ShowAsync(this, title, placeholder, suggestions);
 
-        vm.PromptInput = async (title, placeholder, suggestions) =>
-        {
-            var window = TopLevel.GetTopLevel(this) as Window;
-            if (window == null) return null;
-
-            var dialog = new InputDialog(title, placeholder, suggestions);
-            return await dialog.ShowDialog<string?>(window);
-        };
-
-        vm.ShowError = async (title, message) =>
-        {
-            var window = TopLevel.GetTopLevel(this) as Window;
-            if (window == null) return;
-
-            var box = MessageBoxManager.GetMessageBoxStandard(title, message, ButtonEnum.Ok, Icon.Error);
-            await box.ShowWindowDialogAsync(window);
-        };
+        vm.ShowError = (title, message) =>
+            MessageDialog.ShowAsync(this, title, message, MessageDialog.Tone.Error);
 
         FontFamily = new FontFamily(vm.FontFamily);
         FontSize = vm.FontSize;

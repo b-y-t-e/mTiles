@@ -1,20 +1,9 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="mTiles.Views.AgentFileSyncWizard"
-        Title="Sync CLAUDE.md ↔ AGENTS.md"
-        Width="420"
-        SizeToContent="Height"
-        MinWidth="360" MinHeight="160"
-        CanResize="False"
-        WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource BgElevated}"
-        ExtendClientAreaToDecorationsHint="True"
-        WindowDecorations="BorderOnly">
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="mTiles.Views.AgentFileSyncWizard">
 
-    <Border Padding="16,12"
-            BorderBrush="{DynamicResource BorderSubtle}"
-            BorderThickness="{DynamicResource BorderThin}"
-            CornerRadius="{DynamicResource RadiusLg}">
+    <!-- The card is OverlayHost's; this draws only its own content. -->
+    <Border Padding="16,4,16,12">
         <StackPanel Spacing="14">
 
             <TextBlock x:Name="TitleText"
@@ -114,4 +103,4 @@
             </StackPanel>
         </StackPanel>
     </Border>
-</Window>
+</UserControl>

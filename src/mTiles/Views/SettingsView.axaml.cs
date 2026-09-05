@@ -2,8 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using MsgBox = MsBox.Avalonia.MessageBoxManager;
-using MsBox.Avalonia.Enums;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
@@ -44,28 +42,15 @@ public partial class SettingsView : UserControl
             // No window means no question, and an unanswered question is not a yes. Every caller of
             // this confirms something destructive — deleting a connection, discarding a downloaded
             // model — so the safe answer when it cannot be asked is no.
-            vm.ConfirmAction = async message =>
-            {
-                var window = TopLevel.GetTopLevel(this) as Window;
-                if (window == null) return false;
-                var box = MsgBox.GetMessageBoxStandard("Confirm", message, ButtonEnum.YesNo, Icon.Question);
-                var result = await box.ShowWindowDialogAsync(window);
-                return result == ButtonResult.Yes;
-            };
+            vm.ConfirmAction = message =>
+                MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: false);
             vm.RunSpeechSetup = async () =>
             {
-                if (TopLevel.GetTopLevel(this) is not Window window || vm.Dictation is not { } dictation)
-                    return;
-
-                await SpeechSetupWizard.ShowAsync(window, dictation, vm.SettingsService);
+                if (vm.Dictation is not { } dictation) return;
+                await SpeechSetupWizard.ShowAsync(this, dictation, vm.SettingsService);
             };
-            vm.ShowError = async (title, message) =>
-            {
-                var window = TopLevel.GetTopLevel(this) as Window;
-                if (window == null) return;
-                var box = MsgBox.GetMessageBoxStandard(title, message, ButtonEnum.Ok, Icon.Warning);
-                await box.ShowWindowDialogAsync(window);
-            };
+            vm.ShowError = (title, message) =>
+                MessageDialog.ShowAsync(this, title, message, MessageDialog.Tone.Warning);
             vm.BrowseGitFile = async () =>
             {
                 var topLevel = TopLevel.GetTopLevel(this);

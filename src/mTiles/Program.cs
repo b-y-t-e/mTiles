@@ -48,10 +48,34 @@ public static class Program
             Environment.SetEnvironmentVariable(name, value);
     }
 
-    public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>()
-            .UsePlatformDetect()
+    /// <summary>
+    /// Builds the application, and on Linux asks the compositor directly rather than going through
+    /// XWayland.
+    /// </summary>
+    /// <remarks>
+    /// <para><c>UsePlatformDetect</c> picks the X11 backend on Linux, which on a Wayland session means
+    /// XWayland — and XWayland has no per-monitor scaling to report. The application is handed a scale
+    /// of 1 whatever the display is, so on a HiDPI laptop the whole interface comes out at a fraction
+    /// of its intended size: measured on Omarchy (Hyprland), where every label was too small to read.
+    /// The Wayland backend is told the output's scale by the compositor and applies it.</para>
+    /// <para><c>WithFallback</c> rather than <c>UseWayland</c>: the backend dlopens libwayland,
+    /// libxkbcommon and libgbm, and there is no compositor to talk to in an X11 session or over a
+    /// plain SSH forward. The fallback is X11, which is exactly what this did before — so the worst
+    /// case of adding it is the behaviour we already had.</para>
+    /// <para>Linux only, and explicitly: the method exists on every platform and asking for Wayland on
+    /// Windows would be a fallback path taken every launch for no reason.</para>
+    /// </remarks>
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        AppBuilder builder = AppBuilder.Configure<App>();
+
+        builder = OperatingSystem.IsLinux()
+            ? builder.UseWaylandWithFallback()
+            : builder.UsePlatformDetect();
+
+        return builder
             .WithInterFont()
             .LogToTrace()
             .AfterSetup(_ => CrashHandler.AttachAvaloniaExceptionHandler());
+    }
 }

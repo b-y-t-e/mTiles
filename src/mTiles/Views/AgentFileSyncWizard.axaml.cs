@@ -1,10 +1,11 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using mTiles.Services;
 
 namespace mTiles.Views;
 
-public partial class AgentFileSyncWizard : Window
+public partial class AgentFileSyncWizard : UserControl, OverlayHost.IFocusOnOpen
 {
     public AgentFileSyncWizard()
     {
@@ -22,16 +23,13 @@ public partial class AgentFileSyncWizard : Window
             ? "Editing either file will copy it over the other, keeping them identical."
             : "Editing either file will copy it to the other, creating it if missing.";
 
-        DeclineButton.Click += (_, _) => Close(new AgentFileSyncWizardResult(false, null));
+        DeclineButton.Click += (_, _) => OverlayHost.CloseWith(this, new AgentFileSyncWizardResult(false, null));
         KeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape)
-                Close(new AgentFileSyncWizardResult(false, null));
+                OverlayHost.CloseWith(this, new AgentFileSyncWizardResult(false, null));
         };
-        // The modal takes the keyboard when it opens, and "Not now" is the safe default for both
-        // answer keys: Enter and Escape both decline, so no single keystroke enables the feature —
-        // enabling stays a deliberate Tab or click.
-        Opened += (_, _) => DeclineButton.Focus();
+        // The modal takes the keyboard when it opens — see FocusOnOpen below.
 
         if (pickAuthoritative)
         {
@@ -44,13 +42,13 @@ public partial class AgentFileSyncWizard : Window
                 Fill(request.Agents, AgentsName, AgentsMeta);
             };
             UseClaudeButton.Click += (_, _) =>
-                Close(new AgentFileSyncWizardResult(true, AgentFileSyncEngine.ClaudeFileName));
+                OverlayHost.CloseWith(this, new AgentFileSyncWizardResult(true, AgentFileSyncEngine.ClaudeFileName));
             UseAgentsButton.Click += (_, _) =>
-                Close(new AgentFileSyncWizardResult(true, AgentFileSyncEngine.AgentsFileName));
+                OverlayHost.CloseWith(this, new AgentFileSyncWizardResult(true, AgentFileSyncEngine.AgentsFileName));
         }
         else
         {
-            EnableButton.Click += (_, _) => Close(new AgentFileSyncWizardResult(true, null));
+            EnableButton.Click += (_, _) => OverlayHost.CloseWith(this, new AgentFileSyncWizardResult(true, null));
         }
     }
 
@@ -68,12 +66,18 @@ public partial class AgentFileSyncWizard : Window
     private static string FormatSize(long bytes) =>
         bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024.0:0.#} KB";
 
-    /// <summary>Shows the wizard modally over <paramref name="owner"/> and answers what the user chose,
-    /// or an implicit decline if the window closed without an answer (Escape, the close button).</summary>
-    public static async Task<AgentFileSyncWizardResult?> ShowAsync(Window owner, AgentFileSyncWizardRequest request)
+    /// <summary>"Not now" is the safe default for every answer key: Enter and Escape both decline,
+    /// so no single keystroke enables the feature — enabling stays a deliberate Tab or click.</summary>
+    public void FocusOnOpen() => DeclineButton.Focus();
+
+    /// <summary>Shows the wizard over <paramref name="owner"/>'s window and answers what the user
+    /// chose, or an implicit decline if it was closed without an answer (Escape, the X).</summary>
+    public static async Task<AgentFileSyncWizardResult?> ShowAsync(Visual owner, AgentFileSyncWizardRequest request)
     {
-        var wizard = new AgentFileSyncWizard(request);
-        return await wizard.ShowDialog<AgentFileSyncWizardResult?>(owner)
+        if (OverlayHost.For(owner) is not { } host)
+            return new AgentFileSyncWizardResult(false, null);
+
+        return await host.ShowAsync<AgentFileSyncWizardResult>(new AgentFileSyncWizard(request), width: 420)
                ?? new AgentFileSyncWizardResult(false, null);
     }
 }

@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             x:Class="mTiles.Views.MessageDialog">
+
+    <!-- The card is OverlayHost's; this draws only its own content. -->
+    <Border Padding="16,4,16,12">
+        <DockPanel>
+
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10">
+                <mi:MaterialIcon x:Name="ToneIcon" Width="20" Height="20" VerticalAlignment="Center" />
+                <TextBlock x:Name="TitleText"
+                           VerticalAlignment="Center"
+                           FontFamily="{DynamicResource UiFontFamily}"
+                           FontSize="{DynamicResource FontLg}"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimary}" />
+            </StackPanel>
+
+            <StackPanel DockPanel.Dock="Bottom"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="6"
+                        Margin="0,14,0,0">
+                <Button x:Name="CancelButton"
+                        MinWidth="70" Padding="12,5" MinHeight="0"
+                        Background="{DynamicResource BgSurface}"
+                        Foreground="{DynamicResource TextPrimary}"
+                        BorderBrush="{DynamicResource BorderStrong}"
+                        BorderThickness="{DynamicResource BorderThin}"
+                        CornerRadius="{DynamicResource RadiusMd}"
+                        FontFamily="{DynamicResource UiFontFamily}"
+                        FontSize="{DynamicResource FontSm}"
+                        Cursor="Hand" />
+                <Button x:Name="ConfirmButton"
+                        Classes="accent"
+                        MinWidth="70" Padding="12,5" MinHeight="0"
+                        FontSize="{DynamicResource FontSm}"
+                        Cursor="Hand" />
+            </StackPanel>
+
+            <!-- Selectable, and scrolling past a point: an error worth showing is an error worth
+                 pasting somewhere, and a git or a provider failure can run to a paragraph. -->
+            <ScrollViewer MaxHeight="320"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto"
+                          Margin="0,12,0,0">
+                <SelectableTextBlock x:Name="MessageText"
+                                     TextWrapping="Wrap"
+                                     FontFamily="{DynamicResource UiFontFamily}"
+                                     FontSize="{DynamicResource FontSm}"
+                                     Foreground="{DynamicResource TextSecondary}" />
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</UserControl>

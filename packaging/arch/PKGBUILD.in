@@ -22,8 +22,15 @@ conflicts=('mtiles')
 #   fontconfig   libSkiaSharp.so — text; pulls freetype2
 #   libglvnd     libSkiaSharp.so — libGL.so.1
 #   alsa-lib     libportaudio.so — the dictation microphone
-#   libx11/libice/libsm   Avalonia's X11 backend (XWayland on a Wayland session)
+#   libx11/libice/libsm   Avalonia's X11 backend, which is the fallback on an X11 session
+#   wayland               libwayland-client/-cursor/-egl, the backend used on a Wayland session
+#   libxkbcommon          the keyboard map, which a Wayland client is handed rather than told
+#   mesa / libdrm         libgbm.so.1 and libdrm.so.2, opened by the Wayland backend for rendering
 #   hicolor-icon-theme    owns /usr/share/icons/hicolor, which this package writes into
+#
+# The Wayland four are the ones namcap will never see: the backend dlopens them, and when they are
+# missing it falls back to X11 in silence — which on a HiDPI display is the tiny-interface bug this
+# package exists to have fixed, arriving as "it still does not scale" rather than as an error.
 #
 # namcap reports most of these as "included, but may not be needed", and it is wrong about all
 # of them for one reason: it reads ELF DT_NEEDED entries, and these libraries are opened with
@@ -33,6 +40,7 @@ conflicts=('mtiles')
 # ones it confirmed through DT_NEEDED: fontconfig and alsa-lib.
 depends=('glibc' 'gcc-libs' 'zlib' 'icu' 'openssl' 'krb5'
          'fontconfig' 'libglvnd' 'alsa-lib' 'libx11' 'libice' 'libsm'
+         'wayland' 'libxkbcommon' 'mesa' 'libdrm'
          'hicolor-icon-theme')
 
 # A self-contained .NET publish carries prebuilt native libraries that are not ours to strip:
