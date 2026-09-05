@@ -1,8 +1,10 @@
 [Desktop Entry]
 Name=mTiles
+GenericName=Terminal Manager
 Exec=mTiles
 Icon=mtiles
 Type=Application
 Categories=Development;System;TerminalEmulator;
 Comment=Cross-platform terminal manager
 Terminal=false
+Keywords=terminal;shell;tiles;workspace;ai;agent;

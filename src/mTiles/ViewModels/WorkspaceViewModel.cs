@@ -67,6 +67,12 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     public string WorkspaceId { get; }
     public string WorkingDirectory { get; }
 
+    /// <summary>What this workspace is called on screen — the window's title takes it.</summary>
+    /// <remarks>Through <see cref="WorkspaceDisplayName"/>, the same rule the panel's row goes
+    /// through, so the title bar and the row the user clicked cannot spell one workspace two ways.
+    /// Read once: nothing renames a workspace while it is loaded.</remarks>
+    public string Name { get; }
+
     private readonly TileActivationScope _activationScope = new();
 
     /// <summary>Which of this workspace's tiles has the whole of it, if any.</summary>
@@ -95,6 +101,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         WorkspaceId = workspace.Id;
         WorkingDirectory = workspace.DirectoryPath;
+        Name = WorkspaceDisplayName.For(workspace.Name, workspace.DirectoryPath);
         _persistenceService = persistenceService;
         _settingsService = settingsService;
         _dictation = dictation;

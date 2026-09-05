@@ -70,7 +70,11 @@ public partial class MainWindowViewModel : ObservableObject
     private WorkspacesPanelViewModel _workspacesPanel;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Title))]
     private WorkspaceViewModel? _currentWorkspace;
+
+    /// <summary>What the window is called — see <see cref="WindowTitle"/>.</summary>
+    public string Title => WindowTitle.For(CurrentWorkspace?.Name);
 
     /// <summary>
     /// Raised when the tile a window-level command acts on changes, or when that tile's own state does.

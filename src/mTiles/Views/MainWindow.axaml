@@ -5,7 +5,7 @@
         xmlns:mi="using:Material.Icons.Avalonia"
         x:Class="mTiles.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="mTiles"
+        Title="{Binding Title}"
         Icon="/Assets/mtiles-icon.png"
         Background="{DynamicResource BgCanvas}">
 
