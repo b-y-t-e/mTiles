@@ -1,0 +1,179 @@
+name: Arch repository
+
+# Builds mtiles-bin from the release tarball and publishes a signed pacman repository, so an
+# Arch machine gets mTiles through `pacman -Syu` like any other package.
+#
+# The repository is hosted on a *rolling* GitHub release tagged `arch-repo` rather than on
+# GitHub Pages. pacman asks one base URL for `mtiles.db` and then for each package by file
+# name, which release assets serve directly; Pages would mean committing a 216 MB tree to git
+# on every version.
+#
+# It holds the current version only. Keeping every past package would grow without bound for a
+# downgrade path `pacman -U` already covers from the cache, and the assets are replaced as one
+# set so the database never names a package that is not beside it.
+
+# Called by release.yml once the release exists, and runnable by hand to rebuild a version.
+#
+# Deliberately NOT `on: release: published`: that release is created by a workflow using
+# GITHUB_TOKEN, and GitHub does not raise workflow-triggering events for anything a GITHUB_TOKEN
+# did — so the trigger would look right and never once fire.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to package, with or without the leading v"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to package, with or without the leading v (e.g. 0.4.41)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install the toolchain
+        run: pacman -Syu --noconfirm git namcap github-cli gnupg
+
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          VERSION="${INPUT_VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            echo "::error::No version given."
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Packaging $VERSION"
+
+      - name: Render the PKGBUILD
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/mTiles-linux-x64.tar.gz"
+          # Retried: the release exists by now, but an asset can take a moment to become
+          # downloadable after it is attached. Saved under the name the source= line gives it,
+          # inside the build directory, so makepkg verifies the very bytes this checksum was
+          # taken from instead of fetching 216 MB a second time and hoping they match.
+          LOCAL="packaging/arch/mTiles-${VERSION}-linux-x64.tar.gz"
+          curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o "$LOCAL" "$URL"
+          SHA=$(sha256sum "$LOCAL" | cut -d' ' -f1)
+          sed -e "s|@PKGVER@|${VERSION}|g" -e "s|@SHA256@|${SHA}|g" \
+              packaging/arch/PKGBUILD.in > packaging/arch/PKGBUILD
+          echo "SHA256=$SHA" >> $GITHUB_ENV
+          cat packaging/arch/PKGBUILD
+
+      # makepkg refuses to run as root, and the container is root. The build user needs
+      # passwordless sudo so that --syncdeps can install the declared dependencies — which is
+      # the point of not passing --nodeps: a dependency named wrongly must fail the build here
+      # rather than on somebody's machine.
+      - name: Build the package
+        run: |
+          set -eu
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
+          chown -R builder:builder packaging/arch
+          cd packaging/arch
+          sudo -u builder makepkg -f --syncdeps --noconfirm
+          ls -la *.pkg.tar.zst
+
+      # namcap reports what the package actually links against, which is the only real check on
+      # the depends= list. It is printed rather than enforced: it also reports things that are
+      # correct for a self-contained runtime (unstripped binaries, a private library directory),
+      # and a release must not fail on those.
+      - name: Check the package with namcap
+        continue-on-error: true
+        run: |
+          cd packaging/arch
+          namcap PKGBUILD || true
+          namcap ./*.pkg.tar.zst || true
+
+      # The key carries no passphrase, deliberately. A passphrase would live in a second secret
+      # next to the key it protects, which protects nothing, and it costs a gpg-agent pinentry
+      # dance inside a container that repo-add gives no way to pass a loopback mode through.
+      - name: Import the signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.ARCH_REPO_GPG_KEY }}
+        run: |
+          set -eu
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error::ARCH_REPO_GPG_KEY is not set. A pacman repository has to be signed:"
+            echo "::error::without it every user must set SigLevel = Optional TrustAll, which"
+            echo "::error::turns off the check that makes the repository safe to add."
+            exit 1
+          fi
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          FPR=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+          echo "FPR=$FPR" >> $GITHUB_ENV
+          gpg --armor --export "$FPR" > mtiles-repo.gpg
+          echo "Signing key: $FPR"
+
+      - name: Sign and build the database
+        run: |
+          set -eu
+          mkdir -p repo && mv packaging/arch/*.pkg.tar.zst repo/
+          cd repo
+          PKG=$(ls ./*.pkg.tar.zst)
+          gpg --batch --yes --local-user "$FPR" --detach-sign --no-armor "$PKG"
+          GPGKEY="$FPR" repo-add --sign --key "$FPR" mtiles.db.tar.gz "$PKG"
+          # repo-add leaves mtiles.db and mtiles.files as symlinks, and a release asset cannot be
+          # one. pacman asks for exactly those two names, so they are uploaded as real copies.
+          cp -L mtiles.db.tar.gz mtiles.db
+          cp -L mtiles.db.tar.gz.sig mtiles.db.sig
+          cp -L mtiles.files.tar.gz mtiles.files
+          cp -L mtiles.files.tar.gz.sig mtiles.files.sig
+          ls -la
+
+      - name: Publish the repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          # A rolling tag: created on the first run, reused and overwritten afterwards. Marked as
+          # a prerelease so it never shows as the project's latest version on the releases page.
+          if ! gh release view arch-repo >/dev/null 2>&1; then
+            gh release create arch-repo --prerelease --title "Arch repository" --notes \
+              "Signed pacman repository — see packaging/arch/README.md. Updated automatically; not a product release."
+          fi
+          # Old assets go before the new ones land, so the database and the package it names are
+          # never momentarily out of step with each other.
+          gh release view arch-repo --json assets --jq '.assets[].name' \
+            | xargs -r -I{} gh release delete-asset arch-repo {} --yes
+          gh release upload arch-repo --clobber \
+            repo/mtiles.db repo/mtiles.db.sig \
+            repo/mtiles.db.tar.gz repo/mtiles.db.tar.gz.sig \
+            repo/mtiles.files repo/mtiles.files.sig \
+            repo/mtiles.files.tar.gz repo/mtiles.files.tar.gz.sig \
+            repo/*.pkg.tar.zst repo/*.pkg.tar.zst.sig \
+            mtiles-repo.gpg
+
+      # So that `git clone && cd packaging/arch && makepkg -si` works for anybody who would
+      # rather not add a repository, and so the file that will one day be pushed to the AUR is
+      # always the one that was actually built.
+      - name: Commit the rendered PKGBUILD
+        continue-on-error: true
+        run: |
+          set -eu
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f packaging/arch/PKGBUILD
+          if git diff --cached --quiet; then
+            echo "PKGBUILD unchanged"
+          else
+            git commit -m "chore: PKGBUILD dla ${VERSION}"
+            git push origin HEAD:master \
+              || echo "::warning::Could not push the rendered PKGBUILD; the repository is published either way."
+          fi

@@ -60,6 +60,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -110,11 +113,33 @@ jobs:
         run: |
           ARCH=x86_64 ./appimagetool AppDir mTiles-linux-x86_64.AppImage
 
+      # What the Arch package is built from. Deliberately the publish tree rather than the
+      # AppImage: extracting an AppImage inside a PKGBUILD means unpacking somebody else's
+      # squashfs to get at files we already have here, and the AppImage carries its own FUSE
+      # runtime that a distribution package must not ship.
+      #
+      # The .desktop, the icon and the licence travel in the tarball beside the binaries so that
+      # the PKGBUILD has exactly one source. A package that reached into the git repository for
+      # its desktop entry could not be built from a release alone — which is what AUR will
+      # require of it later.
+      - name: Create the Linux tarball
+        run: |
+          TREE="mTiles-${VERSION}-linux-x64"
+          mkdir -p "$TREE/bin"
+          cp -r ./publish/. "$TREE/bin/"
+          cp deploy/linux/mTiles.desktop "$TREE/mTiles.desktop"
+          cp src/mTiles/Assets/mtiles-icon-256.png "$TREE/mtiles.png"
+          cp LICENSE "$TREE/LICENSE"
+          tar czf mTiles-linux-x64.tar.gz "$TREE"
+          sha256sum mTiles-linux-x64.tar.gz
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-release
-          path: mTiles-linux-x86_64.AppImage
+          path: |
+            mTiles-linux-x86_64.AppImage
+            mTiles-linux-x64.tar.gz
 
   create-release:
     needs: [build-windows, build-linux]
@@ -138,3 +163,11 @@ jobs:
             artifacts/windows-release/assets.win.json
             artifacts/windows-release/RELEASES
             artifacts/linux-release/mTiles-linux-x86_64.AppImage
+            artifacts/linux-release/mTiles-linux-x64.tar.gz
+
+  arch-repo:
+    needs: [create-release]
+    uses: ./.github/workflows/arch-repo.yml
+    with:
+      version: ${{ github.ref_name }}
+    secrets: inherit

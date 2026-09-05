@@ -1,0 +1,6 @@
+# What makepkg leaves behind — the tarball alone is 216 MB.
+*.tar.gz
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
+pkg/
+src/
