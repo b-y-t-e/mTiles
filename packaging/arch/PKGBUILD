@@ -1,0 +1,77 @@
+# Maintainer: Andrzej Ból <andrzej.bol@gmail.com>
+#
+# Generated from PKGBUILD.in by .github/workflows/arch-repo.yml — 0.4.42 and e8e5ae80e6e211aaa3ac723656fa24d85465257c7c2d269cc5e1bff6658cc6f5
+# are substituted per release. The committed PKGBUILD beside this file is the rendered
+# result of the newest release, so `makepkg -si` in this directory works without CI.
+
+pkgname=mtiles-bin
+pkgver=0.4.42
+pkgrel=1
+pkgdesc="Tiling terminal manager with AI agent tiles — .NET 10 + Avalonia"
+arch=('x86_64')
+url="https://github.com/b-y-t-e/mTiles"
+license=('MIT')
+provides=('mtiles')
+conflicts=('mtiles')
+
+# Everything managed is inside the self-contained publish, so what is listed here is what its
+# native libraries reach for outside it. Each entry answers a specific .so in the tree:
+#   openssl      libSystem.Security.Cryptography.Native.OpenSsl.so
+#   krb5         libSystem.Net.Security.Native.so (libgssapi_krb5)
+#   icu          libSystem.Globalization.Native.so
+#   fontconfig   libSkiaSharp.so — text; pulls freetype2
+#   libglvnd     libSkiaSharp.so — libGL.so.1
+#   alsa-lib     libportaudio.so — the dictation microphone
+#   libx11/libice/libsm   Avalonia's X11 backend (XWayland on a Wayland session)
+#   hicolor-icon-theme    owns /usr/share/icons/hicolor, which this package writes into
+#
+# namcap reports most of these as "included, but may not be needed", and it is wrong about all
+# of them for one reason: it reads ELF DT_NEEDED entries, and these libraries are opened with
+# dlopen at runtime. .NET resolves libssl, libicu and libgssapi_krb5 that way, Avalonia does the
+# same for libX11, and Skia for libGL — none of it is visible to a linker-level check. What
+# namcap *is* right about is the one entry it reported as missing (hicolor-icon-theme) and the
+# ones it confirmed through DT_NEEDED: fontconfig and alsa-lib.
+depends=('glibc' 'gcc-libs' 'zlib' 'icu' 'openssl' 'krb5'
+         'fontconfig' 'libglvnd' 'alsa-lib' 'libx11' 'libice' 'libsm'
+         'hicolor-icon-theme')
+
+# A self-contained .NET publish carries prebuilt native libraries that are not ours to strip:
+# stripping libcoreclr/libSkiaSharp/libonnxruntime is at best pointless and at worst breaks the
+# load. There is no debug package for a binary release either.
+options=('!strip' '!debug' '!lto')
+
+_tarball="mTiles-${pkgver}-linux-x64"
+source=("${_tarball}.tar.gz::${url}/releases/download/v${pkgver}/mTiles-linux-x64.tar.gz")
+sha256sums=('e8e5ae80e6e211aaa3ac723656fa24d85465257c7c2d269cc5e1bff6658cc6f5')
+
+package() {
+    # /opt rather than /usr/lib: 426 files of somebody else's runtime, versioned as one unit.
+    install -dm755 "$pkgdir/opt/mtiles"
+    cp -a "$srcdir/$_tarball/bin/." "$pkgdir/opt/mtiles/"
+    chmod 755 "$pkgdir/opt/mtiles/mTiles"
+
+    # The publish carries every runtime identifier its NuGet packages ship, so an x86_64 Linux
+    # package would otherwise install Windows DLLs, macOS dylibs and ARM shared objects that
+    # nothing here can load. Dead weight, and not only that: namcap reads them and reports an
+    # uninstalled ld-linux-aarch64.so.1 and a RUNPATH from whisper.net's own build machine,
+    # which buries the findings that are about this package. linux-x64 stays — whisper.net loads
+    # its libraries from there rather than from the root of the publish.
+    find "$pkgdir/opt/mtiles/runtimes" -mindepth 1 -maxdepth 1 -type d          -not -name 'linux-x64' -exec rm -rf {} +
+
+    # The apphost resolves its runtime relative to its own path, so the wrapper execs the real
+    # binary rather than symlinking to it — a symlink in /usr/bin would resolve $ORIGIN there.
+    install -dm755 "$pkgdir/usr/bin"
+    printf '#!/bin/sh\nexec /opt/mtiles/mTiles "$@"\n' > "$pkgdir/usr/bin/mtiles"
+    chmod 755 "$pkgdir/usr/bin/mtiles"
+
+    # Exec is rewritten to the wrapper: the shipped file names the binary the way the AppImage
+    # launches it, and one .desktop in the repository is better than two that can disagree.
+    install -Dm644 "$srcdir/$_tarball/mTiles.desktop" \
+        "$pkgdir/usr/share/applications/mtiles.desktop"
+    sed -i 's|^Exec=.*|Exec=mtiles|' "$pkgdir/usr/share/applications/mtiles.desktop"
+
+    install -Dm644 "$srcdir/$_tarball/mtiles.png" \
+        "$pkgdir/usr/share/icons/hicolor/256x256/apps/mtiles.png"
+    install -Dm644 "$srcdir/$_tarball/LICENSE" \
+        "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
