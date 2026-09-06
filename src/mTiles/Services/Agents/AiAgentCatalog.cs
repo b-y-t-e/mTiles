@@ -52,6 +52,9 @@ public static class AiAgentCatalog
     /// </remarks>
     public static string? Locate(IAiAgent agent)
     {
+        if (_everyAgentIsInstalled)
+            return PretendedPathPrefix + agent.BinaryName;
+
         var now = DateTimeOffset.UtcNow;
         if (Located.TryGetValue(agent.BinaryName, out var known)
             && now - known.Asked < LocationValidFor)
@@ -64,24 +67,36 @@ public static class AiAgentCatalog
 
     /// <summary>Answers <see cref="Locate"/> for every agent without looking at this machine.</summary>
     /// <remarks>
-    /// <para>The seam a test needs, and the cache above is already the right place for it: whether an
-    /// agent is installed is otherwise a fact about whoever is running the suite. Three tests about
-    /// the sign-in form and the tile's instance chooser passed on a developer's machine, where Claude
-    /// Code and codex are on <c>PATH</c>, and failed on a CI agent where nothing is — the lists they
-    /// assert on are narrowed by <see cref="IsAvailable"/>, so on a bare box they are empty and the
-    /// assertions say nothing about the code under test.</para>
-    /// <para>The path is a name rather than anything real. Nothing here executes it: these callers ask
-    /// only whether the answer is null.</para>
+    /// <para>The seam a test needs: whether an agent is installed is otherwise a fact about whoever
+    /// is running the suite. Three tests about the sign-in form and the tile's instance chooser
+    /// passed on a developer's machine, where Claude Code and codex are on <c>PATH</c>, and failed
+    /// on a CI agent where nothing is — the lists they assert on are narrowed by
+    /// <see cref="IsAvailable"/>, so on a bare box they are empty and the assertions say nothing
+    /// about the code under test.</para>
+    /// <para><b>A flag rather than seeded cache entries</b>, and that difference is the whole of it:
+    /// the cache expires after <see cref="LocationValidFor"/>, thirty seconds, so a pretence written
+    /// into it at start-up was gone by the time a suite running for over a minute reached the tests
+    /// that needed it. Those tests then passed on a machine with the CLIs installed and failed on one
+    /// without — which is the fault this exists to remove, arriving a second time. A flag has no
+    /// clock in it, and <c>TestMachineTests</c> asserts it is in force so a broken seam says so on
+    /// every machine instead of only on CI.</para>
     /// </remarks>
-    internal static void PretendEveryAgentIsInstalled()
-    {
-        var now = DateTimeOffset.UtcNow;
-        foreach (var agent in All)
-            Located[agent.BinaryName] = (now, "/pretend/" + agent.BinaryName);
-    }
+    internal static void PretendEveryAgentIsInstalled() => _everyAgentIsInstalled = true;
 
     /// <summary>Forgets what <see cref="Locate"/> has been told or has found.</summary>
-    internal static void ForgetWhatIsInstalled() => Located.Clear();
+    internal static void ForgetWhatIsInstalled()
+    {
+        _everyAgentIsInstalled = false;
+        Located.Clear();
+    }
+
+    /// <summary>Where <see cref="PretendEveryAgentIsInstalled"/> claims binaries are.</summary>
+    /// <remarks>Nothing executes it — the callers this serves ask only whether the answer is null —
+    /// and it is deliberately somewhere no binary could be, so a path that escapes into a launch is
+    /// recognisable in a log rather than plausible.</remarks>
+    internal const string PretendedPathPrefix = "/pretend-not-a-real-binary/";
+
+    private static bool _everyAgentIsInstalled;
 
     /// <summary>How long a scan's answer stands. See <see cref="Locate"/>.</summary>
     private static readonly TimeSpan LocationValidFor = TimeSpan.FromSeconds(30);
