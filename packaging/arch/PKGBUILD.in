@@ -22,6 +22,12 @@ conflicts=('mtiles')
 #   fontconfig   libSkiaSharp.so — text; pulls freetype2
 #   libglvnd     libSkiaSharp.so — libGL.so.1
 #   alsa-lib     libportaudio.so — the dictation microphone
+#   libjack.so   libportaudio.so too, and this one is a *hard* DT_NEEDED rather than a dlopen:
+#                without a provider the library does not load at all and dictation is dead, with
+#                nothing on screen naming the cause. The soname rather than the virtual name "jack",
+#                because that is what the ELF asks for and both jack2 and pipewire-jack provide it —
+#                a machine that already has either (any modern desktop, Omarchy included) sees no
+#                change at all, and one that has neither is asked to pick a provider
 #   libx11/libice/libsm   Avalonia's X11 backend, which is the fallback on an X11 session
 #   wayland               libwayland-client/-cursor/-egl, the backend used on a Wayland session
 #   libxkbcommon          the keyboard map, which a Wayland client is handed rather than told
@@ -41,7 +47,7 @@ conflicts=('mtiles')
 depends=('glibc' 'gcc-libs' 'zlib' 'icu' 'openssl' 'krb5'
          'fontconfig' 'libglvnd' 'alsa-lib' 'libx11' 'libice' 'libsm'
          'wayland' 'libxkbcommon' 'mesa' 'libdrm'
-         'hicolor-icon-theme')
+         'libjack.so' 'hicolor-icon-theme')
 
 # A self-contained .NET publish carries prebuilt native libraries that are not ours to strip:
 # stripping libcoreclr/libSkiaSharp/libonnxruntime is at best pointless and at worst breaks the
