@@ -1,6 +1,7 @@
 using mTiles.Models;
 using mTiles.ViewModels;
 using Xunit;
+using mTiles.Services;
 
 namespace mTiles.Tests;
 
@@ -38,7 +39,7 @@ public class GoalCriteriaEditorTests
         Assert.Equal("", criteria.TolerancesNote);
 
         criteria.MaxIterations = 999;
-        Assert.Equal("using 50", criteria.AttemptsNote);
+        Assert.Equal($"using {GoalCompletionPolicy.MostAttempts}", criteria.AttemptsNote);
 
         criteria.MaxIterations = 0;
         Assert.Equal("using 1", criteria.AttemptsNote);

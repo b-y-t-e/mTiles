@@ -1062,10 +1062,11 @@ public class GoalCompletionPolicyTests
     public void The_summary_reports_the_attempts_the_run_actually_had()
     {
         // The panel stores what was typed and a file can hold anything. Reading the raw number here had
-        // a run of fifty report itself as "stopped after 999 attempts".
+        // a run capped at the ceiling report itself as "stopped after 999 attempts". Named rather than
+        // spelled out, because it was spelled out and then the ceiling moved from 50 to 100.
         var absurd = new GoalCompletionCriteria { MaxIterations = 999 };
 
-        Assert.Equal(50, GoalCompletionPolicy.Attempts(absurd));
+        Assert.Equal(GoalCompletionPolicy.MostAttempts, GoalCompletionPolicy.Attempts(absurd));
 
         // And the other end: zero attempts would finish a goal the moment its plan was approved.
         Assert.Equal(1, GoalCompletionPolicy.Attempts(new GoalCompletionCriteria { MaxIterations = 0 }));

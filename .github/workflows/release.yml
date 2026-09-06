@@ -68,6 +68,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfuse2
 
+      # The only place the suite runs on Linux, and the reason it runs at all: 0.4.43 shipped an
+      # application that could not start there, because the fault was in a branch a Windows machine
+      # never takes and nothing on this workflow had ever executed a test against Linux.
+      - name: Test
+        run: dotnet test -c Release
+
       - name: Publish
         run: dotnet publish src/mTiles/mTiles.csproj -c Release --self-contained -r linux-x64 -o ./publish
 

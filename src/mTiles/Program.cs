@@ -65,13 +65,22 @@ public static class Program
     /// <para>Linux only, and explicitly: the method exists on every platform and asking for Wayland on
     /// Windows would be a fallback path taken every launch for no reason.</para>
     /// </remarks>
-    public static AppBuilder BuildAvaloniaApp()
-    {
-        AppBuilder builder = AppBuilder.Configure<App>();
+    public static AppBuilder BuildAvaloniaApp() => BuildAvaloniaApp(OperatingSystem.IsLinux());
 
-        builder = OperatingSystem.IsLinux()
-            ? builder.UseWaylandWithFallback()
-            : builder.UsePlatformDetect();
+    /// <param name="useWayland">Whether to ask for the Wayland backend. A parameter so a test can
+    /// take the Linux path on any machine — the ordering fault below is invisible to a Windows dev
+    /// box and to CI, which builds Linux but runs no tests against it, and it shipped once.</param>
+    internal static AppBuilder BuildAvaloniaApp(bool useWayland)
+    {
+        // UsePlatformDetect first, always, and that ordering is the whole of it: it is what
+        // installs the fallback, and UseWaylandWithFallback throws outright without one —
+        // "A fallback windowing backend must be configured before calling UseWaylandWithFallback".
+        // Calling the two the other way round is an application that does not start at all, which
+        // is how this was shipped in 0.4.43.
+        AppBuilder builder = AppBuilder.Configure<App>().UsePlatformDetect();
+
+        if (useWayland)
+            builder = builder.UseWaylandWithFallback();
 
         return builder
             .WithInterFont()

@@ -29,7 +29,20 @@ Server = https://github.com/b-y-t-e/mTiles/releases/download/arch-repo
 sudo pacman -Sy mtiles-bin
 ```
 
-From then on `pacman -Syu` upgrades mTiles along with everything else. No AUR helper involved:
+From then on `pacman -Syu` upgrades mTiles along with everything else.
+
+### On Omarchy
+
+Omarchy installs a pacman hook that refuses a direct upgrade and points at `omarchy update`, which
+is the right path for the system as a whole. To upgrade this one package without going through it,
+use the escape the hook itself names:
+
+```bash
+sudo env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -Syu
+```
+
+That is not a partial upgrade as long as the transaction really is one package — pacman prints the
+list before asking, so read it. No AUR helper involved:
 this is a real repository, so plain pacman sees it.
 
 `SigLevel = Required` is not decoration. It is the whole reason the key exists — it is what
