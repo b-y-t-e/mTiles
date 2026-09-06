@@ -72,13 +72,6 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
             // every one of these confirms something that pressing it again will not undo.
             _focusOnOpen = CancelButton;
         }
-
-        KeyDown += (_, e) =>
-        {
-            if (e.Key != Key.Escape) return;
-            e.Handled = true;
-            OverlayHost.CloseWith(this, false);
-        };
     }
 
     public void FocusOnOpen() => _focusOnOpen.Focus();

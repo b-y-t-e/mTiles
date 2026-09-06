@@ -74,18 +74,6 @@ public partial class PhoneBridgeDialog : UserControl
         await host.ShowAsync<object>(window, width: 900);
     }
 
-    protected override void OnKeyDown(KeyEventArgs e)
-    {
-        if (e.Key == Key.Escape)
-        {
-            e.Handled = true;
-            OverlayHost.CloseWith(this, null);
-            return;
-        }
-
-        base.OnKeyDown(e);
-    }
-
     private void Close_Click(object? sender, RoutedEventArgs e) => OverlayHost.CloseWith(this, null);
 
     /// <summary>What <c>OnClosed</c> was before this stopped being a window — see

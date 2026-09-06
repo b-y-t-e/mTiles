@@ -129,8 +129,16 @@ internal static class DictationTextSink
     /// answers for itself now, and both of its answers can be false — a shell that has exited is refused
     /// rather than written to, because text sent to it goes nowhere and saying so is the difference
     /// between the phone showing a reason and the user pressing again.</para>
+    /// <para><b>There is no tile to write to while a dialog is open</b> (<see cref="ModalScope"/>).
+    /// A scrim stops the pointer and nothing else, so Alt+Space over a confirmation dictated a
+    /// sentence straight into the terminal behind it — and the phone's Enter would then have run it.
+    /// The gate is here rather than in either caller because this is the one place they share: a
+    /// sentence and the key that submits it must choose the same destination, or the key lands
+    /// somewhere the text did not. The focused-control route above is untouched, so dictating into a
+    /// dialog's own text box still works, which is the case worth keeping.</para>
     /// </remarks>
-    internal static ITextInputTile? TileInput(LeafTileNodeViewModel? tile) => tile?.Content as ITextInputTile;
+    internal static ITextInputTile? TileInput(LeafTileNodeViewModel? tile) =>
+        ModalScope.IsAnyOpen ? null : tile?.Content as ITextInputTile;
 
     private static bool InsertIntoTextControl(IInputElement? focused, string text)
     {

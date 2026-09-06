@@ -24,11 +24,6 @@ public partial class AgentFileSyncWizard : UserControl, OverlayHost.IFocusOnOpen
             : "Editing either file will copy it to the other, creating it if missing.";
 
         DeclineButton.Click += (_, _) => OverlayHost.CloseWith(this, new AgentFileSyncWizardResult(false, null));
-        KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Escape)
-                OverlayHost.CloseWith(this, new AgentFileSyncWizardResult(false, null));
-        };
         // The modal takes the keyboard when it opens — see FocusOnOpen below.
 
         if (pickAuthoritative)

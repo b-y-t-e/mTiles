@@ -51,15 +51,6 @@ public partial class InputDialog : UserControl, OverlayHost.IFocusOnOpen
             if (e.Key == Key.Enter)
                 OverlayHost.CloseWith(this, InputBox.Text?.Trim());
         };
-
-        // Escape stays, and it is not the gesture OverlayHost refuses. The host will not close on
-        // a click in the scrim because that is a misclick; Escape in a dialog you are typing in is
-        // the user saying cancel, and it was this dialog's behaviour before it stopped being a window.
-        KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Escape)
-                OverlayHost.CloseWith(this, null);
-        };
     }
 
     public void FocusOnOpen() => InputBox.Focus();
