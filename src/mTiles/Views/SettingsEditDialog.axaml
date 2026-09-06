@@ -1,0 +1,445 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             xmlns:m="using:mTiles.Models"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:v="using:mTiles.Views"
+             x:Class="mTiles.Views.SettingsEditDialog"
+             x:DataType="vm:SettingsViewModel">
+
+    <!-- The form for one entry: an agent instance, a provider instance, a sign-in, a manual database
+         connection - open here rather than in the list it belongs to.
+
+         As rows of that list they were unusable in a way that only shows at the keyboard: the form is
+         taller than the viewport, so opening one pushed the list it came from off screen, and the
+         buttons that save it landed below the fold of a page the user had to scroll to reach. A form
+         long enough to need scrolling is a task, and a task gets a surface of its own.
+
+         One dialog for all four, and the form inside is the same markup that used to sit in the list:
+         each is bound to the view model's own Edit* properties and commands, so this is where the form
+         is shown and nothing about what it does.
+
+         No scrim, no card and no close button of its own - OverlayHost draws those, the same as for
+         every other dialog in the application. It used to draw all three for itself, which made it the
+         third implementation of the same thing. -->
+
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+            <Panel Margin="18,16">
+                <!-- No chrome of its own: the overlay it sits in is the card. A bordered box
+                     inside a bordered box is the nesting the design rules exist to stop. -->
+                <!-- A sign-in asks for one thing: what you call it. The directory is derived
+                     and the login itself happens in a tile, so a form with a path field on it
+                     would be three questions where the user has one answer. -->
+                <Border IsVisible="{Binding IsEditingSignIn}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="SIGN-IN" Classes="section" Margin="0,0,0,2" />
+                        <DockPanel>
+                            <TextBlock Text="Name" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditSignInName}"
+                                     PlaceholderText="required - work, personal, the bigger plan" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Tool" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <!-- Fixed once the sign-in exists: its directory is named after
+                                 the sign-in, not the tool, so switching leaves one CLI's
+                                 credentials in a directory belonging to another. -->
+                            <ComboBox ItemsSource="{Binding SignInAgentChoices}"
+                                      SelectedItem="{Binding EditSignInAgentName}"
+                                      IsEnabled="{Binding CanChooseSignInAgent}"
+                                      MinWidth="200" />
+                        </DockPanel>
+                        <TextBlock Text="Saving makes the directory. You then sign in once, in a tile, with the tool's own login command."
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button Classes="accent"
+                                    Command="{Binding SaveSignInCommand}"
+                                    IsEnabled="{Binding CanSaveSignIn}"
+                                    Content="Save"
+                                    Padding="16,5" />
+                            <Button Classes="toolbar"
+                                    Command="{Binding CancelEditSignInCommand}"
+                                    Content="Cancel"
+                                    Padding="16,5" />
+                            <!-- Only once the directory exists: on a new sign-in it is made by
+                                 Save, and a button that opens nothing is worse than none. -->
+                            <Button Classes="toolbar"
+                                    Command="{Binding OpenEditedSignInFolderCommand}"
+                                    IsVisible="{Binding CanOpenEditedSignInFolder}"
+                                    Content="Open account folder"
+                                    Padding="16,5" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border IsVisible="{Binding IsEditingAgentInstance}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="AGENT INSTANCE" Classes="section" Margin="0,0,0,2" />
+                        <DockPanel>
+                            <TextBlock Text="Name" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditAgentName}"
+                                     PlaceholderText="required - what you call this one" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Agent" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ComboBox ItemsSource="{Binding AgentNames}"
+                                      SelectedItem="{Binding EditAgentAgentName}"
+                                      MinWidth="200" />
+                        </DockPanel>
+                        <!-- One chooser, because it is one question: as whom does this run.
+                             A subscription and an API key are two answers to it, and two
+                             fields side by side would let an instance carry both - pointed at
+                             one account directory while authenticating as another. -->
+                        <DockPanel>
+                            <TextBlock Text="Account" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ComboBox ItemsSource="{Binding AccountChoices}"
+                                      SelectedItem="{Binding EditAgentAccount}"
+                                      MinWidth="200" />
+                        </DockPanel>
+                        <TextBlock IsVisible="{Binding HasNoAccountToChoose}"
+                                   Text="{Binding NoAccountNote}"
+                                   Margin="98,-4,0,0"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                        <DockPanel>
+                            <TextBlock Text="Model" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <!-- No List button. Fetching is triggered by the one event that
+                                 changes the answer - which account this runs as - so a button
+                                 to ask again was a step the user had to know about, in front
+                                 of a control that gives no sign a list exists at all.
+
+                                 Matching is every typed word anywhere in the id, in any order
+                                 (ModelSearch), because ids are punctuated by whoever published
+                                 them and the separator is the one part nobody remembers. The
+                                 predicate is attached in the code-behind: it is a function,
+                                 and XAML has nowhere to put one. -->
+                            <AutoCompleteBox x:Name="AgentModelBox"
+                                             Text="{Binding EditAgentModel}"
+                                             ItemsSource="{Binding ModelSuggestions}"
+                                             FilterMode="Custom"
+                                             MinimumPrefixLength="0"
+                                             PlaceholderText="{Binding ModelHint}" />
+                        </DockPanel>
+                        <TextBlock IsVisible="{Binding HasModelContext}"
+                                   Text="{Binding ModelContextDisplay}"
+                                   Margin="98,-6,0,0"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                        <!-- The same slot as the context readout above, for the one state the
+                             readout cannot fill: no model named. The account is half the
+                             question - on a sign-in the CLI's default is its own answer. -->
+                        <TextBlock IsVisible="{Binding HasModelEmptyWarning}"
+                                   Text="{Binding ModelEmptyWarning}"
+                                   Margin="98,-6,0,0"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource WarnText}" />
+                        <DockPanel IsVisible="{Binding ShowsFastModel}">
+                            <TextBlock Text="Fast model" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <!-- The same completion as Model above, over the same list: it takes
+                                 a model id from the same provider, so a field that could not
+                                 complete one was the pair disagreeing about what it holds. -->
+                            <AutoCompleteBox x:Name="AgentFastModelBox"
+                                             Text="{Binding EditAgentFastModel}"
+                                             ItemsSource="{Binding ModelSuggestions}"
+                                             FilterMode="Custom"
+                                             MinimumPrefixLength="0"
+                                             PlaceholderText="{Binding FastModelHint}" />
+                        </DockPanel>
+                        <TextBlock IsVisible="{Binding HasFastModelContext}"
+                                   Text="{Binding FastModelContextDisplay}"
+                                   Margin="98,-6,0,0"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                        <DockPanel IsVisible="{Binding ShowsAutoCompact}">
+                            <TextBlock Text="Auto-compact" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditAgentAutoCompact}"
+                                     PlaceholderText="tokens — empty: read from the model" />
+                        </DockPanel>
+                        <TextBlock IsVisible="{Binding ShowsAutoCompact}"
+                                   Text="Claude Code only. When empty, the launch sets CLAUDE_CODE_AUTO_COMPACT_WINDOW to 80% of the model's context window, read from the provider; a value typed here is used as-is."
+                                   Margin="98,-4,0,0"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                        <DockPanel IsVisible="{Binding ShowsMaxContext}">
+                            <TextBlock Text="Max context" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditAgentMaxContext}"
+                                     PlaceholderText="tokens - empty: read from the provider" />
+                        </DockPanel>
+                        <TextBlock IsVisible="{Binding ShowsMaxContext}"
+                                   Text="Claude Code only. When empty, the launch sets CLAUDE_CODE_MAX_CONTEXT_TOKENS to the model's full context window, read from the provider - without it the CLI assumes 200k and stops there, whatever the model really serves. Corrects the provider's own word too: a value typed here is used as-is."
+                                   Margin="98,-4,0,0"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                        <DockPanel>
+                            <TextBlock Text="Behaviour" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ComboBox ItemsSource="{Binding BehaviourLabels}"
+                                      SelectedItem="{Binding EditAgentBehaviour}"
+                                      MinWidth="200" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Effort" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ComboBox ItemsSource="{Binding EffortLabels}"
+                                      SelectedItem="{Binding EditAgentEffort}"
+                                      MinWidth="200" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Extra args" Classes="label"
+                                       VerticalAlignment="Top" Width="90" Margin="0,6,0,0" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditAgentExtraArgs}"
+                                     AcceptsReturn="True"
+                                     MinHeight="54"
+                                     PlaceholderText="one per line" />
+                        </DockPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button Classes="accent"
+                                    Command="{Binding SaveAgentInstanceCommand}"
+                                    IsEnabled="{Binding CanSaveAgentInstance}"
+                                    Content="Save"
+                                    Padding="16,5" />
+                            <Button Classes="toolbar"
+                                    Command="{Binding CancelEditAgentInstanceCommand}"
+                                    Content="Cancel"
+                                    Padding="12,5" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border IsVisible="{Binding IsEditingProviderInstance}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="PROVIDER" Classes="section" Margin="0,0,0,2" />
+                        <DockPanel>
+                            <TextBlock Text="Name" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditProviderName}"
+                                     PlaceholderText="required — what you call this one" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Service" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ComboBox ItemsSource="{Binding ProviderKinds}"
+                                      SelectedItem="{Binding EditProviderKind}"
+                                      MinWidth="200" />
+                        </DockPanel>
+                        <!-- What CCS is for, said where the choice is made: it is the one
+                             service here that is somebody else's local proxy, and its purpose
+                             is not guessable from its name. -->
+                        <TextBlock IsVisible="{Binding EditProviderIsCcs}"
+                                   Text="CCS runs a local OAuth proxy (CLIProxyAPI) so Claude Code can work on a Codex subscription. Only the Codex subscription is wired today."
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8"
+                                    IsVisible="{Binding EditProviderIsCcs}">
+                            <Button Classes="outlined"
+                                    IsVisible="{Binding ShowCcsInstall}"
+                                    Command="{Binding InstallCcsCommand}"
+                                    Content="Install CCS"
+                                    Padding="12,5" />
+                            <Button Classes="outlined"
+                                    IsVisible="{Binding ShowCcsAuth}"
+                                    Command="{Binding AuthCcsCodexCommand}"
+                                    Content="Auth Codex"
+                                    Padding="12,5" />
+                            <TextBlock VerticalAlignment="Center"
+                                       IsVisible="{Binding CcsIsSetUp}"
+                                       Text="CCS is installed and signed in."
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}" />
+                        </StackPanel>
+                        <DockPanel>
+                            <TextBlock Text="Address" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditProviderBaseUrl}"
+                                     PlaceholderText="{Binding ProviderAddressHint}" />
+                        </DockPanel>
+                        <DockPanel IsVisible="{Binding EditProviderNeedsKey}">
+                            <TextBlock Text="API key" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditProviderApiKey}"
+                                     PasswordChar="●"
+                                     PlaceholderText="{Binding SecretFieldHint}" />
+                        </DockPanel>
+                        <TextBlock IsVisible="{Binding ShowsProviderKeyWarning}"
+                                   Text="{Binding SecretStorageWarning}"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource DangerText}" />
+                        <TextBlock IsVisible="{Binding !EditProviderNeedsKey}"
+                                   Text="{Binding EditProviderNoKeyNote}"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontXs}"
+                                   Foreground="{DynamicResource TextMuted}" />
+                        <DockPanel>
+                            <TextBlock Text="Timeout" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <NumericUpDown Classes="setting"
+                                           Value="{Binding EditProviderTimeout}"
+                                           Minimum="1" Maximum="600" Increment="5" />
+                        </DockPanel>
+                        <CheckBox IsVisible="{Binding EditProviderIsLocal}"
+                                  IsChecked="{Binding SearchLocalNetwork}"
+                                  Content="Also look on this network when discovering" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button Classes="accent"
+                                    Command="{Binding SaveProviderInstanceCommand}"
+                                    IsEnabled="{Binding CanSaveProviderInstance}"
+                                    Content="Save"
+                                    Padding="16,5" />
+                            <Button Classes="outlined"
+                                    Command="{Binding TestProviderCommand}"
+                                    IsEnabled="{Binding !IsTestingProvider}"
+                                    Content="Test"
+                                    Padding="12,5" />
+                            <Button Classes="outlined"
+                                    Command="{Binding LoadProviderModelsCommand}"
+                                    IsEnabled="{Binding !IsTestingProvider}"
+                                    Content="Models"
+                                    Padding="12,5" />
+                            <Button Classes="outlined"
+                                    IsVisible="{Binding EditProviderIsLocal}"
+                                    Command="{Binding DiscoverProviderCommand}"
+                                    IsEnabled="{Binding !IsTestingProvider}"
+                                    Content="Discover"
+                                    Padding="12,5" />
+                            <Button Classes="toolbar"
+                                    Command="{Binding CancelEditProviderInstanceCommand}"
+                                    Content="Cancel"
+                                    Padding="12,5" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding EditProviderTestResult}"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontSm}"
+                                   Foreground="{DynamicResource TextMuted}"
+                                   IsVisible="{Binding EditProviderTestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <!-- What the provider answered, so Models proves the address and the
+                             key rather than only counting. Scrolled, because a hosted list runs
+                             to hundreds and would otherwise push Save off the form. -->
+                        <ScrollViewer MaxHeight="140"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding ModelSuggestions}" />
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+                <Border IsVisible="{Binding IsEditingManualConnection}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="CONNECTION" Classes="section" Margin="0,0,0,2" />
+                        <DockPanel>
+                            <TextBlock Text="Provider" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ComboBox ItemsSource="{Binding DbProviders}"
+                                      SelectedItem="{Binding EditConnProvider}"
+                                      MinWidth="160" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Alias" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditConnAlias}"
+                                     PlaceholderText="short name for URL (optional)" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Server" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditConnServer}"
+                                     PlaceholderText="hostname or IP" />
+                        </DockPanel>
+                        <DockPanel IsVisible="{Binding IsInstanceVisible}">
+                            <TextBlock Text="Instance" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditConnInstance}"
+                                     PlaceholderText="SQL Server instance (optional)" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Database" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditConnDatabase}"
+                                     PlaceholderText="Database name" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Port" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <NumericUpDown Classes="setting"
+                                           Value="{Binding EditConnPort}"
+                                           Minimum="0" Maximum="65535" Increment="1"
+                                           PlaceholderText="0 = default" />
+                        </DockPanel>
+                        <DockPanel>
+                            <TextBlock Text="Auth" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <ToggleSwitch IsChecked="{Binding EditConnIntegrated}"
+                                          OnContent="Windows Auth" OffContent="SQL Auth" />
+                        </DockPanel>
+                        <DockPanel IsVisible="{Binding !EditConnIntegrated}">
+                            <TextBlock Text="Username" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditConnUsername}"
+                                     PlaceholderText="Username" />
+                        </DockPanel>
+                        <DockPanel IsVisible="{Binding !EditConnIntegrated}">
+                            <TextBlock Text="Password" Classes="label"
+                                       VerticalAlignment="Center" Width="90" />
+                            <TextBox Classes="setting"
+                                     Text="{Binding EditConnPassword}"
+                                     PasswordChar="●"
+                                     PlaceholderText="Password" />
+                        </DockPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button Classes="accent"
+                                    Command="{Binding SaveManualConnectionCommand}"
+                                    Content="Save"
+                                    Padding="16,5" />
+                            <Button Classes="outlined"
+                                    Command="{Binding TestEditConnectionCommand}"
+                                    IsEnabled="{Binding !IsTestingEditConn}"
+                                    Padding="12,5">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <mi:MaterialIcon Kind="PlayCircleOutline" Width="14" Height="14" />
+                                    <TextBlock Text="Test" />
+                                </StackPanel>
+                            </Button>
+                            <Button Classes="toolbar"
+                                    Command="{Binding CancelEditManualConnectionCommand}"
+                                    Content="Cancel"
+                                    Padding="12,5" />
+                            <TextBlock Text="{Binding EditConnTestResult}"
+                                       FontSize="{DynamicResource FontSm}"
+                                       Foreground="{DynamicResource TextMuted}"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding EditConnTestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Panel>
+        </ScrollViewer>
+</UserControl>

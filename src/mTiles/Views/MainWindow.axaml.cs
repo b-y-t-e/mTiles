@@ -21,7 +21,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Title = $"mTiles {AppInfo.Version}";
-        SizeChanged += (_, _) => UpdateSettingsDialogSize();
         TerminalClipboardCoordinator.Attach(this);
 
         // Tunneled, like the clipboard coordinator: a terminal consumes F11 as an escape sequence for
@@ -62,8 +61,7 @@ public partial class MainWindow : Window
             {
                 if (e.PropertyName == nameof(MainWindowViewModel.IsSettingsOpen))
                 {
-                    UpdateSettingsDialogSize();
-                    ApplySettingsModality(vm.IsSettingsOpen);
+                    ApplySettingsDialog(vm);
                 }
                 else if (e.PropertyName == nameof(MainWindowViewModel.CurrentWorkspace))
                     SwitchWorkspaceView(vm.CurrentWorkspace);
@@ -342,40 +340,63 @@ public partial class MainWindow : Window
         WindowState = WindowState.FullScreen;
     }
 
-    /// <summary>Held while the settings dialog is showing — see <see cref="ApplySettingsModality"/>.</summary>
-    private IDisposable? _settingsModality;
+    /// <summary>The settings dialog, while it is open.</summary>
+    private SettingsView? _settings;
 
     /// <summary>
-    /// Makes the settings dialog modal to the keyboard, the way every other dialog already is.
+    /// Opens and closes Settings, which <see cref="OverlayHost"/> now draws like every other dialog.
     /// </summary>
     /// <remarks>
-    /// <para>Settings is drawn by hand in this window's markup rather than by
-    /// <see cref="OverlayHost"/> — it is older than the host and has closing rules of its own — so the
-    /// modality the host gives its dialogs went past the one dialog people open most. Tab walked out
-    /// of it into the workspace list, and Alt+Space dictated into the terminal tile behind it.</para>
-    /// <para>Claimed here rather than moving Settings into the host, which is a larger change than
-    /// this fault deserves; <see cref="ModalSurface"/> exists so the two share one implementation
-    /// instead of the host keeping modality to itself.</para>
+    /// <para>It used to be a card written by hand in this window's markup, with its own scrim, its own
+    /// close button and its own sizing in code-behind — the last of the four implementations of the
+    /// same thing, and the one people open most. What it needed that the host did not have is now the
+    /// host's: a header of its own for the tabs (<c>IOverlayHeader</c>), a say in being closed
+    /// (<c>IConfirmsClose</c>, for the unapplied database changes) and a size that is a share of the
+    /// window rather than a number (<see cref="OverlaySize.Fraction"/>).</para>
+    /// <para>Both directions, as everywhere else: the flag opening it is the gear being pressed, and
+    /// the task completing is the user closing it, which has to put the flag down or the gear would
+    /// refuse to open it again.</para>
     /// </remarks>
-    private void ApplySettingsModality(bool open)
+    private async void ApplySettingsDialog(MainWindowViewModel vm)
     {
-        if (!open)
+        if (!vm.IsSettingsOpen)
         {
-            _settingsModality?.Dispose();
-            _settingsModality = null;
+            if (_settings is { } open)
+            {
+                _settings = null;
+                OverlayHost.CloseWith(open, null);
+            }
             return;
         }
 
-        _settingsModality ??= ModalSurface.Take(SettingsDialog);
+        if (_settings is not null || OverlayHost.For(this) is not { } host)
+            return;
+
+        var view = new SettingsView { DataContext = vm.Settings };
+        _settings = view;
+
+        // async void: nothing may escape to the dispatcher, where it is a crash rather than a dialog
+        // that failed to open.
+        try
+        {
+            // Half the width and four fifths of the height, with the floors its own card carried.
+            await host.ShowAsync<object>(view, OverlaySize.Fraction(0.5, 0.8, 420, 400));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning($"The settings dialog failed: {ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_settings, view))
+            {
+                _settings = null;
+                vm.IsSettingsOpen = false;
+            }
+        }
     }
 
-    private void UpdateSettingsDialogSize()
-    {
-        if (SettingsDialog == null) return;
-        var bounds = ClientSize;
-        SettingsDialog.Width = Math.Max(420, bounds.Width * 0.5);
-        SettingsDialog.Height = Math.Max(400, bounds.Height * 0.8);
-    }
+
 
     /// <summary>Set once the user has answered the question below, so the second close does not ask
     /// again — and cannot loop.</summary>

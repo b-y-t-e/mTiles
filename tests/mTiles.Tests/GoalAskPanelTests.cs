@@ -626,11 +626,11 @@ public class GoalAskPanelTests : IDisposable
         var finding = new GoalFinding { Severity = GoalSeverity.Error, Title = "Total ignores discounts" };
         var question = new GoalQuestion { Question = "Which file?", Answer = "appsettings.json" };
 
-        Assert.Equal(GoalTranscript.Copyable(finding), GoalTileView.TextOf(finding));
-        Assert.Contains("Total ignores discounts", GoalTileView.TextOf(finding));
+        Assert.Equal(GoalTranscript.Copyable(finding), CopyableText.Of(finding));
+        Assert.Contains("Total ignores discounts", CopyableText.Of(finding));
 
-        Assert.Contains("Which file?", GoalTileView.TextOf(question));
-        Assert.Contains("appsettings.json", GoalTileView.TextOf(question));
+        Assert.Contains("Which file?", CopyableText.Of(question));
+        Assert.Contains("appsettings.json", CopyableText.Of(question));
 
         // The live block, mid-round: the answer is in the view model rather than in the model behind
         // it, and copying has to see what is in the box.
@@ -638,15 +638,15 @@ public class GoalAskPanelTests : IDisposable
         {
             Answer = "async",
         };
-        Assert.Contains("Sync or async?", GoalTileView.TextOf(asking));
-        Assert.Contains("async", GoalTileView.TextOf(asking));
+        Assert.Contains("Sync or async?", CopyableText.Of(asking));
+        Assert.Contains("async", CopyableText.Of(asking));
 
         Assert.Equal("make the tests pass",
-            GoalTileView.TextOf(new GoalMessage { Role = GoalMessageRole.User, Text = "make the tests pass" }));
+            CopyableText.Of(new GoalMessage { Role = GoalMessageRole.User, Text = "make the tests pass" }));
 
         // Anything else is nothing, and the handler returns before it reaches a clipboard.
-        Assert.Equal("", GoalTileView.TextOf(null));
-        Assert.Equal("", GoalTileView.TextOf(new object()));
+        Assert.Equal("", CopyableText.Of(null));
+        Assert.Equal("", CopyableText.Of(new object()));
     }
 
     /// <summary>

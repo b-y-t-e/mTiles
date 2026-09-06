@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             x:Class="mTiles.Views.GoalFindingsDialog"
+             x:DataType="vm:GoalTileViewModel">
+
+    <!-- Every finding of one review, opened from its badge.
+
+         No scrim, no card and no close button of its own: OverlayHost draws all three, the same as it
+         does for every other dialog in the application. What is left here is the content, which is
+         what a dialog should be.
+
+         The styles come from the file rather than from the Goal tile, because this is drawn in the
+         main window and Avalonia applies styles down the visual tree - inside the tile the include
+         would be unnecessary, and out here it is the whole reason the dialog looks like the transcript
+         it was opened from. -->
+
+    <UserControl.Styles>
+        <StyleInclude Source="avares://mTiles/Styles/GoalFindings.axaml" />
+    </UserControl.Styles>
+
+    <Border Padding="0,0,0,4">
+        <DockPanel>
+            <TextBlock DockPanel.Dock="Top"
+                       Classes="findings-title"
+                       Margin="14,0,14,8"
+                       Text="{Binding OpenBadge.Tooltip}" />
+
+            <!-- The spacing is a margin on the list and NOT padding on the scroller, which is what
+                 cost this dialog every line's last few characters. A ScrollViewer takes its padding
+                 off the width it measures its content against, and then arranges that content against
+                 the width *without* it: the rows came out 26px wider than the list they are in, were
+                 clipped by their own rounded border, and every line ended a word early - with nothing
+                 in the markup looking wrong.
+
+                 The right side is wider than the left on purpose: the scrollbar is drawn over the
+                 content, so without a lane of its own it sits on the longest line. -->
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl Margin="14,0,20,10"
+                              ItemsSource="{Binding OpenBadge.Findings}"
+                              ItemTemplate="{StaticResource FindingTemplate}" />
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</UserControl>

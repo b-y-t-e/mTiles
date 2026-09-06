@@ -40,6 +40,28 @@ public sealed class OverlayHost : Panel
         void FocusOnOpen();
     }
 
+    /// <summary>Content that puts something of its own in the dialog's header row.</summary>
+    /// <remarks>The header is the host's — one close button, in one place, for every dialog — and this
+    /// is the seam for a dialog that has more to put there. Settings has its four tabs, which is why
+    /// its card was hand-written in <c>MainWindow</c> rather than drawn here; without this the tabs
+    /// would have had to move into the page below, one row down from where the eye expects them.
+    /// </remarks>
+    public interface IOverlayHeader
+    {
+        /// <summary>Drawn to the left of the close button. Null leaves the row to the button.</summary>
+        Control? OverlayHeader { get; }
+    }
+
+    /// <summary>Content that may refuse to be closed.</summary>
+    /// <remarks>Asked before the X or Escape takes the dialog down, and only then — a dialog closing
+    /// itself has already decided. Settings is the one that needs it: it holds database changes that
+    /// are applied rather than saved as you type, and closing with those pending is a question, not an
+    /// action.</remarks>
+    public interface IConfirmsClose
+    {
+        Task<bool> CanCloseAsync();
+    }
+
     /// <summary>Content that handles the dictation shortcut itself.</summary>
     /// <remarks>Implemented by the speech wizard alone: its last step teaches the shortcut by having
     /// the user press it, so the window-level handler must not take the keystroke first. See
@@ -61,10 +83,14 @@ public sealed class OverlayHost : Panel
     /// <summary>Draws <paramref name="content"/> as a modal card and completes when it closes.</summary>
     /// <param name="width">The card's width. A dialog that used to be a window has one already.</param>
     /// <param name="height">A fixed height, for content that does not size itself.</param>
-    public Task<T?> ShowAsync<T>(Control content, double width, double? height = null)
+    public Task<T?> ShowAsync<T>(Control content, double width, double? height = null) =>
+        ShowAsync<T>(content, OverlaySize.Fixed(width, height));
+
+    /// <summary>Draws <paramref name="content"/> as a modal card and completes when it closes.</summary>
+    public Task<T?> ShowAsync<T>(Control content, OverlaySize size)
     {
         var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var entry = new OverlayEntry(content, tcs, width, height);
+        var entry = new OverlayEntry(content, tcs, size);
 
         Children.Add(entry);
         IsVisible = true;
@@ -78,6 +104,26 @@ public sealed class OverlayHost : Panel
         return tcs.Task.ContinueWith(
             t => t.Result is T value ? value : default,
             TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>Closes a dialog the way the user asks for it — after letting it object.</summary>
+    /// <remarks>The X and Escape both come through here; <see cref="CloseWith"/> is what a dialog
+    /// calls when it has decided for itself, and does not ask. Keeping the two apart is what lets
+    /// Settings put its unsaved-changes question in front of the X without every other dialog
+    /// growing a hook it does not use.</remarks>
+    internal static async void RequestClose(Control content)
+    {
+        try
+        {
+            if (content is IConfirmsClose asks && !await asks.CanCloseAsync())
+                return;
+
+            CloseWith(content, null);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Closing a dialog failed: {ex.Message}");
+        }
     }
 
     /// <summary>Closes the overlay <paramref name="content"/> is drawn in, answering with
@@ -110,9 +156,10 @@ public sealed class OverlayHost : Panel
         public IDisposable? Modal { get; set; }
 
         private readonly Border _card;
+        private readonly OverlaySize _size;
         private readonly Control _content;
 
-        public OverlayEntry(Control content, TaskCompletionSource<object?> tcs, double width, double? height)
+        public OverlayEntry(Control content, TaskCompletionSource<object?> tcs, OverlaySize size)
         {
             Tcs = tcs;
             _content = content;
@@ -141,11 +188,20 @@ public sealed class OverlayHost : Panel
                     Height = 16,
                 },
             };
-            close.Click += (_, _) => CloseWith(this, null);
+            close.Click += (_, _) => RequestClose(content);
+
+            // One header row: the content's own on the left where it has one, the close button always
+            // on the right. A dialog that draws a title of its own keeps drawing it below; this is for
+            // what has to sit *beside* the button, which so far is Settings' tabs.
+            var header = new DockPanel();
+            DockPanel.SetDock(close, Dock.Right);
+            header.Children.Add(close);
+            if (content is IOverlayHeader { OverlayHeader: { } own })
+                header.Children.Add(own);
 
             var layout = new DockPanel();
-            DockPanel.SetDock(close, Dock.Top);
-            layout.Children.Add(close);
+            DockPanel.SetDock(header, Dock.Top);
+            layout.Children.Add(header);
             layout.Children.Add(content);
 
             // The card the content no longer draws for itself: one radius, one hairline, one shadow,
@@ -160,11 +216,14 @@ public sealed class OverlayHost : Panel
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Padding = new Thickness(8, 6, 8, 8),
-                Width = width,
-                Height = height ?? double.NaN,
+                Width = size.Width ?? double.NaN,
+                Height = size.Height ?? double.NaN,
+                MinWidth = size.MinWidth,
+                MinHeight = size.MinHeight,
                 Child = layout,
             };
             _card = card;
+            _size = size;
 
             card.Bind(Border.BackgroundProperty, this.GetResourceObservable("BgElevated").ToBinding());
             card.Bind(Border.BorderBrushProperty, this.GetResourceObservable("BorderSubtle").ToBinding());
@@ -188,7 +247,7 @@ public sealed class OverlayHost : Panel
                 if (e.Handled || e.Key != Key.Escape)
                     return;
                 e.Handled = true;
-                CloseWith(this, null);
+                RequestClose(_content);
             }, RoutingStrategies.Bubble);
         }
 
@@ -208,11 +267,36 @@ public sealed class OverlayHost : Panel
             ModalSurface.FocusInto(_card);
         }
 
+        /// <summary>Gives the modality back when this dialog leaves the tree by any route.</summary>
+        /// <remarks>
+        /// Closing an overlay removes it from the host, which releases the claim — but a window taken
+        /// down with a dialog still on it never goes through that path, and the claim would outlive
+        /// everything it was modal to. Harmless in an application that is exiting, and not harmless
+        /// at all in a test run, where <c>ModalScope</c> is process-wide: one leaked claim there left
+        /// every later test believing something was being asked of the user.
+        /// </remarks>
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            base.OnDetachedFromVisualTree(e);
+
+            Modal?.Dispose();
+            Modal = null;
+            Tcs.TrySetResult(null);
+        }
+
         /// <summary>Keeps the card inside the window it is drawn in.</summary>
         /// <remarks>A margin either side, so the card is visibly laid on the window rather than
         /// filling it — the same reason every tile has a gutter.</remarks>
         protected override Size ArrangeOverride(Size finalSize)
         {
+            // A share of the window rather than a fixed size, for a dialog that is a page rather than
+            // a question - Settings asks for half the width and four fifths of the height, which is
+            // what its own card worked out for itself before the host drew it.
+            if (_size.WidthFraction > 0)
+                _card.Width = Math.Max(_size.MinWidth, finalSize.Width * _size.WidthFraction);
+            if (_size.HeightFraction > 0)
+                _card.Height = Math.Max(_size.MinHeight, finalSize.Height * _size.HeightFraction);
+
             _card.MaxWidth = Math.Max(1, finalSize.Width - 48);
             _card.MaxHeight = Math.Max(1, finalSize.Height - 48);
             return base.ArrangeOverride(finalSize);

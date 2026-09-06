@@ -6,22 +6,32 @@ using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
-public partial class SettingsView : UserControl
+public partial class SettingsView : UserControl,
+    OverlayHost.IOverlayHeader, OverlayHost.IConfirmsClose
 {
     public SettingsView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
 
-        // A predicate, which markup has nowhere to put. Both model fields complete against the same
-        // catalogue and must narrow it the same way, so the rule is one function used twice rather than
-        // an attribute repeated - see ModelSearch for why "contains" is not enough.
-        AgentModelBox.ItemFilter = MatchesModel;
-        AgentFastModelBox.ItemFilter = MatchesModel;
     }
 
-    private static bool MatchesModel(string? search, object? item) =>
-        ModelSearch.Matches(search, item as string);
+    /// <summary>The four tabs, drawn beside the dialog's close button.</summary>
+    /// <remarks>They used to be part of a card hand-written in <c>MainWindow</c>, which is most of why
+    /// Settings was a dialog of its own kind: nothing else needed anything in that row. Declared in
+    /// this view's markup now, where the thing they switch between also lives.
+    /// <para>A fresh control each time, and a control of its own rather than a piece of this page: a
+    /// control has one parent, so handing the host something already inside the page asks Avalonia to
+    /// draw the same StackPanel in two places. It throws, and the dialog closes the instant it opens —
+    /// which is exactly what it did.</para></remarks>
+    public Control? OverlayHeader => new SettingsTabsHeader { DataContext = DataContext };
+
+    /// <summary>The unsaved-changes question, asked before the X or Escape takes the dialog down.</summary>
+    /// <remarks>Applying the database form restarts the service, so it is the one page here that does
+    /// not persist as you type, and leaving with changes pending is a question rather than an action.
+    /// The view model owns the question; the host only has to know it may be refused.</remarks>
+    public async Task<bool> CanCloseAsync() =>
+        DataContext is not SettingsViewModel vm || await vm.TryCloseAsync();
 
     private SettingsViewModel? _subscribed;
 
@@ -34,14 +44,12 @@ public partial class SettingsView : UserControl
     {
         if (_subscribed != null)
         {
-            _subscribed.EditingStarted -= FocusFirstField;
             _subscribed.PropertyChanged -= OnVmPropertyChanged;
         }
 
         if (DataContext is SettingsViewModel vm)
         {
             _subscribed = vm;
-            vm.EditingStarted += FocusFirstField;
             vm.PropertyChanged += OnVmPropertyChanged;
             // No window means no question, and an unanswered question is not a yes. Every caller of
             // this confirms something destructive — deleting a connection, discarding a downloaded
@@ -151,48 +159,60 @@ public partial class SettingsView : UserControl
         EndRebinding();
     }
 
-    /// <summary>Puts the caret in the form the moment it opens.</summary>
-    /// <remarks>
-    /// Without this the form arrives with the focus still on the button that opened it, so the first
-    /// thing a user does after asking for a new entry is reach for the mouse to click into a field —
-    /// which is half of the problem the move out of the list was made to solve.
-    /// <para>Posted at <c>Loaded</c> because the overlay is only made visible here: its fields have no
-    /// place in the visual tree to be focused into until the layout that shows them has run.</para>
-    /// </remarks>
-    private void FocusFirstField()
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            var first = EditOverlay.GetVisualDescendants()
-                .OfType<TextBox>()
-                .FirstOrDefault(t => t.IsEffectivelyVisible && t.IsEffectivelyEnabled);
-            first?.Focus();
-            first?.SelectAll();
-        }, DispatcherPriority.Loaded);
-    }
 
-    /// <summary>Held while the edit form is showing.</summary>
-    private IDisposable? _editModality;
+    /// <summary>The form this page has open, if any.</summary>
+    private SettingsEditDialog? _editing;
 
     /// <summary>
     /// Makes the edit form modal to the keyboard, the way every other dialog in the application is.
     /// </summary>
-    /// <remarks>This overlay is written by hand here rather than drawn by <c>OverlayHost</c> — it is
-    /// bound to a view model flag rather than awaited — so the modality the host gives its dialogs
-    /// went past it: Tab walked out of a half-filled provider row into the settings page behind it,
-    /// and Alt+Space dictated into the terminal tile behind that. <c>ModalSurface</c> is the shared
-    /// piece, so this is a claim rather than a second implementation.</remarks>
-    private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    /// <remarks>This overlay is opened through <c>OverlayHost</c> like every other dialog in the
+    /// application, but bound to a view model flag rather than awaited — the form is toggled open and
+    /// closed by <see cref="SettingsViewModel.IsEditingAnything"/> rather than by a single
+    /// <c>ShowAsync</c> call, since the caller here has no result to wait for. Going through the host is
+    /// what gives it the same keyboard modality as every other dialog: without it, Tab walked out of a
+    /// half-filled provider row into the settings page behind it, and Alt+Space dictated into the
+    /// terminal tile behind that.</remarks>
+    private async void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(SettingsViewModel.IsEditingAnything)) return;
         if (sender is not SettingsViewModel vm) return;
 
-        if (vm.IsEditingAnything)
-            _editModality ??= ModalSurface.Take(EditCard);
-        else
+        if (!vm.IsEditingAnything)
         {
-            _editModality?.Dispose();
-            _editModality = null;
+            if (_editing is { } open)
+            {
+                _editing = null;
+                OverlayHost.CloseWith(open, null);
+            }
+            return;
+        }
+
+        if (_editing is not null || OverlayHost.For(this) is not { } host)
+            return;
+
+        var dialog = new SettingsEditDialog { DataContext = DataContext };
+        _editing = dialog;
+
+        // async void: nothing may escape to the dispatcher, where it is a crash rather than a form
+        // that failed to open.
+        try
+        {
+            await host.ShowAsync<object>(dialog, width: 560);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning($"The settings form failed: {ex.Message}");
+        }
+        finally
+        {
+            // Closed by the host's own X or Escape rather than by Save or Cancel, so the view model
+            // still believes it is editing — and would refuse to open the next form.
+            if (ReferenceEquals(_editing, dialog))
+            {
+                _editing = null;
+                (DataContext as SettingsViewModel)?.CancelEditing();
+            }
         }
     }
 

@@ -86,9 +86,29 @@ public class GoalFindingsDialogTests
             + "goal of this change, which is the workspaces panel.", 4)),
     };
 
-    private static (GoalTileView View, GoalTileViewModel Vm) Build(string dir)
+    /// <summary>The window as the application builds it: a tile, and the host that draws its dialogs.</summary>
+    /// <remarks>
+    /// <para>The findings dialog is no longer part of the tile's own markup — <c>OverlayHost</c> draws
+    /// it, in the window, like every other dialog. So the test has to supply the host, and open the
+    /// dialog <em>after</em> the view is listening: the tile asks for it when
+    /// <c>IsShowingFindings</c> changes, and a change raised before the view exists is one nobody
+    /// heard.</para>
+    /// </remarks>
+    private static (Window Window, GoalTileViewModel Vm) Build(string dir)
     {
         var vm = new GoalTileViewModel(dir, new SettingsService(Path.Combine(dir, "settings.json")));
+
+        var view = new GoalTileView { DataContext = vm };
+        var host = new OverlayHost();
+        var window = new Window
+        {
+            Content = new Panel { Children = { view, host } },
+            Width = 620,
+            Height = 460,
+        };
+        window.Show();
+        window.UpdateLayout();
+
         vm.OpenFindingsCommand.Execute(new GoalBadge
         {
             Severity = GoalSeverity.Warning,
@@ -96,15 +116,11 @@ public class GoalFindingsDialogTests
             Findings = [LongFinding()],
         });
 
-        var view = new GoalTileView { DataContext = vm };
-        var window = new Window { Content = view, Width = 620, Height = 460 };
-        window.Show();
-
         // Twice: the first pass gives the card its width, the second lays the findings out against it.
         window.UpdateLayout();
         window.UpdateLayout();
 
-        return (view, vm);
+        return (window, vm);
     }
 
     [Fact]
@@ -116,22 +132,27 @@ public class GoalFindingsDialogTests
             OnUiThread(() =>
             {
                 using var theme = AppTheme();
-                var (view, vm) = Build(dir);
+                var (window, vm) = Build(dir);
 
-                var card = view.GetVisualDescendants().OfType<Border>()
-                    .Single(b => b.Classes.Contains("findings-card"));
-                var list = card.GetVisualDescendants().OfType<ItemsControl>().Single();
-                var row = card.GetVisualDescendants().OfType<Border>()
+                var dialog = window.GetVisualDescendants().OfType<GoalFindingsDialog>().Single();
+                var list = dialog.GetVisualDescendants().OfType<ItemsControl>().Single();
+                var row = dialog.GetVisualDescendants().OfType<Border>()
                     .Single(b => b.Classes.Contains("finding"));
 
-                // The tree is really there. Without this the rest passes on an empty dialog.
-                Assert.True(card.Bounds.Width > 0, "the dialog was never laid out");
+                // The tree is really there. Without this the rest passes on an empty dialog — and it
+                // is also what proves the dialog reached the host at all, which is the half of this
+                // that used to be guaranteed by the markup.
+                Assert.True(dialog.Bounds.Width > 0, "the dialog was never laid out");
                 Assert.True(row.Bounds.Height > 0, "the finding was never rendered");
 
                 Assert.True(row.Bounds.Width <= list.Bounds.Width,
                     $"the finding is {row.Bounds.Width:0} wide in a list {list.Bounds.Width:0} wide, "
                     + "so its last characters are clipped by its own border");
 
+                // Closed, not just disposed. The dialog is a real overlay now, and ModalScope is
+                // process-wide: a claim left standing here tells every later test in the run that
+                // something is still being asked of the user.
+                window.Close();
                 vm.Dispose();
             });
         }

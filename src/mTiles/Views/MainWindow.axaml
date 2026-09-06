@@ -43,63 +43,6 @@
             </Panel>
         </Grid>
 
-        <!-- Settings overlay -->
-        <Panel IsVisible="{Binding IsSettingsOpen}">
-            <!-- Silent, like every other dialog's scrim: it stops the pointer and does nothing when
-                 clicked. Settings used to be the one exception, which made a single gesture mean two
-                 different things depending on which dialog happened to be open. -->
-            <Border Background="{DynamicResource OverlayModal}" />
-            <Border x:Name="SettingsDialog"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    MinWidth="420"
-                    MinHeight="400"
-                    CornerRadius="{DynamicResource RadiusXl}"
-                    Background="{DynamicResource BgElevated}"
-                    BorderBrush="{DynamicResource BorderSubtle}"
-                    BorderThickness="{DynamicResource BorderThin}"
-                    BoxShadow="0 8 32 0 #60000000"
-                    Padding="0">
-                <DockPanel>
-                    <Border DockPanel.Dock="Top" Padding="16,10,16,0"
-                            BorderBrush="{DynamicResource BorderSubtle}"
-                            BorderThickness="{DynamicResource BorderBottom}">
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right" Classes="toolbar"
-                                    Command="{Binding ToggleSettingsCommand}"
-                                    VerticalAlignment="Top" Margin="0,2,0,0">
-                                <mi:MaterialIcon Kind="Close" Width="16" Height="16" />
-                            </Button>
-                            <StackPanel Orientation="Horizontal" Spacing="0">
-                                <Button Classes="settings-tab"
-                                        Classes.settings-tab-active="{Binding Settings.IsGeneralTab}"
-                                        Command="{Binding Settings.SelectTabCommand}"
-                                        CommandParameter="{x:Static vm:SettingsTabs.General}"
-                                        Content="General" />
-                                <Button Classes="settings-tab"
-                                        Classes.settings-tab-active="{Binding Settings.IsAiTab}"
-                                        Command="{Binding Settings.SelectTabCommand}"
-                                        CommandParameter="{x:Static vm:SettingsTabs.Ai}"
-                                        Content="AI" />
-                                <Button Classes="settings-tab"
-                                        Classes.settings-tab-active="{Binding Settings.IsDatabaseTab}"
-                                        Command="{Binding Settings.SelectTabCommand}"
-                                        CommandParameter="{x:Static vm:SettingsTabs.Database}"
-                                        Content="Database" />
-                                <Button Classes="settings-tab"
-                                        Classes.settings-tab-active="{Binding Settings.IsSpeechTab}"
-                                        Command="{Binding Settings.SelectTabCommand}"
-                                        CommandParameter="{x:Static vm:SettingsTabs.Speech}"
-                                        Content="Speech" />
-                            </StackPanel>
-                        </DockPanel>
-                    </Border>
-                    <!-- The scroller moved inside SettingsView: it has a bar to pin below it, and a
-                         DockPanel.Dock="Bottom" inside a scroller pins to the content, not the view. -->
-                    <ContentControl Content="{Binding Settings}" />
-                </DockPanel>
-            </Border>
-        </Panel>
 
         <!-- ======== Every other dialog ========
              Last in the panel, so it draws over Settings: Settings is itself a dialog drawn this way

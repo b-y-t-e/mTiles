@@ -1,0 +1,187 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:m="using:mTiles.Models"
+        xmlns:mi="using:Material.Icons.Avalonia"
+        xmlns:v="using:mTiles.Views">
+
+    <!-- ======== What a review finding looks like ========
+         Shared by the two views that draw the same thing: the Goal tile's transcript, and the dialog
+         a badge opens over the whole window. This used to live in GoalTileView's own styles, which is
+         exactly what stopped that dialog from being drawn by OverlayHost - styles apply down the
+         visual tree, and the host is in MainWindow, outside the tile.
+
+         Included by those two files rather than pushed up to App.axaml: these classes are the Goal
+         tile's own vocabulary, and the two views that speak it are the only two that should see them.
+
+         The severity is a thing to see rather than a word to read, so the coloured edge answers "how
+         much does this matter" before the title is reached - and it has to answer it the same way in
+         both places. Two copies of this markup drifted apart the first time one of them was touched.
+
+         The copy button carries no Click handler: it says what it copies through CopyButton.Text, so
+         nothing here names a code-behind method and the template can be held by a styles file at all. -->
+
+    <Styles.Resources>
+        <DataTemplate x:Key="FindingTemplate" DataType="m:GoalFinding">
+            <Border Classes="finding"
+                    Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
+                    Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
+                    Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
+                    Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}">
+                <StackPanel>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left"
+                                   Classes="f-sev"
+                                   Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
+                                   Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
+                                   Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
+                                   Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}"
+                                   Text="{Binding Severity}" />
+                        <!-- Docked before the place, so a long file name is what gives way rather than
+                             the button: a control that moves off the edge of its own row when the text
+                             beside it is long is a control that is missing exactly when the row is
+                             worth copying. -->
+                        <Button DockPanel.Dock="Right"
+                                Classes="item-copy"
+                                v:CopyButton.Text="{Binding Converter={x:Static v:CopyableText.Instance}}"
+                                ToolTip.Tip="Copy this finding">
+                            <mi:MaterialIcon Kind="ContentCopy" Width="12" Height="12" />
+                        </Button>
+                        <!-- Three optional parts. Every one of them is a thing the tool may not have
+                             said, and an empty bracket or a bare colon is worse than nothing there. -->
+                        <TextBlock Classes="f-where"
+                                   Text="{Binding File}"
+                                   IsVisible="{Binding File, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Classes="f-where"
+                                   Text="{Binding Line, StringFormat=':{0}'}"
+                                   IsVisible="{Binding Line, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock Classes="f-where"
+                                   Margin="6,0,0,0"
+                                   Text="{Binding Category, StringFormat='[{0}]'}"
+                                   IsVisible="{Binding Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <Panel />
+                    </DockPanel>
+                    <SelectableTextBlock Classes="f-title" Text="{Binding Title}" />
+                    <!-- Through the markdown viewer, like every other thing the tool writes. A finding's
+                         detail is prose about code and comes back full of `identifiers`, and printed as
+                         plain text those backticks were on screen as backticks. It is the same control
+                         the transcript uses, so a name in a finding is set the way the same name is set
+                         in the message the finding came from. -->
+                    <v:GoalMarkdownView Muted="True"
+                                        Margin="0,3,0,0"
+                                        MarkdownText="{Binding Detail}"
+                                        IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </Styles.Resources>
+
+        <Style Selector="Button.msg-copy, Button.item-copy">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.finding:pointerover Button.item-copy">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Button.msg-copy:pointerover, Button.item-copy:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+        <Style Selector="Button.list-copy">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.list-copy:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        </Style>
+        <Style Selector="Border.findings-head">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderBottom}" />
+            <Setter Property="Padding" Value="14,8,8,8" />
+        </Style>
+        <Style Selector="Border.findings-card TextBlock.f-sev">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="TextBlock.findings-title">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <Style Selector="Border.finding">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="2,0,0,0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="10,2,0,4" />
+            <Setter Property="Margin" Value="0,14,0,0" />
+        </Style>
+        <Style Selector="Border.finding:nth-child(1)">
+            <Setter Property="Margin" Value="0" />
+        </Style>
+        <Style Selector="Border.finding.f-blocker">
+            <Setter Property="BorderBrush" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="Border.finding.f-error">
+            <Setter Property="BorderBrush" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="Border.finding.f-warning">
+            <Setter Property="BorderBrush" Value="{DynamicResource GoalPhasePlan}" />
+        </Style>
+        <Style Selector="Border.finding.f-suggestion">
+            <Setter Property="BorderBrush" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="TextBlock.f-sev">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+        </Style>
+        <Style Selector="TextBlock.f-sev.f-blocker">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="TextBlock.f-sev.f-error">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="TextBlock.f-sev.f-warning">
+            <Setter Property="Foreground" Value="{DynamicResource GoalPhasePlan}" />
+        </Style>
+        <Style Selector="TextBlock.f-sev.f-suggestion">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="TextBlock.f-where">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style Selector="SelectableTextBlock.f-title">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
+            <Setter Property="Margin" Value="0,2,0,0" />
+        </Style>
+</Styles>

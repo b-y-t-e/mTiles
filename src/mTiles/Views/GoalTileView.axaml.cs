@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia;
@@ -24,47 +25,59 @@ public partial class GoalTileView : UserControl
     public GoalTileView()
     {
         InitializeComponent();
-
-        // Tunnelling, because the dialog is up over a tile whose composer and answer boxes have their
-        // own Escape handling and would otherwise take the key first. The bubble phase would reach
-        // this only if nothing below it wanted the key, which is exactly backwards: while a modal is
-        // open it is the modal that Escape belongs to.
-        AddHandler(KeyDownEvent, OnTileKeyDown, RoutingStrategies.Tunnel);
     }
 
-    /// <summary>Escape closes the findings dialog, and only when one is open.</summary>
-    /// <remarks>
-    /// Marked handled only when it actually closed something. A tile that swallowed Escape whether or
-    /// not it had a use for it would take it from the composer, where it clears the box.
-    /// </remarks>
-    private void OnTileKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Escape) return;
-        if (DataContext is not GoalTileViewModel { IsShowingFindings: true } vm) return;
 
-        vm.CloseFindingsCommand.Execute(null);
-        e.Handled = true;
-    }
-
-    /// <summary>Held while the findings dialog is showing.</summary>
-    private IDisposable? _findingsModality;
+    /// <summary>The dialog this tile has open, if any.</summary>
+    private GoalFindingsDialog? _findings;
 
     /// <summary>
-    /// Makes the findings dialog modal to the keyboard, the way every other dialog here is.
+    /// Opens and closes the findings dialog, which <see cref="OverlayHost"/> draws.
     /// </summary>
-    /// <remarks>Worse here than anywhere else without it, because this dialog is drawn <em>inside</em>
-    /// the tile it belongs to: Alt+Space over a list of findings dictated into the very Goal tile the
-    /// dialog was covering. Written by hand rather than drawn by <c>OverlayHost</c> — it is bound to a
-    /// view model flag rather than awaited, and its content depends on this view's own styles — so
-    /// <c>ModalSurface</c> is the piece the two share.</remarks>
-    private void ApplyFindingsModality(bool showing)
+    /// <remarks>
+    /// <para>It used to be a hand-written <c>Panel</c> in this view's markup, with its own scrim, card
+    /// and close button — the fourth implementation of the same dialog. What it cost while it was:
+    /// Alt+Space over a list of findings dictated into the very Goal tile the dialog was covering,
+    /// because it covered only the tile and nothing knew it was modal.</para>
+    /// <para>Two directions, and both are needed. The flag opening it is the badge being clicked; the
+    /// task completing is the user closing it by the host's own X or Escape, which has to put the flag
+    /// down or the badge would refuse to open it a second time.</para>
+    /// </remarks>
+    private async void ApplyFindingsModality(bool showing)
     {
-        if (showing)
-            _findingsModality ??= ModalSurface.Take(FindingsCard);
-        else
+        if (!showing)
         {
-            _findingsModality?.Dispose();
-            _findingsModality = null;
+            if (_findings is { } open)
+            {
+                _findings = null;
+                OverlayHost.CloseWith(open, null);
+            }
+            return;
+        }
+
+        if (_findings is not null || OverlayHost.For(this) is not { } host)
+            return;
+
+        var dialog = new GoalFindingsDialog { DataContext = DataContext };
+        _findings = dialog;
+
+        // async void: nothing may escape to the dispatcher, where it is a crash rather than a dialog
+        // that failed to open.
+        try
+        {
+            await host.ShowAsync<object>(dialog, width: 760);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"The findings dialog failed: {ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_findings, dialog))
+            {
+                _findings = null;
+                (DataContext as GoalTileViewModel)?.CloseFindingsCommand.Execute(null);
+            }
         }
     }
 
@@ -198,133 +211,6 @@ public partial class GoalTileView : UserControl
     /// history. A line and a half: enough that a message arriving as the last one is measured does not
     /// break the follow, and short enough that a deliberate scroll up does.</summary>
     private const double StuckToBottom = 48;
-
-    /// <summary>
-    /// Puts one thing in the conversation on the clipboard — a message, a finding, or a question with
-    /// what was answered to it.
-    /// </summary>
-    /// <remarks>
-    /// <para>One handler for all of them, because a copy button is the same button wherever it is and
-    /// the only thing that differs is what its own <c>DataContext</c> happens to be. Four handlers doing
-    /// this would be four copies of the clipboard's failure path and of the tick, which is where the
-    /// third one quietly stops matching the other two.</para>
-    /// <para>In the view rather than in the view model, because a clipboard belongs to a window: reaching
-    /// one needs a <c>TopLevel</c>, and a view model that holds one holds the window open. The
-    /// alternative was a command on the tile reached from inside the item template by walking up out of
-    /// its <c>ItemsControl</c> — the binding that has already failed silently once in this file.</para>
-    /// <para>The icon becomes a tick for a moment. A copy button that does nothing visible leaves the
-    /// user pressing it again, and the second press is indistinguishable from the first not having
-    /// worked.</para>
-    /// </remarks>
-    private async void CopyItem_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Button button) return;
-        await CopyAsync(button, TextOf(button.DataContext));
-    }
-
-    /// <summary>
-    /// Every finding in this review, as one block on the clipboard.
-    /// </summary>
-    /// <remarks>
-    /// The findings and not the message: the verdict line above them is this tile's own bookkeeping,
-    /// and what the list is being taken away for is the defects in it. The message-level button beside
-    /// the verdict is still the one that hands over the whole review.
-    /// </remarks>
-    private async void CopyAllFindings_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Button button || button.DataContext is not GoalMessage message) return;
-        await CopyAsync(button, GoalTranscript.Copyable(message.Findings));
-    }
-
-    /// <summary>
-    /// The problems in this review — blockers, errors and warnings — without the suggestions.
-    /// </summary>
-    /// <remarks>
-    /// The set is <see cref="GoalMessage.Problems"/>, which is also what the button's own count comes
-    /// from, so the label and the clipboard cannot disagree about which findings those are. Suggestions are the
-    /// part of a review a reader skims and a tracker does not want; taking them out is most of why a
-    /// second button earns its place beside the first.
-    /// </remarks>
-    private async void CopyProblems_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Button button || button.DataContext is not GoalMessage message) return;
-        await CopyAsync(button, GoalTranscript.Copyable(message.Problems));
-    }
-
-    /// <summary>
-    /// Puts text on the clipboard and answers on the button that asked for it.
-    /// </summary>
-    /// <remarks>
-    /// One body for every copy button in the tile, whatever it copies: the clipboard's failure path and
-    /// the tick that says it worked are the parts that quietly stop matching when each button carries
-    /// its own copy of them. The tick lands on the button's icon wherever it is — on its own as the
-    /// content, or beside a word inside a panel — because the label is what must not move: a word
-    /// swapped for "Copied" changes the control's width in the middle of a list.
-    /// </remarks>
-    private async Task CopyAsync(Button button, string text)
-    {
-        if (text.Length == 0) return;
-        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
-
-        try
-        {
-            await clipboard.SetTextAsync(text);
-        }
-        catch (Exception ex)
-        {
-            // A clipboard can be held by another application. Not worth a dialog over a convenience.
-            System.Diagnostics.Trace.TraceWarning($"Copying failed: {ex.Message}");
-            return;
-        }
-
-        if (IconIn(button.Content) is not { } icon) return;
-
-        icon.Kind = MaterialIconKind.Check;
-        await Task.Delay(CopiedFeedback);
-
-        // Checked again: a row is reused as the list changes, so by now this button may be showing a
-        // different message — and it is still the same button, so it is still the tick that has to come
-        // off.
-        if (icon.Kind == MaterialIconKind.Check) icon.Kind = MaterialIconKind.ContentCopy;
-    }
-
-    /// <summary>The icon a copy button answers on: its whole content, or the one beside its label.
-    /// </summary>
-    private static MaterialIcon? IconIn(object? content) => content switch
-    {
-        MaterialIcon icon => icon,
-        Panel panel => panel.Children.OfType<MaterialIcon>().FirstOrDefault(),
-        _ => null,
-    };
-
-    /// <summary>
-    /// What each of the four things a copy button can be attached to reads as, on the clipboard.
-    /// </summary>
-    /// <remarks>
-    /// <para>Every case goes through <see cref="GoalTranscript"/>, so a finding copied on its own reads
-    /// exactly as it does inside the review it came from, and a question copied on its own reads as it
-    /// does inside the round. Two spellings of the same thing is the failure this avoids — and it is not
-    /// hypothetical: a message's own <c>Text</c> is only the head of a review, so copying that alone
-    /// once handed somebody a verdict with the defects it counted missing.</para>
-    /// <para>Internal so the mapping can be stated in a test without a window: what a button hands over
-    /// is a decision, and the clipboard it hands it to is not.</para>
-    /// </remarks>
-    internal static string TextOf(object? data) => data switch
-    {
-        GoalMessage message => GoalTranscript.Copyable(message),
-        GoalFinding finding => GoalTranscript.Copyable(finding),
-        GoalQuestion question => GoalTranscript.Copyable(question),
-
-        // The live block, where the answer is still being typed: the view model's own snapshot, which is
-        // also what the record is written from, so what is copied mid-round and what is copied out of
-        // the record afterwards are made by one method.
-        GoalQuestionAnswer asking => GoalTranscript.Copyable(asking.Snapshot()),
-        _ => "",
-    };
-
-    /// <summary>How long the tick stays. Long enough to be seen, short enough that a second copy of the
-    /// next message does not find the button still congratulating itself about the last one.</summary>
-    private static readonly TimeSpan CopiedFeedback = TimeSpan.FromSeconds(1.1);
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -482,7 +368,6 @@ public partial class GoalTileView : UserControl
             QuestionList.GetVisualDescendants().OfType<TextBox>().FirstOrDefault()?.Focus(),
             Avalonia.Threading.DispatcherPriority.Background);
     }
-
 
     /// <summary>
     /// Every phase class, so the dot can be told which one it is by setting all of them. The list is

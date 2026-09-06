@@ -25,58 +25,6 @@
              answers "how much does this matter" before the title is reached, and it has to answer it
              the same way in both places. Two copies of this markup drifted apart the first time one of
              them was touched. -->
-        <DataTemplate x:Key="FindingTemplate" DataType="m:GoalFinding">
-            <Border Classes="finding"
-                    Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
-                    Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
-                    Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
-                    Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}">
-                <StackPanel>
-                    <DockPanel>
-                        <TextBlock DockPanel.Dock="Left"
-                                   Classes="f-sev"
-                                   Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
-                                   Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
-                                   Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
-                                   Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}"
-                                   Text="{Binding Severity}" />
-                        <!-- Docked before the place, so a long file name is what gives way rather than
-                             the button: a control that moves off the edge of its own row when the text
-                             beside it is long is a control that is missing exactly when the row is
-                             worth copying. -->
-                        <Button DockPanel.Dock="Right"
-                                Classes="item-copy"
-                                Click="CopyItem_Click"
-                                ToolTip.Tip="Copy this finding">
-                            <mi:MaterialIcon Kind="ContentCopy" Width="12" Height="12" />
-                        </Button>
-                        <!-- Three optional parts. Every one of them is a thing the tool may not have
-                             said, and an empty bracket or a bare colon is worse than nothing there. -->
-                        <TextBlock Classes="f-where"
-                                   Text="{Binding File}"
-                                   IsVisible="{Binding File, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        <TextBlock Classes="f-where"
-                                   Text="{Binding Line, StringFormat=':{0}'}"
-                                   IsVisible="{Binding Line, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                        <TextBlock Classes="f-where"
-                                   Margin="6,0,0,0"
-                                   Text="{Binding Category, StringFormat='[{0}]'}"
-                                   IsVisible="{Binding Category, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        <Panel />
-                    </DockPanel>
-                    <SelectableTextBlock Classes="f-title" Text="{Binding Title}" />
-                    <!-- Through the markdown viewer, like every other thing the tool writes. A finding's
-                         detail is prose about code and comes back full of `identifiers`, and printed as
-                         plain text those backticks were on screen as backticks. It is the same control
-                         the transcript uses, so a name in a finding is set the way the same name is set
-                         in the message the finding came from. -->
-                    <v:GoalMarkdownView Muted="True"
-                                        Margin="0,3,0,0"
-                                        MarkdownText="{Binding Detail}"
-                                        IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                </StackPanel>
-            </Border>
-        </DataTemplate>
 
         <!-- ======== One question, after it has been answered ========
              The record half of a clarification round. The same question, the same reason, the same
@@ -114,7 +62,7 @@
 
                 <Button Grid.Column="2"
                         Classes="item-copy"
-                        Click="CopyItem_Click"
+                        v:CopyButton.Text="{Binding Converter={x:Static v:CopyableText.Instance}}"
                         ToolTip.Tip="Copy this question and its answer">
                     <mi:MaterialIcon Kind="ContentCopy" Width="12" Height="12" />
                 </Button>
@@ -123,6 +71,9 @@
     </UserControl.Resources>
 
     <UserControl.Styles>
+        <!-- A finding's own look, shared with the dialog a badge opens - see the file. -->
+        <StyleInclude Source="avares://mTiles/Styles/GoalFindings.axaml" />
+
         <!-- ======== Transcript rows ========
              Read as turns, not as lines. Everything here is one decision: a message is a block with air
              around it, and what separates two of them is space rather than a rule. Rules would be
@@ -163,26 +114,7 @@
              rather than the whole message — because a row that lit up six buttons at once the moment
              the pointer crossed it would be answering "which one of these do you want?" with all of
              them. -->
-        <Style Selector="Button.msg-copy, Button.item-copy">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="4,2" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="Margin" Value="6,0,0,0" />
-            <Setter Property="VerticalAlignment" Value="Top" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Opacity" Value="0" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
-                </Transitions>
-            </Setter>
-        </Style>
         <Style Selector="Border.row:pointerover Button.msg-copy">
-            <Setter Property="Opacity" Value="1" />
-        </Style>
-        <Style Selector="Border.finding:pointerover Button.item-copy">
             <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Grid.asked:pointerover Button.item-copy">
@@ -191,28 +123,10 @@
         <Style Selector="Grid.asking:pointerover Button.item-copy">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <Style Selector="Button.msg-copy:pointerover, Button.item-copy:pointerover">
-            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
-        </Style>
 
         <!-- The same copy button with a word on it, for the pair that takes a whole review's findings
              at once. Quiet by default and permanently there: it names how many rows it would take, and
              a count is worth reading without pressing anything. -->
-        <Style Selector="Button.list-copy">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="Padding" Value="4,2" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button.list-copy:pointerover">
-            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
-            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
-        </Style>
 
         <!-- A note from the tile itself: quieter, and closer to whatever it is a note about — it is a
              footnote to the message above, not a turn of its own. -->
@@ -358,23 +272,9 @@
         <!-- The head names what was opened and carries the way out of it. A hairline rather than a
              gap, so the title cannot be read as the first line of the list under it; the card's own
              padding is nil so that rule runs the full width, and each part inside sets its own. -->
-        <Style Selector="Border.findings-head">
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="BorderThickness" Value="{DynamicResource BorderBottom}" />
-            <Setter Property="Padding" Value="14,8,8,8" />
-        </Style>
         <!-- The head already says which severity these are, so the word on every row is the same
              word four times over, taking the first line of each finding to say what the reader has
              just read. It stays in the transcript, where the rows of a review are mixed. -->
-        <Style Selector="Border.findings-card TextBlock.f-sev">
-            <Setter Property="IsVisible" Value="False" />
-        </Style>
-        <Style Selector="TextBlock.findings-title">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
-        </Style>
 
         <!-- ======== Completion criteria ========
              Drawn as a config file rather than as a settings form, because that is what it is and
@@ -702,77 +602,19 @@
              No corner radius, and that is not only taste: a Border with a radius clips its child, and
              this one holds text that is measured elsewhere. Every clip here is a line the reader loses
              the end of without being told. -->
-        <Style Selector="Border.finding">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="BorderThickness" Value="2,0,0,0" />
-            <Setter Property="CornerRadius" Value="0" />
-            <Setter Property="Padding" Value="10,2,0,4" />
-            <Setter Property="Margin" Value="0,14,0,0" />
-        </Style>
         <!-- The gap belongs between two findings, so the first does not carry it: in the popup it put
              a band of empty ground under the head's rule. After the base style, or the base's own
              Margin is the one that lands - matching styles are applied in declaration order. -->
-        <Style Selector="Border.finding:nth-child(1)">
-            <Setter Property="Margin" Value="0" />
-        </Style>
-        <Style Selector="Border.finding.f-blocker">
-            <Setter Property="BorderBrush" Value="{DynamicResource DangerText}" />
-        </Style>
-        <Style Selector="Border.finding.f-error">
-            <Setter Property="BorderBrush" Value="{DynamicResource DangerText}" />
-        </Style>
-        <Style Selector="Border.finding.f-warning">
-            <Setter Property="BorderBrush" Value="{DynamicResource GoalPhasePlan}" />
-        </Style>
-        <Style Selector="Border.finding.f-suggestion">
-            <Setter Property="BorderBrush" Value="{DynamicResource TextFaint}" />
-        </Style>
 
         <!-- The severity is the label, so it carries the colour and the weight; the place beside it is
              faint, because it says where to look rather than what is wrong. -->
-        <Style Selector="TextBlock.f-sev">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="Margin" Value="0,0,8,0" />
-        </Style>
-        <Style Selector="TextBlock.f-sev.f-blocker">
-            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
-            <Setter Property="FontWeight" Value="Bold" />
-        </Style>
-        <Style Selector="TextBlock.f-sev.f-error">
-            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
-        </Style>
-        <Style Selector="TextBlock.f-sev.f-warning">
-            <Setter Property="Foreground" Value="{DynamicResource GoalPhasePlan}" />
-        </Style>
-        <Style Selector="TextBlock.f-sev.f-suggestion">
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-        </Style>
         <!-- Muted, not faint. Faint is what this application uses for something it is prepared to have
              the reader skip; a file and a line are how the reader gets from a finding to the code, and
              on the dialog's elevated ground the faint token had them fading out of the row. -->
-        <Style Selector="TextBlock.f-where">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-        </Style>
         <!-- The title reads at the transcript's own size and in its own colour: it is the sentence the
              finding is. The detail is the argument for it, one step quieter — and with no band behind
              the row any more, that one step is the whole of what separates them, so the title takes the
              weight the box used to carry. -->
-        <Style Selector="SelectableTextBlock.f-title">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="FontWeight" Value="Medium" />
-            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
-            <Setter Property="Margin" Value="0,2,0,0" />
-        </Style>
 
 
         <!-- ======== While the tool is working ========
@@ -1150,7 +992,7 @@
                                            Classes.gutter-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}" />
                                 <Button DockPanel.Dock="Right"
                                         Classes="msg-copy"
-                                        Click="CopyItem_Click"
+                                        v:CopyButton.Text="{Binding Converter={x:Static v:CopyableText.Instance}}"
                                         ToolTip.Tip="Copy this message">
                                     <mi:MaterialIcon Kind="ContentCopy" Width="13" Height="13" />
                                 </Button>
@@ -1228,7 +1070,7 @@
                                                                     Spacing="4"
                                                                     IsVisible="{Binding CanCopyAllFindings}">
                                                             <Button Classes="list-copy"
-                                                                    Click="CopyAllFindings_Click"
+                                                                    v:CopyButton.Text="{Binding Findings, Converter={x:Static v:CopyableText.Instance}}"
                                                                     ToolTip.Tip="Copy every finding here, without the verdict line">
                                                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                                                     <mi:MaterialIcon Kind="ContentCopy" Width="11" Height="11" />
@@ -1236,7 +1078,7 @@
                                                                 </StackPanel>
                                                             </Button>
                                                             <Button Classes="list-copy"
-                                                                    Click="CopyProblems_Click"
+                                                                    v:CopyButton.Text="{Binding Problems, Converter={x:Static v:CopyableText.Instance}}"
                                                                     IsVisible="{Binding CanCopyProblems}"
                                                                     ToolTip.Tip="Copy the blockers, errors and warnings, leaving the suggestions out">
                                                                 <StackPanel Orientation="Horizontal" Spacing="4">
@@ -1394,7 +1236,7 @@
                                              is the moment you cannot answer it. -->
                                         <Button Grid.Column="2"
                                                 Classes="item-copy"
-                                                Click="CopyItem_Click"
+                                                v:CopyButton.Text="{Binding Converter={x:Static v:CopyableText.Instance}}"
                                                 ToolTip.Tip="Copy this question">
                                             <mi:MaterialIcon Kind="ContentCopy" Width="12" Height="12" />
                                         </Button>
@@ -1583,63 +1425,5 @@
         </ScrollViewer>
     </DockPanel>
 
-    <!-- ======== A badge's findings ========
-         A dialog over the tile, in the language the rest of the application uses for one: a scrim, a
-         modal-card, a head naming what was opened and a close button, Escape and a click outside to
-         dismiss. It began as a flyout hanging off the badge, which is the wrong control for this - a
-         flyout is for a menu or a hint, it opens at the size of its content beside a three-glyph label
-         near the tile's top edge, and a review with a dozen errors in it is a document to read, not a
-         hint to glance at.
-
-         Over the tile rather than over the window, which is the one thing it does differently from
-         Settings: these findings are one tile's, and in a split a window-wide dialog would dim three
-         other tiles to answer a question asked in the fourth.
-
-         Full width of the tile less a gutter, and centred vertically: a short list is a short dialog
-         and a long one fills the tile and scrolls inside itself. The width is taken rather than fitted
-         to the content because the content is paths and wrapped prose — every pixel not taken comes
-         back as another wrapped line — and capped, because past about 90 characters a line stops being
-         easier to read for being longer. -->
-    <Panel IsVisible="{Binding IsShowingFindings}" ZIndex="100">
-        <!-- Silent, like every other scrim in the application — see SettingsView's. -->
-        <Border Background="{DynamicResource OverlayModal}" />
-        <Border x:Name="FindingsCard"
-                Classes="modal-card findings-card"
-                Margin="12"
-                MinWidth="280"
-                MaxWidth="760"
-                HorizontalAlignment="Stretch"
-                VerticalAlignment="Center">
-            <DockPanel>
-                <Border DockPanel.Dock="Top" Classes="findings-head">
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right"
-                                Classes="tile-btn"
-                                Command="{Binding CloseFindingsCommand}"
-                                ToolTip.Tip="Close">
-                            <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
-                        </Button>
-                        <TextBlock Classes="findings-title"
-                                   VerticalAlignment="Center"
-                                   Text="{Binding OpenBadge.Tooltip}" />
-                    </DockPanel>
-                </Border>
-                <!-- The spacing is a margin on the list and NOT padding on the scroller, which is
-                     what cost this dialog every line's last few characters. A ScrollViewer takes its
-                     padding off the width it measures its content against, and then arranges that
-                     content against the width *without* it: the rows came out 26px wider than the list
-                     they are in, were clipped by their own rounded border, and every line ended a word
-                     early — "nie mają n", "implementacj" — with nothing in the markup looking wrong.
-
-                     The right side is wider than the left on purpose: the scrollbar is drawn over the
-                     content, so without a lane of its own it sits on the longest line. -->
-                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-                    <ItemsControl Margin="14,10,20,14"
-                                  ItemsSource="{Binding OpenBadge.Findings}"
-                                  ItemTemplate="{StaticResource FindingTemplate}" />
-                </ScrollViewer>
-            </DockPanel>
-        </Border>
-    </Panel>
     </Panel>
 </UserControl>
