@@ -35,7 +35,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     /// <summary>Polls briefly rather than sleeping a fixed amount: the watcher's debounce plus the
     /// reconcile pass is asynchronous, and a fixed sleep is either flaky under load or slower than it
     /// needs to be on a quiet machine.</summary>
-    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 3000)
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 8000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (DateTime.UtcNow < deadline)
@@ -215,9 +215,24 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         // Changed while stopped — nothing should have seen this.
         File.WriteAllText(Claude, "changed while stopped");
 
-        await _engine.StartAsync();
-        File.WriteAllText(Agents, "after restart");
+        // And it is said outright which one that makes newer, rather than left to the clock. The
+        // restart's reconcile settles a disagreement by mtime, and all three writes above can land
+        // inside one tick of the filesystem's resolution on a fast machine — so "newest" was a coin
+        // toss, and when AGENTS.md won it the engine copied "one" back over CLAUDE.md and the wait
+        // below timed out. That is the whole of this flake: it failed on CI and never here.
+        File.SetLastWriteTimeUtc(Agents, File.GetLastWriteTimeUtc(Claude).AddSeconds(-5));
 
+        await _engine.StartAsync();
+
+        // Wait for the restart's own reconcile before touching anything, and assert it while waiting:
+        // it is what the test is named after, and it was never checked. Writing straight after
+        // StartAsync raced it — the reconcile was still in flight, so the write landed inside the
+        // window where the engine re-stamps its own output, was read back as its own, and never
+        // crossed. That is the flake, and it failed about one full run in five.
+        await WaitUntilAsync(() => File.ReadAllText(Agents) == "changed while stopped");
+
+        // And the mirror is live again afterwards, which is the other half.
+        File.WriteAllText(Agents, "after restart");
         await WaitUntilAsync(() => File.ReadAllText(Claude) == "after restart");
     }
 
