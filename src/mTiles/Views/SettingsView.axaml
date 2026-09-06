@@ -1338,9 +1338,12 @@
              list: they are bound to the view model's own Edit* properties and commands, so this is
              where the form is shown and nothing about what it does. -->
         <Panel x:Name="EditOverlay" IsVisible="{Binding IsEditingAnything}" ZIndex="200">
-            <Border Background="{DynamicResource OverlayModal}"
-                    PointerPressed="EditOverlay_PointerPressed" />
-            <Border Classes="modal-card"
+            <!-- Silent, like every other scrim in the application: it stops the pointer and does
+                 nothing when clicked. It used to cancel the form, so a misclick anywhere outside a
+                 half-filled provider row threw away the key that had just been pasted into it. -->
+            <Border Background="{DynamicResource OverlayModal}" />
+            <Border x:Name="EditCard"
+                    Classes="modal-card"
                     MaxWidth="560"
                     MaxHeight="{Binding $parent[Panel].Bounds.Height}"
                     HorizontalAlignment="Center"

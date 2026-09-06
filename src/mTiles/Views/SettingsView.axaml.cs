@@ -33,12 +33,16 @@ public partial class SettingsView : UserControl
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
         if (_subscribed != null)
+        {
             _subscribed.EditingStarted -= FocusFirstField;
+            _subscribed.PropertyChanged -= OnVmPropertyChanged;
+        }
 
         if (DataContext is SettingsViewModel vm)
         {
             _subscribed = vm;
             vm.EditingStarted += FocusFirstField;
+            vm.PropertyChanged += OnVmPropertyChanged;
             // No window means no question, and an unanswered question is not a yes. Every caller of
             // this confirms something destructive — deleting a connection, discarding a downloaded
             // model — so the safe answer when it cannot be asked is no.
@@ -167,16 +171,29 @@ public partial class SettingsView : UserControl
         }, DispatcherPriority.Loaded);
     }
 
-    /// <summary>Clicking the scrim closes the form the same way Cancel does — it discards.</summary>
-    /// <remarks>
-    /// Only when the press lands on the scrim itself. Without that check a click anywhere inside the
-    /// form bubbles up here and shuts it, which is a form that closes while you are filling it in.
-    /// </remarks>
-    private void EditOverlay_PointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+    /// <summary>Held while the edit form is showing.</summary>
+    private IDisposable? _editModality;
+
+    /// <summary>
+    /// Makes the edit form modal to the keyboard, the way every other dialog in the application is.
+    /// </summary>
+    /// <remarks>This overlay is written by hand here rather than drawn by <c>OverlayHost</c> — it is
+    /// bound to a view model flag rather than awaited — so the modality the host gives its dialogs
+    /// went past it: Tab walked out of a half-filled provider row into the settings page behind it,
+    /// and Alt+Space dictated into the terminal tile behind that. <c>ModalSurface</c> is the shared
+    /// piece, so this is a claim rather than a second implementation.</remarks>
+    private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (!ReferenceEquals(e.Source, sender)) return;
-        (DataContext as SettingsViewModel)?.CancelEditing();
-        e.Handled = true;
+        if (e.PropertyName != nameof(SettingsViewModel.IsEditingAnything)) return;
+        if (sender is not SettingsViewModel vm) return;
+
+        if (vm.IsEditingAnything)
+            _editModality ??= ModalSurface.Take(EditCard);
+        else
+        {
+            _editModality?.Dispose();
+            _editModality = null;
+        }
     }
 
     /// <summary>

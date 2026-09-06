@@ -1601,9 +1601,10 @@
          back as another wrapped line — and capped, because past about 90 characters a line stops being
          easier to read for being longer. -->
     <Panel IsVisible="{Binding IsShowingFindings}" ZIndex="100">
-        <Border Background="{DynamicResource OverlayModal}"
-                PointerPressed="FindingsScrim_PointerPressed" />
-        <Border Classes="modal-card findings-card"
+        <!-- Silent, like every other scrim in the application — see SettingsView's. -->
+        <Border Background="{DynamicResource OverlayModal}" />
+        <Border x:Name="FindingsCard"
+                Classes="modal-card findings-card"
                 Margin="12"
                 MinWidth="280"
                 MaxWidth="760"

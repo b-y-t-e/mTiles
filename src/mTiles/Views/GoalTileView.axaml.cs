@@ -46,16 +46,26 @@ public partial class GoalTileView : UserControl
         e.Handled = true;
     }
 
-    /// <summary>Clicking the scrim closes the dialog, as it does on every other modal here.</summary>
-    /// <remarks>
-    /// The scrim is its own element covering the tile, so a press that reaches it is a press outside
-    /// the card - no need to ask whether the source is inside, the way a dialog that draws its own
-    /// backdrop has to.
-    /// </remarks>
-    private void FindingsScrim_PointerPressed(object? sender, PointerPressedEventArgs e)
+    /// <summary>Held while the findings dialog is showing.</summary>
+    private IDisposable? _findingsModality;
+
+    /// <summary>
+    /// Makes the findings dialog modal to the keyboard, the way every other dialog here is.
+    /// </summary>
+    /// <remarks>Worse here than anywhere else without it, because this dialog is drawn <em>inside</em>
+    /// the tile it belongs to: Alt+Space over a list of findings dictated into the very Goal tile the
+    /// dialog was covering. Written by hand rather than drawn by <c>OverlayHost</c> — it is bound to a
+    /// view model flag rather than awaited, and its content depends on this view's own styles — so
+    /// <c>ModalSurface</c> is the piece the two share.</remarks>
+    private void ApplyFindingsModality(bool showing)
     {
-        if (DataContext is GoalTileViewModel vm) vm.CloseFindingsCommand.Execute(null);
-        e.Handled = true;
+        if (showing)
+            _findingsModality ??= ModalSurface.Take(FindingsCard);
+        else
+        {
+            _findingsModality?.Dispose();
+            _findingsModality = null;
+        }
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -325,6 +335,9 @@ public partial class GoalTileView : UserControl
 
         if (e.PropertyName == nameof(GoalTileViewModel.ShowQuestions) && vm.ShowQuestions)
             FocusFirstAnswer();
+
+        if (e.PropertyName == nameof(GoalTileViewModel.IsShowingFindings))
+            ApplyFindingsModality(vm.IsShowingFindings);
 
         if (e.PropertyName is not { } name) return;
 
