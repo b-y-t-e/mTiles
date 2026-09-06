@@ -92,3 +92,51 @@ public class ModalScopeTests
         public void Dispose() => PropertyChanged = null;
     }
 }
+
+/// <summary>The dialog that handles the dictation shortcut itself, and the counting behind it.</summary>
+/// <remarks>
+/// The speech wizard's last step teaches the shortcut by having the user press it. While it was a
+/// window of its own the main window never saw those keys; as a control inside that window, the
+/// window-level tunnelling handler took them first, started a recording owned by the terminal tile
+/// behind the wizard, and left the wizard waiting for a gesture that never arrived. These two say so
+/// out loud, because nothing else in the suite would notice the interface being dropped.
+/// </remarks>
+public class DictationShortcutOwnershipTests
+{
+    [Fact]
+    public void The_speech_wizard_claims_the_shortcut_and_nothing_else_does()
+    {
+        Assert.True(typeof(mTiles.Views.SpeechSetupWizard)
+            .IsAssignableTo(typeof(mTiles.Views.OverlayHost.IOwnsDictationShortcut)));
+
+        // Settings deliberately does not: dictating into one of its text boxes is a feature, and
+        // there the window-level handler is the one that should act.
+        Assert.False(typeof(mTiles.Views.MessageDialog)
+            .IsAssignableTo(typeof(mTiles.Views.OverlayHost.IOwnsDictationShortcut)));
+    }
+
+    [Fact]
+    public void Only_a_claim_that_asked_for_the_shortcut_speaks_for_it()
+    {
+        Assert.False(ModalScope.ShortcutIsSpokenFor);
+
+        using (ModalScope.Enter())
+        {
+            // Open, but this one leaves the shortcut alone.
+            Assert.True(ModalScope.IsAnyOpen);
+            Assert.False(ModalScope.ShortcutIsSpokenFor);
+
+            var owning = ModalScope.Enter(ownsDictationShortcut: true);
+            Assert.True(ModalScope.ShortcutIsSpokenFor);
+
+            // Released twice on purpose: a second release must not take the count below what is open,
+            // and the first symptom of that would be the shortcut silently going back to the tile.
+            owning.Dispose();
+            owning.Dispose();
+            Assert.False(ModalScope.ShortcutIsSpokenFor);
+            Assert.True(ModalScope.IsAnyOpen);
+        }
+
+        Assert.False(ModalScope.IsAnyOpen);
+    }
+}

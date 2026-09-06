@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Threading;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
@@ -41,6 +40,12 @@ public sealed class OverlayHost : Panel
         void FocusOnOpen();
     }
 
+    /// <summary>Content that handles the dictation shortcut itself.</summary>
+    /// <remarks>Implemented by the speech wizard alone: its last step teaches the shortcut by having
+    /// the user press it, so the window-level handler must not take the keystroke first. See
+    /// <see cref="Services.ModalScope.ShortcutIsSpokenFor"/> for what went wrong without it.</remarks>
+    public interface IOwnsDictationShortcut;
+
     /// <summary>The host drawn in <paramref name="anchor"/>'s own window, if there is one.</summary>
     /// <remarks>Found by walking rather than by name: the caller is a tile's code-behind somewhere
     /// deep in the tree, and it should not have to know what the main window called its host.</remarks>
@@ -63,11 +68,12 @@ public sealed class OverlayHost : Panel
 
         Children.Add(entry);
         IsVisible = true;
-        entry.Modal = ModalScope.Enter();
-        TrapFocus();
-
-        if (content is IFocusOnOpen wantsFocus)
-            Dispatcher.UIThread.Post(wantsFocus.FocusOnOpen, DispatcherPriority.Input);
+        // The same claim the settings dialog makes — see ModalSurface. It was the host's own private
+        // arrangement, which is exactly why Settings, drawn by hand in MainWindow, had none. Taking
+        // the surface already pulls focus in through entry.TakeFocus, which asks the content for
+        // IFocusOnOpen itself — a second call here posted the same FocusOnOpen twice per open.
+        entry.Modal = ModalSurface.Take(entry, entry.TakeFocus,
+            ownsDictationShortcut: content is IOwnsDictationShortcut);
 
         return tcs.Task.ContinueWith(
             t => t.Result is T value ? value : default,
@@ -90,48 +96,9 @@ public sealed class OverlayHost : Panel
             host.Children.Remove(entry);
             host.IsVisible = host.Children.Count > 0;
             entry.Modal?.Dispose();
-            host.TrapFocus();
         }
 
         entry.Tcs.TrySetResult(result);
-    }
-
-    /// <summary>Keeps the keyboard inside the topmost dialog while one is open.</summary>
-    /// <remarks>
-    /// <para>The scrim is hit-testable, so the pointer cannot reach past it — the keyboard can. Tab
-    /// walks the visual tree and knows nothing about a Border drawn over things, so it stepped
-    /// straight into the workspace list and the tile behind the question being asked.</para>
-    /// <para>Two halves, and both are needed. <c>KeyboardNavigation.TabNavigation = Cycle</c> on the
-    /// card makes Tab wrap within the dialog once focus is inside it; the handler below is what
-    /// answers the case Cycle cannot, which is focus arriving from outside — a click that lands
-    /// before the scrim swallows it, a control restoring focus as it goes away, the very first Tab of
-    /// a dialog whose content took no focus of its own.</para>
-    /// <para>Attached to the top level rather than to the entry: the focus we have to catch is the
-    /// one going somewhere else, which never bubbles through the dialog at all.</para>
-    /// </remarks>
-    private void TrapFocus()
-    {
-        var top = TopLevel.GetTopLevel(this);
-        if (top is null)
-            return;
-
-        top.RemoveHandler(InputElement.GotFocusEvent, OnFocusMoved);
-        if (Children.Count > 0)
-            top.AddHandler(InputElement.GotFocusEvent, OnFocusMoved, RoutingStrategies.Bubble);
-    }
-
-    private void OnFocusMoved(object? sender, RoutedEventArgs e)
-    {
-        if (Children.Count == 0 || Children[^1] is not OverlayEntry topmost)
-            return;
-
-        // Already inside the dialog that is asking: nothing to do, including when it is a nested one.
-        if (e.Source is Visual v && (ReferenceEquals(v, topmost) || v.FindAncestorOfType<OverlayEntry>() == topmost))
-            return;
-
-        // Posted rather than done here: this runs *during* the focus change, and moving focus again
-        // inside the notification is how a focus manager ends up in a loop with itself.
-        Dispatcher.UIThread.Post(() => topmost.TakeFocus(), DispatcherPriority.Input);
     }
 
     /// <summary>One open dialog: its scrim, its card, and the answer it owes its caller.</summary>
@@ -199,9 +166,6 @@ public sealed class OverlayHost : Panel
             };
             _card = card;
 
-            // Tab wraps within the dialog instead of walking out of the bottom of it. The other half
-            // of the trap — focus arriving from outside — is OverlayHost.OnFocusMoved.
-            KeyboardNavigation.SetTabNavigation(card, KeyboardNavigationMode.Cycle);
             card.Bind(Border.BackgroundProperty, this.GetResourceObservable("BgElevated").ToBinding());
             card.Bind(Border.BorderBrushProperty, this.GetResourceObservable("BorderSubtle").ToBinding());
             card.Bind(Border.BorderThicknessProperty, this.GetResourceObservable("BorderThin").ToBinding());
@@ -241,7 +205,7 @@ public sealed class OverlayHost : Panel
                 return;
             }
 
-            _card.Focus();
+            ModalSurface.FocusInto(_card);
         }
 
         /// <summary>Keeps the card inside the window it is drawn in.</summary>

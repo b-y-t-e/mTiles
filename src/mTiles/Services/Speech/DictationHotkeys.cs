@@ -143,6 +143,13 @@ internal static class DictationHotkeys
                 return;
             }
 
+            // A dialog that handles the shortcut itself gets it untouched, and "untouched" is the
+            // point: not marked handled either, so its own tunnelling handler is next in line. This
+            // one runs first because it is on the window, and the wizard teaching the shortcut is
+            // inside it.
+            if (ModalScope.ShortcutIsSpokenFor)
+                return;
+
             if (!TryGetGesture(out var gesture) || !gesture.MatchesPress(e.Key, e.KeyModifiers))
                 return;
 
@@ -162,7 +169,7 @@ internal static class DictationHotkeys
     {
         try
         {
-            if (_machine is null)
+            if (_machine is null || ModalScope.ShortcutIsSpokenFor)
                 return;
             if (!TryGetGesture(out var gesture) || !gesture.MatchesRelease(e.Key))
                 return;
@@ -313,7 +320,12 @@ internal static class DictationHotkeys
         if (_service is null || _settings is null)
             return;
 
-        var tile = _activeTile?.Invoke();
+        // No tile while a dialog is open. DictationTextSink already refuses to write into one, but
+        // the recording itself was still keyed on it — so the tile behind the dialog lit its
+        // microphone, its working light came on, and the sentence then went nowhere. Recording
+        // against the window instead means the transcript reaches the focused control in the dialog
+        // and nothing else, which is what dictating into a settings box needs.
+        var tile = ModalScope.IsAnyOpen ? null : _activeTile?.Invoke();
         var focused = _window?.FocusManager?.GetFocusedElement();
         var speech = _settings.Settings.Speech;
 

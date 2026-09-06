@@ -18,7 +18,7 @@ namespace mTiles.Views;
 /// where it is how somebody starts over. It replaced a single-screen prompt that asked which model to
 /// download and nothing else, which could not answer the only question that matters: does this work.
 /// </remarks>
-public partial class SpeechSetupWizard : UserControl
+public partial class SpeechSetupWizard : UserControl, OverlayHost.IOwnsDictationShortcut
 {
     private SpeechSetupViewModel? _model;
     private SettingsService? _settings;

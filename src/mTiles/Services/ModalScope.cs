@@ -20,21 +20,41 @@ namespace mTiles.Services;
 public static class ModalScope
 {
     private static int _open;
+    private static int _shortcutOwners;
 
     /// <summary>Whether anything is being asked of the user right now.</summary>
     public static bool IsAnyOpen => Volatile.Read(ref _open) > 0;
+
+    /// <summary>Whether an open dialog handles the dictation shortcut itself.</summary>
+    /// <remarks>
+    /// <para>The window-level handler is <em>tunnelling</em>, so it sees a key before anything inside
+    /// the window does. That was harmless while every dialog was a window of its own — the main
+    /// window never saw their keys at all — and became a bug the moment they became controls in it:
+    /// the speech wizard's last step asks the user to hold the shortcut and say something, and the
+    /// window-level handler took the keystroke first, started a recording owned by the terminal tile
+    /// behind the wizard, and left the wizard waiting for a gesture it never received.</para>
+    /// <para>So a surface that means to handle the shortcut says so, and the window-level handler
+    /// stands down for it — completely, without marking the key handled, so the surface's own
+    /// tunnelling handler gets it next. Settings deliberately does not claim it: dictating into a
+    /// settings text box is a feature, and there the window-level handler is the one that should
+    /// act.</para>
+    /// </remarks>
+    public static bool ShortcutIsSpokenFor => Volatile.Read(ref _shortcutOwners) > 0;
 
     /// <summary>Called by <c>OverlayHost</c> as a dialog opens; the returned handle closes it.</summary>
     /// <remarks>A handle rather than a matching <c>Leave</c>, so a dialog that is torn down by an
     /// unusual path — the window closing under it — cannot leave the application believing something
     /// is still being asked, with dictation refusing to reach a tile for the rest of the session.</remarks>
-    public static IDisposable Enter()
+    /// <param name="ownsDictationShortcut">See <see cref="ShortcutIsSpokenFor"/>.</param>
+    public static IDisposable Enter(bool ownsDictationShortcut = false)
     {
         Interlocked.Increment(ref _open);
-        return new Handle();
+        if (ownsDictationShortcut)
+            Interlocked.Increment(ref _shortcutOwners);
+        return new Handle(ownsDictationShortcut);
     }
 
-    private sealed class Handle : IDisposable
+    private sealed class Handle(bool ownsDictationShortcut) : IDisposable
     {
         private int _released;
 
@@ -42,8 +62,12 @@ public static class ModalScope
         {
             // Once. Disposing twice would take the count below what is actually open, and the first
             // symptom of that is a dialog that is modal to nothing.
-            if (Interlocked.Exchange(ref _released, 1) == 0)
-                Interlocked.Decrement(ref _open);
+            if (Interlocked.Exchange(ref _released, 1) != 0)
+                return;
+
+            Interlocked.Decrement(ref _open);
+            if (ownsDictationShortcut)
+                Interlocked.Decrement(ref _shortcutOwners);
         }
     }
 }
