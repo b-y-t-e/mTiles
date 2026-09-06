@@ -45,8 +45,10 @@
 
         <!-- Settings overlay -->
         <Panel IsVisible="{Binding IsSettingsOpen}">
-            <Border Background="{DynamicResource OverlayModal}"
-                    PointerPressed="SettingsOverlay_PointerPressed" />
+            <!-- Silent, like every other dialog's scrim: it stops the pointer and does nothing when
+                 clicked. Settings used to close on it and was the only thing that did — one gesture
+                 behaving two ways depending on which dialog was open. -->
+            <Border Background="{DynamicResource OverlayModal}" />
             <Border x:Name="SettingsDialog"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"

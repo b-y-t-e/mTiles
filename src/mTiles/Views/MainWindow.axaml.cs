@@ -61,7 +61,10 @@ public partial class MainWindow : Window
             vm.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(MainWindowViewModel.IsSettingsOpen))
+                {
                     UpdateSettingsDialogSize();
+                    ApplySettingsModality(vm.IsSettingsOpen);
+                }
                 else if (e.PropertyName == nameof(MainWindowViewModel.CurrentWorkspace))
                     SwitchWorkspaceView(vm.CurrentWorkspace);
             };
@@ -339,15 +342,36 @@ public partial class MainWindow : Window
         WindowState = WindowState.FullScreen;
     }
 
-    private void SettingsOverlay_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (DataContext is MainWindowViewModel vm)
-            _ = vm.CloseSettingsAsync();
-    }
-
     private void SettingsDialog_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         e.Handled = true;
+    }
+
+    /// <summary>Held while the settings dialog is showing — see <see cref="ApplySettingsModality"/>.</summary>
+    private IDisposable? _settingsModality;
+
+    /// <summary>
+    /// Makes the settings dialog modal to the keyboard, the way every other dialog already is.
+    /// </summary>
+    /// <remarks>
+    /// <para>Settings is drawn by hand in this window's markup rather than by
+    /// <see cref="OverlayHost"/> — it is older than the host and has closing rules of its own — so the
+    /// modality the host gives its dialogs went past the one dialog people open most. Tab walked out
+    /// of it into the workspace list, and Alt+Space dictated into the terminal tile behind it.</para>
+    /// <para>Claimed here rather than moving Settings into the host, which is a larger change than
+    /// this fault deserves; <see cref="ModalSurface"/> exists so the two share one implementation
+    /// instead of the host keeping modality to itself.</para>
+    /// </remarks>
+    private void ApplySettingsModality(bool open)
+    {
+        if (!open)
+        {
+            _settingsModality?.Dispose();
+            _settingsModality = null;
+            return;
+        }
+
+        _settingsModality ??= ModalSurface.Take(SettingsDialog);
     }
 
     private void UpdateSettingsDialogSize()
