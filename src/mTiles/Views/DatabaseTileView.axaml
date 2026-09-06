@@ -114,7 +114,7 @@
                                      VerticalAlignment="Center" />
                     <TextBlock Text="{Binding StatusText}"
                                FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSizeSm}"
+                               FontSize="{DynamicResource FontSm}"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimary}"
                                VerticalAlignment="Center"
@@ -139,7 +139,7 @@
                     <TextBlock Text="{Binding EmptyStateMessage}"
                                Foreground="{DynamicResource TextFaint}"
                                FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSizeSm}"
+                               FontSize="{DynamicResource FontSm}"
                                HorizontalAlignment="Center" />
                 </StackPanel>
             </Button>
@@ -201,14 +201,14 @@
                                                     <StackPanel Orientation="Horizontal" Spacing="4">
                                                         <TextBlock Text="{Binding Label}"
                                                                    FontFamily="{DynamicResource UiFontFamily}"
-                                                                   FontSize="{DynamicResource UiFontSizeSm}"
+                                                                   FontSize="{DynamicResource FontSm}"
                                                                    FontWeight="Medium"
                                                                    Foreground="{DynamicResource TextPrimary}" />
                                                         <Border CornerRadius="{DynamicResource RadiusSm}"
                                                                 Padding="4,0"
                                                                 Background="{DynamicResource StatusSuccessSubtle}"
                                                                 IsVisible="{Binding AllowModifications}">
-                                                            <TextBlock Text="RW" FontSize="8"
+                                                            <TextBlock Text="RW" FontSize="{DynamicResource FontChip}"
                                                                        FontWeight="SemiBold"
                                                                        Foreground="{DynamicResource StatusSuccessText}" />
                                                         </Border>
@@ -216,7 +216,7 @@
                                                                 Padding="4,0"
                                                                 Background="{DynamicResource StatusMutedSubtle}"
                                                                 IsVisible="{Binding !AllowModifications}">
-                                                            <TextBlock Text="RO" FontSize="8"
+                                                            <TextBlock Text="RO" FontSize="{DynamicResource FontChip}"
                                                                        FontWeight="SemiBold"
                                                                        Foreground="{DynamicResource TextMuted}" />
                                                         </Border>
@@ -288,12 +288,12 @@
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                                     <TextBlock Text="{Binding Label}"
                                                                FontFamily="{DynamicResource UiFontFamily}"
-                                                               FontSize="{DynamicResource UiFontSizeSm}"
+                                                               FontSize="{DynamicResource FontSm}"
                                                                Foreground="{DynamicResource TextPrimary}" />
                                                     <Border CornerRadius="{DynamicResource RadiusSm}"
                                                             Padding="4,0"
                                                             Background="{DynamicResource StatusMutedSubtle}">
-                                                        <TextBlock Text="{Binding Provider}" FontSize="8"
+                                                        <TextBlock Text="{Binding Provider}" FontSize="{DynamicResource FontChip}"
                                                                    FontWeight="SemiBold"
                                                                    Foreground="{DynamicResource TextMuted}" />
                                                     </Border>
@@ -373,7 +373,7 @@
                                                                 Padding="4,0"
                                                                 Background="{DynamicResource StatusMutedSubtle}"
                                                                 IsVisible="{Binding !IsWriteVerb}">
-                                                            <TextBlock Text="{Binding SqlVerb}" FontSize="8"
+                                                            <TextBlock Text="{Binding SqlVerb}" FontSize="{DynamicResource FontChip}"
                                                                        FontWeight="SemiBold"
                                                                        FontFamily="{DynamicResource UiFontFamily}"
                                                                        Foreground="{DynamicResource TextMuted}" />
@@ -382,7 +382,7 @@
                                                                 Padding="4,0"
                                                                 Background="{DynamicResource DangerSubtle}"
                                                                 IsVisible="{Binding IsWriteVerb}">
-                                                            <TextBlock Text="{Binding SqlVerb}" FontSize="8"
+                                                            <TextBlock Text="{Binding SqlVerb}" FontSize="{DynamicResource FontChip}"
                                                                        FontWeight="SemiBold"
                                                                        FontFamily="{DynamicResource UiFontFamily}"
                                                                        Foreground="{DynamicResource DangerText}" />

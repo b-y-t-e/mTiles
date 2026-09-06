@@ -87,11 +87,33 @@
     <!-- Overlay -->
     <SolidColorBrush x:Key="OverlayModal"   Color="#80000000" />
 
-    <!-- Typography sizes -->
-    <x:Double x:Key="FontLg">16</x:Double>
+    <!-- Typography sizes.
+
+         These values are the scale at the default size of 14pt and nothing more: App.ApplyFontResources
+         overwrites all six from UiFontScale before the first window is built, and again on every
+         settings change. They are here so the XAML previewer and a DynamicResource looked up before
+         that first write have something to find, and FontScaleTests fails if one of them stops
+         matching UiFontScale.For(AppDefaults.FontSize) - a size edited here alone is a size that is
+         wrong the moment the application runs.
+
+         Do not add a seventh by hand. The set is UiFontScale.Ratios, and the same test refuses a
+         FontSize in any view that is not one of these tokens. -->
+    <x:Double x:Key="FontLg">16.1</x:Double>
+    <x:Double x:Key="FontBase">14</x:Double>
     <x:Double x:Key="FontMd">12</x:Double>
-    <x:Double x:Key="FontSm">11</x:Double>
-    <x:Double x:Key="FontXs">10</x:Double>
+    <x:Double x:Key="FontSm">11.2</x:Double>
+    <x:Double x:Key="FontXs">10.1</x:Double>
+    <x:Double x:Key="FontChip">8.4</x:Double>
+
+    <!-- The same steps against the terminal's font size, for the surfaces drawn in the terminal's own
+         face - see UiFontScale.TerminalPrefix. Both defaults are 14, so these read as a copy; they stop
+         being one the moment somebody sets a different Terminal Font Size. -->
+    <x:Double x:Key="TermFontLg">16.1</x:Double>
+    <x:Double x:Key="TermFontBase">14</x:Double>
+    <x:Double x:Key="TermFontMd">12</x:Double>
+    <x:Double x:Key="TermFontSm">11.2</x:Double>
+    <x:Double x:Key="TermFontXs">10.1</x:Double>
+    <x:Double x:Key="TermFontChip">8.4</x:Double>
 
     <!-- Spacing -->
     <CornerRadius x:Key="RadiusSm">3</CornerRadius>

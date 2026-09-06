@@ -29,7 +29,7 @@
                         BorderThickness="0"
                         CornerRadius="{DynamicResource RadiusMd}"
                         FontFamily="{DynamicResource UiFontFamily}"
-                        FontSize="{DynamicResource UiFontSizeSm}"
+                        FontSize="{DynamicResource FontSm}"
                         Cursor="Hand"
                         Command="{Binding CloseCommand}" />
 
@@ -50,7 +50,7 @@
                             Classes="accent"
                             Content="{Binding NextCaption}"
                             MinWidth="90" Padding="12,5" MinHeight="0"
-                            FontSize="{DynamicResource UiFontSizeSm}"
+                            FontSize="{DynamicResource FontSm}"
                             Cursor="Hand"
                             IsEnabled="{Binding CanGoNext}"
                             Command="{Binding NextCommand}" />
@@ -75,7 +75,7 @@
                                TextWrapping="Wrap"
                                Margin="0,0,0,10"
                                FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSizeSm}"
+                               FontSize="{DynamicResource FontSm}"
                                Foreground="{DynamicResource TextSecondary}" />
 
                     <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,10,0,0">
@@ -148,7 +148,7 @@
                                                    Foreground="{DynamicResource StatusSuccessText}" />
                                         <TextBlock Text="{Binding Name}"
                                                    FontFamily="{DynamicResource UiFontFamily}"
-                                                   FontSize="{DynamicResource UiFontSizeSm}"
+                                                   FontSize="{DynamicResource FontSm}"
                                                    FontWeight="SemiBold"
                                                    Foreground="{DynamicResource TextPrimary}" />
                                     </DockPanel>
@@ -172,7 +172,7 @@
                     <TextBlock Text="Which microphone should dictation listen to? The system default follows whatever you switch to — a headset, a webcam — without coming back here."
                                TextWrapping="Wrap"
                                FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSizeSm}"
+                               FontSize="{DynamicResource FontSm}"
                                Foreground="{DynamicResource TextSecondary}" />
 
                     <ComboBox Classes="setting"
@@ -198,7 +198,7 @@
                             <TextBlock Text="Dictation is switched off, so nothing here will record."
                                        TextWrapping="Wrap"
                                        FontFamily="{DynamicResource UiFontFamily}"
-                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       FontSize="{DynamicResource FontSm}"
                                        Foreground="{DynamicResource DangerText}" />
                             <Button Classes="outlined-sm on-elevated"
                                     Content="Turn dictation on"
@@ -248,7 +248,7 @@
                                        IsVisible="{Binding ShowsToggleFollowUp}"
                                        TextWrapping="Wrap"
                                        FontFamily="{DynamicResource UiFontFamily}"
-                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       FontSize="{DynamicResource FontSm}"
                                        Foreground="{DynamicResource TextSecondary}" />
 
                             <!-- Only when the setting really is empty. A shortcut that cannot be listened
@@ -258,7 +258,7 @@
                                        IsVisible="{Binding ShowsNoShortcutNote}"
                                        TextWrapping="Wrap"
                                        FontFamily="{DynamicResource UiFontFamily}"
-                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       FontSize="{DynamicResource FontSm}"
                                        Foreground="{DynamicResource TextSecondary}" />
 
                             <TextBlock Text="{Binding HotkeyWarning}"
@@ -288,13 +288,13 @@
                                        VerticalAlignment="Center"
                                        IsVisible="{Binding IsRecording}"
                                        FontFamily="{DynamicResource UiFontFamily}"
-                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       FontSize="{DynamicResource FontSm}"
                                        Foreground="{DynamicResource DangerText}" />
                             <TextBlock Text="Working it out…"
                                        VerticalAlignment="Center"
                                        IsVisible="{Binding IsTranscribing}"
                                        FontFamily="{DynamicResource UiFontFamily}"
-                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       FontSize="{DynamicResource FontSm}"
                                        Foreground="{DynamicResource TextMuted}" />
                         </StackPanel>
 
@@ -340,7 +340,7 @@
                                    TextWrapping="Wrap"
                                    VerticalAlignment="Top"
                                    FontFamily="{DynamicResource UiFontFamily}"
-                                   FontSize="{DynamicResource UiFontSizeSm}"
+                                   FontSize="{DynamicResource FontSm}"
                                    Foreground="{DynamicResource TextPrimary}" />
                     </Border>
                 </DockPanel>

@@ -9,6 +9,15 @@
         Icon="/Assets/mtiles-icon.png"
         Background="{DynamicResource BgCanvas}">
 
+    <!-- Everything in the window is drawn through one scale, including the dialogs: OverlayHost is
+         inside it, so a scaled interface does not get an unscaled Settings drawn over it.
+
+         A layout transform and not a render one - layout happens at the untransformed size and is then
+         drawn scaled, so text is rasterised at the size it ends up and stays sharp, the terminal's cell
+         grid is measured in the coordinates it is drawn in, and the pointer lands where it looks like
+         it landed. See InterfaceScale for why this exists at all: on Wayland there is no environment
+         variable that would do it. -->
+    <LayoutTransformControl x:Name="ScaleHost">
     <Panel>
         <Grid x:Name="MainGrid">
             <Grid.ColumnDefinitions>
@@ -51,4 +60,5 @@
              See OverlayHost for why none of these is a window any more. -->
         <views:OverlayHost x:Name="Overlays" IsVisible="False" />
     </Panel>
+    </LayoutTransformControl>
 </Window>

@@ -65,7 +65,7 @@
          text is monospaced. It was written out inline three times in SettingsView — ten properties each —
          and had already drifted in three of them, which is how a dialog ends up with three buttons that
          are nearly the same button.
-         The type size settled on `UiFontSizeSm`, which follows the font size the user chose, rather than
+         The type size settled on `FontSm`, which follows the font size the user chose, rather than
          the fixed `FontXs` one of the three had: a button that stays at ten pixels while everything
          around it grows is the reason that setting exists. -->
     <Style Selector="Button.outlined-sm">
@@ -75,7 +75,7 @@
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
-        <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+        <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
         <Setter Property="VerticalAlignment" Value="Center" />
@@ -125,7 +125,7 @@
     <Style Selector="Border.keycap > TextBlock">
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
-        <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+        <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="HorizontalAlignment" Value="Center" />
     </Style>
@@ -527,7 +527,7 @@
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
-        <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+        <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Cursor" Value="Hand" />

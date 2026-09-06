@@ -259,7 +259,7 @@ public class GoalAskPanelTests : IDisposable
             window.Resources["AccentDefault"] = Brushes.SteelBlue;
             window.Resources["BgElevated"] = Brushes.DimGray;
             window.Resources["TerminalFontFamily"] = new FontFamily("Cascadia Mono");
-            window.Resources["UiFontSize"] = 17.0;
+            window.Resources["TermFontBase"] = 17.0;
             window.Show();
             Pump();
 
@@ -284,7 +284,7 @@ public class GoalAskPanelTests : IDisposable
             // only that the method works — the thing that has to be right is the wiring, because
             // picking another theme or font size happens while a tile is open and nothing else is going
             // to tell this control about it.
-            window.Resources["UiFontSize"] = 21.0;
+            window.Resources["TermFontBase"] = 21.0;
             window.Resources["TextPrimary"] = Brushes.Yellow;
             Pump();
 

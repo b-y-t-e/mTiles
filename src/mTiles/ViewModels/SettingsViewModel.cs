@@ -111,6 +111,12 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private double _fontSize;
 
+    /// <summary>The whole interface's scale, as a percentage — see <see cref="InterfaceScale"/>.</summary>
+    /// <remarks>A percentage because 1.15 is a number a reader has to convert and 115 is one they
+    /// recognise from every other application that offers this.</remarks>
+    [ObservableProperty]
+    private double _uiScalePercent;
+
     [ObservableProperty]
     private string _selectedShell = "";
 
@@ -349,6 +355,7 @@ public partial class SettingsViewModel : ObservableObject
         _terminalFontSize = s.TerminalFontSize;
         _fontFamily = s.FontFamily;
         _fontSize = s.FontSize;
+        _uiScalePercent = Math.Round(InterfaceScale.Normalise(s.UiScale) * 100);
         _gitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
         _agentFileSyncEnabled = s.AgentFileSyncEnabled;
         _gitPath = s.GitPath;
@@ -385,6 +392,10 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnTerminalFontSizeChanged(double value) { _settingsService.Settings.TerminalFontSize = value; _settingsService.NotifyChanged(); }
     partial void OnFontFamilyChanged(string value) { _settingsService.Settings.FontFamily = value; _settingsService.NotifyChanged(); }
     partial void OnFontSizeChanged(double value) { _settingsService.Settings.FontSize = value; _settingsService.NotifyChanged(); }
+
+    // Normalised on the way in as well as where it is drawn: the spinner is bounded, but its Value is
+    // also cleared to null while the field is being retyped, which arrives here as 0.
+    partial void OnUiScalePercentChanged(double value) { _settingsService.Settings.UiScale = InterfaceScale.Normalise(value / 100); _settingsService.NotifyChanged(); }
     partial void OnGitIgnoreWorkspaceDirChanged(bool value) { _settingsService.Settings.GitIgnoreWorkspaceDir = value; _settingsService.NotifyChanged(); }
     partial void OnAgentFileSyncEnabledChanged(bool value) { _settingsService.Settings.AgentFileSyncEnabled = value; _settingsService.NotifyChanged(); }
     partial void OnGitPathChanged(string value) { _settingsService.Settings.GitPath = value; _settingsService.NotifyChanged(); _ = DetectGitAsync(); }

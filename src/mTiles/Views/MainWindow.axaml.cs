@@ -2,6 +2,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using mTiles.Services;
 using mTiles.ViewModels;
@@ -28,11 +29,33 @@ public partial class MainWindow : Window
         AddHandler(InputElement.KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
     }
 
+    /// <summary>Draws the whole window at the scale the user asked for.</summary>
+    /// <remarks>
+    /// The clamp is <see cref="InterfaceScale.Normalise"/> and not a range on the control, because the
+    /// value also arrives from a hand-edited settings file and from a newer build's file after a
+    /// rollback: a scale of 0 is a window with nothing in it, including the dialog that would undo it.
+    /// </remarks>
+    private void ApplyInterfaceScale()
+    {
+        var scale = InterfaceScale.Normalise(_settingsService?.Settings.UiScale ?? InterfaceScale.Default);
+
+        // A fresh transform rather than two properties on a shared one: the control re-measures when
+        // the transform it holds is replaced, and mutating one in place leaves the window drawn at the
+        // scale it already had until something else forces a layout pass.
+        ScaleHost.LayoutTransform = new ScaleTransform(scale, scale);
+    }
+
     public void BindWindowState(SettingsService settingsService)
     {
         _settingsService = settingsService;
         _panelColumn = MainGrid.ColumnDefinitions[0];
         var s = settingsService.Settings;
+
+        // Before the size is restored, so the window that comes back is the size it was saved at rather
+        // than that size times the scale. SettingsChanged fires per keystroke in the Settings dialog, so
+        // the spinner shows the interface growing as it is turned.
+        ApplyInterfaceScale();
+        settingsService.SettingsChanged += ApplyInterfaceScale;
 
         if (s.WindowMaximized)
         {

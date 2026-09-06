@@ -30,7 +30,7 @@
                         BorderThickness="{DynamicResource BorderThin}"
                         CornerRadius="{DynamicResource RadiusMd}"
                         FontFamily="{DynamicResource UiFontFamily}"
-                        FontSize="{DynamicResource UiFontSizeSm}"
+                        FontSize="{DynamicResource FontSm}"
                         Cursor="Hand" />
                 <Button x:Name="OkButton"
                         Classes="accent"
@@ -38,7 +38,7 @@
                         MinWidth="70"
                         Padding="12,5"
                         MinHeight="0"
-                        FontSize="{DynamicResource UiFontSizeSm}"
+                        FontSize="{DynamicResource FontSm}"
                         Cursor="Hand" />
             </StackPanel>
 
@@ -46,7 +46,7 @@
                 <TextBox x:Name="InputBox"
                          DockPanel.Dock="Top"
                          FontFamily="{DynamicResource UiFontFamily}"
-                         FontSize="{DynamicResource UiFontSizeSm}"
+                         FontSize="{DynamicResource FontSm}"
                          CornerRadius="{DynamicResource RadiusMd}"
                          AcceptsReturn="False" />
 
@@ -88,7 +88,7 @@
                                 <DataTemplate>
                                     <TextBlock Text="{Binding}"
                                                FontFamily="{DynamicResource UiFontFamily}"
-                                               FontSize="{DynamicResource UiFontSizeSm}"
+                                               FontSize="{DynamicResource FontSm}"
                                                Foreground="{DynamicResource TextPrimary}"
                                                TextTrimming="CharacterEllipsis" />
                                 </DataTemplate>

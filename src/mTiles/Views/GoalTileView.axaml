@@ -138,7 +138,7 @@
             <Setter Property="Width" Value="16" />
             <Setter Property="VerticalAlignment" Value="Top" />
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
         <Style Selector="TextBlock.gutter.gutter-user">
@@ -162,7 +162,7 @@
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="LineSpacing" Value="2" />
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
             <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
         </Style>
@@ -187,7 +187,7 @@
         <!-- ======== Status strip ======== -->
         <Style Selector="TextBlock.strip">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -228,7 +228,7 @@
              themselves are in the transcript, where they can be read. -->
         <Style Selector="TextBlock.badge">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Margin" Value="0,0,6,0" />
         </Style>
@@ -289,20 +289,20 @@
         </Style>
         <Style Selector="TextBlock.crit-label">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Margin" Value="0,0,10,0" />
         </Style>
         <Style Selector="TextBlock.crit-title">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
             <Setter Property="Margin" Value="0,0,0,6" />
         </Style>
         <Style Selector="TextBox.crit-field">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Background" Value="{DynamicResource BgBase}" />
             <Setter Property="Padding" Value="6,2" />
             <Setter Property="MinHeight" Value="0" />
@@ -310,7 +310,7 @@
         </Style>
         <Style Selector="CheckBox.crit-check">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="Padding" Value="6,0,0,0" />
@@ -327,7 +327,7 @@
              waiting to be filled in. -->
         <Style Selector="ToggleButton.crit-solid">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Width" Value="22" />
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="Padding" Value="0,2" />
@@ -381,7 +381,7 @@
             <!-- The conversation's size, not the strip's. These sit in the column with the messages and
                  the composer, and at four fifths they read as a caption under the box rather than as
                  the two things it is offering to do. -->
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
             <Setter Property="Cursor" Value="Hand" />
@@ -475,7 +475,7 @@
              conversation, and it is read with the glyphs the conversation around it is read with. -->
         <Style Selector="TextBlock.ans-marker">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="VerticalAlignment" Value="Top" />
             <Setter Property="Margin" Value="0,0,8,0" />
@@ -486,7 +486,7 @@
         </Style>
         <Style Selector="TextBlock.ask-title">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
 
@@ -495,14 +495,14 @@
              and not a paragraph: it is unreadable at three questions and this is why. -->
         <Style Selector="TextBlock.ask-marker">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="VerticalAlignment" Value="Top" />
             <Setter Property="Margin" Value="0,1,8,0" />
         </Style>
         <Style Selector="TextBlock.ask-question">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
@@ -511,7 +511,7 @@
              the whole of the difference, and it is enough. -->
         <Style Selector="TextBlock.ask-why">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Margin" Value="0,2,0,0" />
@@ -532,7 +532,7 @@
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -546,7 +546,7 @@
 
         <Style Selector="TextBox.ask-field">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Background" Value="{DynamicResource BgBase}" />
             <Setter Property="Padding" Value="6,3" />
             <Setter Property="MinHeight" Value="0" />
@@ -562,7 +562,7 @@
         </Style>
         <Style Selector="TextBox.goal-input">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Padding" Value="0,2" />
             <Setter Property="MaxHeight" Value="140" />
@@ -645,7 +645,7 @@
         <Style Selector="TextBlock.waiting-note">
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
         </Style>
 
@@ -682,7 +682,7 @@
 
         <Style Selector="ComboBox.goal-tool">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />

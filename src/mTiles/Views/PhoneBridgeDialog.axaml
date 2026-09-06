@@ -81,7 +81,7 @@
                         HorizontalAlignment="Right"
                         Content="Done"
                         MinWidth="80" Padding="12,5" MinHeight="0"
-                        FontSize="{DynamicResource UiFontSizeSm}"
+                        FontSize="{DynamicResource FontSm}"
                         Cursor="Hand"
                         Click="Close_Click" />
             </DockPanel>

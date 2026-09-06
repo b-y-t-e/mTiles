@@ -318,7 +318,7 @@
                                 <TextBlock Text="{Binding Initials}"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
-                                           FontSize="11"
+                                           FontSize="{DynamicResource FontSm}"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextMuted}" />
                             </Border>

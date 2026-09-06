@@ -120,7 +120,7 @@ public sealed class GoalMarkdownView : MarkdownViewer
             CodeFont = font;
         }
 
-        if (Token("UiFontSize") is double points and > 0)
+        if (Token("TermFontBase") is double points and > 0)
             DefaultFontSize = points;
 
         // Nothing behind it: the row already has whatever background its role calls for, and a viewer

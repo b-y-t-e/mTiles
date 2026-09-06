@@ -27,7 +27,7 @@
                                  Foreground="{DynamicResource DangerText}" />
                 <TextBlock Text="{Binding LaunchProblem}"
                            TextWrapping="Wrap"
-                           FontSize="12"
+                           FontSize="{DynamicResource FontMd}"
                            LineHeight="17"
                            Foreground="{DynamicResource DangerText}" />
             </DockPanel>
@@ -58,7 +58,7 @@
                         Content="Dismiss" />
                 <TextBlock Text="{Binding LaunchNotice}"
                            TextWrapping="Wrap"
-                           FontSize="12"
+                           FontSize="{DynamicResource FontMd}"
                            LineHeight="17"
                            VerticalAlignment="Center"
                            Foreground="{DynamicResource TextPrimary}" />

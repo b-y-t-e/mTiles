@@ -9,6 +9,13 @@ public sealed class AppSettings
     public double TerminalFontSize { get; set; } = AppDefaults.FontSize;
     public string FontFamily { get; set; } = AppDefaults.FontFamily;
     public double FontSize { get; set; } = AppDefaults.FontSize;
+
+    /// <summary>How much larger or smaller the whole interface is drawn — 1.0 for the display's own scale.</summary>
+    /// <remarks>See <see cref="InterfaceScale"/> for why this is a separate question from
+    /// <see cref="FontSize"/>, and why it is the only place to ask it on Wayland. Stored raw and
+    /// normalised where it is used, so a value from a newer build survives a rollback rather than being
+    /// clamped and written back.</remarks>
+    public double UiScale { get; set; } = InterfaceScale.Default;
     public string ColorThemeName { get; set; } = AppDefaults.ColorThemeName;
     /// <summary>
     /// The shell a new terminal starts in — an <c>IShellTerminal.Id</c>, empty for "whatever this

@@ -104,7 +104,7 @@
             <Setter Property="Padding" Value="4,2" />
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
@@ -122,7 +122,7 @@
         </Style>
         <Style Selector="TextBlock.findings-title">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
         </Style>
@@ -151,7 +151,7 @@
         </Style>
         <Style Selector="TextBlock.f-sev">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="Margin" Value="0,0,8,0" />
@@ -171,13 +171,13 @@
         </Style>
         <Style Selector="TextBlock.f-where">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
             <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
         <Style Selector="SelectableTextBlock.f-title">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSize}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="FontWeight" Value="Medium" />

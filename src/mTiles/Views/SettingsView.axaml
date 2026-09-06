@@ -118,6 +118,20 @@
                                 <NumericUpDown Classes="setting"
                                                Value="{Binding FontSize}" Minimum="8" Maximum="48" Increment="1" />
                             </DockPanel>
+                            <!-- Interface scale is not the font size again: the font size moves text and
+                                 leaves the padding, the icons and the gutters where they were, while this
+                                 multiplies the whole window at once. It is also the only way to say it on
+                                 Wayland, which reads none of the scale environment variables X11 does -
+                                 see InterfaceScale. -->
+                            <DockPanel>
+                                <TextBlock Text="Interface Scale" Classes="label"
+                                           VerticalAlignment="Center" Width="90"
+                                           ToolTip.Tip="Scales the whole interface, not only the text." />
+                                <NumericUpDown Classes="setting"
+                                               Value="{Binding UiScalePercent}"
+                                               Minimum="50" Maximum="300" Increment="10"
+                                               FormatString="0'%'" />
+                            </DockPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -188,7 +202,7 @@
                                                     Padding="6,2"
                                                     Background="{DynamicResource StatusSuccessSubtle}"
                                                     IsVisible="{Binding GitPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                <TextBlock Text="CUSTOM" FontSize="9"
+                                                <TextBlock Text="CUSTOM" FontSize="{DynamicResource FontChip}"
                                                            FontWeight="SemiBold"
                                                            LetterSpacing="0.8"
                                                            Foreground="{DynamicResource StatusSuccessText}" />
@@ -197,7 +211,7 @@
                                                     Padding="6,2"
                                                     Background="{DynamicResource StatusMutedSubtle}"
                                                     IsVisible="{Binding !GitFound}">
-                                                <TextBlock Text="NOT FOUND" FontSize="9"
+                                                <TextBlock Text="NOT FOUND" FontSize="{DynamicResource FontChip}"
                                                            FontWeight="SemiBold"
                                                            LetterSpacing="0.8"
                                                            Foreground="{DynamicResource TextMuted}" />
@@ -301,7 +315,7 @@
                             <StackPanel Spacing="2" VerticalAlignment="Center">
                                 <TextBlock Text="Third-party notices"
                                            FontFamily="{DynamicResource UiFontFamily}"
-                                           FontSize="{DynamicResource UiFontSizeSm}"
+                                           FontSize="{DynamicResource FontSm}"
                                            Foreground="{DynamicResource TextPrimary}" />
                                 <TextBlock Text="Licences and attribution for the code, libraries and speech models this application uses."
                                            TextWrapping="Wrap"
@@ -408,7 +422,7 @@
                                                             VerticalAlignment="Center"
                                                             IsVisible="{Binding !IsInstalled}"
                                                             Background="{DynamicResource StatusMutedSubtle}">
-                                                        <TextBlock Text="NOT INSTALLED" FontSize="8"
+                                                        <TextBlock Text="NOT INSTALLED" FontSize="{DynamicResource FontChip}"
                                                                    FontWeight="SemiBold"
                                                                    Foreground="{DynamicResource DangerText}" />
                                                     </Border>
@@ -420,7 +434,7 @@
                                                             IsVisible="{Binding IsUnavailable}"
                                                             ToolTip.Tip="{Binding UnavailableNote}"
                                                             Background="{DynamicResource StatusMutedSubtle}">
-                                                        <TextBlock Text="UNAVAILABLE" FontSize="8"
+                                                        <TextBlock Text="UNAVAILABLE" FontSize="{DynamicResource FontChip}"
                                                                    FontWeight="SemiBold"
                                                                    Foreground="{DynamicResource DangerText}" />
                                                     </Border>
@@ -815,7 +829,7 @@
                                                             <Border CornerRadius="{DynamicResource RadiusSm}"
                                                                     Padding="4,0"
                                                                     Background="{DynamicResource StatusMutedSubtle}">
-                                                                <TextBlock Text="{Binding ProviderShort}" FontSize="8"
+                                                                <TextBlock Text="{Binding ProviderShort}" FontSize="{DynamicResource FontChip}"
                                                                            FontWeight="SemiBold"
                                                                            Foreground="{DynamicResource TextMuted}" />
                                                             </Border>
@@ -929,7 +943,7 @@
                                                         <Border CornerRadius="{DynamicResource RadiusSm}"
                                                                 Padding="6,2"
                                                                 Background="{DynamicResource StatusMutedSubtle}">
-                                                            <TextBlock Text="{Binding Provider}" FontSize="9"
+                                                            <TextBlock Text="{Binding Provider}" FontSize="{DynamicResource FontChip}"
                                                                        FontWeight="SemiBold"
                                                                        LetterSpacing="0.8"
                                                                        Foreground="{DynamicResource TextMuted}" />
@@ -939,7 +953,7 @@
                                                                 Padding="6,2"
                                                                 Background="{DynamicResource StatusSuccessSubtle}"
                                                                 IsVisible="{Binding SourceType, Converter={x:Static vm:SettingsViewModel.IsManualSourceConverter}}">
-                                                            <TextBlock Text="MANUAL" FontSize="9"
+                                                            <TextBlock Text="MANUAL" FontSize="{DynamicResource FontChip}"
                                                                        FontWeight="SemiBold"
                                                                        LetterSpacing="0.8"
                                                                        Foreground="{DynamicResource StatusSuccessText}" />

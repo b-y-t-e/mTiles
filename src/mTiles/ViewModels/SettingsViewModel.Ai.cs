@@ -1605,6 +1605,7 @@ public partial class SettingsViewModel
         TerminalFontSize = s.TerminalFontSize;
         FontFamily = s.FontFamily;
         FontSize = s.FontSize;
+        UiScalePercent = Math.Round(InterfaceScale.Normalise(s.UiScale) * 100);
         GitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
         AgentFileSyncEnabled = s.AgentFileSyncEnabled;
         GitPath = s.GitPath;

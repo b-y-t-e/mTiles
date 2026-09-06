@@ -177,8 +177,18 @@ public partial class App : Application
         // missing resource fails. It follows the terminal font because that is the monospace face the user
         // has already chosen.
         Resources["TerminalFontFamily"] = new FontFamily(s.TerminalFontFamily);
-        Resources["UiFontSize"] = s.FontSize;
-        Resources["LogoFontSize"] = s.FontSize * AppDefaults.LogoFontSizeRatio;
-        Resources["UiFontSizeSm"] = s.FontSize * AppDefaults.SmallFontSizeRatio;
+        // Every size in the interface, from the one the user chose. A loop over the scale rather than
+        // a line per token, so a token added to UiFontScale is live everywhere without this method
+        // being remembered — the two that were written here by hand were also the two that could be
+        // forgotten, and one of them (LogoFontSize) was computed at every settings change for a view
+        // that had stopped asking for it years before.
+        foreach (var (name, size) in UiFontScale.For(s.FontSize))
+            Resources[name] = size;
+
+        // The same steps against the terminal's size, for the surfaces drawn in the terminal's face —
+        // see UiFontScale.TerminalPrefix. Emitted here rather than scoped to the Goal tile's own tree
+        // because the findings dialog is drawn in the main window, outside it.
+        foreach (var (name, size) in UiFontScale.For(s.TerminalFontSize, UiFontScale.TerminalPrefix))
+            Resources[name] = size;
     }
 }

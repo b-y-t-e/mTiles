@@ -252,7 +252,7 @@
                                            Text="{Binding TileName}"
                                            VerticalAlignment="Center"
                                            FontFamily="{DynamicResource UiFontFamily}"
-                                           FontSize="{DynamicResource UiFontSize}"
+                                           FontSize="{DynamicResource FontBase}"
                                            FontWeight="Medium"
                                            Foreground="{DynamicResource TextPrimary}"
                                            Margin="0"

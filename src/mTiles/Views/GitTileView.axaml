@@ -16,7 +16,7 @@
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="BorderThickness" Value="0,0,0,2" />
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -33,7 +33,7 @@
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="BorderThickness" Value="0,0,0,2" />
             <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
@@ -54,7 +54,7 @@
             <Setter Property="Padding" Value="8,4" />
             <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
             <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource UiFontSizeSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource FontSm}" />
             <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
             <Setter Property="Cursor" Value="Hand" />
@@ -144,7 +144,7 @@
                                      Foreground="{DynamicResource AccentDefault}" />
                     <TextBlock Text="{Binding BranchName}"
                                FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSizeSm}"
+                               FontSize="{DynamicResource FontSm}"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimary}" />
                 </StackPanel>
@@ -225,7 +225,7 @@
                 <TextBlock Text="Not a git repository"
                            Foreground="{DynamicResource TextMuted}"
                            FontFamily="{DynamicResource UiFontFamily}"
-                           FontSize="{DynamicResource UiFontSize}"
+                           FontSize="{DynamicResource FontBase}"
                            HorizontalAlignment="Center" />
             </StackPanel>
 
@@ -273,7 +273,7 @@
                                         <DataTemplate>
                                             <TextBlock Text="{Binding}"
                                                        FontFamily="{DynamicResource UiFontFamily}"
-                                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                                       FontSize="{DynamicResource FontSm}"
                                                        Foreground="{DynamicResource TextPrimary}"
                                                        TextTrimming="CharacterEllipsis"
                                                        MaxWidth="300" />
@@ -318,7 +318,7 @@
                                     <TextBlock Text="Pop" />
                                     <TextBlock Text="{Binding StashCount, StringFormat='({0})'}"
                                                FontFamily="{DynamicResource UiFontFamily}"
-                                               FontSize="{DynamicResource UiFontSizeSm}"
+                                               FontSize="{DynamicResource FontSm}"
                                                Foreground="{DynamicResource TextMuted}"
                                                IsVisible="{Binding StashCount}" />
                                 </StackPanel>
@@ -336,7 +336,7 @@
                                 <mi:MaterialIcon Kind="Check" Width="13" Height="13" />
                                 <TextBlock Text="Commit"
                                            FontFamily="{DynamicResource UiFontFamily}"
-                                           FontSize="{DynamicResource UiFontSizeSm}" />
+                                           FontSize="{DynamicResource FontSm}" />
                             </StackPanel>
                         </Button>
                     </DockPanel>
@@ -366,7 +366,7 @@
                     </Viewbox>
                     <TextBlock Text="{Binding Changes.Count, StringFormat='{}{0} changed files'}"
                                FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSizeSm}"
+                               FontSize="{DynamicResource FontSm}"
                                Foreground="{DynamicResource TextMuted}"
                                VerticalAlignment="Center" />
                 </DockPanel>
@@ -395,7 +395,7 @@
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="{Binding Status}"
                                            FontFamily="{DynamicResource UiFontFamily}"
-                                           FontSize="{DynamicResource UiFontSizeSm}"
+                                           FontSize="{DynamicResource FontSm}"
                                            FontWeight="Bold"
                                            Width="16"
                                            TextAlignment="Center"
@@ -404,7 +404,7 @@
                                            Margin="0,0,4,0" />
                                 <TextBlock Text="{Binding FilePath}"
                                            FontFamily="{DynamicResource UiFontFamily}"
-                                           FontSize="{DynamicResource UiFontSizeSm}"
+                                           FontSize="{DynamicResource FontSm}"
                                            Foreground="{DynamicResource TextPrimary}"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
@@ -424,7 +424,7 @@
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="{Binding Hash}"
                                            FontFamily="{DynamicResource UiFontFamily}"
-                                           FontSize="{DynamicResource UiFontSizeSm}"
+                                           FontSize="{DynamicResource FontSm}"
                                            Foreground="{DynamicResource AccentDefault}"
                                            VerticalAlignment="Center"
                                            Margin="0,0,4,0"
@@ -433,7 +433,7 @@
                                            Text="*"
                                            IsVisible="{Binding IsLocal}"
                                            FontFamily="{DynamicResource UiFontFamily}"
-                                           FontSize="{DynamicResource UiFontSizeSm}"
+                                           FontSize="{DynamicResource FontSm}"
                                            Foreground="{DynamicResource DangerText}"
                                            VerticalAlignment="Center"
                                            Margin="0,0,4,0" />
@@ -447,7 +447,7 @@
                                            Margin="0,0,4,0" />
                                 <TextBlock Text="{Binding Message}"
                                            FontFamily="{DynamicResource UiFontFamily}"
-                                           FontSize="{DynamicResource UiFontSizeSm}"
+                                           FontSize="{DynamicResource FontSm}"
                                            Foreground="{DynamicResource TextSecondary}"
                                            VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
@@ -485,13 +485,13 @@
                                      VerticalAlignment="Center" />
                     <TextBlock Text="{Binding BranchName}"
                                FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSize}"
+                               FontSize="{DynamicResource FontBase}"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimary}"
                                VerticalAlignment="Center" />
                     <TextBlock Text="{Binding WorktreePath}"
                                FontFamily="{DynamicResource UiFontFamily}"
-                               FontSize="{DynamicResource UiFontSizeSm}"
+                               FontSize="{DynamicResource FontSm}"
                                Foreground="{DynamicResource TextMuted}"
                                VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis"
@@ -512,7 +512,7 @@
                 <TextBlock Text="Select a file to view changes"
                            Foreground="{DynamicResource TextMuted}"
                            FontFamily="{DynamicResource UiFontFamily}"
-                           FontSize="{DynamicResource UiFontSize}"
+                           FontSize="{DynamicResource FontBase}"
                            HorizontalAlignment="Center" />
             </StackPanel>
 
@@ -532,7 +532,7 @@
                                     Margin="8,0,0,0">
                             <TextBlock Text="{Binding SelectedChange.StatusDisplay}"
                                        FontFamily="{DynamicResource UiFontFamily}"
-                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       FontSize="{DynamicResource FontSm}"
                                        Foreground="{Binding SelectedChange.Status, Converter={StaticResource StatusColor}}"
                                        VerticalAlignment="Center" />
                             <Button Classes="tile-btn"
@@ -544,7 +544,7 @@
                         </StackPanel>
                         <TextBlock Text="{Binding SelectedChange.DisplayPath}"
                                    FontFamily="{DynamicResource UiFontFamily}"
-                                   FontSize="{DynamicResource UiFontSizeSm}"
+                                   FontSize="{DynamicResource FontSm}"
                                    Foreground="{DynamicResource TextPrimary}"
                                    VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis" />

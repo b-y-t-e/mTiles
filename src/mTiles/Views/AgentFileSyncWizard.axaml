@@ -28,7 +28,7 @@
                 <TextBlock x:Name="ExplanationText"
                            TextWrapping="Wrap"
                            FontFamily="{DynamicResource UiFontFamily}"
-                           FontSize="{DynamicResource UiFontSizeSm}"
+                           FontSize="{DynamicResource FontSm}"
                            Foreground="{DynamicResource TextSecondary}" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
                     <!-- on-elevated: this window's own background is BgElevated, same as the setup
@@ -48,7 +48,7 @@
                 <TextBlock Text="These files already have different content. Which one is current?"
                            TextWrapping="Wrap"
                            FontFamily="{DynamicResource UiFontFamily}"
-                           FontSize="{DynamicResource UiFontSizeSm}"
+                           FontSize="{DynamicResource FontSm}"
                            Foreground="{DynamicResource TextSecondary}" />
 
                 <!-- The one destructive step in this feature, so it says so before the buttons rather
@@ -72,7 +72,7 @@
                         <StackPanel>
                             <TextBlock x:Name="ClaudeName" Text="CLAUDE.md" FontWeight="SemiBold"
                                        FontFamily="{DynamicResource UiFontFamily}"
-                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       FontSize="{DynamicResource FontSm}"
                                        Foreground="{DynamicResource TextPrimary}" />
                             <TextBlock x:Name="ClaudeMeta"
                                        FontFamily="{DynamicResource UiFontFamily}"
@@ -91,7 +91,7 @@
                         <StackPanel>
                             <TextBlock x:Name="AgentsName" Text="AGENTS.md" FontWeight="SemiBold"
                                        FontFamily="{DynamicResource UiFontFamily}"
-                                       FontSize="{DynamicResource UiFontSizeSm}"
+                                       FontSize="{DynamicResource FontSm}"
                                        Foreground="{DynamicResource TextPrimary}" />
                             <TextBlock x:Name="AgentsMeta"
                                        FontFamily="{DynamicResource UiFontFamily}"

@@ -10,6 +10,10 @@ dotnet run --project src/mTiles
 dotnet test                     # tests/mTiles.Tests
 ```
 
+**"deploy"/"deploy + push"** always means running `python deploy2.py` — it bumps the patch version,
+commits `version.txt`, pushes, then tags and pushes the tag so CI builds Windows + Linux and cuts the
+release. Never a manual `git push` or a hand-written version bump.
+
 ## Structure
 
 - `src/mTiles/` — the application
@@ -104,6 +108,8 @@ dotnet test                     # tests/mTiles.Tests
   **`cmd` is not in the catalog, and that is a decision.** It cannot run what this application asks a shell to run: it does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, runs only the first line of a multi-line command, and does not treat `;` as a separator — all measured, and the last of those silently reduced OpenCode's own two-command chain to a bare shell. It used to be offered and then swapped for PowerShell behind the user's back, which meant a shell that was neither the one they picked nor the one running their commands. A stored `CMD` now finds nothing and falls back to the default — and so does a `$SHELL` the old Unix detection offered (`nu`, `ksh`, `dash`), which is why `SettingsService.ReportUnknownDefaultShell` logs the name once — remembering in `ReportedUnknownShellName` that it has, so the warning does not return every launch — and **leaves the name in the file**: a name this build cannot match is also what a shell added by a newer version looks like after a Velopack rollback, so clearing it would let the older build settle the question for the newer one for good. `DropCustomShell` is the one that does clear, because a path to an arbitrary binary is an answer nothing here could ever honour.
   **Why the environment members are on the shell and not only in `PtyOptions.Environment`.** Anything secret goes through the process environment — a startup script is *typed into a live PTY*, so it lands in the scrollback and in the shell's history file, which is why a key must never go that way. Since **Terminal.Avalonia 0.3.0** that block can also *remove*: a `null` value in `PtyOptions.Environment` unsets the variable, so a machine with a global `ANTHROPIC_API_KEY` **can** be given a child that authenticates through `ANTHROPIC_AUTH_TOKEN` instead. That was one line in our own `PtyEnvironment.Build`, and it is the right route — `ShellEnvironmentTests` proves it against a real child rather than a fake that would only report what it was handed. What the shell's own `SetEnv`/`UnsetEnv` are still for is everything that has to happen *inside a shell that is already running*, and `NoProfileArgs` covers the other half of the same trap — the user's own profile overwriting what we set
 - `Services/ChainPolicy.cs` + `Services/RelaunchBudget.cs` — the launch chain's rules and its rate limit, pure and separate from the loop that carries them out
+- `Services/UiFontScale.cs` + `Services/InterfaceScale.cs` — the two answers to "how big is this",
+  both pure. See *Type size and interface scale* below
 - `Services/TileScript.cs` — the one place that expands an agent script's placeholders (`${tileId}`, `${opencodeSessionFile}`), and the only thing that decides what an acceptable tile id is — a rule `OpenCodeSession` asks for rather than copies, because the same value also becomes a file name
 - `Services/OpenCodeSession.cs` — how an OpenCode tile gets its conversation back (see Session resume below)
 - `SettingsService` writes on a debounce **and** directly when the window closes, so both the write and the timer swap are locked, and the timer's write is wrapped: an unhandled exception on a thread-pool thread ends the process, and no settings save is worth the application
@@ -202,6 +208,44 @@ something that looked wrong on screen.
   left margin. Twenty boxed outlines give a column a zigzag edge and no rhythm.
 - **Say what it is, or offer to fix it.** A row that can be acted on carries the action (Create
   repository), not a label describing the lack.
+
+**Type size and interface scale**
+
+- **Every type size is `UiFontScale`, and nothing else.** Six tokens — `FontChip`, `FontXs`, `FontSm`,
+  `FontMd`, `FontBase`, `FontLg` — each a ratio of the one size the user chose in Settings, written into
+  the application's resources by `App.ApplyFontResources` on startup and at every settings change. The
+  literal sizes in `AppTheme.axaml` are only what the previewer and a lookup made before that first
+  write have to find; `FontScaleTests` fails when they stop matching `UiFontScale.For(AppDefaults.FontSize)`.
+- **Two bases, one table.** The same six steps are emitted a second time against
+  `AppSettings.TerminalFontSize`, prefixed `Term` (`TermFontBase`, `TermFontSm`, …). The Goal tile and
+  its findings dialog use those and nothing else: every row in them is already set in
+  `TerminalFontFamily`, and a monospace face at the proportional face's size is what makes two surfaces
+  look as though they were set by different hands — Terminal Font Size is where somebody says how big
+  they want to read code, and a transcript is code. Emitted at the application level rather than scoped
+  to the tile's own tree because **the findings dialog is drawn in the main window**, outside it.
+  `FontScaleTests.The_goal_tile_is_sized_by_the_terminal` names both files, the dialog included, since
+  that is the half a later view would forget. Not the duplication this section describes above: those
+  were one question answered twice, these are two questions — how big is the interface, how big is the
+  terminal — sharing one set of steps, so a step cannot mean one thing here and another there.
+- **A view may not set a size of its own**, and that is enforced rather than asked for: the same test
+  reads every AXAML file and refuses a numeric `FontSize`, a token that is not one of the six, and one
+  of the six that nothing uses. There were two families of token before it, both spelled as a
+  `DynamicResource` and only one of them alive — the dead one had 136 uses against the live one's 73,
+  plus fifteen views that had written a number straight into the markup — so changing the font size
+  moved a minority of the interface and nothing on screen said which part. **A new view is written by
+  copying an old one, so the guard is the only thing that keeps this true.** The three exceptions are
+  named in the test: AvaloniaEdit and the terminal measure a cell grid rather than read a resource, so
+  the note, todo and git-diff editors take a number their view model recomputes from the setting.
+- **The interface scale is a different question from the font size** (`InterfaceScale`,
+  Settings → General → Appearance). The font size moves text and leaves the padding, the icons and the
+  gutters where they were; the scale multiplies the whole window at once, through one
+  `LayoutTransformControl` in `MainWindow` that everything — the dialogs included — is drawn inside. It
+  exists because **on Wayland there is nowhere else to say it**: measured against Avalonia 12.1.2, the
+  X11 backend reads `AVALONIA_GLOBAL_SCALE_FACTOR` and the Qt variables beside it and the Wayland
+  backend reads none of them. What Wayland does have is `wp_fractional_scale_v1`, which Avalonia
+  implements, so the compositor's own scale is already exact — this is the adjustment on top of it, for
+  a display where the correct scale is still too small to read. Not Linux-only: a scale that exists on
+  one platform is a setting missing on the others, and it costs nothing at 1.0.
 
 **Controls and reuse**
 
