@@ -109,6 +109,18 @@
     <CornerRadius x:Key="RadiusMd">4</CornerRadius>
     <CornerRadius x:Key="RadiusLg">6</CornerRadius>
     <CornerRadius x:Key="RadiusXl">10</CornerRadius>
+    <!-- The radius one border-width inside RadiusXl, for the element that clips a dialog's content.
+         Same arithmetic and same reason as RadiusTileInner: a Border that draws an outline must not
+         also clip, or at 125% and 150% desktop scale the outline comes out as an L along the top and
+         left - and content with a ground of its own squares off the corners the card just rounded. -->
+    <CornerRadius x:Key="RadiusXlInner">9</CornerRadius>
+
+    <!-- ======== The shadow that says "this is on top" ========
+         One definition, because it was three: two copies of this value in Controls.axaml and
+         OverlayHost, and a lighter one in the git tile. A colour written as a literal in a view is the
+         thing the token system exists to stop - the rule is every UI colour through DynamicResource,
+         and a shadow is a colour. -->
+    <BoxShadows x:Key="ShadowDialog">0 8 32 0 #60000000</BoxShadows>
 
     <!-- Override Fluent theme collapsed scrollbar scale (default: scaleX(0.125) → invisible) -->
     <TransformOperations x:Key="VerticalSmallScrollThumbScaleTransform">none</TransformOperations>

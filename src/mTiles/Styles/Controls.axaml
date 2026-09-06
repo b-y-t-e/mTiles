@@ -361,7 +361,7 @@
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
         <Setter Property="CornerRadius" Value="{DynamicResource RadiusTile}" />
-        <Setter Property="BoxShadow" Value="0 8 32 0 #60000000" />
+        <Setter Property="BoxShadow" Value="{DynamicResource ShadowDialog}" />
     </Style>
 
     <!-- ======== WORKSPACE ITEM (sidebar) ========

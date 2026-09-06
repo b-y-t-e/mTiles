@@ -193,16 +193,40 @@ public sealed class OverlayHost : Panel
             // One header row: the content's own on the left where it has one, the close button always
             // on the right. A dialog that draws a title of its own keeps drawing it below; this is for
             // what has to sit *beside* the button, which so far is Settings' tabs.
-            var header = new DockPanel();
+            var headerRow = new DockPanel();
             DockPanel.SetDock(close, Dock.Right);
-            header.Children.Add(close);
-            if (content is IOverlayHeader { OverlayHeader: { } own })
-                header.Children.Add(own);
+            headerRow.Children.Add(close);
+
+            var own = (content as IOverlayHeader)?.OverlayHeader;
+            if (own is not null)
+                headerRow.Children.Add(own);
+
+            // A rule under the header only when the header carries something. Settings' tabs sit on
+            // it — they are a set of choices and the line is what says which surface they switch —
+            // while a row holding nothing but the close button has nothing to be separated from, and
+            // a hairline there is a line drawn for its own sake.
+            var header = new Border { Child = headerRow, Padding = HeaderPadding(own is not null) };
+            if (own is not null)
+            {
+                header.Bind(Border.BorderBrushProperty,
+                    this.GetResourceObservable("BorderSubtle").ToBinding());
+                header.Bind(Border.BorderThicknessProperty,
+                    this.GetResourceObservable("BorderBottom").ToBinding());
+            }
 
             var layout = new DockPanel();
             DockPanel.SetDock(header, Dock.Top);
             layout.Children.Add(header);
             layout.Children.Add(content);
+
+            // The clip is on an inner element, never on the Border that draws the outline: at 125% and
+            // 150% desktop scale a Border clips to its own rounded-down bounds, so its right and bottom
+            // edges fall outside the clip and the outline renders as an L. One border-width smaller, or
+            // the two rounded rectangles are not concentric. The application's tiles have carried this
+            // pair for the same reason since they became cards.
+            var clip = new Border { Child = layout, ClipToBounds = true };
+            clip.Bind(Border.CornerRadiusProperty,
+                this.GetResourceObservable("RadiusXlInner").ToBinding());
 
             // The card the content no longer draws for itself: one radius, one hairline, one shadow,
             // the same as the Settings card, so two dialogs cannot disagree about what a dialog is.
@@ -215,12 +239,16 @@ public sealed class OverlayHost : Panel
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Padding = new Thickness(8, 6, 8, 8),
+                // No padding of its own: the outline is this Border's whole job, the clip inside it
+                // takes the corners, and the room around the content belongs to the header row and to
+                // the dialog itself. A card that both outlines and insets leaves its own background
+                // showing as a ring around whatever the clip rounded.
+                Padding = new Thickness(0),
                 Width = size.Width ?? double.NaN,
                 Height = size.Height ?? double.NaN,
                 MinWidth = size.MinWidth,
                 MinHeight = size.MinHeight,
-                Child = layout,
+                Child = clip,
             };
             _card = card;
             _size = size;
@@ -229,7 +257,7 @@ public sealed class OverlayHost : Panel
             card.Bind(Border.BorderBrushProperty, this.GetResourceObservable("BorderSubtle").ToBinding());
             card.Bind(Border.BorderThicknessProperty, this.GetResourceObservable("BorderThin").ToBinding());
             card.Bind(Border.CornerRadiusProperty, this.GetResourceObservable("RadiusXl").ToBinding());
-            card.BoxShadow = BoxShadows.Parse("0 8 32 0 #60000000");
+            card.Bind(Border.BoxShadowProperty, this.GetResourceObservable("ShadowDialog").ToBinding());
 
             Children.Add(scrim);
             Children.Add(card);
@@ -266,6 +294,13 @@ public sealed class OverlayHost : Panel
 
             ModalSurface.FocusInto(_card);
         }
+
+        /// <summary>The room around a header row, which depends on whether it holds anything.</summary>
+        /// <remarks>A row with content in it is a row to be read, and gets the inset Settings' own
+        /// card used to give it; a row holding only the close button is chrome, and wants no more
+        /// space than the button needs.</remarks>
+        private static Thickness HeaderPadding(bool hasContent) =>
+            hasContent ? new Thickness(16, 10, 8, 0) : new Thickness(8, 6, 8, 0);
 
         /// <summary>Gives the modality back when this dialog leaves the tree by any route.</summary>
         /// <remarks>
