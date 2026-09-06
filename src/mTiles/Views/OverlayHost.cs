@@ -137,14 +137,22 @@ public sealed class OverlayHost : Panel
         if (entry is null)
             return;
 
+        // The answer first, and that ordering is the whole of it. Removing the entry detaches it
+        // **synchronously** — Avalonia raises OnDetachedFromVisualTree on this very call stack, not
+        // through the dispatcher — and the override there completes the same source with null as its
+        // safety net for a window taken down with a dialog still on it. TrySetResult succeeds once, so
+        // whichever runs first is the answer the caller gets: with the removal first, every dialog in
+        // the application answered null. ConfirmAsync returned false however the user answered, which
+        // made Yes behave as No on every confirmation there is - discard, delete, push, tag - and
+        // InputDialog gave back nothing instead of the typed text.
+        entry.Tcs.TrySetResult(result);
+
         if (entry.Parent is OverlayHost host)
         {
             host.Children.Remove(entry);
             host.IsVisible = host.Children.Count > 0;
             entry.Modal?.Dispose();
         }
-
-        entry.Tcs.TrySetResult(result);
     }
 
     /// <summary>One open dialog: its scrim, its card, and the answer it owes its caller.</summary>
@@ -302,13 +310,19 @@ public sealed class OverlayHost : Panel
         private static Thickness HeaderPadding(bool hasContent) =>
             hasContent ? new Thickness(16, 10, 8, 0) : new Thickness(8, 6, 8, 0);
 
-        /// <summary>Gives the modality back when this dialog leaves the tree by any route.</summary>
+        /// <summary>Gives the modality and an unanswered caller back when this dialog leaves the tree
+        /// by any route.</summary>
         /// <remarks>
-        /// Closing an overlay removes it from the host, which releases the claim — but a window taken
-        /// down with a dialog still on it never goes through that path, and the claim would outlive
-        /// everything it was modal to. Harmless in an application that is exiting, and not harmless
-        /// at all in a test run, where <c>ModalScope</c> is process-wide: one leaked claim there left
-        /// every later test believing something was being asked of the user.
+        /// <para>Closing an overlay removes it from the host, which releases the claim — but a window
+        /// taken down with a dialog still on it never goes through that path, and the claim would
+        /// outlive everything it was modal to. Harmless in an application that is exiting, and not
+        /// harmless at all in a test run, where <c>ModalScope</c> is process-wide: one leaked claim
+        /// there left every later test believing something was being asked of the user.</para>
+        /// <para>This is a <b>last resort and never the answer</b>: it runs on <c>CloseWith</c>'s own
+        /// call stack, so it would take that dialog's real result and replace it with nothing. What
+        /// keeps it a safety net is that <c>CloseWith</c> completes the source before it removes the
+        /// entry — see the comment there, and <c>OverlayHostTests</c>, which is what would catch this
+        /// being reordered.</para>
         /// </remarks>
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
