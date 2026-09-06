@@ -520,7 +520,16 @@ public class AiProviderTests
         var stored = Assert.Single(reopened.Service.Settings.AiProviderInstances);
 
         Assert.Equal("sk-secret-value", stored.ApiKey);
-        Assert.DoesNotContain("sk-secret-value", File.ReadAllText(settings.SettingsFile));
+
+        // What is on disk depends on whether the platform has anywhere to hide it, and both answers
+        // are asserted rather than one of them skipped. DPAPI is Windows-only, so everywhere else the
+        // key is in the file as typed — documented, not an oversight, which is why SecretStorage says
+        // so on the settings page instead of the markup promising encryption it cannot deliver.
+        var onDisk = File.ReadAllText(settings.SettingsFile);
+        if (OperatingSystem.IsWindows())
+            Assert.DoesNotContain("sk-secret-value", onDisk);
+        else
+            Assert.Contains("sk-secret-value", onDisk);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────────────────────

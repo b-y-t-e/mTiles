@@ -68,22 +68,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfuse2
 
-      # The only place the suite runs on Linux, and the reason it runs at all: 0.4.43 shipped an
-      # application that could not start there, because the fault was in a branch a Windows machine
-      # never takes and nothing on this workflow had ever executed a test against Linux.
-      #
-      # Eight tests are excluded by name, and the list is meant to shrink. They are not flaky: they
-      # encode Windows behaviour and have never run anywhere else — DPAPI, which does not exist on
-      # Linux and leaves the key in the open there by documented design; a delete that fails because
-      # Windows locks an open file, where Linux simply unlinks it; a child process spawned through a
-      # shell. Each needs its own decision about what the right answer on Linux is, and none of them
-      # should hold a release hostage meanwhile.
-      #
-      # Named individually rather than switched off with continue-on-error: everything else is
-      # enforced here from the first day, and a green step that lists what it is not checking is
-      # worth more than a red one everybody learns to scroll past.
+      # Kept here as well as in tests.yml, because a tag must not produce a release the suite has
+      # not passed against on this platform. No filter any more: the eight tests that encoded
+      # Windows behaviour now assert what is true wherever they run.
       - name: Test
-        run: dotnet test -c Release --filter "FullyQualifiedName!~An_unanswerable_question_does_not_switch_the_tile&FullyQualifiedName!~A_provider_instance_round_trips_without_its_key_in_the_open&FullyQualifiedName!~A_saved_sign_in_cannot_change_tool&FullyQualifiedName!~A_sign_in_cannot_be_saved_without_a_tool&FullyQualifiedName!~A_failed_commit_leaves_the_users_own_staging_where_it_was&FullyQualifiedName!~NullOverrideRemovesAnInheritedVariable&FullyQualifiedName!~ValueOverrideReplacesAnInheritedVariable&FullyQualifiedName!~A_delete_that_leaves_files_behind_reports_failure"
+        run: dotnet test -c Release
 
       - name: Publish
         run: dotnet publish src/mTiles/mTiles.csproj -c Release --self-contained -r linux-x64 -o ./publish

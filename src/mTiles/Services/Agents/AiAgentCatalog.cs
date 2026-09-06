@@ -62,6 +62,27 @@ public static class AiAgentCatalog
         return path;
     }
 
+    /// <summary>Answers <see cref="Locate"/> for every agent without looking at this machine.</summary>
+    /// <remarks>
+    /// <para>The seam a test needs, and the cache above is already the right place for it: whether an
+    /// agent is installed is otherwise a fact about whoever is running the suite. Three tests about
+    /// the sign-in form and the tile's instance chooser passed on a developer's machine, where Claude
+    /// Code and codex are on <c>PATH</c>, and failed on a CI agent where nothing is — the lists they
+    /// assert on are narrowed by <see cref="IsAvailable"/>, so on a bare box they are empty and the
+    /// assertions say nothing about the code under test.</para>
+    /// <para>The path is a name rather than anything real. Nothing here executes it: these callers ask
+    /// only whether the answer is null.</para>
+    /// </remarks>
+    internal static void PretendEveryAgentIsInstalled()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var agent in All)
+            Located[agent.BinaryName] = (now, "/pretend/" + agent.BinaryName);
+    }
+
+    /// <summary>Forgets what <see cref="Locate"/> has been told or has found.</summary>
+    internal static void ForgetWhatIsInstalled() => Located.Clear();
+
     /// <summary>How long a scan's answer stands. See <see cref="Locate"/>.</summary>
     private static readonly TimeSpan LocationValidFor = TimeSpan.FromSeconds(30);
 

@@ -103,6 +103,12 @@ public class GoalCommitterPathspecTests
         Directory.CreateDirectory(Path.GetDirectoryName(hook)!);
         File.WriteAllText(hook, "#!/bin/sh\nexit 1\n");
 
+        // Git runs a hook only if it is executable. Windows has no such bit and runs it anyway, so
+        // without this the commit simply succeeded on Linux and the test asserted nothing at all.
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(hook,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
 
         await Assert.ThrowsAsync<GoalCommitFailure>(() =>
             new GoalCommitter(repo.Path, "git").CommitAsync(

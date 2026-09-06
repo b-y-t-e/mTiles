@@ -1,0 +1,32 @@
+name: Tests
+
+# Runs the suite on both platforms on every push, which release.yml cannot do: it fires on a tag,
+# so until now the only way to learn that something was broken on Linux was to cut a release and
+# watch it fail. 0.4.43 shipped an application that could not start there for exactly that reason.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # No filter and no exclusions: what this runs is the whole suite, on both platforms, and the
+      # point is that the two agree. Eight tests used to be excluded on Linux for encoding Windows
+      # behaviour — DPAPI, a locked file, a hook without its executable bit — and each now asserts
+      # what is true on the platform it is running on.
+      - name: Test
+        run: dotnet test -c Release

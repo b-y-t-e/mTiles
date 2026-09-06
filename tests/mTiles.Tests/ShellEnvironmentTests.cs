@@ -112,6 +112,12 @@ public class ShellEnvironmentTests
                 // Closing the connection is how this read is ended; a blocked one is torn out of the
                 // pipe rather than told about it, which arrives here and not as end-of-stream.
             }
+            catch (IOException)
+            {
+                // The same ending, spelled the POSIX way: reading a master pty whose child has gone
+                // is EIO, which .NET surfaces as "Input/output error" rather than as a zero-length
+                // read. On Linux this is the ordinary path out of the loop, not a failure.
+            }
         }, CancellationToken.None);
 
         await pty.WaitForExitAsync(timeout.Token);

@@ -147,12 +147,30 @@ public class SpeechModelStoreTests : IDisposable
         var directory = _store.GetPath(Parakeet);
         PlaceParakeetFiles(directory);
 
-        // A file the delete cannot remove, held open exactly as a loaded model holds its graphs.
-        using var held = new FileStream(Path.Combine(directory, "encoder-model.int8.onnx"),
-            FileMode.Open, FileAccess.Read, FileShare.None);
+        // Something the delete cannot remove. How you make one differs by platform and that is the
+        // whole of this: Windows refuses to unlink a file held with FileShare.None, exactly as a
+        // loaded model holds its graphs, while POSIX unlinks a held file without complaint - so on
+        // Linux the obstacle has to be the directory, which cannot give up an entry it may not write.
+        var held = Path.Combine(directory, "encoder-model.int8.onnx");
+        FileStream? locked = null;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+                locked = new FileStream(held, FileMode.Open, FileAccess.Read, FileShare.None);
+            else
+                File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
 
-        Assert.False(_store.Delete(Parakeet));
-        Assert.True(Directory.Exists(directory));
+            Assert.False(_store.Delete(Parakeet));
+            Assert.True(Directory.Exists(directory));
+        }
+        finally
+        {
+            // Put it back, or the fixture cannot clean up after itself either.
+            locked?.Dispose();
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(directory,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     /// <summary>The archive is downloaded under a different name than it unpacks into; confusing the
