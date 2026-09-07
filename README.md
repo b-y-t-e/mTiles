@@ -11,60 +11,68 @@
 
 **Close the window. Open it tomorrow. Your agents are still mid-conversation.**
 
-Running several AI agents on a real repo means losing track of which one crashed, which is waiting on
-you, and what each is costing. mTiles is the room they work in: reopen a tile tomorrow and the
-conversation is still there, a crashed agent restarts itself, and a database password, a phone mic and
-a spend limit are all one keystroke away.
+Running several AI agents against a production repository means losing track of which one crashed,
+which is waiting on input, and what each is costing. mTiles is the workspace built for that: a tile
+reopens into the same conversation, a crashed agent recovers on its own, and a database, a phone
+microphone and your spend limits are all reachable without leaving the keyboard.
 
 ![mTiles](assets/screen1.png)
 
 ## What it does
 
-**Describe a goal, walk away.** Clarifies, plans, implements, reviews at four severities, loops until
-your criteria are met. Runs for hours unattended — 10-20h on one goal is normal — and comes back with
-the task done. Snapshots your whole working tree first, untracked files included, to a ref outside your
-history: `git log` never moves.
+**Give it a goal, not a prompt.** The Goal tile clarifies scope, drafts a plan, implements it, and
+reviews its own work at four severities — looping until your criteria are met. Left unattended it can
+run for hours; 10-20 hours on a single goal is routine. Before it starts, it snapshots the entire
+working tree, untracked files included, to a ref outside your history — your `git log` never moves.
 
 <p align="center">
   <img src="assets/goal-tile.png" alt="The Goal tile mid-run: model, permission mode and effort in the header, the working file it's touching, and the transcript of what it's done so far" width="320">
 </p>
 
-**Reopen and carry on.** A tile's id is the agent's session id — close mTiles, reopen it, same
-conversation. Works across Claude Code, OpenCode, Codex, pi and agy, each by its own mechanism.
+**Reopen and pick up where you left off.** A tile's id is the agent's own session id, so closing and
+reopening mTiles restores the same conversation rather than starting a new one. Supported across Claude
+Code, OpenCode, Codex, pi and Antigravity, each by its own resume mechanism.
 
-**Five agents, any account.** Claude Code, OpenCode, Codex, pi, Antigravity — configured as instances,
-not tools, so "Claude Code" and "Claude Code on GLM via OpenRouter" are two tiles side by side. Two
-subscriptions at once is normal here.
+**Five agents, any account.** Claude Code, OpenCode, Codex, pi, Antigravity — configured as instances
+rather than fixed tools, so "Claude Code" and "Claude Code on GLM via OpenRouter" run side by side as
+separate tiles. Running two subscriptions at once is a supported configuration, not a workaround.
 
-**Crashed agent, tile brings it back.** Watches exit code and runtime: a tool that dies after two hours
-restarts, one that fails in a second falls through to the next command. Rate-limited, never spins.
+**Self-healing on crash.** A launch chain tracks both exit code and runtime: a tool that fails after two
+hours is restarted, one that fails in a second falls through to the next command instead. Rate-limited,
+so nothing loops indefinitely.
 
-**What's left on your accounts.** One card per account — Claude Max/Pro, Codex, Antigravity, an
-OpenRouter key — a bar per window, red once you're burning faster than the window resets.
+**Every account's limits, at a glance.** One card per account — Claude Max/Pro, Codex, Antigravity, an
+OpenRouter key — with a usage bar per window that turns red once you are spending faster than the window
+resets.
 
 <p align="center">
   <img src="assets/usage-tile.png" alt="The Usage tile: Claude Code Max and Pro, Codex, Antigravity's Gemini and Claude/GPT windows, and an OpenRouter key's spend, one card per account" width="320">
 </p>
 
-**Databases, no password handed over.** A local HTTP bridge lets any agent query SQL Server and
-PostgreSQL. **SQL Guard** blocks writes by default, `DROP`/`TRUNCATE`/`ALTER` always — a write against a
-locked database pops a dialog and waits for you.
+**Query your databases without exposing a password.** A local HTTP bridge lets any agent run queries
+against SQL Server and PostgreSQL. **SQL Guard** blocks writes by default and blocks
+`DROP`/`TRUNCATE`/`ALTER` unconditionally — a write against a locked-down database prompts you before it
+runs.
 
-**Dictate, even from the sofa.** Speech-to-text runs on your machine, nothing uploaded. Hold a key, or
-scan a QR code and your phone becomes the mic — which is what makes dictation work over Remote Desktop.
-Enter, Escape and the arrows are on the phone page too. Nothing destructive is reachable from it.
+**Dictate from anywhere in the room.** Speech-to-text runs locally; nothing is uploaded. Hold a key to
+dictate, or scan a QR code to use your phone as the microphone — which is also what makes dictation work
+over Remote Desktop. The phone page carries Enter, Escape and the arrow keys too, and nothing
+destructive is reachable from it.
 
 <p align="center">
   <img src="assets/phone-dictation.png" alt="The page mTiles serves to a paired phone: a hold-to-talk button, arrow keys, Esc and Enter, and the name of the tile the speech will land in" width="290">
 </p>
 
-**The rest.** **Git** — diff, commit, stash, push/fetch, tags. **Note**, **Todo**, **Terminal**
-(PowerShell, Git Bash, bash, zsh, fish). Any tile can change kind in place.
+**The remaining tiles.** **Git** — diff, commit, stash, push/fetch, tags. **Note**, **Todo**, and
+**Terminal** (PowerShell, Git Bash, bash, zsh, fish). Any tile can be converted to another kind in
+place.
 
-**Workspaces and splits.** One directory, one layout, one git branch per workspace — switching is
-instant, terminals never die. Split any tile either way, or Ctrl+Shift+F it full-screen.
+**Workspaces and split tiles.** Each workspace keeps its own directory, layout and git branch; switching
+is instant because terminals are never killed. Split any tile in either direction, or press
+Ctrl+Shift+F to give one the whole window.
 
-**One palette, everywhere.** The terminal's ANSI colours drive the whole UI. 17 themes, dark and light.
+**One palette drives everything.** The terminal's ANSI colours set every surface in the UI. 17 themes,
+dark and light.
 
 ## Running
 
