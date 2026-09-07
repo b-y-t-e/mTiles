@@ -11,63 +11,49 @@
 
 **Close the window. Open it tomorrow. Your agents are still mid-conversation.**
 
-Running several AI agents against a production repository means losing track of which one crashed,
-which is waiting on input, and what each is costing. mTiles is the workspace built for that: a tile
-reopens into the same conversation, a crashed agent recovers on its own, and a database, a phone
-microphone and your spend limits are all reachable without leaving the keyboard.
+mTiles helps developers — and vibe coders — get real, professional work done with AI agents: faster,
+more comfortable, and with far less stress than juggling several terminals by hand.
 
 ![mTiles](assets/screen1.png)
 
 ## What it does
 
-**Give it a goal, not a prompt.** The Goal tile clarifies scope, drafts a plan, implements it, and
-reviews its own work at four severities — looping until your criteria are met. Left unattended it can
-run for hours; 10-20 hours on a single goal is routine. Before it starts, it snapshots the entire
-working tree, untracked files included, to a ref outside your history — your `git log` never moves.
+**Goal tile — give it a goal, walk away.** Clarifies what you want, writes a plan, implements it,
+reviews its own work, and loops until it's done. Runs unattended for hours — 10-20 hours on one goal is
+normal. Snapshots your working tree first, so nothing is ever at risk.
 
 <p align="center">
   <img src="assets/goal-tile.png" alt="The Goal tile mid-run: model, permission mode and effort in the header, the working file it's touching, and the transcript of what it's done so far" width="320">
 </p>
 
-**Reopen and pick up where you left off.** A tile's id is the agent's own session id, so closing and
-reopening mTiles restores the same conversation rather than starting a new one. Supported across Claude
-Code, OpenCode, Codex, pi and Antigravity, each by its own resume mechanism.
+**Reopen and carry on.** Close mTiles, reopen it — every agent tile resumes exactly where it left off,
+same conversation.
 
-**Five agents, any account.** Claude Code, OpenCode, Codex, pi, Antigravity — configured as instances
-rather than fixed tools, so "Claude Code" and "Claude Code on GLM via OpenRouter" run side by side as
-separate tiles. Running two subscriptions at once is a supported configuration, not a workaround.
+**Five agents, any account.** Claude Code, OpenCode, Codex, pi, Antigravity. Run several accounts and
+providers side by side.
 
-**Self-healing on crash.** A launch chain tracks both exit code and runtime: a tool that fails after two
-hours is restarted, one that fails in a second falls through to the next command instead. Rate-limited,
-so nothing loops indefinitely.
+**Self-healing on crash.** A crashed agent restarts itself automatically.
 
-**Every account's limits, at a glance.** One card per account — Claude Max/Pro, Codex, Antigravity, an
-OpenRouter key — with a usage bar per window that turns red once you are spending faster than the window
-resets.
+**Usage tile — every account's limits, at a glance.** Claude, Codex, Antigravity, OpenRouter: one card
+per account, one bar per window.
 
 <p align="center">
   <img src="assets/usage-tile.png" alt="The Usage tile: Claude Code Max and Pro, Codex, Antigravity's Gemini and Claude/GPT windows, and an OpenRouter key's spend, one card per account" width="320">
 </p>
 
-**Query your databases without exposing a password.** A local HTTP bridge lets any agent run queries
-against SQL Server and PostgreSQL. **SQL Guard** blocks writes by default and blocks
-`DROP`/`TRUNCATE`/`ALTER` unconditionally — a write against a locked-down database prompts you before it
-runs.
+**Query your databases, safely.** Any agent can query SQL Server or PostgreSQL through a local bridge —
+no password exposed, writes blocked by default.
 
-**Dictate from anywhere in the room.** Speech-to-text runs locally; nothing is uploaded. Hold a key to
-dictate, or scan a QR code to use your phone as the microphone — which is also what makes dictation work
-over Remote Desktop. The phone page carries Enter, Escape and the arrow keys too, and nothing
-destructive is reachable from it.
+**Dictate, even by phone.** Speak instead of typing — from your keyboard, or from your phone as a
+microphone.
 
 <p align="center">
   <img src="assets/phone-dictation.png" alt="The page mTiles serves to a paired phone: a hold-to-talk button, arrow keys, Esc and Enter, and the name of the tile the speech will land in" width="290">
 </p>
 
-**The remaining tiles.** **Git** — diff, commit, stash, push/fetch, tags. **Note**, **Todo**, and
-**Terminal** (PowerShell, Git Bash, bash, zsh, fish). Any tile can be converted to another kind in
-place.
+**The rest.** Git, Note, Todo and Terminal tiles too. Any tile can change kind in place.
 
-**Workspaces and split tiles.** Each workspace keeps its own directory, layout and git branch; switching
+**Workspaces and split tiles.** One directory, layout and branch per workspace; switching
 is instant because terminals are never killed. Split any tile in either direction, or press
 Ctrl+Shift+F to give one the whole window.
 
