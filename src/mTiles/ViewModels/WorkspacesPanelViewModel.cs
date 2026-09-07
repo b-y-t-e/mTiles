@@ -60,6 +60,13 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
     public Func<string, string, Task>? ShowError { get; set; }
     public Action? FocusWorkspaceRequested { get; set; }
 
+    /// <summary>Asks the panel to bring a row into view.</summary>
+    /// <remarks>Selecting a row highlights it; it does not move the scroller, and the list is an
+    /// <c>ItemsControl</c> rather than a <c>ListBox</c>, so nothing does it on the view model's behalf.
+    /// A workspace added to a list longer than the panel is therefore opened and highlighted off
+    /// screen — the one row the user is certainly looking for is the one they cannot see.</remarks>
+    public Action<WorkspaceItemViewModel>? RevealWorkspaceRequested { get; set; }
+
     public WorkspacesPanelViewModel(WorkspaceService workspaceService, SettingsService? settingsService = null,
         AgentFileSyncCoordinator? agentFileSync = null)
     {
@@ -483,6 +490,13 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
         var item = CreateItem(workspace);
         Workspaces.Insert(FindDisplayIndex(item), item);
         SelectedWorkspace = item;
+        // The same two things a click on a row does, and for the same reason: adding a workspace is
+        // choosing it. The scroll is the half nothing else supplies — the row can land anywhere in the
+        // order (pinned rows first, then alphabetical), so "it was just added" says nothing about where
+        // it is. A filter narrowing the list past it is not in the way: ApplyFilter always keeps the
+        // selected row.
+        RevealWorkspaceRequested?.Invoke(item);
+        FocusWorkspaceRequested?.Invoke();
 
         var gitPath = GitService.ResolveGitPath(_settingsService?.Settings.GitPath);
         // Answered here and not left to the thirty-second refresh: adding a folder that is not a

@@ -303,7 +303,8 @@
             <ScrollViewer Classes="scroll-left"
                           HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding Workspaces}" Margin="0,4">
+                <ItemsControl x:Name="CollapsedWorkspaceList"
+                              ItemsSource="{Binding Workspaces}" Margin="0,4">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="vm:WorkspaceItemViewModel">
                             <Border Width="32" Height="32"

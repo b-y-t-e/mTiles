@@ -144,8 +144,22 @@ public partial class WorkspacesPanelView : UserControl
                 MessageDialog.ShowAsync(this, title, message, MessageDialog.Tone.Error);
             vm.ConfirmAction = message =>
                 MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: true);
+            vm.RevealWorkspaceRequested = RevealWorkspace;
         }
     }
+
+    /// <summary>Scrolls a row into view, in whichever of the two lists is on screen.</summary>
+    /// <remarks>Posted at <see cref="DispatcherPriority.Loaded"/> because the row is asked for in the
+    /// same breath as it is added: the container does not exist until the layout pass that follows, and
+    /// <c>ContainerFromItem</c> answers null until it does. The collapsed list is asked as well rather
+    /// than instead — the panel can be either shape when a workspace is added, and a container that is
+    /// not there costs a null.</remarks>
+    private void RevealWorkspace(WorkspaceItemViewModel item) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            var list = _isCollapsed ? CollapsedWorkspaceList : (ItemsControl)WorkspaceList;
+            list.ContainerFromItem(item)?.BringIntoView();
+        }, DispatcherPriority.Loaded);
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
