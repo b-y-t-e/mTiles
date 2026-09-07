@@ -11,89 +11,60 @@
 
 **Close the window. Open it tomorrow. Your agents are still mid-conversation.**
 
-Working with AI coding agents all day, on a real production repo, means running several at once — and
-losing track of which one is stuck, which crashed, which is waiting on you, and what each one is
-quietly costing. mTiles exists to make that workflow fast, comfortable and low-stress: every agent
-lives in a tile you can reopen tomorrow mid-conversation, a crashed one comes back on its own, and the
-things that usually break your flow — a database password, a phone in your pocket, a budget you're
-about to blow through — are handled without you ever leaving the keyboard.
-
-mTiles is a terminal manager built around that idea. It does not try to be an agent. It is the room
-they work in — five agents in split tiles, a database they can query without ever seeing a password,
-and a phone in your pocket that types into whichever tile is in front of you.
+Running several AI agents on a real repo means losing track of which one crashed, which is waiting on
+you, and what each is costing. mTiles is the room they work in: reopen a tile tomorrow and the
+conversation is still there, a crashed agent restarts itself, and a database password, a phone mic and
+a spend limit are all one keystroke away.
 
 ![mTiles](assets/screen1.png)
 
 ## What it does
 
-**Describe a goal, walk away.** The Goal tile asks its clarifying questions, writes a plan and waits
-for you to approve it, implements, then reviews its own work at four severities — blocker, error,
-warning, suggestion — and loops until the criteria you set are met. Left alone it can run for hours —
-10-20 hours unattended on a single goal is not unusual — and come back with the task essentially done.
-Before it starts it photographs your whole working tree, untracked files included, to a ref outside
-your history: nothing an agent does in there is unrecoverable, and your `git log` never moves.
+**Describe a goal, walk away.** Clarifies, plans, implements, reviews at four severities, loops until
+your criteria are met. Runs for hours unattended — 10-20h on one goal is normal — and comes back with
+the task done. Snapshots your whole working tree first, untracked files included, to a ref outside your
+history: `git log` never moves.
 
 <p align="center">
   <img src="assets/goal-tile.png" alt="The Goal tile mid-run: model, permission mode and effort in the header, the working file it's touching, and the transcript of what it's done so far" width="320">
 </p>
 
-**Reopen and carry on.** A tile’s id *is* the agent’s session id, so restarting mTiles drops you back
-into the same conversation — not a fresh prompt. Claude Code and pi take an id outright; OpenCode
-cannot be told one, so mTiles writes the document `opencode import` recreates the session from; Codex
-and agy name their own and mTiles reads it back afterwards. Five CLIs, four different mechanisms, one
-behaviour you can rely on.
+**Reopen and carry on.** A tile's id is the agent's session id — close mTiles, reopen it, same
+conversation. Works across Claude Code, OpenCode, Codex, pi and agy, each by its own mechanism.
 
-**Five agents, and you pick which account each one runs as.** Claude Code, OpenCode, Codex, pi and
-Antigravity (agy). You configure *instances* rather than tools — "Claude Code", or "Claude Code on GLM
-5.3 via OpenRouter" — so the same CLI can run on a different provider, model and login in the tile next
-door. Two subscriptions side by side is a supported setup, not a workaround.
+**Five agents, any account.** Claude Code, OpenCode, Codex, pi, Antigravity — configured as instances,
+not tools, so "Claude Code" and "Claude Code on GLM via OpenRouter" are two tiles side by side. Two
+subscriptions at once is normal here.
 
-**When the agent dies, the tile brings it back.** A launch chain watches the exit code *and* how long
-the command ran, so a tool that crashed after two hours is restarted while one that fails in a second
-falls through to the next command instead of looping. Rate-limited, so nothing spins.
+**Crashed agent, tile brings it back.** Watches exit code and runtime: a tool that dies after two hours
+restarts, one that fails in a second falls through to the next command. Rate-limited, never spins.
 
-**What is left on your accounts, at a glance.** The Usage tile reads every account this machine can
-actually ask — Claude Max and Pro, Codex, Antigravity's Gemini and Claude/GPT windows, an OpenRouter
-key's spend — and shows one card per account, a bar per window, coloured past the point where you're
-spending the week faster than the week is passing.
+**What's left on your accounts.** One card per account — Claude Max/Pro, Codex, Antigravity, an
+OpenRouter key — a bar per window, red once you're burning faster than the window resets.
 
 <p align="center">
   <img src="assets/usage-tile.png" alt="The Usage tile: Claude Code Max and Pro, Codex, Antigravity's Gemini and Claude/GPT windows, and an OpenRouter key's spend, one card per account" width="320">
 </p>
 
-**Your databases, without handing over the password.** A local HTTP bridge lets any agent query SQL
-Server and PostgreSQL, discovered on your machine or added by hand. The agent learns about it through a
-generated skill file and never sees a credential. **SQL Guard** blocks writes by default — unlock
-per database — and blocks `DROP`/`TRUNCATE`/`ALTER` always; a write against a read-only database raises
-a dialog in front of you while the query waits.
+**Databases, no password handed over.** A local HTTP bridge lets any agent query SQL Server and
+PostgreSQL. **SQL Guard** blocks writes by default, `DROP`/`TRUNCATE`/`ALTER` always — a write against a
+locked database pops a dialog and waits for you.
 
-**Talk to it, including from the sofa.** Speech recognition runs entirely on your machine — no account,
-no upload — on Parakeet or whisper.cpp. Hold a key and dictate into the active tile. Or press the QR
-button, scan it with your phone, and the phone becomes the microphone: which is what makes dictation
-work over **Remote Desktop**, where the microphone is next to *you* and mTiles is on the far machine.
-That is the whole of what the phone gets — a page mTiles serves itself, no app to install. Hold the
-circle and talk; let go and the text lands in the tile named in the corner, which is whichever tile is
-active on the machine. **Enter, Escape and the four arrows** are there too, because dictating a command
-is only half of driving an agent from across the room — the other half is the prompt it stops on.
-Nothing destructive is reachable from the phone.
+**Dictate, even from the sofa.** Speech-to-text runs on your machine, nothing uploaded. Hold a key, or
+scan a QR code and your phone becomes the mic — which is what makes dictation work over Remote Desktop.
+Enter, Escape and the arrows are on the phone page too. Nothing destructive is reachable from it.
 
 <p align="center">
   <img src="assets/phone-dictation.png" alt="The page mTiles serves to a paired phone: a hold-to-talk button, arrow keys, Esc and Enter, and the name of the tile the speech will land in" width="290">
 </p>
 
-**The other tiles.** **Git** — staging, diff (unified and side-by-side), commit with message
-suggestions from your own history, stash, push/fetch, tags, undo the last commit, unpushed markers.
-**Note** — a markdown editor. **Todo** — a checklist. **Terminal** — PowerShell, Git Bash, bash, zsh or
-fish. All of them saved with the workspace, and any tile can be turned into another kind where it
-stands.
+**The rest.** **Git** — diff, commit, stash, push/fetch, tags. **Note**, **Todo**, **Terminal**
+(PowerShell, Git Bash, bash, zsh, fish). Any tile can change kind in place.
 
-**Workspaces and split tiles.** Each workspace is a directory with its own layout, git branch and
-database grants; switching is instant because the terminals are never killed. Split any tile either way
-and nest as deep as you like — or press Ctrl+Shift+F and give one of them the whole window.
+**Workspaces and splits.** One directory, one layout, one git branch per workspace — switching is
+instant, terminals never die. Split any tile either way, or Ctrl+Shift+F it full-screen.
 
-**One palette for everything.** The terminal’s ANSI colours drive the entire UI, so changing the theme
-changes every surface rather than one rectangle. 17 themes — Catppuccin, Tokyo Night, Gruvbox, Rosé
-Pine, One Dark, Solarized and more — dark and light.
+**One palette, everywhere.** The terminal's ANSI colours drive the whole UI. 17 themes, dark and light.
 
 ## Running
 
