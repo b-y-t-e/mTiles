@@ -3036,6 +3036,65 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     /// <summary>
+    /// An attempt that wrote nothing leaves the run's upper end where the last one that did put it.
+    /// </summary>
+    /// <remarks>
+    /// <para>The sibling of the Re-review case below, and the same failure by the same route: the
+    /// closing snapshot is taken in the one method every summary goes through, and
+    /// <see cref="GoalStopReason.NoChange"/> is the stop that says the attempt wrote no files. Left at
+    /// the default, it moved the end onto the tree <em>as it is now</em> — which on this path is a tree
+    /// this attempt has no claim on at all, since it demonstrably did not write it. Anything another
+    /// tile has committed meanwhile then lands in what this run changed, and Commit is still on the
+    /// bar.</para>
+    /// <para>The bug is only reachable on a second run, which is why this one continues: within a
+    /// single run there is no end yet, and a run with none takes one either way — that is the other
+    /// half of the flag, and the reason it does not simply refuse.</para>
+    /// </remarks>
+    [Fact]
+    public void An_attempt_that_wrote_nothing_does_not_move_the_runs_upper_end()
+    {
+        OnUiThread(async () =>
+        {
+            var captures = 0;
+            GoalBaseline.Factory = (_, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult(new GoalBaselineResult($"ref-{++captures}", NoRepository: false));
+            };
+
+            // The same tree at every read, which is what "the attempt changed nothing" is: the loop
+            // compares what an implementation started from with what its review is handed.
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>("diff --git a/x b/x");
+
+            using var vm = NewTile();
+            vm.Criteria.MaxIterations = 1;
+            var path = vm.FilePath;
+
+            AnswerWith(NoMoreQuestions, "The plan", "Implemented it", "VERDICT: FAIL");
+
+            vm.InputText = "make the tile resumable";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            await vm.ApproveOrChangeCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("changed no files"));
+
+            // The first run had no end to keep, so it took one. That is the flag's other half.
+            var afterTheRun = new GoalStatePersistence().Load(path)!.EndRef;
+            Assert.Equal("ref-2", afterTheRun);
+
+            // Now the tile next door commits, and the user presses Continue. This attempt writes
+            // nothing either — and must not claim what has appeared since.
+            Assert.True(vm.CanContinue);
+            await vm.ContinueRunCommand.ExecuteAsync(null);
+
+            vm.Dispose();
+
+            Assert.Equal(afterTheRun, new GoalStatePersistence().Load(path)!.EndRef);
+        });
+    }
+
+    /// <summary>
     /// Re-review judges the tree and leaves the run's upper end where the implementation put it.
     /// </summary>
     /// <remarks>

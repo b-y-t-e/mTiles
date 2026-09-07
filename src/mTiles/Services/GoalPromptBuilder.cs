@@ -98,8 +98,8 @@ public sealed class GoalPromptBuilder
         if (!criteria.RequireBuild && !criteria.RequireTestsPass) return "";
 
         var text = new StringBuilder(review
-            ? "Establish these yourself, by running this project's own commands rather than by reading " +
-              "the diff:\n"
+            ? "Establish these yourself, by running this project's own commands — neither of them " +
+              "can be read off a diff:\n"
             : "When you are finished these MUST be true, and checking them is part of the work — use " +
               "this project's own commands, worked out from the repository:\n");
 
@@ -170,13 +170,91 @@ public sealed class GoalPromptBuilder
         "{\"needsClarification\":false,\"questions\":[]}\n" +
         "```";
 
-    private const string ReviewExample =
+    /// <summary>
+    /// The review's own example, and the one place here where the single-line rule above is broken on
+    /// purpose.
+    /// </summary>
+    /// <remarks>
+    /// <para>It used to carry exactly one finding, and an example is the part of a prompt a model
+    /// copies hardest. Measured on this repository's own goal logs: twenty-one reviews at one finding
+    /// or none, <b>eight of them empty</b>. The published comparison of "report the primary issue"
+    /// against "enumerate what you find" moves the same model from 1.0 to 3.1 findings per review and
+    /// resolves 27% more cases — p&lt;0.05, large effect — and attributes the gap to the prioritisation
+    /// constraint hiding issues the model had already identified. So the shape being demonstrated is a
+    /// list, and the three entries are three severities in three categories, so that neither the count
+    /// nor the kind is what gets copied.</para>
+    /// <para>It costs about five hundred characters in every review prompt, and on the command-line
+    /// path <see cref="Fit"/> takes that out of the diff. Worth it: a diff one rung shorter is still a
+    /// diff, and a review that returns nothing is not a review.</para>
+    /// <para>The <c>detail</c> values earn their length too — each names the input or the state and the
+    /// wrong result it produces. That is asked for in words below and shown by example here, because it
+    /// is the whole of the guard against an invented finding: a reviewer that cannot write down the
+    /// failing case usually has not found one.</para>
+    /// </remarks>
+    private static string ReviewExampleFor(int cap) => cap >= Roomy ? ReviewExample : ReviewExampleShort;
+
+    /// <summary>
+    /// What to send back, and what disqualifies a finding from being sent.
+    /// </summary>
+    /// <remarks>
+    /// <para>Three jobs. The first sentence is the issue-list instruction that
+    /// <see cref="ReviewExample"/> demonstrates — without it, "one entry per issue" above reads as a
+    /// formatting rule rather than as permission to report the second one, and the measured cost of
+    /// leaving it out is a reviewer that returns its best finding and stops.</para>
+    /// <para>The second is the guard against the first, and the reason nothing here is pressure to
+    /// invent: a reviewer that cannot name the input and the wrong result that follows has generally
+    /// found a feeling rather than a defect, and this is what sends that to the reasoning instead of
+    /// into the findings. It is asked of <c>detail</c>, which is already free text, so no part of the
+    /// schema, the parser or the saved state has to move to carry it.</para>
+    /// <para>The third is unchanged and stays exactly as it was: an empty list has to remain something
+    /// the reviewer is plainly allowed to send, or the first two turn into a quota.</para>
+    /// </remarks>
+    private static string Reporting(int cap) => cap >= Roomy
+        ? "Report every issue you find at its honest severity, and report all of them rather than " +
+          "only the worst — one entry each. In `detail`, say what actually goes wrong: the input or " +
+          "the state, and the wrong result that follows from it. A finding you cannot put that way is " +
+          "a suspicion rather than a defect, and belongs in your reasoning instead. Send an empty " +
+          "findings list when there is nothing to report.\n\n"
+        : "Report every issue you find at its honest severity, all of them rather than only the " +
+          "worst. In `detail`, name the input or state and the wrong result that follows. Send an " +
+          "empty findings list when there is nothing to report.\n\n";
+
+    /// <summary>
+    /// The same example for a prompt that has already had to be trimmed once.
+    /// </summary>
+    /// <remarks>
+    /// One finding rather than three, and it is the concession this whole group of additions makes to
+    /// the command line. Measured: the three-entry example, the sweep, the reading instruction, the
+    /// gaps question and the longer reporting sentence together put the floor prompt at 4 604 quoted
+    /// characters against the 4 000 a short budget allows — so the run this tile exists to keep alive,
+    /// a resume in a busy tree on an agent behind a <c>.cmd</c> shim, would not start at all. The short
+    /// forms buy that back. The <c>detail</c> still carries a failing case, because that is the guard
+    /// against an invented finding and it is worth more per character than the second entry.
+    /// </remarks>
+    private const string ReviewExampleShort =
         "Answer with your reasoning first, then one fenced json block as the last thing in your reply.\n\n" +
         "Example:\n" +
         "```json\n" +
         "{\"goalMet\":false,\"findings\":[" +
         "{\"severity\":\"error\",\"category\":\"correctness\",\"file\":\"src/Cart.cs\",\"line\":42," +
-        "\"title\":\"Total ignores discounts\",\"detail\":\"Sum() runs before ApplyDiscount().\"}]}\n" +
+        "\"title\":\"Total ignores discounts\",\"detail\":\"Sum() runs before ApplyDiscount(), so a " +
+        "cart of 100 with 10% off is charged 100.\"}]}\n" +
+        "```";
+
+    private const string ReviewExample =
+        "Answer with your reasoning first, then one fenced json block as the last thing in your reply.\n\n" +
+        "Example:\n" +
+        "```json\n" +
+        "{\"goalMet\":false,\"findings\":[" +
+        "{\"severity\":\"blocker\",\"category\":\"correctness\",\"file\":\"src/Cart.cs\",\"line\":42," +
+        "\"title\":\"Total ignores discounts\",\"detail\":\"Sum() runs before ApplyDiscount(), so a " +
+        "cart of 100 with 10% off is charged 100 instead of 90.\"}," +
+        "{\"severity\":\"error\",\"category\":\"correctness\",\"file\":\"src/Cart.cs\",\"line\":77," +
+        "\"title\":\"Preview() did not get the same fix\",\"detail\":\"The same two calls in the old " +
+        "order, so the preview shows 100 and the checkout takes 90.\"}," +
+        "{\"severity\":\"suggestion\",\"category\":\"test-coverage\",\"file\":\"tests/CartTests.cs\"," +
+        "\"line\":30,\"title\":\"Only the 10% case is covered\",\"detail\":\"0% and 100% each take a " +
+        "different branch of ApplyDiscount().\"}]}\n" +
         "```";
 
     /// <summary>
@@ -658,6 +736,128 @@ public sealed class GoalPromptBuilder
         Fit(cap => ComposeReview(goal, gitDiff, scoped, cap, guideline), budget);
 
     /// <summary>
+    /// How to look at the change, said to a reviewer that is standing in the repository and can open
+    /// any file in it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Every published comparison points the same way: a reviewer given the diff alone finds
+    /// 15–31% of what a human finds, and one that fetches what it needs, when it needs it, does far
+    /// better — a context dump handed over before the reviewer knows what it is looking for is not the
+    /// same thing as evidence gathered against a hypothesis. This tile's reviewer has always been an
+    /// agent with tools, and the prompt has never once told it to use them.</para>
+    /// <para>The middle sentence is the one that pays for itself here. New files appear in the working
+    /// tree block <em>by name only</em> — no form of <c>git diff HEAD</c> shows an untracked file's
+    /// contents — so on every unscoped path (a goal detected from the working tree, the Review button,
+    /// the review of a tree an attempt left untouched) the file at the centre of the change was a
+    /// filename and nothing else. Measured on this repository: of two reviews of the same goal twenty
+    /// minutes apart, the one that thought to open the new class by itself wrote 1 784 characters of
+    /// analysis, and the one that did not wrote "Looks consistent. Build succeeds, all 2350 tests
+    /// pass." Which of the two you get was luck, and this sentence is what replaces the luck.</para>
+    /// <para>Deliberately <b>not</b> solved by putting the contents in the prompt instead. That was the
+    /// first plan — <c>git add -N</c> against a private index, so the diff carries new files — and the
+    /// evidence is against it twice: review quality collapses as the diff grows (F1 0.80 at ten lines,
+    /// 0.04 past fifty), and on a two-hundred-file change there is no room to grow into anyway, so the
+    /// new content would only push tracked changes out of a block that is already a fragment. Asking
+    /// costs eight lines and scales the right way.</para>
+    /// </remarks>
+    private static string ReviewReading(int cap) => cap >= Roomy
+        ? "That block is a map, not the evidence. Read the change itself before judging it:\n" +
+          "- open the files it names. Read a small one whole; on a large one read each changed part " +
+          "and enough around it to see what it belongs to.\n" +
+          "- a file named in the summary but missing from the diff has changed too, and a new file is " +
+          "listed by name alone — no diff will ever carry its contents. Open both.\n" +
+          "- do not judge on the fragment that happened to fit.\n\n"
+        // The short form keeps the clause that is load-bearing and drops the two that are advice.
+        : "That block is a map, not the evidence: open the files it names, new files included — they " +
+          "are listed by name alone and no diff carries their contents.\n\n";
+
+    /// <summary>
+    /// The categories to go through, one at a time, rather than reporting whatever comes to mind.
+    /// </summary>
+    /// <remarks>
+    /// <para>The measured difference between "report the most important issue" and "work down a list
+    /// of defect categories" is 1.0 findings per review against 3.1, and 27% more cases resolved, with
+    /// the authors' own explanation being that the constraint hides issues the model has already
+    /// found. Nothing here asks for more findings; it asks for the same search to be systematic.</para>
+    /// <para>The first sentence is what keeps that honest, and it is not a formality: a list of ten
+    /// headings with no permission to pass on one is an invitation to write something under each. So
+    /// the permission is explicit, and it is to skip <em>silently</em> — "nothing to report here" ten
+    /// times over is the same padding by another route.</para>
+    /// <para>Half of these have never been named in this prompt at all — lifetime, concurrency,
+    /// performance, error handling. The review has always been told which rules the code must obey
+    /// (Clean Code, and whichever SOLID principles are switched on); it has never been given anything
+    /// to sweep. Those two are not the same instruction, which is why this sits beside
+    /// <see cref="QualityRules"/> rather than inside it, and why the last line points back at it
+    /// instead of restating rules that are already stated — and follows its scope, or the sweep would
+    /// quietly ask for the SOLID findings that method has just ruled out.</para>
+    /// </remarks>
+    private string ReviewSweep(int cap)
+    {
+        // Under pressure the headings survive and their descriptions do not. The sweep's value is that
+        // the reviewer is reminded to look at concurrency and lifetimes at all; what each heading means
+        // is something it already knows, and it costs fifteen hundred characters to say. On the
+        // command-line path those characters come out of the diff, which is the one part of the prompt
+        // the reviewer cannot get for itself.
+        if (cap < Roomy)
+            return "Work through these, skipping silently what does not apply: correctness, tests, " +
+                   "error handling, lifetimes, concurrency, security, performance, fit with the " +
+                   "project's own patterns, refactoring safety, and the rules above.\n\n";
+
+        var text = new StringBuilder(
+            "Work through these. Skip one you have nothing to say about, silently — an empty category " +
+            "is an answer, and there is no quota to fill here:\n" +
+            "- correctness: the goal itself, the edge cases, the paths not taken, a fix made in one " +
+            "place and not in the places beside it\n" +
+            "- tests: what this change added or altered, its edge cases and not only its happy path, " +
+            "and existing tests this change has made wrong\n" +
+            "- error handling: an error swallowed, one never raised, one whose cause is lost on its " +
+            "way out\n" +
+            "- lifetime: what is opened, started or subscribed and never closed, disposed, cancelled " +
+            "or unsubscribed\n" +
+            "- concurrency: shared mutable state, a race, a value read while something else is still " +
+            "editing it, a check whose answer is stale by the time it is used\n" +
+            "- security: input reaching a command, a query or a path unchecked; a secret in the " +
+            "source; a permission never asked for; sensitive data in a log\n" +
+            "- performance: work inside a loop that belongs outside it, a query per row, a cost that " +
+            "grows faster than the problem does\n" +
+            "- fit with the project: its own patterns and layering, and the helper it already has for " +
+            "this\n" +
+            "- refactoring: every path still reachable, no condition inverted or dropped, order kept " +
+            "where order decides the result\n");
+
+        text.Append(_criteria().Solid.Any
+            ? "- the Clean Code and SOLID rules stated above\n"
+            : "- the Clean Code rules stated above\n");
+
+        return text.Append('\n').ToString();
+    }
+
+    /// <summary>
+    /// The question a diff cannot ask itself, because what is missing leaves no line in it.
+    /// </summary>
+    /// <remarks>
+    /// A whole class of finding this prompt could not produce. The severity rule is the load-bearing
+    /// half: weighed by the fact that something is absent, every gap is worth reporting and the review
+    /// becomes a wish list; weighed by what happens without it, most gaps are worth nothing and the few
+    /// that matter carry their real weight. The closing sentence is the same guard the sweep's first
+    /// sentence is.
+    /// </remarks>
+    private static string ReviewGaps(int cap) => cap >= Roomy
+        ? "Then ask what is not there: a test for a rule this change introduced, a migration for a " +
+          "model it altered, documentation still describing the old behaviour, a related place that " +
+          "should have moved with it, an error path nobody wrote. A gap is a finding like any other — " +
+          "anchored where it is missing, and weighed by what happens without it rather than by the " +
+          "fact that something is absent. A gap that changes nothing is not a finding.\n\n"
+        // Dropped rather than shortened, and it is the only one of these that is. What makes the
+        // question safe to ask is the clause weighing a gap by what happens without it; asked without
+        // that clause, "what is missing?" is answered with a wish list, and every item on it lands as
+        // a finding against a tolerance of zero. A short form would keep the invitation and spend its
+        // saving on removing the guard, which is the wrong half to drop. There is no room for both at
+        // this size, so the question waits for a prompt that has room — which is every prompt handed
+        // over on stdin, and so every run this tile makes on Claude Code.
+        : "";
+
+    /// <summary>
     /// The warning that the working tree is not all one change — said only where it is true.
     /// </summary>
     /// <remarks>
@@ -704,13 +904,20 @@ public sealed class GoalPromptBuilder
         // boundaries, so at this size a diff of one enormous line contributes nothing at all and only
         // the note survives. It is charged only at the last rung, which is reached only by a prompt
         // that fits nowhere else.
+        // The reading instruction rides with the block rather than standing on its own, because it
+        // opens by naming it: with no tree to read there is no map to call a map, and nothing for
+        // "the files it names" to name.
         if (gitDiff != null)
-            prompt += Block("Current state of the working tree", gitDiff, Math.Max(TreeFloor, cap));
+            prompt += Block("Current state of the working tree", gitDiff, Math.Max(TreeFloor, cap))
+                      + ReviewReading(cap);
 
         // The user's thresholds are deliberately not in here. A reviewer told that one warning is
         // allowed has been told how to pass, and the severities are the one thing in its answer nothing
         // else can check.
         if (!scoped) prompt += OtherPeoplesWorkInReview;
+
+        prompt += ReviewSweep(cap);
+        prompt += ReviewGaps(cap);
 
         prompt += "Judge two things separately:\n" +
                   "- goalMet: whether the changes actually do what the goal asked for. Clean code that " +
@@ -725,10 +932,9 @@ public sealed class GoalPromptBuilder
                   "- suggestion: worth knowing, not worth blocking on.\n" +
                   "The line between blocker and error is whether the code is unacceptable or simply " +
                   "wrong. Do not reach for blocker to add weight to an error.\n" +
-                  "Report every issue you find at its honest severity. Send an empty findings list when " +
-                  "there is nothing to report.\n\n" +
+                  Reporting(cap) +
                   AnswerLanguage +
-                  ReviewExample +
+                  ReviewExampleFor(cap) +
                   "\n" + JsonEscaping +
                   // Asked for as well as the block, and not as a belt-and-braces flourish: it is the
                   // fallback's trigger. GoalResponseParser reads an answer with no JSON in it by

@@ -2399,6 +2399,16 @@ public partial class GoalTileViewModel
                 {
                     _engine.ClearReviewFeedback();
                     stopReason = GoalStopReason.Met;
+
+                    // Cleared with the feedback, and for the same reason. This is carried across laps
+                    // so the budget running out can say what it ran out against, which means that on
+                    // the lap the criteria are finally met it still holds the *previous* review's
+                    // complaint — and nothing between here and the summary overwrites it. Summarise
+                    // does not read it for a Met, so the transcript was right and the goal log was
+                    // not: every successful run after attempt 1 recorded "STOP Met - outstanding: the
+                    // review says the goal is not met, 1 error (limit 0)", which is the one line a
+                    // reader of that file goes to it for.
+                    outstanding = null;
                     break;
                 }
 
@@ -2451,7 +2461,15 @@ public partial class GoalTileViewModel
                         $"Not done: {outstanding}. Re-implementing (attempt {next})...", GoalPhase.Review);
             }
 
-            await ShowSummaryAsync(stopReason, outstanding, implementationDenials);
+            // wroteChanges is the answer to "did this run put the work there", and NoChange is
+            // precisely the stop that says it did not: the attempt wrote no files, and where it was
+            // not refused outright the tree was then reviewed exactly as it stood. Left at the
+            // default, the summary moved the run's upper end onto the tree *as it is now* — which is
+            // the "three tiles, one commit" failure the closing snapshot exists to prevent, arriving
+            // by the one path where the run has no claim on the tree at all. Every other stop here
+            // followed an implementation that did write, and keeps the default.
+            await ShowSummaryAsync(stopReason, outstanding, implementationDenials,
+                wroteChanges: stopReason != GoalStopReason.NoChange);
         }
         finally
         {
@@ -2630,7 +2648,8 @@ public partial class GoalTileViewModel
     /// attempt's count. Only the NoChange sentence reads it.
     /// </param>
     private async Task ShowSummaryAsync(GoalStopReason reason, string? outstanding = null,
-        int implementationDenials = 0, bool autoCommit = true, bool wroteChanges = true)
+        int implementationDenials = 0, bool autoCommit = true, bool wroteChanges = true,
+        bool spentAttempts = true)
     {
         _log?.Event($"STOP  {reason}"
             + (outstanding is { Length: > 0 } ? $" - outstanding: {outstanding}" : "")
@@ -2678,7 +2697,7 @@ public partial class GoalTileViewModel
         // reason of its own, and mentioning a refused tool call beside "the criteria were met" would
         // read as a problem with a run that had none.
         var summary = GoalCompletionPolicy.Summarise(
-                          reason, _engine.IterationCount, outstanding,
+                          reason, spentAttempts ? _engine.IterationCount : 0, outstanding,
                           reason == GoalStopReason.NoChange ? implementationDenials : 0)
                       + "\nType a new goal, or start a fresh one with +.";
 
@@ -2819,6 +2838,13 @@ public partial class GoalTileViewModel
             met ? GoalStopReason.Met : GoalStopReason.Reviewed,
             met ? null : GoalCompletionPolicy.WhyNotMet(review, criteria),
             autoCommit: false,
+            // The count belongs to the run this button was pressed *after*, not to the button. Reviewed
+            // already knows that and says no number at all; Met did not, so a review asked for on its
+            // own — which implements nothing, reviews once and stops — announced "Goal completed after
+            // 4 attempts" over four attempts it had no part in, and said it again on every press. Which
+            // of the two reasons is used still matters and is left alone: Met is what keeps Continue
+            // off a summary with nothing to continue towards.
+            spentAttempts: false,
             // This button judges the tree and changes nothing, so the run's upper end stays where the
             // last implementation left it. Both flags are false here for different reasons, which is
             // why they are two flags.

@@ -94,6 +94,13 @@ internal static class GoalCompletionPolicy
         int permissionDenials = 0) =>
         reason switch
     {
+        // A review asked for on its own spends no attempts and passes none in, and "after 0
+        // attempts" would describe a run that failed to start rather than one that never was. The
+        // same distinction Reviewed makes two cases below, and it is made here rather than by giving
+        // that button the other reason: Met is also what keeps Continue off a summary that has
+        // nothing left to continue towards.
+        GoalStopReason.Met when attempts <= 0 => "The working tree meets the goal.",
+
         GoalStopReason.Met => $"Goal completed after {Count(attempts, "attempt")}.",
 
         // Not "goal completed after 5 iterations", which is what this said for years and is the
