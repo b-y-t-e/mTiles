@@ -267,7 +267,19 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Puts the keyboard back in this workspace — any tile will do, and one has to.</summary>
-    public void FocusActiveTile() => ResolveActiveTile(orAnyTile: true)?.RequestFocus();
+    /// <remarks>Activated as well as focused, and the order matters. A workspace that has never been
+    /// opened has no <c>_lastActiveLeaf</c>, so nothing is active in it — and the view's own retry after
+    /// layout is guarded on <c>IsActive</c>, which is the retry a workspace created this instant depends
+    /// on: its view is in the tree but not yet laid out, so the first <c>Focus()</c> finds nothing to
+    /// focus. Without this the keyboard simply stayed where it was on the one gesture that most clearly
+    /// asks for it. Activating a leaf that is already the active one changes nothing, so the path from a
+    /// click is untouched.</remarks>
+    public void FocusActiveTile()
+    {
+        var target = ResolveActiveTile(orAnyTile: true);
+        target?.Activate();
+        target?.RequestFocus();
+    }
 
     /// <summary>
     /// Opens a tile of <paramref name="kindId"/> beside whichever tile is in use, and focuses it.
