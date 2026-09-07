@@ -11,14 +11,31 @@
 
 **Close the window. Open it tomorrow. Your agents are still mid-conversation.**
 
-mTiles is a terminal manager for people who spend the day working *with* AI coding agents. It does not
-try to be one. It is the room they work in — five agents in split tiles, a database they can query
-without ever seeing a password, and a phone in your pocket that types into whichever tile is in front
-of you.
+Working with AI coding agents all day, on a real production repo, means running several at once — and
+losing track of which one is stuck, which crashed, which is waiting on you, and what each one is
+quietly costing. mTiles exists to make that workflow fast, comfortable and low-stress: every agent
+lives in a tile you can reopen tomorrow mid-conversation, a crashed one comes back on its own, and the
+things that usually break your flow — a database password, a phone in your pocket, a budget you're
+about to blow through — are handled without you ever leaving the keyboard.
+
+mTiles is a terminal manager built around that idea. It does not try to be an agent. It is the room
+they work in — five agents in split tiles, a database they can query without ever seeing a password,
+and a phone in your pocket that types into whichever tile is in front of you.
 
 ![mTiles](assets/screen1.png)
 
 ## What it does
+
+**Describe a goal, walk away.** The Goal tile asks its clarifying questions, writes a plan and waits
+for you to approve it, implements, then reviews its own work at four severities — blocker, error,
+warning, suggestion — and loops until the criteria you set are met. Left alone it can run for hours —
+10-20 hours unattended on a single goal is not unusual — and come back with the task essentially done.
+Before it starts it photographs your whole working tree, untracked files included, to a ref outside
+your history: nothing an agent does in there is unrecoverable, and your `git log` never moves.
+
+<p align="center">
+  <img src="assets/goal-tile.png" alt="The Goal tile mid-run: model, permission mode and effort in the header, the working file it's touching, and the transcript of what it's done so far" width="320">
+</p>
 
 **Reopen and carry on.** A tile’s id *is* the agent’s session id, so restarting mTiles drops you back
 into the same conversation — not a fresh prompt. Claude Code and pi take an id outright; OpenCode
@@ -35,11 +52,14 @@ door. Two subscriptions side by side is a supported setup, not a workaround.
 the command ran, so a tool that crashed after two hours is restarted while one that fails in a second
 falls through to the next command instead of looping. Rate-limited, so nothing spins.
 
-**Describe a goal, not a prompt.** The Goal tile asks its clarifying questions, writes a plan and waits
-for you to approve it, implements, then reviews its own work at four severities — blocker, error,
-warning, suggestion — and loops until the criteria you set are met. Before it starts it photographs
-your whole working tree, untracked files included, to a ref outside your history: nothing an agent does
-in there is unrecoverable, and your `git log` never moves.
+**What is left on your accounts, at a glance.** The Usage tile reads every account this machine can
+actually ask — Claude Max and Pro, Codex, Antigravity's Gemini and Claude/GPT windows, an OpenRouter
+key's spend — and shows one card per account, a bar per window, coloured past the point where you're
+spending the week faster than the week is passing.
+
+<p align="center">
+  <img src="assets/usage-tile.png" alt="The Usage tile: Claude Code Max and Pro, Codex, Antigravity's Gemini and Claude/GPT windows, and an OpenRouter key's spend, one card per account" width="320">
+</p>
 
 **Your databases, without handing over the password.** A local HTTP bridge lets any agent query SQL
 Server and PostgreSQL, discovered on your machine or added by hand. The agent learns about it through a
@@ -51,20 +71,15 @@ a dialog in front of you while the query waits.
 no upload — on Parakeet or whisper.cpp. Hold a key and dictate into the active tile. Or press the QR
 button, scan it with your phone, and the phone becomes the microphone: which is what makes dictation
 work over **Remote Desktop**, where the microphone is next to *you* and mTiles is on the far machine.
-
-<p align="center">
-  <img src="assets/phone-dictation.png" alt="The page mTiles serves to a paired phone: a hold-to-talk button, arrow keys, Esc and Enter, and the name of the tile the speech will land in" width="290">
-</p>
-
 That is the whole of what the phone gets — a page mTiles serves itself, no app to install. Hold the
 circle and talk; let go and the text lands in the tile named in the corner, which is whichever tile is
 active on the machine. **Enter, Escape and the four arrows** are there too, because dictating a command
 is only half of driving an agent from across the room — the other half is the prompt it stops on.
 Nothing destructive is reachable from the phone.
 
-**What is left on your accounts.** The Usage tile reads every account this machine can actually ask —
-Claude, Codex, Antigravity, OpenRouter — and shows how much of each window is gone, when it comes back,
-and whether you are spending the week faster than the week is passing.
+<p align="center">
+  <img src="assets/phone-dictation.png" alt="The page mTiles serves to a paired phone: a hold-to-talk button, arrow keys, Esc and Enter, and the name of the tile the speech will land in" width="290">
+</p>
 
 **The other tiles.** **Git** — staging, diff (unified and side-by-side), commit with message
 suggestions from your own history, stash, push/fetch, tags, undo the last commit, unpushed markers.
@@ -170,3 +185,7 @@ is there.
 ## License
 
 MIT
+
+---
+
+*"The light shines in the darkness, and the darkness has not overcome it" John 1:5*
