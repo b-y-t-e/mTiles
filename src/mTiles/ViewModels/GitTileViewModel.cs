@@ -187,7 +187,7 @@ public partial class GitTileViewModel : ObservableObject, ITileActions
 
         var s = settingsService?.Settings;
         _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
-        _fontSize = s?.FontSize ?? AppDefaults.FontSize;
+        _fontSize = s is null ? AppDefaults.FontSize : TextScale.UiFontSize(s);
         _diffTrimIndent = s?.DiffTrimIndent ?? true;
         _gitIgnoreWorkspaceDir = s?.GitIgnoreWorkspaceDir ?? true;
         UpdateSizeMetrics();
@@ -282,9 +282,9 @@ public partial class GitTileViewModel : ObservableObject, ITileActions
         var s = _settingsService!.Settings;
         if (s.FontFamily != FontFamily)
             FontFamily = s.FontFamily;
-        if (Math.Abs(s.FontSize - FontSize) > AppDefaults.FontSizeEpsilon)
+        if (Math.Abs(TextScale.UiFontSize(s) - FontSize) > AppDefaults.FontSizeEpsilon)
         {
-            FontSize = s.FontSize;
+            FontSize = TextScale.UiFontSize(s);
             UpdateSizeMetrics();
         }
         var needsRefresh = false;

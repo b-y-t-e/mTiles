@@ -23,6 +23,7 @@ public partial class App : Application
     private PhoneBridgeManager? _phoneBridge;
     private AiUsageService? _usage;
     private AgentFileSyncCoordinator? _agentFileSync;
+    private DesktopTextScale? _textScale;
 
     public override void Initialize()
     {
@@ -32,6 +33,16 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         _settingsService = new SettingsService();
+
+        // Before anything reads a font size, and synchronously: a factor that arrived after the first
+        // window was built would be an interface that visibly resizes itself a moment after it appears.
+        // A change later is announced as an ordinary settings change, because every reader of a font
+        // size — the resources here and all five tile view models — already listens for that one, and a
+        // second notification for the same question is a second thing to remember to subscribe to.
+        _textScale = new DesktopTextScale(() =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(_settingsService.NotifyChanged));
+        _textScale.Start();
+
         var workspaceService = new WorkspaceService();
         var persistenceService = new PersistenceService();
 
@@ -128,6 +139,7 @@ public partial class App : Application
                 Shutdown("database bridge", () => _dbManager?.Dispose());
                 Shutdown("usage service", () => _usage?.Dispose());
                 Shutdown("agent file sync", () => _agentFileSync?.Dispose());
+                Shutdown("text scale watcher", () => _textScale?.Dispose());
             };
         }
 
@@ -182,13 +194,18 @@ public partial class App : Application
         // being remembered — the two that were written here by hand were also the two that could be
         // forgotten, and one of them (LogoFontSize) was computed at every settings change for a view
         // that had stopped asking for it years before.
-        foreach (var (name, size) in UiFontScale.For(s.FontSize))
+        // TextScale, not s.FontSize: the desktop's own text-scaling factor multiplies whatever was
+        // chosen here. It has to be applied at every place a size is read rather than only in this one
+        // — the five tile view models take their size straight from settings, because AvaloniaEdit and
+        // the terminal measure a cell grid — or the interface would scale and the terminal, the diff
+        // and the notes would not.
+        foreach (var (name, size) in UiFontScale.For(TextScale.UiFontSize(s)))
             Resources[name] = size;
 
         // The same steps against the terminal's size, for the surfaces drawn in the terminal's face —
         // see UiFontScale.TerminalPrefix. Emitted here rather than scoped to the Goal tile's own tree
         // because the findings dialog is drawn in the main window, outside it.
-        foreach (var (name, size) in UiFontScale.For(s.TerminalFontSize, UiFontScale.TerminalPrefix))
+        foreach (var (name, size) in UiFontScale.For(TextScale.TerminalFontSize(s), UiFontScale.TerminalPrefix))
             Resources[name] = size;
     }
 }

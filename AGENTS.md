@@ -108,8 +108,10 @@ release. Never a manual `git push` or a hand-written version bump.
   **`cmd` is not in the catalog, and that is a decision.** It cannot run what this application asks a shell to run: it does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, runs only the first line of a multi-line command, and does not treat `;` as a separator — all measured, and the last of those silently reduced OpenCode's own two-command chain to a bare shell. It used to be offered and then swapped for PowerShell behind the user's back, which meant a shell that was neither the one they picked nor the one running their commands. A stored `CMD` now finds nothing and falls back to the default — and so does a `$SHELL` the old Unix detection offered (`nu`, `ksh`, `dash`), which is why `SettingsService.ReportUnknownDefaultShell` logs the name once — remembering in `ReportedUnknownShellName` that it has, so the warning does not return every launch — and **leaves the name in the file**: a name this build cannot match is also what a shell added by a newer version looks like after a Velopack rollback, so clearing it would let the older build settle the question for the newer one for good. `DropCustomShell` is the one that does clear, because a path to an arbitrary binary is an answer nothing here could ever honour.
   **Why the environment members are on the shell and not only in `PtyOptions.Environment`.** Anything secret goes through the process environment — a startup script is *typed into a live PTY*, so it lands in the scrollback and in the shell's history file, which is why a key must never go that way. Since **Terminal.Avalonia 0.3.0** that block can also *remove*: a `null` value in `PtyOptions.Environment` unsets the variable, so a machine with a global `ANTHROPIC_API_KEY` **can** be given a child that authenticates through `ANTHROPIC_AUTH_TOKEN` instead. That was one line in our own `PtyEnvironment.Build`, and it is the right route — `ShellEnvironmentTests` proves it against a real child rather than a fake that would only report what it was handed. What the shell's own `SetEnv`/`UnsetEnv` are still for is everything that has to happen *inside a shell that is already running*, and `NoProfileArgs` covers the other half of the same trap — the user's own profile overwriting what we set
 - `Services/ChainPolicy.cs` + `Services/RelaunchBudget.cs` — the launch chain's rules and its rate limit, pure and separate from the loop that carries them out
-- `Services/UiFontScale.cs` + `Services/InterfaceScale.cs` — the two answers to "how big is this",
-  both pure. See *Type size and interface scale* below
+- `Services/UiFontScale.cs` + `Services/InterfaceScale.cs` + `Services/TextScale.cs` /
+  `Services/DesktopTextScale.cs` — the answers to "how big is this": the scale, the whole-window
+  multiplier, and what the desktop says about this user's eyes. The first three are pure. See *Type
+  size and interface scale* below
 - `Services/TileScript.cs` — the one place that expands an agent script's placeholders (`${tileId}`, `${opencodeSessionFile}`), and the only thing that decides what an acceptable tile id is — a rule `OpenCodeSession` asks for rather than copies, because the same value also becomes a file name
 - `Services/OpenCodeSession.cs` — how an OpenCode tile gets its conversation back (see Session resume below)
 - `SettingsService` writes on a debounce **and** directly when the window closes, so both the write and the timer swap are locked, and the timer's write is wrapped: an unhandled exception on a thread-pool thread ends the process, and no settings save is worth the application
@@ -236,6 +238,30 @@ something that looked wrong on screen.
   copying an old one, so the guard is the only thing that keeps this true.** The three exceptions are
   named in the test: AvaloniaEdit and the terminal measure a cell grid rather than read a resource, so
   the note, todo and git-diff editors take a number their view model recomputes from the setting.
+- **The desktop's text scale is a third question again** (`TextScale`, `DesktopTextScale`). The
+  compositor's scale says how dense the display is — Avalonia honours it exactly, fractional
+  included. Interface Scale says how much bigger this user wants the whole window than that. The
+  text scale says something narrower: that *text* has to be larger, whatever the display is. It is the
+  accessibility setting, it multiplies whatever Font Size and Terminal Font Size say, and **nothing in
+  Avalonia reads it** — measured against 12.1.2, `Avalonia.FreeDesktop` asks the settings portal for
+  the theme variant and the accent colour and nothing else, on every backend. Read from
+  `org.gnome.desktop.interface`/`text-scaling-factor` through `gsettings` on Linux (and watched with
+  one `gsettings monitor` child for the session, which is both the signal and the new value) and from
+  `HKCU\Software\Microsoft\Accessibility\TextScaleFactor` on Windows, where **an absent key is the
+  normal state and means 100**. Not the portal: its GTK backend answers this key out of the same
+  GSettings schema, so it buys no answer this does not already get, at the cost of hand-written D-Bus
+  that cannot be exercised from a Windows dev box. Everything about it fails soft and silence is 1.0.
+  **The terminal follows too**, which changes the cell grid and reflows the shell — the cost is real,
+  and against it is that the terminal is the one surface made entirely of text.
+- **A stored font size is read through `TextScale` and never off `AppSettings`**, and that is the same
+  enforcement as the markup rule above (`TextScaleTests`, with the four exceptions named and reasoned:
+  the two Settings spinners must show what was typed, or typing 14 shows 17.5). Multiplying in
+  `ApplyFontResources` alone is the obvious mistake and reintroduces the font-size bug from the other
+  end: five tile view models take their size straight from settings, because AvaloniaEdit and the
+  terminal measure a cell grid rather than read a resource, so the labels would grow and the terminal,
+  the diff, the notes and the database log would not. **A change is announced as an ordinary
+  `SettingsChanged`**, because every one of those readers already listens for it and a second event for
+  the same question is a second thing to remember to subscribe to.
 - **The interface scale is a different question from the font size** (`InterfaceScale`,
   Settings → General → Appearance). The font size moves text and leaves the padding, the icons and the
   gutters where they were; the scale multiplies the whole window at once, through one

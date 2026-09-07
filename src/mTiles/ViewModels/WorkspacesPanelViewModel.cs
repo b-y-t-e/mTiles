@@ -69,7 +69,7 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
 
         var s = settingsService?.Settings;
         _fontFamily = s?.FontFamily ?? AppDefaults.FontFamily;
-        _fontSize = s?.FontSize ?? AppDefaults.FontSize;
+        _fontSize = s is null ? AppDefaults.FontSize : TextScale.UiFontSize(s);
 
         if (_settingsService != null)
             _settingsService.SettingsChanged += OnSettingsChanged;
@@ -462,8 +462,8 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
         var s = _settingsService!.Settings;
         if (s.FontFamily != FontFamily)
             FontFamily = s.FontFamily;
-        if (Math.Abs(s.FontSize - FontSize) > AppDefaults.FontSizeEpsilon)
-            FontSize = s.FontSize;
+        if (Math.Abs(TextScale.UiFontSize(s) - FontSize) > AppDefaults.FontSizeEpsilon)
+            FontSize = TextScale.UiFontSize(s);
     }
 
     [RelayCommand]

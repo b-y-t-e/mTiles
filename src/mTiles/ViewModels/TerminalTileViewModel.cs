@@ -224,7 +224,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
         _ownScripts = scripts ?? LaunchScripts.None;
         _theme = TerminalTheme.GetByName(s.ColorThemeName);
         _fontFamily = s.TerminalFontFamily;
-        _fontSize = s.TerminalFontSize;
+        _fontSize = TextScale.TerminalFontSize(s);
 
         _settingsService.SettingsChanged += OnSettingsChanged;
         _activityLight.Changed += (_, _) => OnPropertyChanged(nameof(IsBusy));
@@ -238,8 +238,8 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
             Theme = newTheme;
         if (s.TerminalFontFamily != FontFamily)
             FontFamily = s.TerminalFontFamily;
-        if (Math.Abs(s.TerminalFontSize - FontSize) > AppDefaults.FontSizeEpsilon)
-            FontSize = s.TerminalFontSize;
+        if (Math.Abs(TextScale.TerminalFontSize(s) - FontSize) > AppDefaults.FontSizeEpsilon)
+            FontSize = TextScale.TerminalFontSize(s);
     }
 
     /// <summary>How far the terminal's text sits inside the card.</summary>

@@ -79,7 +79,7 @@ public partial class DatabaseTileViewModel : ObservableObject, ITile
 
         var s = settingsService.Settings;
         _fontFamily = s.FontFamily;
-        _fontSize = s.FontSize;
+        _fontSize = TextScale.UiFontSize(s);
         _httpPort = s.Database.HttpPort;
         _isServiceRunning = dbManager.IsRunning;
         _serviceError = dbManager.LastError;
@@ -144,7 +144,7 @@ public partial class DatabaseTileViewModel : ObservableObject, ITile
         {
             var s = _settingsService.Settings;
             if (s.FontFamily != FontFamily) FontFamily = s.FontFamily;
-            if (Math.Abs(s.FontSize - FontSize) > AppDefaults.FontSizeEpsilon) FontSize = s.FontSize;
+            if (Math.Abs(TextScale.UiFontSize(s) - FontSize) > AppDefaults.FontSizeEpsilon) FontSize = TextScale.UiFontSize(s);
             HttpPort = s.Database.HttpPort;
             IsServiceRunning = _dbManager.IsRunning;
             ServiceError = _dbManager.LastError;
