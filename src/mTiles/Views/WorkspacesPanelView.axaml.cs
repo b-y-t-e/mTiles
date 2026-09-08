@@ -98,20 +98,39 @@ public partial class WorkspacesPanelView : UserControl
         menu.Open(anchor);
     }
 
+    /// <summary>The row that switches the two instruction files' mirror on and off.</summary>
+    /// <remarks>
+    /// <para><b>The state is one mark, and it is the icon.</b> A checkbox and a struck-through arrow in
+    /// the middle of the text said the same thing twice, and neither said it well: two marks for one
+    /// fact leave the reader deciding which to believe, and at the size a menu row is drawn the
+    /// difference between <c>⇄</c> and <c>⇹</c> is two hairlines — a state you have to go and look for
+    /// is not a state the row reports. So the text is now the same either way, and what changes is the
+    /// glyph in the column a menu keeps for exactly this, in the application's own icon vocabulary: a
+    /// link, or a link broken.</para>
+    /// <para>Colour carries it the rest of the way — lit while the two files are being kept identical,
+    /// muted while they are free to drift — bound rather than resolved once, so it follows a theme
+    /// change like every other colour here.</para>
+    /// </remarks>
     private static MenuItem BuildAgentFileSyncMenuItem(WorkspacesPanelViewModel vm, WorkspaceItemViewModel item)
     {
         var canToggle = vm.CanToggleAgentFileSync;
         var isOn = vm.IsAgentFileSyncEnabled(item);
+
+        var icon = new Material.Icons.Avalonia.MaterialIcon
+        {
+            Kind = isOn
+                ? Material.Icons.MaterialIconKind.LinkVariant
+                : Material.Icons.MaterialIconKind.LinkVariantOff,
+            Width = 14,
+            Height = 14
+        };
+        icon.Bind(Avalonia.Controls.Primitives.TemplatedControl.ForegroundProperty,
+            icon.GetResourceObservable(isOn ? "AccentDefault" : "TextFaint").ToBinding());
+
         var menuItem = new MenuItem
         {
-            // The connector carries the state as well as the checkbox does: two arrows while the two
-            // files are being kept identical, one cut through the middle while they are free to drift. The
-            // menu is rebuilt every time it opens, so this is read once and never has to be updated.
-            Header = isOn ? "CLAUDE.md ⇄ AGENTS.md" : "CLAUDE.md ⇹ AGENTS.md",
-            // A real checkbox rather than an appended "✓" — the same ToggleType Avalonia's MenuItem
-            // already gives the tile header's "Run as" entries, so a checked state reads the same way
-            // everywhere in the app.
-            ToggleType = MenuItemToggleType.CheckBox,
+            Header = "CLAUDE.md ⇄ AGENTS.md",
+            Icon = icon,
             IsChecked = isOn,
             IsEnabled = canToggle,
             Command = vm.ToggleAgentFileSyncCommand,
@@ -149,6 +168,13 @@ public partial class WorkspacesPanelView : UserControl
             vm.ConfirmAction = message =>
                 MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: true);
             vm.RevealWorkspaceRequested = RevealWorkspace;
+
+            // The workspace restored from the last session is selected before this view exists, so
+            // nothing asked for it to be scrolled to — on a list longer than the panel the application
+            // opened with the one row the user is looking for below the fold, and the highlight they
+            // would have found it by is exactly what was off screen.
+            if (vm.SelectedWorkspace is { } restored)
+                RevealWorkspace(restored);
         }
     }
 
@@ -158,12 +184,28 @@ public partial class WorkspacesPanelView : UserControl
     /// <c>ContainerFromItem</c> answers null until it does. The collapsed list is asked as well rather
     /// than instead — the panel can be either shape when a workspace is added, and a container that is
     /// not there costs a null.</remarks>
-    private void RevealWorkspace(WorkspaceItemViewModel item) =>
+    private void RevealWorkspace(WorkspaceItemViewModel item) => RevealWorkspace(item, attempt: 0);
+
+    /// <remarks>Tried twice. At startup the panel is asked for a row before it has been laid out at
+    /// all — the restored workspace is selected in the view model's constructor — and a container that
+    /// does not exist yet answers null exactly like a row that is not there. One more pass, at a lower
+    /// priority, is after the layout it was waiting for; a second failure is a row that genuinely is
+    /// not in the list (filtered out, or already removed), and retrying that for ever would be a
+    /// dispatcher loop nobody can see.</remarks>
+    private void RevealWorkspace(WorkspaceItemViewModel item, int attempt) =>
         Dispatcher.UIThread.Post(() =>
         {
             var list = _isCollapsed ? CollapsedWorkspaceList : (ItemsControl)WorkspaceList;
-            list.ContainerFromItem(item)?.BringIntoView();
-        }, DispatcherPriority.Loaded);
+            var container = list.ContainerFromItem(item);
+            if (container is not null)
+            {
+                container.BringIntoView();
+                return;
+            }
+
+            if (attempt == 0)
+                RevealWorkspace(item, attempt + 1);
+        }, attempt == 0 ? DispatcherPriority.Loaded : DispatcherPriority.Background);
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

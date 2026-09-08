@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Avalonia;
 using mTiles.Services;
 using Velopack;
@@ -83,6 +83,10 @@ public static class Program
             builder = builder.UseWaylandWithFallback();
 
         return builder
+            // Ours, and first: the interface and the terminal both default to it, so a machine with no
+            // fonts installed still reads the way this application was designed. Inter stays as the
+            // fallback behind it for anybody whose settings still name it.
+            .WithJetBrainsMono()
             .WithInterFont()
             .LogToTrace()
             .AfterSetup(_ => CrashHandler.AttachAvaloniaExceptionHandler());

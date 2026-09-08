@@ -617,13 +617,18 @@
                     <Button Classes="settings-tab"
                             Classes.settings-tab-active="{Binding IsDbConfigSubTab}"
                             Command="{Binding SelectDbSubTabCommand}"
-                            CommandParameter="{StaticResource Zero}"
+                            CommandParameter="{x:Static vm:DbSubTabs.Config}"
                             Content="Config" />
                     <Button Classes="settings-tab"
-                            Classes.settings-tab-active="{Binding IsDbDatabasesSubTab}"
+                            Classes.settings-tab-active="{Binding IsDbDiscoveredSubTab}"
                             Command="{Binding SelectDbSubTabCommand}"
-                            CommandParameter="{StaticResource One}"
-                            Content="Databases" />
+                            CommandParameter="{x:Static vm:DbSubTabs.Discovered}"
+                            Content="Discovered" />
+                    <Button Classes="settings-tab"
+                            Classes.settings-tab-active="{Binding IsDbManualSubTab}"
+                            Command="{Binding SelectDbSubTabCommand}"
+                            CommandParameter="{x:Static vm:DbSubTabs.Manual}"
+                            Content="Manual" />
                 </StackPanel>
 
                 <!-- ── Sub-tab 0: Config ── -->
@@ -771,109 +776,13 @@
 
                 </StackPanel> <!-- /Sub-tab 0: Config -->
 
-                <!-- ── Sub-tab 1: Databases ── -->
-                <StackPanel Spacing="12" IsVisible="{Binding IsDbDatabasesSubTab}">
-
-                <!-- Manual Connections -->
-                <StackPanel Spacing="6">
-                    <DockPanel Margin="0,0,0,2">
-                        <TextBlock Text="MANUAL CONNECTIONS" Classes="section" Margin="0"
-                                   VerticalAlignment="Center" />
-                        <Button DockPanel.Dock="Right"
-                                Classes="header-action"
-                                Command="{Binding AddManualConnectionCommand}"
-                                ToolTip.Tip="Add a database this scan cannot find">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <mi:MaterialIcon Kind="Plus" Width="12" Height="12" />
-                                <TextBlock Text="Add" />
-                            </StackPanel>
-                        </Button>
-                    </DockPanel>
-
-                    <ItemsControl ItemsSource="{Binding ManualConnections}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ManualConnectionViewModel">
-                                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
-                                        Margin="0,0,0,3">
-                                    <Border Background="{DynamicResource BgSurface}" Padding="0">
-                                        <DockPanel>
-                                            <Border Padding="12,8">
-                                                <DockPanel>
-                                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                                                                Spacing="2" VerticalAlignment="Center">
-                                                        <Button Classes="tile-btn"
-                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).TestManualConnectionCommand}"
-                                                                CommandParameter="{Binding}"
-                                                                ToolTip.Tip="Test connection">
-                                                            <mi:MaterialIcon Kind="PlayCircleOutline" Width="13" Height="13" />
-                                                        </Button>
-                                                        <Button Classes="tile-btn"
-                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditManualConnectionCommand}"
-                                                                CommandParameter="{Binding}"
-                                                                ToolTip.Tip="Edit">
-                                                            <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
-                                                        </Button>
-                                                        <Button Classes="tile-btn-close"
-                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteManualConnectionCommand}"
-                                                                CommandParameter="{Binding}"
-                                                                ToolTip.Tip="Delete">
-                                                            <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
-                                                        </Button>
-                                                    </StackPanel>
-
-                                                    <StackPanel VerticalAlignment="Center" Spacing="0">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                                            <TextBlock Text="{Binding Label}"
-                                                                       FontWeight="Medium"
-                                                                       Foreground="{DynamicResource TextPrimary}" />
-                                                            <Border CornerRadius="{DynamicResource RadiusSm}"
-                                                                    Padding="4,0"
-                                                                    Background="{DynamicResource StatusMutedSubtle}">
-                                                                <TextBlock Text="{Binding ProviderShort}" FontSize="{DynamicResource FontChip}"
-                                                                           FontWeight="SemiBold"
-                                                                           Foreground="{DynamicResource TextMuted}" />
-                                                            </Border>
-                                                            <TextBlock Text="testing..."
-                                                                       FontSize="{DynamicResource FontSm}"
-                                                                       Foreground="{DynamicResource AccentDefault}"
-                                                                       FontStyle="Italic"
-                                                                       VerticalAlignment="Center"
-                                                                       IsVisible="{Binding IsTesting}" />
-                                                            <TextBlock Text="{Binding TestResult}"
-                                                                       FontSize="{DynamicResource FontSm}"
-                                                                       Foreground="{DynamicResource TextMuted}"
-                                                                       VerticalAlignment="Center"
-                                                                       IsVisible="{Binding TestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                        </StackPanel>
-                                                        <TextBlock FontSize="{DynamicResource FontXs}"
-                                                                   Foreground="{DynamicResource TextFaint}"
-                                                                   TextTrimming="CharacterEllipsis">
-                                                            <TextBlock.Text>
-                                                                <MultiBinding StringFormat="{}{0} · {1}">
-                                                                    <Binding Path="DisplayServer" />
-                                                                    <Binding Path="Database" />
-                                                                </MultiBinding>
-                                                            </TextBlock.Text>
-                                                        </TextBlock>
-                                                    </StackPanel>
-                                                </DockPanel>
-                                            </Border>
-                                        </DockPanel>
-                                    </Border>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <!-- Add button -->
-
-                    <!-- Edit form -->
-                </StackPanel>
+                <!-- ── Sub-tab 1: Discovered databases ── -->
+                <StackPanel Spacing="12" IsVisible="{Binding IsDbDiscoveredSubTab}">
 
                 <!-- Detected Databases -->
                 <StackPanel Spacing="6">
                     <DockPanel Margin="0,0,0,2">
-                        <TextBlock Text="DATABASES" Classes="section" Margin="0"
+                        <TextBlock Text="DISCOVERED DATABASES" Classes="section" Margin="0"
                                    VerticalAlignment="Center" />
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
                             <Button Classes="header-action"
@@ -982,7 +891,141 @@
                     </ItemsControl>
                 </StackPanel>
 
-                </StackPanel> <!-- /Sub-tab 1: Databases -->
+                </StackPanel> <!-- /Sub-tab 1: Discovered databases -->
+
+                <!-- ── Sub-tab 2: Manual connections ── -->
+                <StackPanel Spacing="12" IsVisible="{Binding IsDbManualSubTab}">
+
+                <!-- Manual Connections -->
+                <StackPanel Spacing="6">
+                    <DockPanel Margin="0,0,0,2">
+                        <TextBlock Text="MANUAL CONNECTIONS" Classes="section" Margin="0"
+                                   VerticalAlignment="Center" />
+                        <Button DockPanel.Dock="Right"
+                                Classes="header-action"
+                                Command="{Binding AddManualConnectionCommand}"
+                                ToolTip.Tip="Add a database this scan cannot find">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="Plus" Width="12" Height="12" />
+                                <TextBlock Text="Add" />
+                            </StackPanel>
+                        </Button>
+                    </DockPanel>
+
+                    <!-- The same filter the detected list below carries, and deliberately the same
+                         control: one page, one way of narrowing a list. It appears only past three
+                         rows, the threshold the workspaces panel uses — above three rows a filter box
+                         costs a line and saves nobody a glance. -->
+                    <TextBox Text="{Binding ManualConnectionFilter, Mode=TwoWay}"
+                             PlaceholderText="Filter connections..."
+                             IsVisible="{Binding ShowManualConnectionFilter}"
+                             Padding="6,3"
+                             FontSize="{DynamicResource FontSm}">
+                        <TextBox.InnerRightContent>
+                            <Button Classes="ghost"
+                                    Command="{Binding ClearManualConnectionFilterCommand}"
+                                    IsVisible="{Binding ManualConnectionFilter.Length}"
+                                    Padding="2" Margin="0,0,2,0"
+                                    MinWidth="16" MinHeight="16">
+                                <mi:MaterialIcon Kind="Close" Width="10" Height="10" />
+                            </Button>
+                        </TextBox.InnerRightContent>
+                    </TextBox>
+
+                    <ItemsControl ItemsSource="{Binding FilteredManualConnections}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ManualConnectionViewModel">
+                                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
+                                        Margin="0,0,0,3">
+                                    <Border Background="{DynamicResource BgSurface}" Padding="0">
+                                        <DockPanel>
+                                            <Border Padding="12,8">
+                                                <DockPanel>
+                                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                                                Spacing="2" VerticalAlignment="Center">
+                                                        <Button Classes="tile-btn"
+                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).TestManualConnectionCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Test connection">
+                                                            <mi:MaterialIcon Kind="PlayCircleOutline" Width="13" Height="13" />
+                                                        </Button>
+                                                        <Button Classes="tile-btn"
+                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).EditManualConnectionCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Edit">
+                                                            <mi:MaterialIcon Kind="Pencil" Width="13" Height="13" />
+                                                        </Button>
+                                                        <Button Classes="tile-btn"
+                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).CloneManualConnectionCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Clone">
+                                                            <mi:MaterialIcon Kind="ContentCopy" Width="13" Height="13" />
+                                                        </Button>
+                                                        <Button Classes="tile-btn-close"
+                                                                Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).DeleteManualConnectionCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Delete">
+                                                            <mi:MaterialIcon Kind="Close" Width="13" Height="13" />
+                                                        </Button>
+                                                    </StackPanel>
+
+                                                    <StackPanel VerticalAlignment="Center" Spacing="0">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <TextBlock Text="{Binding Label}"
+                                                                       FontWeight="Medium"
+                                                                       Foreground="{DynamicResource TextPrimary}" />
+                                                            <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                                    Padding="4,0"
+                                                                    Background="{DynamicResource StatusMutedSubtle}">
+                                                                <TextBlock Text="{Binding ProviderShort}" FontSize="{DynamicResource FontChip}"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{DynamicResource TextMuted}" />
+                                                            </Border>
+                                                            <TextBlock Text="testing..."
+                                                                       FontSize="{DynamicResource FontSm}"
+                                                                       Foreground="{DynamicResource AccentDefault}"
+                                                                       FontStyle="Italic"
+                                                                       VerticalAlignment="Center"
+                                                                       IsVisible="{Binding IsTesting}" />
+                                                            <TextBlock Text="{Binding TestResult}"
+                                                                       FontSize="{DynamicResource FontSm}"
+                                                                       Foreground="{DynamicResource TextMuted}"
+                                                                       VerticalAlignment="Center"
+                                                                       IsVisible="{Binding TestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                        </StackPanel>
+                                                        <TextBlock FontSize="{DynamicResource FontXs}"
+                                                                   Foreground="{DynamicResource TextFaint}"
+                                                                   TextTrimming="CharacterEllipsis">
+                                                            <TextBlock.Text>
+                                                                <MultiBinding StringFormat="{}{0} · {1}">
+                                                                    <Binding Path="DisplayServer" />
+                                                                    <Binding Path="Database" />
+                                                                </MultiBinding>
+                                                            </TextBlock.Text>
+                                                        </TextBlock>
+                                                    </StackPanel>
+                                                </DockPanel>
+                                            </Border>
+                                        </DockPanel>
+                                    </Border>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- What the filter left, when it left nothing. A list that empties itself with no
+                         word about why reads as connections that have gone. -->
+                    <TextBlock Text="No connection matches this filter."
+                               Foreground="{DynamicResource TextMuted}"
+                               FontSize="{DynamicResource FontSm}"
+                               IsVisible="{Binding ManualConnectionFilterFoundNothing}" />
+
+                    <!-- Add button -->
+
+                    <!-- Edit form -->
+                </StackPanel>
+
+                </StackPanel> <!-- /Sub-tab 2: Manual connections -->
 
             </StackPanel>
 

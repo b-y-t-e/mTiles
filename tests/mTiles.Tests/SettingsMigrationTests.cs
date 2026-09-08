@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using mTiles.Models;
 using mTiles.Services;
 using Xunit;
 
@@ -549,4 +550,39 @@ public sealed class SettingsMigrationTests : IDisposable
         Assert.Null(reloaded.ExtraEnv["ANTHROPIC_API_KEY"]);
     }
 
+    /// <summary>A font family nobody chose moves to the copy that now ships with the application.</summary>
+    /// <remarks>The old defaults named fonts that may or may not be installed. A stored value equal to
+    /// one of them is what a settings file gets for having been written at all, so leaving it would
+    /// mean the embedded typeface reached nobody who had ever run this application.</remarks>
+    [Fact]
+    public void The_old_default_font_is_replaced_by_the_embedded_one()
+    {
+        GivenSettings($$"""
+            {
+              "FontFamily": "{{AppDefaults.PreviousFontFamilies[0]}}",
+              "TerminalFontFamily": "{{AppDefaults.PreviousTerminalFontFamilies[0]}}"
+            }
+            """);
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(AppDefaults.FontFamily, service.Settings.FontFamily);
+        Assert.Equal(AppDefaults.TerminalFontFamily, service.Settings.TerminalFontFamily);
+        // Written back, or it would be migrated again on every launch and never survive an edit.
+        Assert.Contains("JetBrainsMono", File.ReadAllText(SettingsPath));
+    }
+
+    /// <summary>A font the user typed is theirs, and is left exactly as it is.</summary>
+    [Fact]
+    public void A_chosen_font_is_not_replaced()
+    {
+        GivenSettings("""
+            { "FontFamily": "Comic Sans MS", "TerminalFontFamily": "Fira Code, monospace" }
+            """);
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal("Comic Sans MS", service.Settings.FontFamily);
+        Assert.Equal("Fira Code, monospace", service.Settings.TerminalFontFamily);
+    }
 }

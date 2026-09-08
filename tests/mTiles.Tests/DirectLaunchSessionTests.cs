@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Threading;
 using mTiles.Models;
@@ -672,6 +672,11 @@ public class DirectLaunchSessionTests
 
 public class TestApp : Application
 {
+    /// <remarks>The embedded typeface is registered here as well as in <c>Program</c>: fonts can only
+    /// be added while the application is being built, so without this line no test could ever ask
+    /// whether the font this application ships actually resolves.</remarks>
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<TestApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+        => AppBuilder.Configure<TestApp>()
+            .WithJetBrainsMono()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions());
 }

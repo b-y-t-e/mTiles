@@ -448,6 +448,14 @@ public partial class MainWindow : Window
 
         if (DataContext is MainWindowViewModel vm)
             vm.DisposeAll();
+
+        // Last, and from here rather than from a lifetime event: closing the last window shuts the
+        // lifetime down directly, without raising ShutdownRequested, so everything App started outside
+        // this window — the database bridge's HTTP listener among it — was never let go of on the one
+        // exit every user takes. It survived only because the process leaves and the operating system
+        // takes the ports back. After DisposeAll, because a tile on its way out still speaks to the
+        // database manager. Calling it twice costs nothing.
+        (Application.Current as App)?.ReleaseBackgroundServices();
     }
 
     private async Task AskThenCloseAsync(MainWindowViewModel vm)

@@ -195,14 +195,16 @@ public partial class SettingsViewModel : ObservableObject
         if (IsEditingProviderInstance) CancelEditProviderInstanceCommand.Execute(null);
     }
 
-    // Database sub-tabs
+    // Database sub-tabs - see DbSubTabs for why there are three of them.
     [ObservableProperty] private int _dbSubTab;
-    public bool IsDbConfigSubTab => DbSubTab == 0;
-    public bool IsDbDatabasesSubTab => DbSubTab == 1;
+    public bool IsDbConfigSubTab => DbSubTab == DbSubTabs.Config;
+    public bool IsDbDiscoveredSubTab => DbSubTab == DbSubTabs.Discovered;
+    public bool IsDbManualSubTab => DbSubTab == DbSubTabs.Manual;
     partial void OnDbSubTabChanged(int value)
     {
         OnPropertyChanged(nameof(IsDbConfigSubTab));
-        OnPropertyChanged(nameof(IsDbDatabasesSubTab));
+        OnPropertyChanged(nameof(IsDbDiscoveredSubTab));
+        OnPropertyChanged(nameof(IsDbManualSubTab));
     }
     [RelayCommand]
     private void SelectDbSubTab(int tab) => DbSubTab = tab;
@@ -323,6 +325,27 @@ public partial class SettingsViewModel : ObservableObject
 
     // Manual connections
     public ObservableCollection<ManualConnectionViewModel> ManualConnections { get; } = [];
+
+    /// <summary>The rows the filter leaves, which is what the list is bound to.</summary>
+    public ObservableCollection<ManualConnectionViewModel> FilteredManualConnections { get; } = [];
+
+    [ObservableProperty] private string _manualConnectionFilter = "";
+    partial void OnManualConnectionFilterChanged(string value) => ApplyManualConnectionFilter();
+    [RelayCommand] private void ClearManualConnectionFilter() => ManualConnectionFilter = "";
+
+    /// <summary>Whether the list is long enough to be worth filtering.</summary>
+    /// <remarks>The same threshold the workspaces panel uses, and for the same reason: a filter box
+    /// above three rows is a control that costs a line and saves nobody a glance.</remarks>
+    public bool ShowManualConnectionFilter => ManualConnections.Count > 3;
+
+    /// <summary>Whether the filter has hidden everything there is.</summary>
+    public bool ManualConnectionFilterFoundNothing =>
+        ManualConnections.Count > 0 && FilteredManualConnections.Count == 0;
+
+    /// <summary>What is wrong with the connection in the form, said where it was typed.</summary>
+    /// <remarks>Cleared as soon as anything in the form changes: a message about a name that has since
+    /// been changed is worse than none, because it reads as the form still refusing.</remarks>
+    [ObservableProperty] private string? _editConnProblem;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEditingAnything))]
     private bool _isEditingManualConnection;
@@ -337,6 +360,13 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _editConnUsername = "";
     [ObservableProperty] private string _editConnPassword = "";
     [ObservableProperty] private bool _editConnIntegrated = true;
+    // The four fields the clash is about. A message about a name that has since been changed reads as
+    // the form still refusing, so it goes the moment the user answers it.
+    partial void OnEditConnAliasChanged(string value) => EditConnProblem = null;
+    partial void OnEditConnServerChanged(string value) => EditConnProblem = null;
+    partial void OnEditConnInstanceChanged(string value) => EditConnProblem = null;
+    partial void OnEditConnDatabaseChanged(string value) => EditConnProblem = null;
+
     [ObservableProperty] private bool _isTestingEditConn;
     [ObservableProperty] private string? _editConnTestResult;
     public static DbProviderType[] DbProviders { get; } = Enum.GetValues<DbProviderType>();
@@ -625,11 +655,25 @@ public partial class SettingsViewModel : ObservableObject
         ManualConnections.Clear();
         foreach (var mc in _settingsService.Settings.Database.ManualConnections)
             ManualConnections.Add(new ManualConnectionViewModel(mc));
+        ApplyManualConnectionFilter();
+        OnPropertyChanged(nameof(ShowManualConnectionFilter));
+    }
+
+    private void ApplyManualConnectionFilter()
+    {
+        FilteredManualConnections.Clear();
+        foreach (var mc in ManualConnections)
+        {
+            if (mc.MatchesFilter(ManualConnectionFilter))
+                FilteredManualConnections.Add(mc);
+        }
+        OnPropertyChanged(nameof(ManualConnectionFilterFoundNothing));
     }
 
     [RelayCommand]
     private void AddManualConnection()
     {
+        EditConnProblem = null;
         _editingConnection = new ManualDatabaseConnection();
         EditConnProvider = DbProviderType.SqlServer;
         EditConnAlias = "";
@@ -650,6 +694,7 @@ public partial class SettingsViewModel : ObservableObject
             .FirstOrDefault(c => c.Id == vm.Id);
         if (mc == null) return;
 
+        EditConnProblem = null;
         _editingConnection = mc;
         EditConnProvider = mc.Provider;
         EditConnAlias = mc.Alias;
@@ -663,6 +708,56 @@ public partial class SettingsViewModel : ObservableObject
         BeginEditing(ref _isEditingManualConnection);
     }
 
+    /// <summary>Opens the form on a copy of an existing connection.</summary>
+    /// <remarks>
+    /// <para>What it is for is the row that differs from one already here in a field or two — the same
+    /// server and credentials, another database — which is otherwise eight fields typed again, with the
+    /// password among them.</para>
+    /// <para>A new <see cref="ManualDatabaseConnection"/> rather than the stored one, so nothing is
+    /// written until Save and Cancel really does leave the original alone. The name is the one field
+    /// that cannot be copied as it stands — <see cref="ManualConnectionClash"/> would refuse it — so it
+    /// arrives already made unique, and the rest is left exactly as it was for the user to change.</para>
+    /// </remarks>
+    [RelayCommand]
+    private void CloneManualConnection(ManualConnectionViewModel vm)
+    {
+        var mc = _settingsService.Settings.Database.ManualConnections
+            .FirstOrDefault(c => c.Id == vm.Id);
+        if (mc == null) return;
+
+        EditConnProblem = null;
+        _editingConnection = new ManualDatabaseConnection();
+        EditConnProvider = mc.Provider;
+        EditConnAlias = UnusedAliasFrom(mc.Alias);
+        EditConnServer = mc.Server;
+        EditConnInstance = mc.Instance;
+        EditConnDatabase = mc.Database;
+        EditConnPort = mc.Port;
+        EditConnUsername = mc.Username;
+        EditConnPassword = mc.Password;
+        EditConnIntegrated = mc.UseIntegratedSecurity;
+        BeginEditing(ref _isEditingManualConnection);
+    }
+
+    /// <summary>A name like <paramref name="alias"/> that no stored connection is using.</summary>
+    /// <remarks>Empty stays empty: a connection with no name is found by its address, and inventing
+    /// "copy" for one would be this dialog naming something the user chose not to name. The clone then
+    /// has the same address as its original, which Save refuses until one of them is changed — which is
+    /// the point of cloning it.</remarks>
+    private string UnusedAliasFrom(string alias)
+    {
+        alias = alias.Trim();
+        if (alias.Length == 0) return "";
+
+        bool Taken(string name) => _settingsService.Settings.Database.ManualConnections
+            .Any(c => string.Equals(c.Alias.Trim(), name, StringComparison.OrdinalIgnoreCase));
+
+        var candidate = $"{alias} copy";
+        for (var n = 2; Taken(candidate); n++)
+            candidate = $"{alias} copy {n}";
+        return candidate;
+    }
+
     [RelayCommand]
     private void SaveManualConnection()
     {
@@ -670,6 +765,25 @@ public partial class SettingsViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(EditConnServer) || string.IsNullOrWhiteSpace(EditConnDatabase))
             return;
 
+        // Asked of a copy, before anything is written: the stored object is the one being edited, so
+        // filling it in first and then refusing would leave the list holding a change the user was
+        // just told was not allowed.
+        var proposed = new ManualDatabaseConnection
+        {
+            Id = _editingConnection.Id,
+            Provider = EditConnProvider,
+            Alias = EditConnAlias.Trim(),
+            Server = EditConnServer.Trim(),
+            Instance = EditConnInstance.Trim(),
+            Database = EditConnDatabase.Trim()
+        };
+        if (ManualConnectionClash.Find(_settingsService.Settings.Database.ManualConnections, proposed) is { } clash)
+        {
+            EditConnProblem = clash;
+            return;
+        }
+
+        EditConnProblem = null;
         _editingConnection.Provider = EditConnProvider;
         _editingConnection.Alias = EditConnAlias.Trim();
         _editingConnection.Server = EditConnServer.Trim();
@@ -754,6 +868,8 @@ public partial class SettingsViewModel : ObservableObject
             return;
         _settingsService.Settings.Database.ManualConnections.RemoveAll(c => c.Id == vm.Id);
         ManualConnections.Remove(vm);
+        ApplyManualConnectionFilter();
+        OnPropertyChanged(nameof(ShowManualConnectionFilter));
         _settingsService.NotifyChanged();
         _dbManager?.Restart();
     }

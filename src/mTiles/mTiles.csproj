@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -30,6 +30,11 @@
     <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\mtiles-icon.png" />
+    <!-- The typeface the interface and the terminal default to, compiled into the executable rather
+         than installed on the user's machine - see Services/AppFonts.cs. Only the faces: the collection
+         loads every asset in that directory as a typeface, so the licence lives in licenses/ and its
+         text travels in THIRD-PARTY-NOTICES.md. -->
+    <AvaloniaResource Include="Assets\Fonts\JetBrainsMono\*.ttf" />
     <!-- The page a phone loads to dictate. Embedded rather than copied next to the executable: the
          bridge serves it from memory, and a file on disk would be one more thing that can go missing
          from a publish and turn the feature into a blank screen on somebody's phone. -->

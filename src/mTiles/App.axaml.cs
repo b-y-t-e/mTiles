@@ -114,33 +114,19 @@ public partial class App : Application
             mainWindow.BindWindowState(_settingsService);
             desktop.MainWindow = mainWindow;
 
-            desktop.ShutdownRequested += (_, _) =>
-            {
-                // The bridge first: it subscribes to the dictation service and drives the shared audio
-                // router, so tearing the service down underneath it left a phone that was mid-utterance
-                // writing samples into a disposed capture. Blocking, and deliberately — a listening socket
-                // that outlives the process holds the port against the next launch.
-                //
-                // Each step wrapped, because Wait() throws an AggregateException on a faulted task and an
-                // escape here skipped the two below it: a bridge that failed to shut down cleanly took the
-                // dictation service and the database bridge with it.
-                //
-                // The three seconds are a bound, not an expectation, and whether they were enough is
-                // worth knowing: a bridge still shutting down when the process leaves is exactly the
-                // thing that holds the port against the next launch, and discarding the answer meant the
-                // one symptom the next run would show had no trace anywhere explaining it.
-                Shutdown("phone bridge", () =>
-                {
-                    if (_phoneBridge is { } bridge && !bridge.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3)))
-                        Trace.TraceWarning(
-                            "The phone bridge did not shut down within 3s; its port may still be held.");
-                });
-                Shutdown("dictation", () => _dictation?.Dispose());
-                Shutdown("database bridge", () => _dbManager?.Dispose());
-                Shutdown("usage service", () => _usage?.Dispose());
-                Shutdown("agent file sync", () => _agentFileSync?.Dispose());
-                Shutdown("text scale watcher", () => _textScale?.Dispose());
-            };
+            // Both routes, because only one of them is guaranteed to run. Avalonia raises
+            // ShutdownRequested for a shutdown it is *asked* about — the session ending, a programmatic
+            // TryShutdown — and closing the last window is not that: it shuts the lifetime down
+            // directly. So on the ordinary exit, the one every user takes, none of this ran, and what
+            // saved us was the process leaving and the operating system taking the sockets back with
+            // it. That is not a shutdown, it is a rescue, and it stops working the moment the process
+            // is slow to leave: the HTTP bridge's port is registered with http.sys and stays listening
+            // for as long as the process is alive, which is the port still open after the window has
+            // gone.
+            // The window calls this itself at the end of its own close, after the tiles have gone —
+            // the database bridge outlives them by one step, because a tile being disposed still
+            // withdraws its skill through the manager.
+            desktop.ShutdownRequested += (_, _) => ReleaseBackgroundServices();
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -176,6 +162,47 @@ public partial class App : Application
     {
         try { step(); }
         catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Closing the {0} failed: {1}", what, ex); }
+    }
+
+    /// <summary>Whether the services below have already been let go of.</summary>
+    /// <remarks>Both callers are on the UI thread, and both of them do happen: the window's own
+    /// Closing runs first on the ordinary exit, and ShutdownRequested arrives on its own when the
+    /// session ends without a window close. A plain field is enough, and it is what makes calling this
+    /// twice cost nothing.</remarks>
+    private bool _servicesReleased;
+
+    /// <summary>Lets go of everything this application started outside the window.</summary>
+    /// <remarks>
+    /// <para>The bridge first: it subscribes to the dictation service and drives the shared audio
+    /// router, so tearing the service down underneath it left a phone that was mid-utterance writing
+    /// samples into a disposed capture. Blocking, and deliberately — a listening socket that outlives
+    /// the process holds the port against the next launch.</para>
+    /// <para>Each step wrapped, because <c>Wait()</c> throws an <c>AggregateException</c> on a faulted
+    /// task and an escape here skipped the two below it: a bridge that failed to shut down cleanly took
+    /// the dictation service and the database bridge with it.</para>
+    /// <para>The three seconds are a bound, not an expectation, and whether they were enough is worth
+    /// knowing: a bridge still shutting down when the process leaves is exactly the thing that holds
+    /// the port against the next launch, and discarding the answer meant the one symptom the next run
+    /// would show had no trace anywhere explaining it.</para>
+    /// </remarks>
+    internal void ReleaseBackgroundServices()
+    {
+        if (_servicesReleased) return;
+        _servicesReleased = true;
+
+        Trace.TraceInformation("Releasing the background services");
+
+        Shutdown("phone bridge", () =>
+        {
+            if (_phoneBridge is { } bridge && !bridge.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3)))
+                Trace.TraceWarning(
+                    "The phone bridge did not shut down within 3s; its port may still be held.");
+        });
+        Shutdown("dictation", () => _dictation?.Dispose());
+        Shutdown("database bridge", () => _dbManager?.Dispose());
+        Shutdown("usage service", () => _usage?.Dispose());
+        Shutdown("agent file sync", () => _agentFileSync?.Dispose());
+        Shutdown("text scale watcher", () => _textScale?.Dispose());
     }
 
     private void ApplyFontResources()

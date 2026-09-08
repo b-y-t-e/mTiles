@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
@@ -414,6 +414,14 @@
                                      PasswordChar="●"
                                      PlaceholderText="Password" />
                         </DockPanel>
+                        <!-- Above the buttons, where the answer to pressing Save belongs: a name or an
+                             address already in use is refused here, because the bridge files a
+                             connection under both and the second would quietly answer for the first. -->
+                        <TextBlock Text="{Binding EditConnProblem}"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontSm}"
+                                   Foreground="{DynamicResource DangerText}"
+                                   IsVisible="{Binding EditConnProblem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                             <Button Classes="accent"
                                     Command="{Binding SaveManualConnectionCommand}"

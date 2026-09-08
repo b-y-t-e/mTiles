@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -49,11 +49,18 @@ public sealed class DbHttpServer : IDisposable
 
     public void Stop()
     {
+        if (!_running && _acceptLoop is null) return;
+
         _running = false;
         try { _listener.Stop(); } catch { }
         try { _acceptLoop?.Wait(TimeSpan.FromSeconds(2)); } catch { }
         try { _listener.Close(); } catch { }
         _acceptLoop = null;
+
+        // Said out loud, and that is the point of it: the registration is with http.sys, so the port
+        // stays listening for as long as this process does — and when the next launch reports the port
+        // taken, this line is the only way to tell a bridge that was never closed from one that was.
+        try { _logger.Write("HTTP server stopped", "System"); } catch { }
     }
 
     public void Dispose() => Stop();

@@ -1,4 +1,4 @@
-<ResourceDictionary xmlns="https://github.com/avaloniaui"
+﻿<ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ============================================================
@@ -147,13 +147,6 @@
     <!-- Override Fluent theme collapsed scrollbar scale (default: scaleX(0.125) → invisible) -->
     <TransformOperations x:Key="VerticalSmallScrollThumbScaleTransform">none</TransformOperations>
     <TransformOperations x:Key="HorizontalSmallScrollThumbScaleTransform">none</TransformOperations>
-
-    <!-- Boxed integers for command parameters, for the two-way sub-tabs that have no names of their own
-         (the database tile's Config/Logs, the database tab's Config/Databases). The Settings dialog's own
-         tabs no longer come from here: they are `vm:SettingsTabs`, so a page is named where it is chosen
-         and a tab inserted in the middle cannot quietly send a button somewhere else. -->
-    <x:Int32 x:Key="Zero">0</x:Int32>
-    <x:Int32 x:Key="One">1</x:Int32>
 
     <Thickness x:Key="BorderThin">1</Thickness>
     <Thickness x:Key="BorderBottom">0,0,0,1</Thickness>

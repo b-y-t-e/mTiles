@@ -122,6 +122,10 @@ public partial class WorkspacesPanelViewModel : ObservableObject, IDisposable
         if (item == null) return;
         item.IsFavorite = !item.IsFavorite;
         MoveToDisplayPosition(item);
+        // Pinning moves the row, and a row that moves out from under the pointer is a row the user has
+        // to go and find again: pinned rows go to the top and unpinning drops one back into the
+        // alphabet, which in a long list is anywhere at all.
+        RevealWorkspaceRequested?.Invoke(item);
     }
 
     /// <summary>Puts a row where the current order says it belongs.</summary>

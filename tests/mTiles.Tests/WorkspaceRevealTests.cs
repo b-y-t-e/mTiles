@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -108,4 +108,97 @@ public class WorkspaceRevealTests : IDisposable
             var top = Avalonia.VisualExtensions.TranslatePoint(container!, default, scroller)!.Value.Y;
             Assert.InRange(top, 0, scroller.Viewport.Height);
         });
+
+    /// <summary>The workspace the last session left open is scrolled to when the panel appears.</summary>
+    /// <remarks>It is selected in <c>MainWindowViewModel</c>'s constructor, before this view exists, so
+    /// nothing ever asked for it: the application opened with the row it had just restored — and its
+    /// highlight, the only thing that says which workspace is open — below the fold of a list longer
+    /// than the panel.</remarks>
+    [Fact]
+    public void The_restored_workspace_is_scrolled_to_when_the_panel_opens()
+        => OnUiThread(() =>
+        {
+            var (panel, _) = APanelOfForty();
+
+            // What MainWindowViewModel does with AppSettings.LastWorkspaceId, before any view exists.
+            var restored = panel.Workspaces[^1];
+            panel.SelectedWorkspace = restored;
+
+            var (view, scroller) = Shown(panel);
+
+            AssertInView(view, scroller, restored);
+            return Task.CompletedTask;
+        });
+
+    /// <summary>Pinning a row follows it to where the order has just put it.</summary>
+    /// <remarks>Pinned rows sort to the top and unpinning drops one back into the alphabet, so the
+    /// gesture moves the row out from under the pointer — in a long list, to somewhere the user then
+    /// has to go and find. Driven from the bottom of the list, because a row pinned while the list is
+    /// already at the top is on screen either way and proves nothing.</remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Pinning_a_row_scrolls_to_where_it_moved(bool startsPinned)
+        => OnUiThread(() =>
+        {
+            var (panel, _) = APanelOfForty();
+            var row = panel.Workspaces[^1];
+            if (startsPinned)
+            {
+                panel.ToggleFavoriteCommand.Execute(row);
+                Assert.Same(row, panel.Workspaces[0]);
+            }
+
+            var (view, scroller) = Shown(panel);
+
+            // Parked at the far end from where the row is about to land: pinning sends it to the top,
+            // so the list starts at the bottom, and unpinning drops it back into the alphabet at the
+            // end, so the list starts at the top. Parked at the same end instead, the row would be on
+            // screen after the move whether anything scrolled or not, and the test would pass with the
+            // reveal deleted — which is exactly what it did.
+            scroller.Offset = startsPinned
+                ? new Avalonia.Vector(0, 0)
+                : new Avalonia.Vector(0, scroller.Extent.Height);
+            Pump();
+
+            panel.ToggleFavoriteCommand.Execute(row);
+            Pump();
+
+            AssertInView(view, scroller, row);
+            return Task.CompletedTask;
+        });
+
+    private (WorkspacesPanelViewModel Panel, WorkspaceService Service) APanelOfForty()
+    {
+        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
+        for (var i = 0; i < 40; i++)
+            workspaces.AddWorkspace(Path.Combine(_dir, $"ws{i:00}"), $"Workspace {i:00}");
+
+        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+        return (new WorkspacesPanelViewModel(workspaces, settings), workspaces);
+    }
+
+    private static (WorkspacesPanelView View, ScrollViewer Scroller) Shown(WorkspacesPanelViewModel panel)
+    {
+        EnsureControlThemes();
+
+        var view = new WorkspacesPanelView { DataContext = panel, Width = 240 };
+        var window = new Window { Content = view, Width = 240, Height = 260 };
+        window.Show();
+        Pump();
+
+        var scroller = view.GetVisualDescendants().OfType<ScrollViewer>()
+            .First(s => s.GetVisualDescendants().OfType<ItemsControl>().Any(c => c.Name == "WorkspaceList"));
+        return (view, scroller);
+    }
+
+    private static void AssertInView(WorkspacesPanelView view, ScrollViewer scroller, WorkspaceItemViewModel item)
+    {
+        var list = view.GetVisualDescendants().OfType<ItemsControl>().First(c => c.Name == "WorkspaceList");
+        var container = list.ContainerFromItem(item);
+        Assert.NotNull(container);
+
+        var top = Avalonia.VisualExtensions.TranslatePoint(container!, default, scroller)!.Value.Y;
+        Assert.InRange(top, 0, scroller.Viewport.Height);
+    }
 }

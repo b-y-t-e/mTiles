@@ -156,11 +156,45 @@ public sealed class SettingsService
             changed = true;
         }
 
+        changed |= AdoptEmbeddedFont();
         changed |= DropCustomShell();
         changed |= ReportUnknownDefaultShell();
 
         if (changed)
             Save();
+    }
+
+    /// <summary>
+    /// Moves a font family nobody chose onto the copy that now ships inside the application.
+    /// </summary>
+    /// <remarks>
+    /// <para>Both defaults used to name fonts that may or may not be on the machine — Inter for the
+    /// interface, Cascadia Mono for the terminal — and the application now carries JetBrains Mono
+    /// itself. A stored value that is <em>exactly</em> one of the old defaults was never typed by
+    /// anybody: it is what a settings file gets for having been written at all, so leaving it in place
+    /// would mean the new default reached nobody who has ever run this application.</para>
+    /// <para>Anything else is left alone, and that is the whole rule. A font family is a preference,
+    /// and rewriting one somebody chose — even to something better — is this application deciding what
+    /// their screen looks like. The comparison is exact for the same reason: a value that merely
+    /// resembles an old default is a value someone edited.</para>
+    /// </remarks>
+    private bool AdoptEmbeddedFont()
+    {
+        var changed = false;
+
+        if (AppDefaults.PreviousFontFamilies.Contains(Settings.FontFamily, StringComparer.Ordinal))
+        {
+            Settings.FontFamily = AppDefaults.FontFamily;
+            changed = true;
+        }
+
+        if (AppDefaults.PreviousTerminalFontFamilies.Contains(Settings.TerminalFontFamily, StringComparer.Ordinal))
+        {
+            Settings.TerminalFontFamily = AppDefaults.TerminalFontFamily;
+            changed = true;
+        }
+
+        return changed;
     }
 
     /// <summary>

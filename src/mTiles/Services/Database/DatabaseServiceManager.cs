@@ -325,6 +325,16 @@ public sealed class DatabaseServiceManager : IDisposable
         _logger.Dispose();
     }
 
+    /// <summary>Why the port could not be taken, said in a sentence somebody can act on.</summary>
+    /// <remarks>
+    /// <b>"Used by System" names the mechanism and never the culprit.</b> On Windows an
+    /// <c>HttpListener</c> prefix is registered with <c>http.sys</c>, which listens inside the System
+    /// process (pid 4) on the registrant's behalf — so every one of these conflicts, including this
+    /// application's own, reads as "System" in <c>netstat</c>. What is actually holding it is whatever
+    /// registered the prefix, and here that is nearly always a second copy of mTiles: the registration
+    /// lives exactly as long as that process does, which is also why a copy that is slow to exit leaves
+    /// the port listening after its window has gone.
+    /// </remarks>
     private static string? DetectPortConflict(int port)
     {
         try
@@ -334,9 +344,26 @@ public sealed class DatabaseServiceManager : IDisposable
             if (!listeners.Any(ep => ep.Port == port))
                 return null;
 
-            var processName = FindProcessOnPort(port);
-            return processName != null
-                ? $"Port {port} is used by {processName}"
+            var owner = FindProcessOnPort(port);
+
+            // pid 4 is http.sys, and so is a pid netstat gave us that no longer resolves to a process.
+            if (IsWindows && owner is null or { Pid: 4 })
+            {
+                var mine = System.Diagnostics.Process.GetCurrentProcess();
+                var others = System.Diagnostics.Process.GetProcessesByName(mine.ProcessName)
+                    .Where(p => p.Id != mine.Id)
+                    .Select(p => p.Id)
+                    .ToList();
+
+                return others.Count > 0
+                    ? $"Port {port} is registered with http.sys by another {mine.ProcessName} " +
+                      $"(process {string.Join(", ", others)}). Close it, or give this one its own port."
+                    : $"Port {port} is still registered with http.sys by a process that has not finished " +
+                      "exiting. It is released when that process goes; until then, another port is the way round it.";
+            }
+
+            return owner != null
+                ? $"Port {port} is used by {owner.Name}"
                 : $"Port {port} is already in use";
         }
         catch
@@ -345,10 +372,15 @@ public sealed class DatabaseServiceManager : IDisposable
         }
     }
 
-    private static string? FindProcessOnPort(int port)
+    private static bool IsWindows => System.Runtime.InteropServices.RuntimeInformation
+        .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
+
+    /// <summary>The process listening on <paramref name="port"/>, as netstat reports it.</summary>
+    private sealed record PortOwner(string Name, int Pid);
+
+    private static PortOwner? FindProcessOnPort(int port)
     {
-        if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
-                System.Runtime.InteropServices.OSPlatform.Windows))
+        if (!IsWindows)
             return null;
 
         try
@@ -373,9 +405,9 @@ public sealed class DatabaseServiceManager : IDisposable
                 try
                 {
                     using var p = System.Diagnostics.Process.GetProcessById(pid);
-                    return p.ProcessName;
+                    return new PortOwner(p.ProcessName, pid);
                 }
-                catch { return null; }
+                catch { return new PortOwner("an unknown process", pid); }
             }
         }
         catch { }

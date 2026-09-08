@@ -219,6 +219,22 @@ something that looked wrong on screen.
   the application's resources by `App.ApplyFontResources` on startup and at every settings change. The
   literal sizes in `AppTheme.axaml` are only what the previewer and a lookup made before that first
   write have to find; `FontScaleTests` fails when they stop matching `UiFontScale.For(AppDefaults.FontSize)`.
+- **The typeface ships inside the executable** (`Services/AppFonts.cs`). Six faces of **JetBrains
+  Mono** are Avalonia resources compiled into the assembly and registered as a font collection, so
+  `AppDefaults.FontFamily` and `AppDefaults.TerminalFontFamily` both begin with
+  `fonts:JetBrainsMono#JetBrains Mono` — the one entry in either list that cannot fail to resolve. The
+  prefix is the collection's key and is not decoration: a bare "JetBrains Mono" finds the font only on
+  a machine that happens to have it installed, which is the whole thing being avoided. The precedent
+  is Avalonia's own Inter package, which is registered the same way and still sits behind ours as a
+  fallback. **Installing a font instead was the alternative and is worse in every direction**: a
+  per-platform installer step, a privilege this application otherwise never wants, and something left
+  behind after an uninstall. The interface is monospaced too, deliberately — nearly every string on
+  screen here is a path, a branch, a model id or a figure — and it is one settings field away for
+  anybody who disagrees. A stored family that is *exactly* one of the old defaults is moved onto the
+  new one (`SettingsService.AdoptEmbeddedFont`); anything else is a font somebody chose and is left
+  alone. The licence is OFL, which requires the text to travel with the font, so it is in
+  `THIRD-PARTY-NOTICES.md` — which ships — and the faces sit alone in `Assets/Fonts/JetBrainsMono/`,
+  because the collection loads every asset in that directory as a typeface.
 - **Two bases, one table.** The same six steps are emitted a second time against
   `AppSettings.TerminalFontSize`, prefixed `Term` (`TermFontBase`, `TermFontSm`, …). The Goal tile and
   its findings dialog use those and nothing else: every row in them is already set in
@@ -649,7 +665,12 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   the only settings on this tab that restart a running service, which is why the bridge debounces what it
   hears from here instead of acting on every intermediate value the spinner produces
 
-`SettingsViewModel.SelectedTab` controls tab visibility, and the pages are named in `ViewModels/SettingsTabs.cs` (`General`, `Ai`, `Database`, `Speech`) — used by the view model, by the database tile's "open my settings" button, and from XAML through `{x:Static vm:SettingsTabs.…}`, which replaced the `Zero`…`Four` boxed-int resources. Constants rather than an enum: the selection is bound as an `int` to command parameters in two AXAML files, and the numbers were the problem, not the type. The Database tab has its own sub-tabs (`DbSubTab`: 0=Config, 1=Databases). Tab button styles: `settings-tab` / `settings-tab-active` in `Controls.axaml`; a bordered button on a settings row is `outlined-sm` there, not ten inline properties.
+`SettingsViewModel.SelectedTab` controls tab visibility, and the pages are named in `ViewModels/SettingsTabs.cs` (`General`, `Ai`, `Database`, `Speech`) — used by the view model, by the database tile's "open my settings" button, and from XAML through `{x:Static vm:SettingsTabs.…}`, which replaced the `Zero`…`Four` boxed-int resources. Constants rather than an enum: the selection is bound as an `int` to command parameters in two AXAML files, and the numbers were the problem, not the type. The Database tab has its own sub-tabs (`DbSubTabs`: `Config`, `Discovered`, `Manual` — named for the
+reason `SettingsTabs` is, and three rather than two because a scan's output and something the user typed
+answer different questions: the discovered list rewrites itself and nothing on it is anybody's work,
+while a manual connection has a password in it and is the only route to a database the scan cannot
+reach. On one page the typed rows sat above a list that changes on its own, and the two heading actions
+— Add and Rescan — read as alternatives to each other). Tab button styles: `settings-tab` / `settings-tab-active` in `Controls.axaml`; a bordered button on a settings row is `outlined-sm` there, not ten inline properties. The boxed `Zero`/`One` integer resources are gone with the last binding that used them — the database tile's own Config/Logs strip passes `"0"`/`"1"` as strings, and every named tab is a constant.
 
 **The database form is the only one that is not saved as you type**, because applying it restarts the database service. `SettingsView` is therefore a `DockPanel` with a pinned Save & Apply bar at the bottom and the `ScrollViewer` *inside* it — docking to the bottom within a scroller pins to the bottom of the content, which is no pinning at all. The bar shows whenever `HasUnsavedDatabaseChanges`, which compares the form against the stored settings rather than remembering that something was typed, so undoing an edit puts it away.
 
@@ -930,7 +951,25 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 
 **Workspace config:** `.mtiles/databases.json` — `WorkspaceDatabaseTileConfig` with `Databases` (list). Context files are generated when database service is running and the list is non-empty.
 
-**Settings:** Database tab in Settings — enable service, HTTP port, SQL Server (Windows Auth / SQL Auth), PostgreSQL (credentials, ports), scan interval, manual connections (CRUD with inline edit form, test connection). Save & Apply restarts the service automatically. Passwords encrypted with DPAPI.
+**Settings:** Database tab in Settings — enable service, HTTP port, SQL Server (Windows Auth / SQL Auth), PostgreSQL (credentials, ports), scan interval, manual connections (add, edit, clone, test, delete — the form is the shared overlay every settings entry is edited on). Save & Apply restarts the service automatically. Passwords encrypted with DPAPI.
+
+**A name and an address may each be used once** (`ManualConnectionClash`, pure and argued in a table
+test). `DbRegistry.Register` files an instance under its address — server, instance, database — **and**
+under its lowercased alias, so two connections agreeing on either do not coexist: the second overwrites
+the first, an agent asking for that name reaches a database nobody pointed it at with credentials
+nobody chose, and deleting one of them takes the other's alias route with it. Both rows meanwhile look
+fine on the page. So it is a query answered by the wrong server rather than an untidy list, and Save
+refuses it with a sentence above the buttons rather than a disabled button that explains nothing.
+**Cloning is what made the rule worth stating**: copying a row is the one gesture whose starting point
+is a duplicate, so a clone arrives with a name that is already free (`X copy`, `X copy 2`) and the
+address left exactly as it was — which is the field the user came to change, and until they do, Save
+says so. The clone is a *new* object, not the stored one, so Cancel really does leave the original
+alone.
+
+**Past three rows the list gets a filter**, the same control and the same threshold as the workspaces
+panel and the detected-databases list below it — one page, one way of narrowing a list. Every word,
+anywhere, in any order, over the name, the address and the provider. A filter that leaves nothing says
+so, because a list that empties itself without a word reads as connections that have gone.
 
 **Logs:** `DbLogger` — HTTP query and discovery logs in memory (max 500) + daily files in `%APPDATA%/mTiles/db-logs/`.
 
@@ -1309,6 +1348,30 @@ It was introduced as a workaround for the ConPTY hang after Ctrl+C in TUI apps (
 
 `AppTheme.axaml` overrides `VerticalSmallScrollThumbScaleTransform` / `HorizontalSmallScrollThumbScaleTransform` to `none`. Without this, the Fluent theme scales the thumb to 12.5% on machines with the default Windows "auto-hide scrollbars" setting.
 
+## Shutting down
+
+**Closing the last window does not raise `ShutdownRequested`.** Avalonia raises that for a shutdown it
+is *asked* about — the session ending, a programmatic `TryShutdown` — while closing the last window
+shuts the lifetime down directly. Everything `App` starts outside the window (the phone bridge, the
+dictation service, the database bridge, the usage service, the file sync, the text-scale watcher) hung
+off that event alone, so on the one exit every user takes none of it ran: what saved us was the process
+leaving and the operating system taking the sockets back with it. That is a rescue and not a shutdown,
+and it stops working the moment the process is slow to leave — the database bridge's port is registered
+with **http.sys**, which keeps listening for exactly as long as the process lives, which is the port
+still open after the window has gone.
+
+`App.ReleaseBackgroundServices` is therefore called from both routes and is idempotent: from
+`MainWindow.OnClosing` **after `DisposeAll`** (a tile on its way out still speaks to the database
+manager) and from `ShutdownRequested` for the session-end path that never closes a window. `DbHttpServer.Stop`
+now writes a line into the db-log, because when the next launch reports the port taken that line is the
+only way to tell a bridge that was never closed from one that was.
+
+**"Port N is used by System" names the mechanism and never the culprit.** Every `HttpListener` prefix
+is registered with http.sys, which listens inside the System process (pid 4) on the registrant's
+behalf, so every conflict — including this application's own — reads that way in `netstat`.
+`DatabaseServiceManager.DetectPortConflict` says what is actually holding it instead: another copy of
+this application, named by process id, or one that has not finished exiting.
+
 ## Crash handling and logging
 
 `CrashHandler` catches exceptions from three sources: `AppDomain.UnhandledException`, `TaskScheduler.UnobservedTaskException`, `Dispatcher.UIThread.UnhandledException`. Initialized in `Program.Main()` before Avalonia starts.
@@ -1462,6 +1525,17 @@ Consequences worth knowing: **the app edits a file in the user's repository, and
 **Selected is not hover.** Both were `InteractiveHover`, so pointing at a neighbour made it impossible to say which workspace was open — the one thing the list exists to tell you. Selected now gets `BgElevated` and an accent down its leading edge, the marker the tiles already use for the same idea.
 
 **A row says what is going on in there, and can be pinned.** Two marks in one slot, never both (`Controls.axaml` → `workspace-busy`, 11px): a turning arc while a tile is **working**, and a still `AlertCircleOutline` in `DangerText` while one is **blocked** — stopped on a question and waiting for the user. The arc turns because what it reports is work in progress and a still mark cannot be told apart from a state somebody left switched on; the other one does not turn, and that is the whole message. The animation hangs off a second class (`.spinning`, applied from `IsWorking`) rather than off the base one: a style that matched always would keep an infinite animation ticking on every hidden spinner in the list — one per workspace, for the whole session. Both are fed by `WorkspaceViewModel.Activity`, the **strongest** answer any of its leaves gives (`Blocked > Working > Idle > Unknown`), which is why aggregating a state rather than or-ing a flag was worth it: a workspace where three tiles are building and one has stopped for permission is a workspace that needs somebody *now*, and reported as "working" it looks like the three that can be left alone. Where the answer comes from is *Tile activity* below. Only workspaces that have been opened have a view model, so an unopened one stays `Unknown` — truthfully, since nothing of it is running and nothing has been asked. The star writes `Workspace.IsFavorite` through `WorkspaceService.SetFavorite` and pinned rows sort to the top (`WorkspaceDisplayOrder`, pure and pinned by a test). Re-ordering uses `ObservableCollection.Move`, **never remove-and-re-add**: a removal from that collection is how `MainWindowViewModel` learns a workspace is gone, and it would answer a re-sort by disposing the workspace's tiles — which is why that handler now tests for `Remove` rather than for `OldItems != null` (a Move carries `OldItems` too).
+
+**The list follows the row you are looking at.** Selecting a row highlights it and moves nothing —
+the list is an `ItemsControl`, not a `ListBox` — so three gestures ask for the scroll themselves
+(`WorkspacesPanelViewModel.RevealWorkspaceRequested`): adding a workspace, pinning or unpinning one
+(the row moves to the top or back into the alphabet, which in a long list is anywhere at all), and the
+panel opening on the workspace the last session left. That last one is the view's own doing rather than
+a call from `MainWindowViewModel`: the restored workspace is selected before this view exists, so
+nothing could have asked for it, and the application opened with the row it had just restored — and the
+highlight that is the only thing saying which workspace is open — below the fold. The reveal is tried
+twice, the second time at a lower priority, because at startup the row is asked for before the list has
+been laid out and a container that does not exist yet answers exactly like a row that is not there.
 
 **A row says whether it is loaded, and what that costs.** A workspace holds its tiles — and their
 shells — from the first time it is opened until the window closes, so a day's work ends with six agents
