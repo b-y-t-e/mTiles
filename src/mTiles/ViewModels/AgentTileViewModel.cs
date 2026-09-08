@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Activity;
 using mTiles.Services.Agents;
 using mTiles.Services.Providers;
 using mTiles.Services.Shells;
@@ -226,6 +227,23 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
     /// command line of the four agents that are told one that way — and it is the <em>resolved</em>
     /// model, settled by <see cref="PrepareForLaunchAsync"/> a moment earlier.</remarks>
     public override LaunchScripts ResolveCurrentScripts() => _agent.Interactive(Runtime, SessionId, Shell.Shell);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>The shell's own source stays — an agent that says nothing about itself is then read
+    /// exactly as it was before any of this existed — and two more are added on top of it, both
+    /// reading through the agent, because what a title or a line of a status bar means is one CLI's
+    /// convention and not this tile's business.</para>
+    /// <para><b>The agent is asked at every reading rather than captured into a table here</b>, which
+    /// is the same rule the instance follows: the tile stores an id and looks the answer up. It also
+    /// means an agent whose reader is written later needs no change to this class.</para>
+    /// </remarks>
+    protected override void ConfigureActivity(TileActivityMonitor monitor)
+    {
+        base.ConfigureActivity(monitor);
+        monitor.Add(new TerminalTitleSource(_agent));
+        monitor.Add(new RecentOutputSource(_agent));
+    }
 
     /// <summary>The instance, its provider and the model this launch settled on.</summary>
     private AgentRuntime Runtime =>

@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using mTiles.Models;
+using mTiles.Services.Activity;
 
 namespace mTiles.Services.Agents;
 
@@ -234,4 +235,35 @@ public sealed class AntigravityAgent : AiAgent
         var flag = arguments.ToList().LastIndexOf(PrintFlag);
         return flag >= 0 ? flag : base.ExtraArgsIndex(arguments, prompt);
     }
+
+    // ---- What this CLI says about itself while it runs -------------------------------------------
+
+    /// <summary>
+    /// Antigravity's own state vocabulary, when its title is carrying one.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Documented rather than measured, and inert until the user follows the documented
+    /// recipe.</b> agy pipes a JSON payload carrying <c>agent_state</c> to the script named by the
+    /// <c>"title"</c> key of its settings, and injects the window title itself from what that script
+    /// prints. So a machine with such a script gets a title that <em>is</em> the state, and a machine
+    /// without one gets a title this returns Unknown for — which costs nothing.</para>
+    /// <para><b>The whole title has to be the word.</b> A substring rule would read "working on the
+    /// parser" — a perfectly ordinary title — as a state, and there is no version of that mistake that
+    /// is only cosmetic: it would put a light on and keep it there.</para>
+    /// <para>agy is also the one agent with no safe way to be given a hook at all: no
+    /// <c>--settings</c>, no config override flag, and no environment variable relocating its
+    /// directory (established in <see cref="SupportsSignIns"/> by searching the binary). Anything more
+    /// than this would mean editing the user's own settings file, which is a decision for them and not
+    /// for a launch.</para>
+    /// </remarks>
+    public override TileActivity ReadTitle(string title) => title.Trim().ToLowerInvariant() switch
+    {
+        "thinking" or "running" or "working" or "tool calling" or "calling tool" => TileActivity.Working,
+        "waiting" => TileActivity.Blocked,
+        "idle" => TileActivity.Idle,
+        // error and failed are states of the last turn rather than of the agent: it is sitting at its
+        // prompt with something red above it, which is idle and not a reason to light a row.
+        "error" or "failed" => TileActivity.Idle,
+        _ => TileActivity.Unknown,
+    };
 }

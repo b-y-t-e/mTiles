@@ -1,5 +1,6 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
+using mTiles.Services.Activity;
 using mTiles.Services.Providers;
 
 namespace mTiles.Services.Agents;
@@ -154,4 +155,16 @@ public sealed class PiAgent : AiAgent
         foreach (var argument in EffortArgs(effort, usage).Concat(ModelArgs(model, usage)))
             psi.ArgumentList.Add(argument);
     }
+
+    // ---- What this CLI says about itself while it runs -------------------------------------------
+    //
+    // Nothing measured, so nothing claimed: ReadTitle and ReadRecentOutput are the base's Unknown and
+    // a pi tile falls back to its output light, which is what it has always had.
+    //
+    // What to measure, for whoever gets to it: pi's own footer and its permission prompt, the way
+    // CodexAgent's were read out of the binary. And pi is the agent with the best answer waiting —
+    // it has lifecycle hooks (agent_start / agent_settled, plus a blocked channel), and for a tile on
+    // an mTiles sign-in the extension can go in PI_CODING_AGENT_DIR, which is a directory this
+    // application already owns and creates. On the default account it must go nowhere: that is the
+    // user's own settings file.
 }

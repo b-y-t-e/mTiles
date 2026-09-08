@@ -1,5 +1,6 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
+using mTiles.Services.Activity;
 using mTiles.Services.Providers;
 
 namespace mTiles.Services.Agents;
@@ -315,4 +316,38 @@ public sealed class CodexAgent : AiAgent
 
         psi.ArgumentList.Add(prompt);
     }
+
+    // ---- What this CLI says about itself while it runs -------------------------------------------
+    //
+    // Measured 2026-09-07 against codex-cli 0.153.2, by reading the literals out of the binary rather
+    // than by watching a session: codex composes its footer at runtime out of fragments, so " to
+    // interrupt" is the whole of the fixed part and there is no "Esc to interrupt" string to match.
+    // codex sets no title carrying a state, so ReadTitle is left as the base's Unknown.
+
+    /// <inheritdoc />
+    public override TileActivity ReadRecentOutput(string recent, out string? detail) =>
+        ActivityMarkers.LastWins(recent, Markers, out detail);
+
+    /// <summary>
+    /// codex's own words, and what each means.
+    /// </summary>
+    /// <remarks><para>The four questions are literals; the working marker is a fragment of the footer
+    /// and is only rendered while there is a turn to interrupt, which is what makes it worth
+    /// matching.</para>
+    /// <para><b>This is the only route codex has to Working and Blocked.</b> Its <c>notify</c> hook
+    /// fires on <c>agent-turn-complete</c> and on nothing else — not when it stops to ask — so a hook
+    /// tells this tile when work ended and never that it is waiting. Until that changes, these strings
+    /// are it.</para></remarks>
+    private static readonly ActivityMarker[] Markers =
+    [
+        new(" to interrupt", TileActivity.Working),
+        new("Would you like to run the following command?", TileActivity.Blocked,
+            "Waiting for permission to run a command"),
+        new("Would you like to make the following edits?", TileActivity.Blocked,
+            "Waiting for permission to edit"),
+        new("Would you like to grant these permissions?", TileActivity.Blocked,
+            "Waiting for permission"),
+        new("Would you like to send input to terminal", TileActivity.Blocked,
+            "Waiting for input for a terminal"),
+    ];
 }

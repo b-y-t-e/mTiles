@@ -1,5 +1,6 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
+using mTiles.Services.Activity;
 using mTiles.Services.Providers;
 
 namespace mTiles.Services.Agents;
@@ -262,4 +263,32 @@ public sealed class OpenCodeAgent : AiAgent
         foreach (var argument in BehaviourArgs(behaviour, usage).Concat(ModelArgs(model, usage)))
             psi.ArgumentList.Add(argument);
     }
+
+    // ---- What this CLI says about itself while it runs -------------------------------------------
+    //
+    // Measured 2026-09-07 against opencode 1.18.18, out of the binary: the TUI's status line renders
+    // `busyText ?? "Working..."`, and the permission dialog's buttons come from an i18n table whose
+    // English `ui.permission.allowAlways` is "Allow always".
+
+    /// <inheritdoc />
+    public override TileActivity ReadRecentOutput(string recent, out string? detail) =>
+        ActivityMarkers.LastWins(recent, Markers, out detail);
+
+    /// <summary>
+    /// opencode's own words — and the one table here that is only right in English.
+    /// </summary>
+    /// <remarks><para><b>opencode is localised and these are not.</b> Every string the TUI shows comes
+    /// out of a translation table, so a user running it in Dutch gets "Altijd toestaan" and this rule
+    /// matches nothing — which costs them the screen source and nothing else, because Unknown falls
+    /// through to the output light. Carrying twenty translations of two phrases here would be a
+    /// dictionary this application has no way of keeping in step with somebody else's.</para>
+    /// <para><b>And it is a stopgap by design.</b> opencode is the one agent of the five with a real
+    /// answer available — a plugin, or the event stream a server exposes — so effort spent widening
+    /// this table is effort spent on the wrong layer. The rule earns its place only until a lifecycle
+    /// source exists, and then it is outranked and never read.</para></remarks>
+    private static readonly ActivityMarker[] Markers =
+    [
+        new("Working...", TileActivity.Working),
+        new("Allow always", TileActivity.Blocked, "Waiting for permission"),
+    ];
 }

@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
@@ -169,14 +169,29 @@
                                                  the name every time something printed. It turns, because
                                                  what it reports is work in progress and a still mark
                                                  cannot tell that apart from a state left switched on. -->
+                                            <!-- Two marks in one slot, never both. Working turns,
+                                                 because a still mark cannot be told from a state
+                                                 somebody left switched on. Blocked does not turn, and
+                                                 that is the whole message: nothing is moving in there
+                                                 and nothing will until you go back. Separate icons
+                                                 rather than one with its Kind bound, so each writes
+                                                 its own visibility and neither has to know the
+                                                 other's state. -->
+                                            <mi:MaterialIcon DockPanel.Dock="Right"
+                                                             Kind="AlertCircleOutline"
+                                                             Classes="workspace-busy blocked"
+                                                             Margin="4,0"
+                                                             IsVisible="{Binding IsBlocked}"
+                                                             ToolTip.Placement="Right"
+                                                             ToolTip.Tip="{Binding ActivityTip}" />
                                             <mi:MaterialIcon DockPanel.Dock="Right"
                                                              Kind="Loading"
                                                              Classes="workspace-busy"
-                                                             Classes.spinning="{Binding IsBusy}"
+                                                             Classes.spinning="{Binding IsWorking}"
                                                              Margin="4,0"
-                                                             IsVisible="{Binding IsBusy}"
+                                                             IsVisible="{Binding IsWorking}"
                                                              ToolTip.Placement="Right"
-                                                             ToolTip.Tip="Working" />
+                                                             ToolTip.Tip="{Binding ActivityTip}" />
                                             <!-- The colour is a class and not a local value, because a
                                                  workspace nobody has opened is drawn a shade back and
                                                  one writer per property is the rule: a Foreground set

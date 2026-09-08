@@ -336,7 +336,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (FindRow(workspaceId) is not { } row) return;
         row.IsLoaded = false;
         row.MemoryText = "";
-        row.IsBusy = false;
+        row.Activity = TileActivity.Unknown;
     }
 
     private WorkspaceItemViewModel? FindRow(string workspaceId) =>
@@ -413,7 +413,7 @@ public partial class MainWindowViewModel : ObservableObject
         // there. Returning early left that workspace's light dead for the life of the window.
         if (FindRow(workspace.WorkspaceId) is { } row)
         {
-            row.IsBusy = workspace.IsBusy;
+            row.Activity = workspace.Activity;
             // Said here rather than in SwitchToWorkspace because this is the one method a workspace's
             // view model coming into existence goes through, and "loaded" is exactly that fact.
             row.IsLoaded = true;
@@ -433,11 +433,11 @@ public partial class MainWindowViewModel : ObservableObject
     /// </remarks>
     private void OnWorkspaceActivityChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName != nameof(WorkspaceViewModel.IsBusy)) return;
+        if (e.PropertyName != nameof(WorkspaceViewModel.Activity)) return;
         if (sender is not WorkspaceViewModel workspace) return;
 
         if (FindRow(workspace.WorkspaceId) is { } row)
-            row.IsBusy = workspace.IsBusy;
+            row.Activity = workspace.Activity;
     }
 
     private void SwitchToWorkspace(Workspace? workspace)

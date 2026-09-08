@@ -187,10 +187,24 @@ public partial class GoalTileViewModel
     [ObservableProperty] private string _phaseLabel = "";
     [ObservableProperty] private bool _isPaused;
 
-    /// <summary>The tile is working exactly while a run is in flight — no window and no smoothing,
-    /// because unlike a terminal's output this is already the fact itself rather than a symptom of it.
+    /// <summary>
+    /// The tile is working exactly while a run is in flight, and blocked exactly while the run has
+    /// stopped to ask something.
     /// </summary>
-    public bool IsBusy => IsRunning;
+    /// <remarks>
+    /// <para>No window and no smoothing: unlike a terminal's output this is already the fact itself
+    /// rather than a symptom of it. Nothing here reads a title or a screen, and nothing needs to — this
+    /// tile <em>is</em> the runner, so it holds the answer every other kind of tile has to infer.</para>
+    /// <para><b>Blocked is what this tile could always say and had no way to.</b> A round of questions
+    /// and a plan waiting for approval are the two states where the run has stopped and will not move
+    /// again until somebody comes back — which, in a workspace of four tiles, is exactly the thing a
+    /// list of names has to be able to show. As a boolean both read as "not busy", indistinguishable
+    /// from a tile that had finished.</para>
+    /// </remarks>
+    public TileActivity Activity =>
+        IsRunning ? TileActivity.Working
+        : ShowQuestions || ShowApproval ? TileActivity.Blocked
+        : TileActivity.Idle;
 
     /// <summary>Whether the completion-criteria panel is open. View state only — a panel left open is
     /// not something a restart should have to remember.</summary>
@@ -368,7 +382,7 @@ public partial class GoalTileViewModel
 
     partial void OnIsRunningChanged(bool value)
     {
-        OnPropertyChanged(nameof(IsBusy));
+        OnPropertyChanged(nameof(Activity));
         OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
         RefreshComposerActions();
@@ -521,6 +535,9 @@ public partial class GoalTileViewModel
     {
         OnPropertyChanged(nameof(ShowQuestions));
         OnPropertyChanged(nameof(ShowApproval));
+        // Both are what Blocked is derived from, so the panel's light moves with the round of questions
+        // and the plan box rather than only with the run.
+        OnPropertyChanged(nameof(Activity));
         OnPropertyChanged(nameof(ShowComposer));
         OnPropertyChanged(nameof(QuestionsTitle));
 
@@ -596,7 +613,7 @@ public partial class GoalTileViewModel
     /// </summary>
     internal void SetActivityIfRunning(string doing)
     {
-        if (IsRunning) Activity = doing;
+        if (IsRunning) ActivityText = doing;
     }
 
     private void ClearPendingQuestions()
@@ -622,8 +639,12 @@ public partial class GoalTileViewModel
     /// </para>
     /// <para>Cleared whenever a run ends, by <c>WorkingAsync</c>, so a finished tile never sits showing
     /// the last file the tool happened to open.</para>
+    /// <para><b>Named for what it is</b>, because <see cref="Activity"/> beside it is a different
+    /// question with the same word: this is a line of prose for the status strip, that is the tile's
+    /// state as the workspace list reads it. One of the two had to say which, and the display string is
+    /// the one whose name can carry a suffix without becoming a lie.</para>
     /// </remarks>
-    [ObservableProperty] private string _activity = "";
+    [ObservableProperty] private string _activityText = "";
 
     public ObservableCollection<GoalMessage> Messages { get; } = [];
 
@@ -3585,7 +3606,7 @@ public partial class GoalTileViewModel
             // Here rather than at each call site: a run ends five ways — finished, paused, cancelled,
             // failed, thrown — and a tile left showing the last file the tool happened to open is one
             // that looks busy while it waits for you.
-            Activity = "";
+            ActivityText = "";
 
             _cts?.Dispose();
             _cts = null;
@@ -4101,7 +4122,7 @@ public partial class GoalTileViewModel
     private void Working(string label)
     {
         PhaseLabel = label;
-        Activity = "";
+        ActivityText = "";
     }
 
     /// <summary>

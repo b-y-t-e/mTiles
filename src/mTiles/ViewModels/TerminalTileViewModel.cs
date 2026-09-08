@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Activity;
 using mTiles.Services.Shells;
 using mTiles.Services.Speech;
 
@@ -111,13 +112,39 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
 
     private readonly SettingsService _settingsService;
 
-    /// <summary>The tile's "working" light. Owned here, driven by the terminal's output, and reported
-    /// through <see cref="IsBusy"/> — the tile knows that it has one, not how it decides.</summary>
-    private readonly OutputActivityLight _activityLight = new();
+    /// <summary>The tile's "working" light. Owned here, and reported through <see cref="Activity"/> —
+    /// the tile knows that it has one, not how it decides.</summary>
+    private readonly TileActivityMonitor _activity = new();
 
-    /// <summary>Whether the shell in this tile is producing output — what the workspace list shows as
-    /// "working".</summary>
-    public bool IsBusy => _activityLight.IsOn;
+    /// <summary>Whether the sources have been added yet. Done once, at the first
+    /// <see cref="AttachControl"/> rather than in the constructor: <see cref="ConfigureActivity"/> is
+    /// virtual, and a virtual call from a base constructor reaches an override whose own fields have
+    /// not been assigned — an agent tile would hand the title source a null agent.</summary>
+    private bool _activityConfigured;
+
+    /// <summary>What this tile is doing — what the workspace list draws its row from.</summary>
+    public TileActivity Activity => _activity.Activity;
+
+    /// <summary>A sentence about that state, for a tooltip. Null when there is nothing to add.</summary>
+    public string? ActivityDetail => _activity.Detail;
+
+    /// <summary>
+    /// Which instruments this tile is read by.
+    /// </summary>
+    /// <remarks>
+    /// <para>The two that need to know nothing about what is running, which is exactly the case a shell
+    /// tile is: raw output, and the progress a child reports of its own accord. An agent tile adds the
+    /// ones that can read its CLI — see <c>AgentTileViewModel.ConfigureActivity</c>.</para>
+    /// <para><b>The progress source is here rather than on the agent tile</b>, and that is the point of
+    /// it: <c>npm</c>, <c>cargo</c> and <c>winget</c> all report progress, so a plain shell tile gets a
+    /// real answer about the build running in it — one that no amount of reading somebody's status bar
+    /// could have given it.</para>
+    /// </remarks>
+    protected virtual void ConfigureActivity(TileActivityMonitor monitor)
+    {
+        monitor.Add(new OutputActivitySource());
+        monitor.Add(new TerminalProgressSource());
+    }
 
     /// <summary>The shell this tile is running right now, or zero when it is running nothing.</summary>
     /// <remarks>Written from the pty's own callbacks, which are not the UI thread — hence
@@ -154,7 +181,13 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     {
         CachedControl = terminal;
         TerminalClipboardCoordinator.Register(terminal);
-        _activityLight.Attach(terminal);
+
+        if (!_activityConfigured)
+        {
+            _activityConfigured = true;
+            ConfigureActivity(_activity);
+        }
+        _activity.Attach(terminal);
     }
 
     /// <summary>The launch that currently owns this tile's terminal, when the profile runs a command
@@ -227,7 +260,11 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
         _fontSize = TextScale.TerminalFontSize(s);
 
         _settingsService.SettingsChanged += OnSettingsChanged;
-        _activityLight.Changed += (_, _) => OnPropertyChanged(nameof(IsBusy));
+        _activity.Changed += (_, _) =>
+        {
+            OnPropertyChanged(nameof(Activity));
+            OnPropertyChanged(nameof(ActivityDetail));
+        };
     }
 
     private void OnSettingsChanged()
@@ -395,7 +432,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
         Attempt(() => ReplaceLaunchSession(null), "Stopping the launch chain failed");
         // Before the terminal is disposed of as well: its own teardown writes, and a handler still
         // attached would light a tile that is on its way out.
-        Attempt(_activityLight.Dispose, "Detaching the activity watch failed");
+        Attempt(_activity.Dispose, "Detaching the activity watch failed");
 
         if (CachedControl is Terminal.Avalonia.TerminalControl tc)
         {

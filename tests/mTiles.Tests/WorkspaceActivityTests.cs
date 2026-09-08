@@ -1,4 +1,4 @@
-using mTiles.Models;
+﻿using mTiles.Models;
 using mTiles.Services;
 using mTiles.ViewModels;
 using Xunit;
@@ -11,37 +11,6 @@ namespace mTiles.Tests;
 /// </summary>
 public class WorkspaceActivityTests
 {
-    /// <summary>The whole point of the window: output arrives in bursts many times a second, and a light
-    /// wired straight to it would be a flicker rather than an answer.</summary>
-    [Fact]
-    public void Activity_outlasts_the_moment_it_was_seen()
-    {
-        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var window = new ActivityWindow(TimeSpan.FromSeconds(2));
-
-        Assert.False(window.IsActive(start));      // nothing has happened yet
-
-        window.Stamp(start);
-        Assert.True(window.IsActive(start));
-        Assert.True(window.IsActive(start.AddSeconds(1.9)));
-        Assert.False(window.IsActive(start.AddSeconds(2)));
-    }
-
-    /// <summary>And it has to be extendable, or a command printing steadily for a minute would go dark
-    /// two seconds in.</summary>
-    [Fact]
-    public void A_further_sign_of_work_extends_the_window()
-    {
-        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var window = new ActivityWindow(TimeSpan.FromSeconds(2));
-
-        window.Stamp(start);
-        window.Stamp(start.AddSeconds(1.5));
-
-        Assert.True(window.IsActive(start.AddSeconds(3)));
-        Assert.False(window.IsActive(start.AddSeconds(3.5)));
-    }
-
     /// <summary>A closed tile is not working, whatever it was doing a moment before: a tile taken out
     /// of a workspace that is not its root changes nothing else the panel listens to, so the last thing
     /// it says has to be the truth.</summary>
@@ -153,7 +122,7 @@ public class WorkspaceActivityTests
     private sealed class AlwaysBusyContent : CommunityToolkit.Mvvm.ComponentModel.ObservableObject, IBusyTile
     {
         public string KindId => TileKindIds.Note;
-        public bool IsBusy => true;
+        public TileActivity Activity => TileActivity.Working;
         public void Dispose() { }
     }
 }

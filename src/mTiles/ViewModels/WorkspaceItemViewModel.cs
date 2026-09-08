@@ -69,16 +69,44 @@ public partial class WorkspaceItemViewModel : ObservableObject
     /// </remarks>
     public bool BranchAnswered { get; set; }
 
-    /// <summary>Whether something is running in this workspace right now.</summary>
+    /// <summary>What is going on in this workspace right now.</summary>
     /// <remarks>Set from outside — the row is told, it does not look. Only workspaces that have been
-    /// opened have a view model producing tiles to be busy, so an unopened one stays dark, which is the
-    /// truthful answer: nothing of it is running.</remarks>
+    /// opened have a view model producing tiles to be busy, so an unopened one stays
+    /// <see cref="TileActivity.Unknown"/>, which is the truthful answer: nothing of it is running and
+    /// nothing has been asked.</remarks>
     [ObservableProperty]
-    private bool _isBusy;
+    [NotifyPropertyChangedFor(nameof(IsBlocked))]
+    [NotifyPropertyChangedFor(nameof(IsWorking))]
+    [NotifyPropertyChangedFor(nameof(ActivityTip))]
+    private TileActivity _activity;
+
+    /// <summary>
+    /// Whether that light is a mark rather than a spinner.
+    /// </summary>
+    /// <remarks><b>Two treatments, because they mean opposite things to the reader.</b> A turning arc
+    /// says work is in progress and the row can be left alone — which is why it turns, since a still
+    /// mark cannot be told from a state somebody left switched on. Blocked is the other case entirely:
+    /// nothing is moving and nothing will until the user goes back, so it does not turn. Drawn as one
+    /// property rather than two icons deciding for themselves, which is the one-writer rule.</remarks>
+    public bool IsBlocked => Activity is TileActivity.Blocked;
+
+    /// <summary>The other half of the pair — the state that turns.</summary>
+    public bool IsWorking => Activity is TileActivity.Working;
+
+    /// <summary>What the light means, in words, for the tooltip.</summary>
+    /// <remarks>A tooltip and not a label: the meaning is wanted once, by somebody who has noticed the
+    /// mark, and a word beside a name would move the name every time something printed — the reason
+    /// this was a light in the first place.</remarks>
+    public string ActivityTip => Activity switch
+    {
+        TileActivity.Blocked => "Waiting for you",
+        TileActivity.Working => "Working",
+        _ => "",
+    };
 
     /// <summary>Whether this workspace's tiles have been built and are holding memory.</summary>
     /// <remarks>
-    /// <para>Set from outside, like <see cref="IsBusy"/>: the row is told, it does not look. A workspace
+    /// <para>Set from outside, like <see cref="Activity"/>: the row is told, it does not look. A workspace
     /// gets a view model the first time it is opened and keeps it until the window closes or the user
     /// unloads it, so most rows in a long list are not loaded and never were.</para>
     /// <para>Drawn as a dimmer name rather than as a word or a mark. It is true of most of the list most

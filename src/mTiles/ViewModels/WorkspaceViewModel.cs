@@ -28,10 +28,24 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <summary>So the refusal is traced once rather than on every splitter drag.</summary>
     private bool _refusedToSaveLayout;
 
-    /// <summary>Whether anything in this workspace is working — what the panel's row light shows.</summary>
-    /// <remarks>Any tile, because the question the list answers is "is there something going on in
-    /// there", and a workspace with one busy tile out of four is a workspace to go back to.</remarks>
-    public bool IsBusy => EnumerateLeaves(RootTile).Any(leaf => leaf.IsBusy);
+    /// <summary>What is going on in this workspace — what the panel's row light shows.</summary>
+    /// <remarks>
+    /// <para>The strongest answer any of its tiles gives, because the question the list answers is "is
+    /// there something going on in there", and a workspace with one busy tile out of four is a
+    /// workspace to go back to.</para>
+    /// <para><b>Blocked outranks Working, and that is the point of aggregating a state rather than
+    /// or-ing a flag.</b> A workspace where three tiles are building and one has stopped to ask for
+    /// permission is a workspace that needs somebody now; reported as "working" it looks like the three
+    /// that can be left alone.</para>
+    /// </remarks>
+    public TileActivity Activity =>
+        EnumerateLeaves(RootTile)
+            .Select(leaf => leaf.Activity)
+            .DefaultIfEmpty(TileActivity.Unknown)
+            .Max();
+
+    /// <summary>Whether the row should show a light at all.</summary>
+    public bool IsBusy => Activity.ShowsAsBusy();
 
     /// <summary>Every process this workspace's tiles have started.</summary>
     /// <remarks>The roots only: what those processes went on to spawn is the business of whoever reads
@@ -57,6 +71,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     partial void OnRootTileChanged(TileNodeViewModel? value)
     {
+        OnPropertyChanged(nameof(Activity));
         OnPropertyChanged(nameof(IsBusy));
 
         // A closed tile or a rebuilt tree can leave nothing active at all, and "nothing" is a state a
@@ -331,13 +346,15 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         leaf.PropertyChanged += OnLeafPropertyChanged;
         // A tile arriving is a change to the answer too — splitting anything but the root leaves
         // RootTile alone, so its own notification never fires.
+        OnPropertyChanged(nameof(Activity));
         OnPropertyChanged(nameof(IsBusy));
     }
 
     private void OnLeafPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(LeafTileNodeViewModel.IsBusy))
+        if (e.PropertyName == nameof(LeafTileNodeViewModel.Activity))
         {
+            OnPropertyChanged(nameof(Activity));
             OnPropertyChanged(nameof(IsBusy));
             return;
         }

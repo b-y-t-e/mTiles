@@ -172,12 +172,22 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// have to learn about it.</remarks>
     public bool CanRestart => Actions.Any(a => a.Id == TileActionIds.Restart);
 
-    /// <summary>Whether this tile is working right now — false for content that has no notion of it,
-    /// and false once the tile has been disposed of.</summary>
-    /// <remarks>A closed tile is not working, whatever its content was doing a moment ago: closing one
+    /// <summary>What this tile is doing — Unknown for content that has no notion of it, and Unknown
+    /// once the tile has been disposed of.</summary>
+    /// <remarks>A closed tile is doing nothing, whatever its content was doing a moment ago: closing one
     /// takes it out of the tree without the workspace's own root changing, so the light it leaves lit is
-    /// one nothing else would ever put out.</remarks>
-    public bool IsBusy => !_disposed && (Content as IBusyTile)?.IsBusy == true;
+    /// one nothing else would ever put out. Unknown rather than Idle, because "this tile has no answer"
+    /// is what is actually true of a note and of a tile that is gone — the same distinction
+    /// <c>ActivityPolicy</c> rests on one layer down.</remarks>
+    public TileActivity Activity =>
+        _disposed ? TileActivity.Unknown : (Content as IBusyTile)?.Activity ?? TileActivity.Unknown;
+
+    /// <summary>Whether this tile is doing something the workspace's row should show.</summary>
+    /// <remarks>Derived rather than asked of the content, so the mapping from four states to one light
+    /// is written once. Blocked counts: a tile stopped on a question is the strongest reason there is to
+    /// go back to a workspace, and a row that goes dark when an agent starts waiting is the failure
+    /// this whole layer exists to end.</remarks>
+    public bool IsBusy => Activity.ShowsAsBusy();
 
     /// <summary>The process this tile started, when its content runs one and is still open.</summary>
     /// <remarks>Asked of the content rather than of its type, and null for content that runs nothing —
@@ -250,6 +260,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         OnPropertyChanged(nameof(HasSession));
         OnPropertyChanged(nameof(CanMaximize));
         RefreshAgentInstances();
+        OnPropertyChanged(nameof(Activity));
         OnPropertyChanged(nameof(IsBusy));
         RaiseActionsChanged();
     }
@@ -267,8 +278,11 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
     private void OnContentPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(IBusyTile.IsBusy))
+        if (e.PropertyName == nameof(IBusyTile.Activity))
+        {
+            OnPropertyChanged(nameof(Activity));
             OnPropertyChanged(nameof(IsBusy));
+        }
 
         // Anything at all, and deliberately: what an action's IsEnabled is computed from is the
         // content's business — a git tile's loading flag, a goal's phase — and a list of the properties
@@ -519,6 +533,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         WatchContent(content, null);
         // Said out loud, because the content is no longer there to say it: the workspace is still
         // listening to this leaf, and this is the last moment at which it hears anything from it.
+        OnPropertyChanged(nameof(Activity));
         OnPropertyChanged(nameof(IsBusy));
         RaiseActionsChanged();
 

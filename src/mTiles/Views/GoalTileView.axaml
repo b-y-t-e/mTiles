@@ -812,10 +812,10 @@
                                ToolTip.Tip="{Binding PhaseLabel}"
                                Margin="6,0,8,0" />
                     <TextBlock Classes="strip strip-activity"
-                               Text="{Binding Activity}"
-                               IsVisible="{Binding Activity, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               Text="{Binding ActivityText}"
+                               IsVisible="{Binding ActivityText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding Activity}"
+                               ToolTip.Tip="{Binding ActivityText}"
                                Margin="6,0,0,0" />
                 </DockPanel>
             </DockPanel>

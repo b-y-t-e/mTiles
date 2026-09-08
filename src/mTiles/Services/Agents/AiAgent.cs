@@ -590,6 +590,27 @@ public abstract class AiAgent : IAiAgent
     public virtual IReadOnlyList<AiOutputChunk> ParseLine(string line) =>
         string.IsNullOrWhiteSpace(line) ? [] : [new AiOutputChunk { Content = line }];
 
+    /// <summary>
+    /// Nothing, for an agent whose terminal title has not been measured.
+    /// </summary>
+    /// <remarks><para>Unknown is the honest answer and it costs nothing: the tile falls through to its
+    /// raw-output source, which is the behaviour it had before any of this existed. Answering
+    /// <see cref="TileActivity.Idle"/> here instead would be the one mistake that matters — a tile
+    /// reported as finished because nobody has written a rule for it yet.</para>
+    /// <para><b>Virtual here rather than a default interface member</b>, for the reason
+    /// <see cref="UsesModelContextWindow"/> spells out: interface mapping resolves against the class
+    /// that lists the interface, so a body on the interface plus an answer on a class further down do
+    /// not compose — the default wins, silently.</para></remarks>
+    public virtual TileActivity ReadTitle(string title) => TileActivity.Unknown;
+
+    /// <inheritdoc cref="ReadTitle" />
+    /// <summary>Nothing, for an agent whose own UI strings have not been measured.</summary>
+    public virtual TileActivity ReadRecentOutput(string recent, out string? detail)
+    {
+        detail = null;
+        return TileActivity.Unknown;
+    }
+
     /// <summary>The canonical levels, for an agent whose own scale is the canonical one.</summary>
     protected static IReadOnlyList<AiEffort> FullEffortScale { get; } =
         [AiEffort.Low, AiEffort.Medium, AiEffort.High, AiEffort.XHigh, AiEffort.Max, AiEffort.ToolDefault];

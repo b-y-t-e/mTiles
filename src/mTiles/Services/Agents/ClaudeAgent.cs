@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Text.Json;
 using mTiles.Models;
+using mTiles.Services.Activity;
 using mTiles.Services.Providers;
 
 namespace mTiles.Services.Agents;
@@ -719,4 +720,62 @@ public sealed class ClaudeAgent : AiAgent
         var runes = flat.EnumerateRunes().ToList();
         return "\u2026" + string.Concat(runes.Skip(Math.Max(0, runes.Count - 47)));
     }
+
+    // ---- What this CLI says about itself while it runs -------------------------------------------
+    //
+    // Read from herdr's published claude detection manifest (2026-09-07) rather than measured against
+    // the binary here, which is the one table in this class that is second-hand — hence the test that
+    // pins it: when Claude Code rewords its status bar, that has to arrive as a failing build and not
+    // as a tile that quietly stops reporting.
+
+    /// <summary>
+    /// The spinner in the title means working; the star means waiting for a message.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Matched as a class of character, never as a phrase.</b> Claude Code has set an animated
+    /// title while it thinks since 2.1.6 and re-asserts it since 2.1.132, and the words beside the
+    /// glyph have already changed twice — they carry the version, the session name, whatever
+    /// <c>--name</c> was given. The braille cell is the spinner <em>mechanism</em>, so it survives the
+    /// wording; a rule spelled "starts with Claude Code" would not have survived last year.</para>
+    /// <para>Anything else is Unknown rather than Idle: a title carrying neither glyph is a build that
+    /// does not do this, or a terminal whose title somebody else set.</para>
+    /// </remarks>
+    public override TileActivity ReadTitle(string title)
+    {
+        foreach (var c in title)
+        {
+            // U+2800..U+28FF, the braille block the spinner is drawn from.
+            if (c is >= '⠀' and <= '⣿') return TileActivity.Working;
+            if (IdleGlyphs.Contains(c)) return TileActivity.Idle;
+        }
+        return TileActivity.Unknown;
+    }
+
+    /// <summary>The asterisk family Claude Code marks a prompt waiting for input with.</summary>
+    /// <remarks>Several, because the glyph has moved between releases and they all mean the same thing
+    /// here. Cheap to accept one that is never sent; expensive to miss the one that is.</remarks>
+    private static readonly char[] IdleGlyphs = ['✱', '✻', '✳', '✽'];
+
+    /// <inheritdoc />
+    public override TileActivity ReadRecentOutput(string recent, out string? detail) =>
+        ActivityMarkers.LastWins(recent, Markers, out detail);
+
+    /// <summary>
+    /// Claude Code's own words, and what each means.
+    /// </summary>
+    /// <remarks><b>Blocked is deliberately narrow.</b> A prompt shape with no rule here reads as
+    /// Unknown and the tile falls back to its output light, which is a tile that says "something is
+    /// happening" while it waits — mildly wrong. Matching loosely enough to catch every question would
+    /// also catch the agent <em>writing about</em> one, which is a tile that says the user is being
+    /// asked something when nobody is: wrong in the direction that wastes their attention.</remarks>
+    private static readonly ActivityMarker[] Markers =
+    [
+        new("esc to interrupt", TileActivity.Working),
+        new("Compacting conversation", TileActivity.Working, "Compacting the conversation"),
+        new("Do you want to proceed?", TileActivity.Blocked, "Waiting for permission"),
+        new("Do you want to make this edit", TileActivity.Blocked, "Waiting for permission to edit"),
+        new("Do you want to create", TileActivity.Blocked, "Waiting for permission to create a file"),
+        new("Do you trust the files", TileActivity.Blocked, "Waiting for an answer about this folder"),
+        new("enter to confirm", TileActivity.Blocked, "Waiting for an answer"),
+    ];
 }

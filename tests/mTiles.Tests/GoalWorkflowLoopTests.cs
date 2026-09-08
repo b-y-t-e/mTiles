@@ -2243,7 +2243,7 @@ public class GoalWorkflowLoopTests : IDisposable
             // file the tool happened to open, for the rest of the session.
             vm.SetActivityIfRunning("Read src/Cart.cs");
 
-            Assert.Equal("", vm.Activity);
+            Assert.Equal("", vm.ActivityText);
         });
     }
 
@@ -2259,13 +2259,13 @@ public class GoalWorkflowLoopTests : IDisposable
             // Set as the reader thread sets it, mid-run. Every way a run can end — finished, paused,
             // cancelled, failed, thrown — has to take it back down, or a tile that is waiting for you
             // sits there naming the last file the tool happened to open.
-            vm.Activity = "Read src/Cart.cs";
+            vm.ActivityText = "Read src/Cart.cs";
 
             vm.InputText = "a goal";
             await vm.SubmitCommand.ExecuteAsync(null);
 
             Assert.False(vm.IsRunning);
-            Assert.Equal("", vm.Activity);
+            Assert.Equal("", vm.ActivityText);
         });
     }
 

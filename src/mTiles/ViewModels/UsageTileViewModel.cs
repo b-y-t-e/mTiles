@@ -48,8 +48,18 @@ public sealed partial class UsageTileViewModel : ObservableObject, IBusyTile
     /// <summary>The cards, in the order the service listed the accounts.</summary>
     public ObservableCollection<UsageAccountViewModel> Accounts { get; } = [];
 
+    /// <summary>Whether a round of questions to the accounts is in flight — what the tile's own refresh
+    /// button and spinner are drawn from.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Activity))]
+    private bool _isBusy;
+
     /// <inheritdoc />
-    [ObservableProperty] private bool _isBusy;
+    /// <remarks>Two states out of four, and that is the whole truth about this tile: it asks and it
+    /// waits. It stops on nobody — there is nothing here for a user to answer — so it can never be
+    /// <see cref="TileActivity.Blocked"/>, and it always knows which of the other two it is in, so it
+    /// is never <see cref="TileActivity.Unknown"/>.</remarks>
+    public TileActivity Activity => IsBusy ? TileActivity.Working : TileActivity.Idle;
 
     /// <summary>Whether the tile has anything to say yet — nothing asked is not nothing found.</summary>
     /// <remarks><b>False until the first round has answered.</b> It started true and was recomputed in

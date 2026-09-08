@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using mTiles.Models;
+using mTiles.Services.Activity;
 using mTiles.Services.Providers;
 using mTiles.Services.Shells;
 
@@ -21,7 +22,7 @@ namespace mTiles.Services.Agents;
 /// <para>Split from <see cref="AiAgentInstance"/> on purpose: this is the CLI and there is one of each,
 /// that is configuration and there are as many as the user wants.</para>
 /// </remarks>
-public interface IAiAgent
+public interface IAiAgent : IAgentActivityReader
 {
     /// <summary>Stable, lowercase, and what settings and layouts store — <c>"claude"</c>,
     /// <c>"opencode"</c>. Never shown to the user.</summary>
