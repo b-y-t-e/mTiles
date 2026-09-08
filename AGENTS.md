@@ -458,6 +458,16 @@ braille block U+2800–U+28FF — rather than a phrase, because the spinner is t
 beside it have moved twice. pi and `GenericAgent` answer `Unknown` to both, deliberately, and a test
 asserts it so that a table added later is added with a measurement.
 
+**The tile says it too, in its header's leading slot** (`LeafTileView.UpdateTypeGlyph`). The marks are
+the workspace row's — a turning arc while it works, a still `AlertCircleOutline` in `DangerText` while
+it waits for an answer, the words in a tooltip from one place (`ActivityDisplay.Tip`) — so the panel and
+the tile speak one language, the row saying which workspace and the header which tile. It takes the
+kind icon's slot rather than a slot of its own: that slot is already reserved and fixed-width, so
+nothing moves and "the name never gives way" costs nothing to keep; the header's buttons stand down as
+the tile narrows and a state marker must not; and what it displaces is the one thing on that header
+that cannot change while you are looking at it — a tile's kind is said again by its content, its
+chooser and its menu, while its activity is said nowhere else on the tile.
+
 **The tile holds one `TileActivityMonitor` and re-exports what it says**, exactly as it held one
 `OutputActivityLight`. Which instruments it gets is `TerminalTileViewModel.ConfigureActivity`, virtual,
 called from the **first `AttachControl` rather than the constructor** — a virtual call from a base

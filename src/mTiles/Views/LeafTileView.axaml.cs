@@ -8,6 +8,8 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Material.Icons;
 using Material.Icons.Avalonia;
+using mTiles.Models;
+using mTiles.Services.Activity;
 using mTiles.Services.Tiles;
 using mTiles.ViewModels;
 
@@ -225,6 +227,11 @@ public partial class LeafTileView : UserControl
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.IsMaximized)
                  or nameof(LeafTileNodeViewModel.CanMaximize))
             UpdateMaximizeButton(leaf);
+        // The glyph is the activity's mark as well as the kind's, so it is redrawn on both. Activity is
+        // the property that actually moves — several times a minute on a working tile — while the kind
+        // changes once in the tile's life.
+        else if (e.PropertyName == nameof(LeafTileNodeViewModel.Activity))
+            UpdateTypeGlyph(leaf);
         // The property the strip is drawn from, not the two it is computed from. Listening to the inputs
         // meant the strip was repainted while one of them had not been updated yet: on the way in the
         // recording flag arrived before IsDictating, so the strip was still lit and showed through the
@@ -260,10 +267,21 @@ public partial class LeafTileView : UserControl
 
     /// <summary>The icon and colour this tile's type wears in its header.</summary>
     /// <remarks>
-    /// The colour is bound to the resource rather than resolved to a brush, so a theme switch reaches
-    /// it — the same reason <see cref="UpdateActiveIndicator"/> binds instead of assigning. Both of
-    /// them then have to be re-run whenever the value they read changes, which is what the two callers
-    /// above are.
+    /// <para>The colour is bound to the resource rather than resolved to a brush, so a theme switch
+    /// reaches it — the same reason <see cref="UpdateActiveIndicator"/> binds instead of assigning. Both
+    /// of them then have to be re-run whenever the value they read changes, which is what the callers
+    /// above are.</para>
+    /// <para><b>This slot reports what the tile is doing, and falls back to what kind it is.</b> The
+    /// two marks are the workspace row's, deliberately — a turning arc while it works, a still
+    /// <c>AlertCircleOutline</c> in the danger colour while it waits for an answer — so the panel and
+    /// the tile say the same thing in the same language, and the row tells you which workspace while
+    /// the header tells you which tile.</para>
+    /// <para>Here rather than in a slot of its own, and that is the argument worth keeping: the slot is
+    /// already reserved and fixed-width, so nothing moves and the rule that the name never gives way
+    /// costs nothing to keep; the header's buttons stand down as the tile narrows and this must not,
+    /// which rules out the docked group on the right; and what is displaced is the one thing on the
+    /// header that cannot change while you are looking at it. A tile's kind is said again by its own
+    /// content, by the chooser and by its menu — its activity is said nowhere else on the tile.</para>
     /// </remarks>
     private void UpdateTypeGlyph(LeafTileNodeViewModel leaf)
     {
@@ -271,6 +289,24 @@ public partial class LeafTileView : UserControl
         // object is in it - so it is refreshed by the same callers rather than by a third subscription
         // that would have to be kept in step with them.
         UpdateHeaderNote(leaf);
+
+        // What the tile is doing outranks what kind it is, and takes the same slot - see the remarks.
+        if (leaf.Activity is TileActivity.Blocked or TileActivity.Working)
+        {
+            var working = leaf.Activity is TileActivity.Working;
+
+            TileTypeGlyph.Kind = working
+                ? MaterialIconKind.Loading
+                : MaterialIconKind.AlertCircleOutline;
+            TileTypeGlyph.Classes.Set("spinning", working);
+            TileTypeGlyph.Bind(MaterialIcon.ForegroundProperty,
+                TileTypeGlyph.GetResourceObservable(working ? "AccentDefault" : "DangerText"));
+            ToolTip.SetTip(TileTypeGlyph, ActivityDisplay.Tip(leaf.Activity));
+            return;
+        }
+
+        TileTypeGlyph.Classes.Set("spinning", false);
+        ToolTip.SetTip(TileTypeGlyph, null);
 
         var kind = leaf.Kind;
         TileTypeGlyph.Kind = kind is null ? TileIcons.Placeholder : TileIcons.Kind(kind.IconId);

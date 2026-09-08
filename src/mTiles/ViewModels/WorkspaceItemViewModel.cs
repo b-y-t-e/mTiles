@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
+using mTiles.Services.Activity;
 using mTiles.Services;
 
 namespace mTiles.ViewModels;
@@ -97,12 +98,7 @@ public partial class WorkspaceItemViewModel : ObservableObject
     /// <remarks>A tooltip and not a label: the meaning is wanted once, by somebody who has noticed the
     /// mark, and a word beside a name would move the name every time something printed — the reason
     /// this was a light in the first place.</remarks>
-    public string ActivityTip => Activity switch
-    {
-        TileActivity.Blocked => "Waiting for you",
-        TileActivity.Working => "Working",
-        _ => "",
-    };
+    public string ActivityTip => ActivityDisplay.Tip(Activity);
 
     /// <summary>Whether this workspace's tiles have been built and are holding memory.</summary>
     /// <remarks>

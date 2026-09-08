@@ -454,7 +454,10 @@
     <Style Selector="mi|MaterialIcon.workspace-busy.blocked">
         <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
     </Style>
-    <Style Selector="mi|MaterialIcon.workspace-busy.spinning">
+    <!-- The turning itself is its own class, worn by the workspace row's spinner and by a tile
+         header's own glyph, which becomes this while the tile is working. One animation, so the two
+         marks that report the same thing turn at the same rate. -->
+    <Style Selector="mi|MaterialIcon.spinning">
         <Style.Animations>
             <Animation Duration="0:0:1.1" IterationCount="INFINITE" Easing="LinearEasing">
                 <KeyFrame Cue="0%">
