@@ -3001,6 +3001,26 @@ public partial class GoalTileViewModel
                 return;
             }
 
+            // Asked here, before the tool is asked anything. This is the last point at which a person
+            // decides whether this run's work enters their history, and it is where the warnings nobody
+            // fixed get said out loud — the run stopped with them outstanding, and a commit is exactly
+            // the moment to weigh that. Never skipped by the switch on the panel: the switch says who
+            // starts this, not whether anybody is asked.
+            //
+            // It used to be asked *after* the commit plan came back, which is an AI call: pressing
+            // Commit did nothing visible, the dialog arrived minutes later over whatever the user had
+            // moved on to, and where the plan came back unusable it never arrived at all.
+            var confirm = ConfirmAction;
+            if (confirm == null)
+            {
+                await SayOnceAsync("This tile cannot ask whether to commit, so it has not.");
+                return;
+            }
+
+            if (!await confirm(GoalCommitPlan.Ask(scope, Count(GoalSeverity.Warning),
+                    Count(GoalSeverity.Suggestion), _engine.ReviewsExistingWork)))
+                return;
+
             Working("Working out how to divide the changes into commits...");
 
             var run = await RunAiAsync(_engine.BuildCommitPlanPrompt(scope.Files, PromptBudget()));
@@ -3033,21 +3053,6 @@ public partial class GoalTileViewModel
                     GoalPhase.Summary);
                 return;
             }
-
-            // Always, and never skipped by the switch on the panel. The switch says who starts this;
-            // this is the last point at which a person sees what is about to enter their history, and
-            // it is where the warnings nobody fixed get said out loud — the run stopped with them
-            // outstanding, and a commit is exactly the moment to decide whether that is all right.
-            var confirm = ConfirmAction;
-            if (confirm == null)
-            {
-                await SayOnceAsync("This tile cannot ask whether to commit, so it has not.");
-                return;
-            }
-
-            if (!await confirm(GoalCommitPlan.Describe(commits, scope, Count(GoalSeverity.Warning),
-                    Count(GoalSeverity.Suggestion), _engine.ReviewsExistingWork)))
-                return;
 
             Working("Committing...");
 

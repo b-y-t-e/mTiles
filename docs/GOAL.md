@@ -313,6 +313,18 @@ goal started, and files somebody changed *after* the run finished. A goal file w
 this was recorded has no closing snapshot; the scope then reaches up to the tree as it stands, exactly
 as it used to, and the confirmation says so rather than quietly claiming work it cannot account for.
 
+**The question comes first, and only one question is asked.** Pressing Commit asks git what this run
+changed — a fast, local answer — and puts that straight in front of the user: the files, the ones held
+back and why, and what the last review left unfixed (`GoalCommitPlan.Ask`). Nothing else happens until
+they agree, and after they do nothing else is asked. It used to be the other way round, and the cost was
+not academic: the confirmation was built from the *commit plan*, which is an AI call, so pressing Commit
+did nothing visible, a dialog arrived minutes later over whatever the user had moved on to, and on every
+path where the plan came back unusable it never arrived at all — a button that sometimes asked, late,
+and sometimes silently did nothing. The decision is the same one either way: this run's work, in the
+user's history, now. How it is divided into commits is the tool's business, and nobody was reading the
+proposed messages to approve them. The list is capped at twenty paths, because this is a modal and a
+run over a hundred files would push the buttons off it.
+
 The tool decides the *grouping*, because that is a judgement about meaning — which change is a feature
 and which is the chore that made room for it — and nothing here can make it; grouping by directory
 produces a history that is technically a series of commits and tells nobody anything. What it may not

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using mTiles.Models;
 
 namespace mTiles.Services;
@@ -96,18 +96,31 @@ internal static class GoalCommitPlan
                 Files = [..scope.Files],
             }];
 
+    /// <summary>How many paths the question lists before it starts counting instead.</summary>
+    private const int FilesShown = 20;
+
     /// <summary>Git's own spelling of a path, whatever the tool wrote.</summary>
     private static string Slashed(string path) => path.Replace('\\', '/');
 
     /// <summary>
-    /// What the user is asked to approve: the commits, the files kept back, and what the review left
-    /// outstanding.
+    /// What the user is asked before anything happens: the files, the ones kept back, and what the
+    /// review left outstanding.
     /// </summary>
     /// <remarks>
-    /// The outstanding findings are in here because this is the moment they matter. The run stopped
-    /// with them unfixed — that is allowed, the offer needs no blockers and no errors, not a clean
-    /// review — and a commit is exactly when somebody should decide whether shipping three warnings is
-    /// all right. In the transcript they had already scrolled past.
+    /// <para>The outstanding findings are in here because this is the moment they matter. The run
+    /// stopped with them unfixed — that is allowed, the offer needs no blockers and no errors, not a
+    /// clean review — and a commit is exactly when somebody should decide whether shipping three
+    /// warnings is all right. In the transcript they had already scrolled past.</para>
+    /// <para><b>Asked before the tool is, and that is the whole shape of this.</b> The question used to
+    /// come after the commit plan had been worked out, which is an AI call — so pressing Commit did
+    /// nothing visible and a dialog arrived minutes later, over whatever the user had moved on to, and
+    /// on the paths where the plan came back unusable it never arrived at all. The decision is the same
+    /// one either way: this run's work, in the user's history, now. How it is divided into commits is
+    /// the tool's business and not something anybody was reading.</para>
+    /// <para>What the list can name changed with it — files instead of commit messages, because at this
+    /// point nothing has proposed a message yet. It is the better list to be asked about anyway: a
+    /// commit takes whole files, and the paths are what the user can check against what they know they
+    /// were doing.</para>
     /// </remarks>
     /// <param name="existingWork">
     /// True where the goal was worked out from the tree rather than typed. The offer then covers
@@ -115,8 +128,8 @@ internal static class GoalCommitPlan
     /// having said "these changes are the goal", and has to be said out loud rather than left to be
     /// discovered in <c>git log</c>.
     /// </param>
-    public static string Describe(IReadOnlyList<GoalCommit> commits, GoalCommitScope scope,
-        int warnings, int suggestions, bool existingWork = false)
+    public static string Ask(GoalCommitScope scope, int warnings, int suggestions,
+        bool existingWork = false)
     {
         var text = new StringBuilder();
 
@@ -141,12 +154,16 @@ internal static class GoalCommitPlan
                 + "Work done by another Goal tile, or by you, cannot be told apart from this run's " +
                 "here — read the list before agreeing.\n\n");
 
-        text.Append(Count(commits.Count, "commit")).Append(" from ")
-            .Append(Count(commits.Sum(c => c.Files.Count), "file")).Append(":\n\n");
+        text.Append(Count(scope.Files.Count, "file"))
+            .Append(", which the tool will divide into commits:\n\n");
 
-        foreach (var commit in commits)
-            text.Append("• ").Append(commit.Message)
-                .Append("  (").Append(Count(commit.Files.Count, "file")).Append(")\n");
+        // Capped, because this is a modal: a run over a hundred files would push the buttons off
+        // the dialog, and the hundred-and-first path tells nobody anything the count has not.
+        foreach (var file in scope.Files.Take(FilesShown))
+            text.Append("  ").Append(file).Append('\n');
+
+        if (scope.Files.Count > FilesShown)
+            text.Append("  …and ").Append(scope.Files.Count - FilesShown).Append(" more\n");
 
         var outstanding = new List<string>(2);
         if (warnings > 0) outstanding.Add(Count(warnings, "warning"));

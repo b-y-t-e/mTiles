@@ -1,4 +1,4 @@
-using mTiles.Models;
+﻿using mTiles.Models;
 using mTiles.Services;
 using Xunit;
 
@@ -101,11 +101,10 @@ public class GoalCommitPlanTests
     public void The_dialog_names_the_findings_nobody_fixed_and_the_files_left_alone()
     {
         var scope = Scope(["src/Cart.cs"], "src/Theirs.cs");
-        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
 
-        var asked = GoalCommitPlan.Describe(sound, scope, warnings: 3, suggestions: 1);
+        var asked = GoalCommitPlan.Ask(scope, warnings: 3, suggestions: 1);
 
-        Assert.Contains("feat: apply discounts", asked);
+        Assert.Contains("src/Cart.cs", asked);
         Assert.Contains("3 warnings", asked);
         Assert.Contains("1 suggestion", asked);
         Assert.Contains("src/Theirs.cs", asked);
@@ -114,7 +113,7 @@ public class GoalCommitPlanTests
 
         // A clean review says nothing about findings rather than saying there are none of them: four
         // zeroes is the shape the status strip was deliberately kept out of, for the same reason.
-        var clean = GoalCommitPlan.Describe(sound, Scope(["src/Cart.cs"]), 0, 0);
+        var clean = GoalCommitPlan.Ask(Scope(["src/Cart.cs"]), 0, 0);
         Assert.DoesNotContain("unfixed", clean);
         Assert.DoesNotContain("already changed", clean);
     }
@@ -245,14 +244,13 @@ public class GoalCommitPlanTests
     public void An_unbounded_scope_warns_before_it_lists_anything()
     {
         var scope = new GoalCommitScope(["src/Cart.cs"], [], Bounded: false);
-        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
 
-        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0);
+        var asked = GoalCommitPlan.Ask(scope, 0, 0);
 
         Assert.Contains("Nothing recorded how the tree looked when this run finished", asked);
         Assert.True(
             asked.IndexOf("Nothing recorded", StringComparison.Ordinal)
-            < asked.IndexOf("feat: apply discounts", StringComparison.Ordinal),
+            < asked.IndexOf("src/Cart.cs", StringComparison.Ordinal),
             "the warning came after the list it changes the meaning of");
     }
 
@@ -260,9 +258,7 @@ public class GoalCommitPlanTests
     [Fact]
     public void A_bounded_scope_says_nothing_about_its_upper_end() =>
         Assert.DoesNotContain("Nothing recorded",
-            GoalCommitPlan.Describe(
-                GoalCommitPlan.Sound([Commit("feat", "x", "src/Cart.cs")], Scope(["src/Cart.cs"])),
-                Scope(["src/Cart.cs"]), 0, 0));
+            GoalCommitPlan.Ask(Scope(["src/Cart.cs"]), 0, 0));
 
     /// <summary>
     /// Files written again after the run finished are named, under their own reason.
@@ -277,9 +273,8 @@ public class GoalCommitPlanTests
     {
         var scope = new GoalCommitScope(
             ["src/Cart.cs"], [], TouchedSince: ["src/Later.cs"]);
-        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
 
-        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0);
+        var asked = GoalCommitPlan.Ask(scope, 0, 0);
 
         Assert.Contains("src/Later.cs", asked);
         Assert.Contains("changed after this run finished", asked);
@@ -292,9 +287,8 @@ public class GoalCommitPlanTests
     {
         var scope = new GoalCommitScope(
             ["src/Cart.cs"], ["src/Theirs.cs"], TouchedSince: ["src/Later.cs"]);
-        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
 
-        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0);
+        var asked = GoalCommitPlan.Ask(scope, 0, 0);
 
         Assert.Contains("already changed before this goal started", asked);
         Assert.Contains("changed after this run finished", asked);
@@ -360,9 +354,8 @@ public class GoalCommitPlanTests
     public void A_detected_goal_with_no_upper_end_does_not_claim_to_know_where_it_ended()
     {
         var scope = new GoalCommitScope(["src/Cart.cs"], [], Bounded: false);
-        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
 
-        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0, existingWork: true);
+        var asked = GoalCommitPlan.Ask(scope, 0, 0, existingWork: true);
 
         Assert.DoesNotContain("uncommitted when this run finished", asked);
         Assert.Contains("worked out from the changes already in the tree", asked);
@@ -375,9 +368,8 @@ public class GoalCommitPlanTests
     public void A_detected_goal_that_knows_where_it_ended_says_so_once()
     {
         var scope = new GoalCommitScope(["src/Cart.cs"], []);
-        var sound = GoalCommitPlan.Sound([Commit("feat", "apply discounts", "src/Cart.cs")], scope);
 
-        var asked = GoalCommitPlan.Describe(sound, scope, 0, 0, existingWork: true);
+        var asked = GoalCommitPlan.Ask(scope, 0, 0, existingWork: true);
 
         Assert.Contains("uncommitted when this run finished", asked);
         Assert.DoesNotContain("Nothing recorded", asked);
