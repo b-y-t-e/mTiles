@@ -122,13 +122,6 @@ public partial class GoalTileView : UserControl
             vm.PropertyChanged += OnVmPropertyChanged;
             UpdatePhaseDot(vm.CurrentPhase);
 
-            // What the tile is already asking, before anything has changed. Without it a reopened tile
-            // waiting on a plan reads its first RefreshAsk as the plan arriving — which is harmless
-            // here only because attaching scrolls to the end anyway, and would stop being harmless the
-            // day it did not.
-            _showing.Clear();
-            foreach (var name in AskFlags)
-                _showing[name] = Showing(vm, name) ?? false;
         }
     }
 
@@ -152,32 +145,25 @@ public partial class GoalTileView : UserControl
     /// <para><b>The decision cannot be deferred with the work.</b> Whether to follow at all is "was the
     /// reader at the bottom <em>before</em> this arrived", and the answer is only readable while the
     /// new content is still unmeasured — a turn later the extent has grown and every reader looks
-    /// scrolled up. So it is taken on the first call of the turn and kept; the later calls of the same
-    /// turn can only add <c>force</c>, never take the answer back. Which also settles what was
+    /// scrolled up. So it is taken on the first call of the turn and kept. Which also settles what was
     /// previously decided four times against an extent that the first of the four had already
     /// changed.</para>
     /// </remarks>
-    private void FollowTheEndSoon(bool force = false)
+    private void FollowTheEndSoon()
     {
-        _scrollForce |= force;
-
         if (_scrollQueued) return;
         _scrollQueued = true;
-        _scrollWanted = force || IsNearTheEnd();
+        _scrollWanted = IsNearTheEnd();
 
         Dispatcher.UIThread.Post(() =>
         {
             _scrollQueued = false;
-            var wanted = _scrollWanted || _scrollForce;
-            _scrollForce = false;
-
-            if (wanted) ScrollTranscriptToEnd();
+            if (_scrollWanted) ScrollTranscriptToEnd();
         }, DispatcherPriority.Loaded);
     }
 
     private bool _scrollQueued;
     private bool _scrollWanted;
-    private bool _scrollForce;
 
     /// <summary>
     /// Goes to the end of the transcript, unconditionally.
@@ -225,36 +211,17 @@ public partial class GoalTileView : UserControl
 
         if (e.PropertyName is not { } name) return;
 
-        // Everything the tile asks of the user is now a block at the end of the conversation, so each of
+        // Everything the tile asks of the user is a block at the end of the conversation, so each of
         // these changes the length of the thing being scrolled without adding a message — and the
-        // follow-to-the-bottom rule is driven by the message collection. Without this the block appears
-        // below the fold on a full transcript, which is the one moment it is the only thing worth
-        // looking at.
+        // follow-to-the-bottom rule is driven by the message collection, which never hears about them.
         //
-        // A block that has just *appeared* is followed whether or not the reader had scrolled up, which
-        // is the one place that rule is overruled. While the bars were docked it did not arise: they
-        // were on screen at any offset. Now a plan waiting to be approved, or a composer coming back,
-        // arrives off screen while the composer that was there vanishes — leaving a tile that looks
-        // like it is doing nothing and offers nowhere to type. That is not a message streaming past
-        // during a run, which is what the rule protects a reader from; it is the tile stopping and
-        // needing an answer, and it happens a handful of times in a run rather than a dozen.
-        if (Showing(vm, name) is { } showing)
-        {
-            // Through Appeared rather than spelled out again here. The rule is one line, which is
-            // exactly what makes a second copy of it cheap to write and invisible once written: the
-            // tests pin Appeared, so a condition added to a copy in this handler would ship green.
-            // What this method owns is the *remembering* — Appeared needs a previous value and a view
-            // model has none.
-            var appeared = Appeared(vm, name, _showing.GetValueOrDefault(name));
-            _showing[name] = showing;
-
-            // A block going away still changes where the end is, so the ordinary follow applies to it —
-            // it just does not overrule anybody.
-            FollowTheEndSoon(force: appeared);
-            return;
-        }
-
-        if (FollowsTheEnd.Contains(name))
+        // Followed on the ordinary terms and no others: if the reader is at the end they see the block
+        // arrive, and if they are reading further up nothing moves. A block appearing used to overrule
+        // that, on the reasoning that a plan waiting to be approved is worth interrupting for — but
+        // being pulled away from what you are reading is the thing this rule exists to prevent, and it
+        // does not become acceptable because the tile has something to say. The block is still there
+        // when the reader arrives at the bottom.
+        if (Showing(vm, name) is not null || FollowsTheEnd.Contains(name))
             FollowTheEndSoon();
     }
 
@@ -264,16 +231,15 @@ public partial class GoalTileView : UserControl
     /// <remarks>
     /// <para>Read rather than listed, so a name here that cannot be answered does not compile — the
     /// alternative was a second set beside the first, where "in the set" and "how to read it" drift.</para>
-    /// <para>Only the current state, deliberately: turning it into <em>arriving</em> needs the previous
-    /// one, and where that is remembered is the view. Kept apart so this half stays pure and the
-    /// transition can be stated in a test — see <see cref="Appeared"/>.</para>
-    /// <para><c>CanDetectGoal</c> is deliberately not here, though it shows a block like the rest. It is
-    /// fed by the git watcher, so it turns over when a file changes in a terminal tile next door — and
-    /// yanking somebody's reading position because of an edit made somewhere else is worse than the
-    /// offer arriving quietly. <c>IsRunning</c> is not here either: the waiting dots are information
-    /// about a run, not a request, and they arrive a dozen times to the requests' handful.</para>
-    /// <para>Internal so the rule can be stated in a test, as <see cref="TextOf"/> is: which changes
-    /// overrule a reader's scroll position is a decision, and the scroller it overrules is not.</para>
+    /// <para>Only whether the block is showing, which is all that is asked of it: what it is for is
+    /// saying that this property is one of the four, so that a block arriving or leaving asks the
+    /// transcript to follow on the ordinary terms. Nothing here overrules a reader's position any
+    /// more.</para>
+    /// <para><c>CanDetectGoal</c> and <c>IsRunning</c> are not here because they are not requests, but
+    /// both are in <see cref="FollowsTheEnd"/> and reach the same call: with the overruling gone the
+    /// two lists differ only in what they are called, and they are kept apart because the next thing
+    /// added to either has to be read as one or the other.</para>
+    /// <para>Internal so it can be stated in a test, as <see cref="TextOf"/> is.</para>
     /// </remarks>
     internal static bool? Showing(GoalTileViewModel vm, string name) => name switch
     {
@@ -283,28 +249,6 @@ public partial class GoalTileView : UserControl
         nameof(GoalTileViewModel.HasFinishedRunActions) => vm.HasFinishedRunActions,
         _ => null,
     };
-
-    /// <summary>
-    /// Whether this change is one of the tile's requests <em>arriving</em>.
-    /// </summary>
-    /// <remarks>
-    /// <para>The rule this view is written to, and the only statement of it — <c>OnVmPropertyChanged</c>
-    /// calls this rather than repeating the comparison, which it did for one round: a one-line rule is
-    /// the cheapest kind to copy and the hardest kind to notice twice, and with the tests pinning this
-    /// one a change to the other would have shipped green.</para>
-    /// <para>For a while the code said something else again: it forced on a block that was
-    /// <em>showing</em> rather than one that had appeared, which is a different sentence every time a
-    /// notification is raised for a value that did not move — and this view model raises all three ask
-    /// flags together, unconditionally, several times a run. Only <em>false to true</em> counts: a
-    /// block disappearing is not a reason to move anybody's view, and a block that was already there
-    /// has not asked for anything.</para>
-    /// </remarks>
-    internal static bool Appeared(GoalTileViewModel vm, string name, bool wasShowing) =>
-        Showing(vm, name) is true && !wasShowing;
-
-    /// <summary>What each block was showing when it was last heard from. Seeded on attach, so the first
-    /// notification about a tile that is already asking is not read as the ask arriving.</summary>
-    private readonly Dictionary<string, bool> _showing = [];
 
     /// <summary>
     /// What, changing, moves the end of the conversation without being a request in its own right.
@@ -318,17 +262,6 @@ public partial class GoalTileView : UserControl
     [
         nameof(GoalTileViewModel.IsRunning),
         nameof(GoalTileViewModel.CanDetectGoal),
-    ];
-
-    /// <summary>The four <see cref="Showing"/> answers, for seeding. Named once; the switch is what
-    /// decides, and a name here that it does not know seeds false and is never asked about again.
-    /// </summary>
-    private static readonly string[] AskFlags =
-    [
-        nameof(GoalTileViewModel.ShowQuestions),
-        nameof(GoalTileViewModel.ShowApproval),
-        nameof(GoalTileViewModel.ShowComposer),
-        nameof(GoalTileViewModel.HasFinishedRunActions),
     ];
 
     /// <summary>

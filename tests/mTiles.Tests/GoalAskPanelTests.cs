@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Controls.Templates;
@@ -382,24 +382,22 @@ public class GoalAskPanelTests : IDisposable
     }
 
     /// <summary>
-    /// Which changes overrule the reader's scroll position, and which leave it alone.
+    /// Which properties are the tile's request blocks, and which are not.
     /// </summary>
     /// <remarks>
-    /// <para>The follow-to-the-bottom rule stands down when the reader has scrolled up, which is right
-    /// for the dozen messages a run posts and wrong for the handful of moments the tile stops and needs
-    /// an answer. While those were bars docked under the transcript it could not come up — they were on
-    /// screen at any offset. In the conversation they are not: the composer vanishes from where it was
-    /// and comes back below the fold, and what is left on screen is a tile that appears to be doing
-    /// nothing with nowhere to type. The round of questions was covered by accident, because taking the
-    /// keyboard drags it into view; the plan and the composer had nothing equivalent.</para>
-    /// <para>The two exclusions are the part worth pinning. <c>CanDetectGoal</c> is fed by the git
-    /// watcher, so it turns over when a file changes in a terminal tile next door — forcing on it would
-    /// move somebody's reading position because of an edit made somewhere else entirely. And nothing
-    /// forces on the way <em>out</em>: a block disappearing is not a reason to move anybody's view.
-    /// </para>
+    /// <para>A block appearing changes the length of the transcript without adding a message, so the
+    /// view has to hear about it — the follow-to-the-bottom rule is driven by the message collection,
+    /// which never does. What it must <b>not</b> do any more is overrule where the reader is: that
+    /// forced a plan or a composer into view over somebody reading further up, which is the one thing
+    /// the rule exists to prevent. Now a block arriving asks on the ordinary terms and a reader who has
+    /// scrolled up keeps their place.</para>
+    /// <para>What is left to pin is the switch: five arms reading properties by name is exactly the
+    /// shape a copy-paste survives, and a name that is not a block has to answer null rather than
+    /// false — <c>CanDetectGoal</c> is fed by the git watcher and turns over when a file changes in a
+    /// terminal tile next door.</para>
     /// </remarks>
     [Fact]
-    public void Only_a_request_arriving_overrules_where_the_reader_is()
+    public void The_four_request_blocks_are_named_and_nothing_else_is()
     {
         OnUiThread(() =>
         {
@@ -407,65 +405,27 @@ public class GoalAskPanelTests : IDisposable
 
             // A fresh tile: the composer is up and nothing else is.
             Assert.True(vm.ShowComposer);
-            Assert.True(Appears(vm, nameof(vm.ShowComposer)));
-            Assert.False(Appears(vm, nameof(vm.ShowApproval)));
-            Assert.False(Appears(vm, nameof(vm.ShowQuestions)));
-            Assert.False(Appears(vm, nameof(vm.HasFinishedRunActions)));
+            Assert.True(Shows(vm, nameof(vm.ShowComposer)));
+            Assert.False(Shows(vm, nameof(vm.ShowApproval)));
+            Assert.False(Shows(vm, nameof(vm.ShowQuestions)));
+            Assert.False(Shows(vm, nameof(vm.HasFinishedRunActions)));
 
             // A round is asked. The questions overrule; the composer, now gone, does not — which is the
             // going-away case, and it fires on exactly the same property name.
             vm.CurrentPhase = GoalPhase.Clarify;
             vm.Questions.Add(new GoalQuestionAnswer(1, new GoalQuestion { Question = "Which file?" }));
 
-            Assert.True(Appears(vm, nameof(vm.ShowQuestions)));
+            Assert.True(Shows(vm, nameof(vm.ShowQuestions)));
             Assert.False(vm.ShowComposer);
-            Assert.False(Appears(vm, nameof(vm.ShowComposer)));
+            Assert.False(Shows(vm, nameof(vm.ShowComposer)));
 
             // Neither of the two that are not requests, whatever the tile is doing.
-            Assert.False(Appears(vm, nameof(vm.CanDetectGoal)));
-            Assert.False(Appears(vm, nameof(vm.IsRunning)));
+            Assert.False(Shows(vm, nameof(vm.CanDetectGoal)));
+            Assert.False(Shows(vm, nameof(vm.IsRunning)));
 
             // And a name nothing knows about is not a request either — the handler falls through to the
             // ordinary follow rather than forcing on every property the view model raises.
-            Assert.False(Appears(vm, nameof(vm.CurrentPhase)));
-        });
-    }
-
-    /// <summary>
-    /// A block that was already showing has not arrived, however often it is announced.
-    /// </summary>
-    /// <remarks>
-    /// <para>The rule is <em>arriving</em>, and for a while the code read <em>showing</em> — which is a
-    /// different sentence every time a notification carries a value that did not move. This view model
-    /// raises all three ask flags together and unconditionally, on every phase of every lap, at a
-    /// moment when the composer has been up all along; so the tile scrolled a reader who had gone back
-    /// through the transcript down to the bottom several times a run, over nothing having appeared.
-    /// That is precisely the reader the whole rule exists to leave alone.</para>
-    /// <para>Stated on the pure half so it can be asked without a window: the previous value is a
-    /// parameter here and a small map in the view, seeded when it attaches.</para>
-    /// </remarks>
-    [Fact]
-    public void A_block_that_was_already_there_has_not_arrived()
-    {
-        OnUiThread(() =>
-        {
-            using var vm = Tile();
-            Assert.True(vm.ShowComposer);
-
-            const string composer = nameof(GoalTileViewModel.ShowComposer);
-
-            // The same state, announced twice. The first is the composer arriving; the second is
-            // RefreshAsk saying so again, and it must not move anybody.
-            Assert.True(GoalTileView.Appeared(vm, composer, wasShowing: false));
-            Assert.False(GoalTileView.Appeared(vm, composer, wasShowing: true));
-
-            // And going away is not arriving either, whatever was remembered.
-            vm.CurrentPhase = GoalPhase.Clarify;
-            vm.Questions.Add(new GoalQuestionAnswer(1, new GoalQuestion { Question = "Which file?" }));
-
-            Assert.False(vm.ShowComposer);
-            Assert.False(GoalTileView.Appeared(vm, composer, wasShowing: true));
-            Assert.False(GoalTileView.Appeared(vm, composer, wasShowing: false));
+            Assert.False(Shows(vm, nameof(vm.CurrentPhase)));
         });
     }
 
@@ -485,7 +445,7 @@ public class GoalAskPanelTests : IDisposable
     /// for: the block arrives below the fold and the tile looks like it has stopped.</para>
     /// </remarks>
     [Fact]
-    public void The_plan_and_the_finished_run_actions_are_requests_too()
+    public void The_plan_and_the_finished_run_actions_are_blocks_too()
     {
         OnUiThread(() =>
         {
@@ -497,12 +457,12 @@ public class GoalAskPanelTests : IDisposable
             });
 
             Assert.True(waitingForApproval.ShowApproval);
-            Assert.True(Appears(waitingForApproval, nameof(GoalTileViewModel.ShowApproval)));
+            Assert.True(Shows(waitingForApproval, nameof(GoalTileViewModel.ShowApproval)));
 
             // And not the arm next door, which is false in this very state — a swapped pair would pass
             // the assertion above and fail this one.
             Assert.False(waitingForApproval.ShowComposer);
-            Assert.False(Appears(waitingForApproval, nameof(GoalTileViewModel.ShowComposer)));
+            Assert.False(Shows(waitingForApproval, nameof(GoalTileViewModel.ShowComposer)));
 
             using var finished = TileWith(new GoalTileState
             {
@@ -512,8 +472,8 @@ public class GoalAskPanelTests : IDisposable
             });
 
             Assert.True(finished.HasFinishedRunActions);
-            Assert.True(Appears(finished, nameof(GoalTileViewModel.HasFinishedRunActions)));
-            Assert.False(Appears(finished, nameof(GoalTileViewModel.ShowApproval)));
+            Assert.True(Shows(finished, nameof(GoalTileViewModel.HasFinishedRunActions)));
+            Assert.False(Shows(finished, nameof(GoalTileViewModel.ShowApproval)));
         });
     }
 
@@ -596,9 +556,9 @@ public class GoalAskPanelTests : IDisposable
         });
     }
 
-    /// <summary>Arriving: it is showing now and was not a moment ago.</summary>
-    private static bool Appears(GoalTileViewModel vm, string name) =>
-        GoalTileView.Appeared(vm, name, wasShowing: false);
+    /// <summary>Whether this property is one of the tile's four request blocks, and showing.</summary>
+    private static bool Shows(GoalTileViewModel vm, string name) =>
+        GoalTileView.Showing(vm, name) is true;
 
     /// <summary>A tile reopened on a saved conversation, which is the only way to a phase it did not
     /// get to by being driven.</summary>
