@@ -106,7 +106,7 @@ enough to make the feature worth having.
   once the cap is passed — never truncated mid-chunk, since each chunk is an indivisible run of wire
   bytes. A terminal stream tolerates dropped history; it does not tolerate torn bytes.
 - Disposal of the subscription must be idempotent and race-free against the pump (tile closed, tile
-  switched, connection gone) — the same shape `OutputActivityLight` already solves for a lighter
+  switched, connection gone) — the same shape `OutputActivitySource` already solves for a lighter
   subscription to the same event; it is the model to copy.
 
 ## Stage 4 — mTiles: subscription plumbing

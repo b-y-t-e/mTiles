@@ -6,6 +6,172 @@ why it is here.
 
 ---
 
+## Session persistence, measured against Herdr
+
+**Where this comes from.** A 2026-09-06 comparison against [Herdr](https://github.com/herdrdev/herdr), a
+terminal-first agent runtime with a server/client split. Herdr's server keeps every pane's process alive
+independently of any attached client, so detach/reattach loses nothing; mTiles is one process, so closing
+the window ends every tile's shell. The comparison is not a case for adopting that architecture — a
+server/client split would change what mTiles *is* — but five gaps in it are worth closing without one.
+
+**Read the corrections before picking one up.** The first draft of this section was written from Herdr's
+feature list rather than from this code, and four of the five entries were wrong about mTiles in ways
+that would have cost something: one named a mechanism that executes the user's scrollback as shell
+commands, one asked for a guard that already exists in a stronger form, one would have left every Claude
+Code tile on a bare shell, and one called an architectural change cheap. Each is recorded below under
+**What was wrong here**, because the alternative is discovering it a second time.
+
+The order is the order worth doing them in, cheapest and safest first.
+
+### 1. A visible sign that a resume actually happened
+
+**Where it hurts.** `IDescribedTile.HeaderNote` shows the instance and model, never whether the session
+underneath is the one from before or a fresh one started because the old id was not found. A user has no
+way to tell "my agent remembers everything" from "my agent just started over" without reading the
+transcript.
+
+**What would settle it.** A short state on `HeaderNote` (or a small badge beside it) — *resumed* vs. *new
+session (previous conversation not found)*.
+
+**Where the fact actually is, and it is not free.** The resume command is chosen *unconditionally*:
+`ClaudeAgent.Resume` (`ClaudeAgent.cs:486`) always emits `claude --resume <id>` with
+`claude --session-id <id>` behind it, and which of the two the tile ends up running is settled by the
+chain, from an exit code, seconds later. `DirectLaunchSession.RunAsync` knows it — it holds the `index`
+it settled on — and tells nobody: there is no callback from the chain back to the tile. So this needs one
+new signal out of `DirectLaunchSession`, not a binding onto something already published.
+
+**And the index alone does not answer it.** For `SessionStrategy.CapturedAfterStart` (codex, agy) an
+empty stored id makes command 0 a *new* conversation by design, so "the startup command stuck" means
+resumed for claude, pi and opencode and means the opposite for the other two. What the badge reads is
+therefore the pair: which command settled, and whether an id was passed to it at all.
+
+> **What was wrong here.** The first draft called this "cheap: the fact already exists at the point the
+> resume command is chosen, it is only not surfaced." It does not exist at that point, and nothing
+> surfaces it afterwards.
+
+### 2. A setting to skip agent resume on launch
+
+**Where it hurts.** Resume is unconditional today. There is no way to say "start every agent fresh this
+time" short of "New session" per tile. Herdr has `[session] resume_agents_on_restore = false` for exactly
+this.
+
+**What would settle it.** A Settings → AI toggle, **Resume agent sessions on startup**, default on; off
+sends every agent tile through a non-resuming launch for that run.
+
+**Three of the five agents can do that for free, and two cannot.** `CapturedAfterStart` (codex, agy)
+already treats an empty session id as "start a plain session", and opencode's non-resuming command is a
+bare `opencode` — for those three, skipping the resume is passing no id and nothing is written down.
+`SessionStrategy.Fixed` is the problem:
+
+- **Claude Code** — the non-resuming command *is* `claude --session-id <tileId>`, and measured against
+  2.1.251 that flag refuses an id already in use ("Session ID … is already in use", exit 1). Sent through
+  it with the tile's own id, both commands in the chain fail fast and the tile lands on a bare
+  interactive shell. Implemented literally, this toggle breaks every Claude Code tile that has ever run.
+- **pi** — `--session-id` creates *and* resumes, so the same id simply resumes the conversation the
+  toggle promised to skip. It fails silently rather than loudly, which is worse.
+
+**So the honest scope is one of two, and it has to be chosen deliberately.** Either the toggle covers the
+three agents that can start fresh without an identity change and says so on the row, or a fresh run on
+claude/pi needs a throwaway session id — and then the conversation it starts is unreachable at the next
+launch unless the id is stored, which is what "New session" already does by replacing the leaf's
+`TileId`.
+
+> **What was wrong here.** The first draft promised "off sends every agent tile through its non-resuming
+> launch path for that run only (not a change to any tile's stored session id)". For claude and pi there
+> is no such path: not changing the stored id is exactly what makes the fresh session impossible or
+> unreachable.
+
+### 3. Two tiles restored holding the same captured session id
+
+**Where it hurts.** A copied or hand-edited layout file can carry the same codex session id on two leaves.
+`AgentTileViewModel`'s constructor claims a stored id (`AgentTileViewModel.cs:107`) with
+`CapturedSessions.Claim`, which is `Held[sessionId] = holder` — last writer wins. Both tiles then resume
+the same conversation, both write it back on the next save, and nothing anywhere says so.
+
+**What would settle it.** `Claim` answering whether it displaced another live holder, and the second tile
+treating a displaced claim the way `AgentSubstitution` is treated: keep running, keep the requested id
+out of `Save`, and say once in `LaunchNotice` that another tile is showing this conversation. Not a
+refusal — two views of one rollout is a mess, not a hazard, and a tile that silently starts a different
+conversation than its layout asked for is the worse of the two.
+
+> **What was wrong here.** The first draft asked for "one `HashSet` of claimed session refs, held for the
+> duration of a workspace restore and threaded through every tile's `Create`", on the premise that
+> `NewestSessionId`'s `tryTake` is "per capture, not per restore pass" and that two tiles could race for
+> one rollout file. Both halves are false, and the fix would have been a regression:
+> `CapturedSessions.TryClaim` is a single `GetOrAdd` (`CapturedSessions.cs:52`), so two captures on the
+> thread pool cannot both come away with one id; the register is **process-wide** and outlives any one
+> restore pass, so it also covers a second workspace opened later, which a per-pass `HashSet` would
+> not; and a restored tile claims its stored id in its constructor, before any capture runs. What is
+> left is the duplicate-*stored*-id case above, which the `HashSet` would have detected and the current
+> register does not.
+
+### 4. Opt-in scrollback capture for plain terminal tiles
+
+**Where it hurts.** `SessionStrategy` covers agent tiles. A plain terminal tile has no equivalent at all:
+after a restart it is an empty shell in the saved cwd, with no trace of what was on screen — unlike
+Herdr's opt-in `pane_history`, which replays the ANSI scrollback into the new shell (presentation only,
+not a live process).
+
+**What would settle it.** A per-install setting (default **off**, for the same reason Herdr's is off —
+terminal output can hold secrets, tokens, prompts), snapshotting the last N lines of the buffer into
+`TerminalTileKind.Save` and painting them back on the next launch. Presentation-only: it must not be read
+as "the shell is back", only as "here is what it last showed".
+
+**`RestartAsync`'s `startupInput` is not the route, and using it would be destructive.** That parameter
+is a *keyboard*, not a screen: `ShellStarter.SplitIntoLines` (`ShellStarter.cs:62`) appends a `\r` to
+every line and the control types them into a live prompt. Handed a scrollback, it would run the last N
+lines of the user's own terminal output as commands, in their working directory, at every launch — with
+whatever a build log, a `--help` or a pasted snippet happens to start a line with.
+
+**The route it does need does not exist yet, and it is in the library.** `TerminalControl` keeps its
+emulator private, exposes no reader for the scrollback's text, and offers nothing that writes into the
+buffer without going to the PTY (`Terminal.Emulation.Terminal.Write` is not reachable from the host). So
+this is two additions to Terminal.Avalonia first — read the buffer out, paint bytes in without sending
+them to the child — and only then a setting here. That is the real cost of this entry.
+
+> **What was wrong here.** The first draft named `RestartAsync(options, startupInput)` as the mechanism,
+> and described the whole thing as a snapshot into `TerminalTileKind.Save`. The mechanism executes the
+> snapshot, and the library API it assumes is not there.
+
+### 5. Surviving a Velopack update — and why Job Objects are not it
+
+**Where it hurts.** An update today means: close the process, every tile's shell and every agent CLI
+inside it dies, relaunch, and whatever `SessionStrategy` can resume, resumes — as a **new** process, not
+the one that was running. An agent mid-task loses whatever state lives only in its running process (a
+long tool call, an open file handle, a REPL's variables). This is the gap that costs users the most, and
+it is also the only one on this list that is not cheap.
+
+**Job Objects do not answer it.** Three measured facts, in the order they defeat the idea:
+
+- A child on Windows **already** survives its parent's exit. `KILL_ON_JOB_CLOSE` is what would kill it;
+  `Terminal.Pty` creates no job object at all, so there is nothing to opt out of.
+- `ConPtyConnection.Dispose` calls `TerminateProcess` on a child that has not exited, by hand. Whatever
+  the OS would have allowed, this code kills them.
+- Even with both of those changed, the pseudoconsole belongs to the exiting process: `Dispose` closes it
+  ("signals EOF to the child so it can exit cleanly"), which takes the OpenConsole host and both pipes
+  with it. A surviving child would be left with no console and no I/O — alive and useless.
+
+**What would actually settle it** is the ConPTY endpoint outliving the GUI: the pseudoconsole handle and
+the pipes held by, or handed to, a process the update does not restart, and re-attached afterwards. That
+is a long-lived process independent of the GUI — the architectural line the rest of this section says
+mTiles is not crossing — so this sits at the bottom of the list rather than the top, and is written down
+here only so the Job Object idea is not had a second time.
+
+> **What was wrong here.** The first draft led with this as item 1, "not urgent" but cheap, on the
+> reasoning that "Job Objects support `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` / omitting
+> `KILL_ON_JOB_CLOSE`, which lets a child survive its parent's exit". It is the most expensive item here
+> and the mechanism was the wrong one.
+
+### What not to chase
+
+Herdr also has detach/reattach across app exit, live PTY handoff between server instances, several
+clients sharing one session, and remote (SSH) access to a session already running elsewhere. All four
+need a long-lived process independent of the GUI — the architectural line mTiles is not crossing. Item 5
+above turned out to need the same thing, which is why it is last rather than first: update continuity is
+the one of these that costs users most today, and there is no cheap substitute for it.
+
+---
+
 ## A control that is a combo box and a search box at once
 
 **Where it hurts.** The agent instance form's **Model** and **Fast model** fields (Settings → AI), and
