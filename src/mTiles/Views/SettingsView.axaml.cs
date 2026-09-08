@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -191,13 +191,17 @@ public partial class SettingsView : UserControl,
         if (_editing is not null || OverlayHost.For(this) is not { } host)
             return;
 
-        var dialog = new SettingsEditDialog { DataContext = DataContext };
-        _editing = dialog;
+        // Building the form is inside the try as well, and that is not tidiness: a constructor that
+        // threw here escaped an async void handler to the dispatcher, where it is not this page's
+        // problem any more and reaches the user as an Add button that does nothing at all.
+        SettingsEditDialog? dialog = null;
 
         // async void: nothing may escape to the dispatcher, where it is a crash rather than a form
         // that failed to open.
         try
         {
+            dialog = new SettingsEditDialog { DataContext = DataContext };
+            _editing = dialog;
             await host.ShowAsync<object>(dialog, width: 560);
         }
         catch (Exception ex)

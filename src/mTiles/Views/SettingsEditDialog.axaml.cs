@@ -1,5 +1,4 @@
-using Avalonia.Controls;
-using Avalonia.Markup.Xaml;
+﻿using Avalonia.Controls;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.Linq;
@@ -18,6 +17,15 @@ namespace mTiles.Views;
 /// </remarks>
 public partial class SettingsEditDialog : UserControl, OverlayHost.IFocusOnOpen
 {
+    /// <remarks>
+    /// <b>No hand-written <c>InitializeComponent</c> here.</b> One that only calls
+    /// <c>AvaloniaXamlLoader.Load(this)</c> hides the generated one, and it is the generated one that
+    /// assigns the <c>x:Name</c> fields — so <see cref="AgentModelBox"/> was null and the constructor
+    /// threw a <c>NullReferenceException</c> on the line below. The form is built inside an
+    /// <c>async void</c> handler, so that failure never reached a user as anything but a button that
+    /// did nothing: <b>every one of the four forms — agent, provider, sign-in and manual database
+    /// connection — stopped opening at all.</b>
+    /// </remarks>
     public SettingsEditDialog()
     {
         InitializeComponent();
@@ -28,8 +36,6 @@ public partial class SettingsEditDialog : UserControl, OverlayHost.IFocusOnOpen
         AgentModelBox.ItemFilter = MatchesModel;
         AgentFastModelBox.ItemFilter = MatchesModel;
     }
-
-    private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
     private static bool MatchesModel(string? search, object? item) =>
         ModelSearch.Matches(search, item as string);

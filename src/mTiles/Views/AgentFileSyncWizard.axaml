@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="mTiles.Views.AgentFileSyncWizard">
 
@@ -7,7 +7,7 @@
         <StackPanel Spacing="14">
 
             <TextBlock x:Name="TitleText"
-                       Text="Sync CLAUDE.md ↔ AGENTS.md"
+                       Text="Sync CLAUDE.md ⇄ AGENTS.md"
                        FontFamily="{DynamicResource UiFontFamily}"
                        FontSize="{DynamicResource FontLg}"
                        FontWeight="SemiBold"

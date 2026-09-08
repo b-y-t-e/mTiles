@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -101,14 +101,18 @@ public partial class WorkspacesPanelView : UserControl
     private static MenuItem BuildAgentFileSyncMenuItem(WorkspacesPanelViewModel vm, WorkspaceItemViewModel item)
     {
         var canToggle = vm.CanToggleAgentFileSync;
+        var isOn = vm.IsAgentFileSyncEnabled(item);
         var menuItem = new MenuItem
         {
-            Header = "Sync CLAUDE.md ↔ AGENTS.md",
+            // The connector carries the state as well as the checkbox does: two arrows while the two
+            // files are being kept identical, one cut through the middle while they are free to drift. The
+            // menu is rebuilt every time it opens, so this is read once and never has to be updated.
+            Header = isOn ? "CLAUDE.md ⇄ AGENTS.md" : "CLAUDE.md ⇹ AGENTS.md",
             // A real checkbox rather than an appended "✓" — the same ToggleType Avalonia's MenuItem
             // already gives the tile header's "Run as" entries, so a checked state reads the same way
             // everywhere in the app.
             ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = vm.IsAgentFileSyncEnabled(item),
+            IsChecked = isOn,
             IsEnabled = canToggle,
             Command = vm.ToggleAgentFileSyncCommand,
             CommandParameter = item
