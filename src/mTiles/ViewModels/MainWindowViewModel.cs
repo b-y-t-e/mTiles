@@ -270,7 +270,23 @@ public partial class MainWindowViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>Asks an ordinary yes/no question — the window's own Confirm dialog.</summary>
+    /// <remarks>
+    /// <b>One callback per question, because the words belong to the question.</b> This was the only
+    /// one, and the view wired it with the update's own title and button — so Unload, which is the
+    /// other thing on this view model that asks anything, put "Its tiles are closed and everything
+    /// running in them stops." under a heading that said <i>Update Available</i>, over a button that
+    /// said <i>Update</i>. Pressing it unloaded the workspace, which is the one saving grace: the
+    /// dialog lied about what it was asking, not about what it did.
+    /// </remarks>
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
+
+    /// <summary>Offers the update that is ready, in its own words.</summary>
+    /// <remarks>Separate rather than a title parameter on <see cref="ConfirmAction"/>: a parameter is
+    /// still one wiring somebody can bake a title into, and this is the shape the rest of the
+    /// application already uses for a dialog that is its own thing (<c>ShowError</c>,
+    /// <c>PromptInput</c>, <c>RunSpeechSetup</c>).</remarks>
+    public Func<string, Task<bool>>? ConfirmUpdateAction { get; set; }
 
     /// <summary>Shows the settings dialog on a given tab, for a tile that has settings of its own
     /// elsewhere.</summary>
@@ -288,7 +304,7 @@ public partial class MainWindowViewModel : ObservableObject
     private async Task ApplyUpdateAsync()
     {
         if (!_updateService.HasUpdate) return;
-        var confirm = ConfirmAction;
+        var confirm = ConfirmUpdateAction;
         if (confirm != null)
         {
             var accepted = await confirm($"Version {_updateService.NewVersion} is ready. Restart now to update?");

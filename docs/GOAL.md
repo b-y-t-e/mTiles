@@ -378,6 +378,23 @@ were started — while the baseline was taken moments earlier, so `diff baseline
 the reviewer was handed a prompt with no working tree in it at all. Scoping is right for every lap after
 the tool has been working and wrong for the one that opens on somebody else's changes.
 
+**The transcript follows its end the way a terminal does** (`TranscriptFollow`, pure and argued in a
+table test): it scrolls only for a reader who was already at the bottom — within a line and a half of
+it, which covers the last message being measured and an inner markdown view settling a pass later — and
+leaves anybody who has scrolled up exactly where they are. Content that fits follows too, and by the
+same subtraction rather than a branch: with no scrollbar the distance from the bottom is zero. **The
+answer has to be read before the new content is measured**, which is why the decision is taken when the
+message arrives and kept for the turn: a turn later the extent has grown by the height of what just
+arrived, and the reader who was at the bottom looks scrolled up by exactly that much.
+
+The one thing that overrules a reader's position is **one of the tile's requests appearing** — the
+round of questions, the plan waiting to be approved, the composer coming back, the finished-run
+actions. Those are not a message streaming past during a run: the tile has stopped and needs an answer,
+and off screen it looks like a tile doing nothing with nowhere to type. It happens a handful of times
+in a run against a message every few seconds, and `Showing` names exactly which four (`CanDetectGoal`
+is deliberately not among them — it is fed by the git watcher, so it turns over when a file changes in
+a terminal tile next door).
+
 **Everything a finished run offers sits in one bar, and the bar says nothing.** Re-review, Commit and
 Continue each appear on their own condition, right-aligned, with no prose beside them. They used to be a
 strip each with a line of explanation — *The attempts ran out.*, *This run's changes are not committed.*

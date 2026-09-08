@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia;
@@ -204,13 +204,11 @@ public partial class GoalTileView : UserControl
     }
 
     /// <summary>Whether the reader is watching the run rather than reading back through it.</summary>
+    /// <remarks>The rule itself is <see cref="TranscriptFollow"/> — pure, so it can be argued in a
+    /// table test; this only reads the three numbers off the scroller, which cannot be.</remarks>
     private bool IsNearTheEnd() =>
-        ChatScroll.Extent.Height - ChatScroll.Viewport.Height - ChatScroll.Offset.Y <= StuckToBottom;
-
-    /// <summary>How far off the bottom still counts as watching the run rather than reading the
-    /// history. A line and a half: enough that a message arriving as the last one is measured does not
-    /// break the follow, and short enough that a deliberate scroll up does.</summary>
-    private const double StuckToBottom = 48;
+        TranscriptFollow.ShouldFollow(
+            ChatScroll.Extent.Height, ChatScroll.Viewport.Height, ChatScroll.Offset.Y);
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

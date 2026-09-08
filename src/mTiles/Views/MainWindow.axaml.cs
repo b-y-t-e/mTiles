@@ -146,7 +146,12 @@ public partial class MainWindow : Window
                 });
             }
 
-            vm.ConfirmAction = message => MessageDialog.ConfirmAsync(
+            // Two dialogs, because they ask two different things. One wiring with the update's title
+            // and button baked into it is what put "Unload workspace?" under an "Update Available"
+            // heading, over a button marked Update.
+            vm.ConfirmAction = message =>
+                MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: false);
+            vm.ConfirmUpdateAction = message => MessageDialog.ConfirmAsync(
                 this, "Update Available", message, whenUnavailable: false,
                 MessageDialog.Tone.Info, confirmText: "Update");
             SwitchWorkspaceView(vm.CurrentWorkspace);

@@ -1,4 +1,4 @@
-using Avalonia.Headless;
+﻿using Avalonia.Headless;
 using mTiles.Services;
 using mTiles.ViewModels;
 using Xunit;
@@ -127,5 +127,33 @@ public class WorkspaceUnloadTests : IDisposable
     public void Dispose()
     {
         try { Directory.Delete(_dir, recursive: true); } catch { }
+    }
+
+    /// <summary>Unload asks its own question, not the update's.</summary>
+    /// <remarks>
+    /// One callback served both, and the window wired it with the update's title and button — so
+    /// pressing Unload raised a dialog headed <i>Update Available</i> with an <i>Update</i> button, over
+    /// the unload text. It unloaded the workspace when pressed, so nothing was lost but the user's
+    /// confidence in what the button does; a wrong heading on a destructive question is exactly where
+    /// somebody presses the wrong thing.
+    /// </remarks>
+    [Fact]
+    public void Unloading_does_not_borrow_the_update_dialog()
+    {
+        OnUiThread(() =>
+        {
+            var vm = NewWindow();
+            var panel = vm.WorkspacesPanel;
+
+            var askedToUnload = new List<string>();
+            var askedToUpdate = new List<string>();
+            vm.ConfirmAction = m => { askedToUnload.Add(m); return Task.FromResult(true); };
+            vm.ConfirmUpdateAction = m => { askedToUpdate.Add(m); return Task.FromResult(true); };
+
+            panel.UnloadWorkspaceCommand.Execute(panel.SelectedWorkspace!);
+
+            Assert.Contains(askedToUnload, m => m.Contains("Unload workspace"));
+            Assert.Empty(askedToUpdate);
+        });
     }
 }
