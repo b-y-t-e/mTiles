@@ -322,29 +322,8 @@ public class GoalBaselineTests
         Assert.Empty(scope.LeftAlone);
     }
 
-    /// <summary>Fails loudly rather than passing quietly. See the note on this class.</summary>
-    private static void RequireGit() =>
-        Assert.True(HasGit(), "git is not on PATH, so none of these can say anything about GoalBaseline.");
-
-    private static bool HasGit()
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo("git", "--version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            p!.WaitForExit(5000);
-            return p.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    /// <summary>Fails loudly rather than passing quietly. See <see cref="RequiresGit"/>.</summary>
+    private static void RequireGit() => RequiresGit.OrFail("GoalBaseline");
 
     /// <summary>
     /// A closing snapshot git no longer has degrades the scope, it does not block the commit.
