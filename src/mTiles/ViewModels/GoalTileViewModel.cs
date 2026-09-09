@@ -1969,7 +1969,7 @@ public partial class GoalTileViewModel
 
         await RunPhaseAsync(GoalPhase.Clarify, "AI is checking the goal...",
             _engine.BuildClarifyPrompt(PromptBudget(), noQuestions),
-            answer => OnClarifyAnsweredAsync(answer, noQuestions));
+            run => OnClarifyAnsweredAsync(run, noQuestions));
     }
 
     /// <summary>
@@ -1981,10 +1981,10 @@ public partial class GoalTileViewModel
     /// </para>
     /// </summary>
     /// <inheritdoc cref="RunClarifyAsync"/>
-    private async Task OnClarifyAnsweredAsync(string answer, bool noQuestions)
+    private async Task OnClarifyAnsweredAsync(AiRun run, bool noQuestions)
     {
-        var clarify = await SalvagedAsync(GoalResponseParser.ParseClarify(answer),
-            GoalResponseParser.ParseClarify, "round");
+        var clarify = await SalvagedAsync(GoalResponseParser.ParseClarify(run.Text),
+            GoalResponseParser.ParseClarify, "round", run.Transcript);
         _engine.ClarifyRounds++;
 
         // A run nobody is going to answer plans whatever came back. The tool was told not to ask, and
@@ -2149,7 +2149,7 @@ public partial class GoalTileViewModel
     /// for the user.
     /// </param>
     private async Task RunPhaseAsync(GoalPhase phase, string runningLabel, string prompt,
-        Func<string, Task>? onAnswered = null)
+        Func<AiRun, Task>? onAnswered = null)
     {
         // The same guard the implement/review loop has, and it was missing here for the same reason it
         // was missing there: nothing between two phases asks. A pause taken after a clarification round
@@ -2185,8 +2185,10 @@ public partial class GoalTileViewModel
                     // anything else sets a plan.
                     RefreshAsk();
 
+                // The whole run rather than its text: a block the tool's last message did not carry
+                // is still in the turn, and only the run knows the turn. See SalvagedAsync.
                 if (onAnswered != null)
-                    await onAnswered(run.Text!);
+                    await onAnswered(run);
                 else
                     await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase, markdown: true);
 
@@ -2407,7 +2409,7 @@ public partial class GoalTileViewModel
                 if (reviewRun is not { } reviewed) return;
 
                 var review = await SalvagedAsync(GoalResponseParser.ParseReview(reviewed.Text),
-                    GoalResponseParser.ParseReview, "review");
+                    GoalResponseParser.ParseReview, "review", reviewed.Transcript);
                 ShowFindings(review);
                 // The head as text, the findings as findings. They used to be one string, so the one
                 // part of the transcript arranged to be scanned was also the one part with no colour
@@ -2760,7 +2762,7 @@ public partial class GoalTileViewModel
         if (reviewRun is not { } reviewed) return null;
 
         var review = await SalvagedAsync(GoalResponseParser.ParseReview(reviewed.Text),
-            GoalResponseParser.ParseReview, "review");
+            GoalResponseParser.ParseReview, "review", reviewed.Transcript);
         ShowFindings(review);
         await AddMessageAsync(GoalMessageRole.Assistant,
             GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
@@ -2836,7 +2838,7 @@ public partial class GoalTileViewModel
         if (run is not { } reviewed) return false;
 
         var review = await SalvagedAsync(GoalResponseParser.ParseReview(reviewed.Text),
-            GoalResponseParser.ParseReview, "review");
+            GoalResponseParser.ParseReview, "review", reviewed.Transcript);
         ShowFindings(review);
         await AddMessageAsync(GoalMessageRole.Assistant,
             GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
@@ -3035,8 +3037,15 @@ public partial class GoalTileViewModel
             // Held against the scope rather than trusted. A path the tool invented — or one it copied
             // out of the diff from the user's own parallel work — would put somebody else's change
             // into a commit claiming to be about this goal.
+            // Read out of the whole turn when the last message did not carry it, the same rule
+            // SalvagedAsync follows and for the same reason: a tool that writes its plan and then adds
+            // a closing paragraph puts the block one message back. Not through SalvagedAsync itself —
+            // a commit plan has no prose fallback and no salvage round to order this against, so the
+            // whole of the rule here is "the answer first, then the turn".
             var planned = run.Verdict == GoalRunVerdict.Answered
-                ? GoalResponseParser.ParseCommitPlan(run.Text)
+                ? GoalResponseParser.ParseCommitPlan(run.Text) is { Count: > 0 } fromAnswer
+                    ? fromAnswer
+                    : await CommitPlanFromEarlierInTurnAsync(run.Transcript)
                 : [];
             var commits = GoalCommitPlan.Sound(planned, scope);
 
@@ -3113,7 +3122,7 @@ public partial class GoalTileViewModel
     // ── AI process execution ────────────────────────────
 
     /// <summary>
-    /// One re-send for a block that arrived as the JSON this tile asked for and broke on the way.
+    /// Three ways to get the block this tile asked for, before the answer is given up on as prose.
     /// </summary>
     /// <remarks>
     /// <para>Measured live, 2026-09-01: a reviewer answering in Polish put a C# interpolation with its
@@ -3133,12 +3142,19 @@ public partial class GoalTileViewModel
     /// instead of a re-run of the phase over the whole working tree. It fires only when the text still
     /// <em>looks</em> like the requested shape (<see cref="GoalResponseParser.LooksLikeJson"/>): a prose
     /// answer earns no second call. <see cref="JsonRepair"/> has already run, free, inside the parser,
-    /// so this is for what no rule can mend — and when the re-send fails too, the original result is
-    /// what returns, so today's behaviour stands behind it.</para>
+    /// so this is for what no rule can mend.</para>
+    /// <para><b>The third way is the turn behind the answer</b>, which is the last thing tried and the
+    /// only one that costs nothing: see <see cref="EarlierInTheTurnAsync{TBlock}"/> for why it goes
+    /// after the re-send and not before it. When none of the three finds a block, the original result
+    /// is what returns and the prose fallback answers, so the oldest behaviour still stands behind
+    /// all of it.</para>
     /// </remarks>
     /// <param name="subject">What the tile calls this block in the note it shows while re-asking.</param>
+    /// <param name="transcript">Everything the tool said this run, when it could be told. The last
+    /// resort before prose, and free.</param>
     private async Task<TBlock> SalvagedAsync<TBlock>(
-        TBlock parsed, Func<string?, TBlock> reread, string subject) where TBlock : IGoalParsedBlock
+        TBlock parsed, Func<string?, TBlock> reread, string subject, string? transcript = null)
+        where TBlock : class, IGoalParsedBlock
     {
         if (parsed.WasStructured)
         {
@@ -3146,26 +3162,112 @@ public partial class GoalTileViewModel
             return parsed;
         }
 
-        if (!GoalResponseParser.LooksLikeJson(parsed.RawText))
+        if (GoalResponseParser.LooksLikeJson(parsed.RawText))
         {
-            _log?.Event($"PARSED   {subject} - not structured and not JSON-shaped, taken as prose.");
-            return parsed;
+            _log?.Block($"PARSED   {subject} - JSON-shaped and unparseable, re-asking the tool for it",
+                parsed.RawText);
+
+            await AddMessageAsync(GoalMessageRole.System,
+                $"The {subject} came back as JSON this tile could not parse — asking the tool to re-send " +
+                "the same block in a valid form.", CurrentPhase);
+
+            var salvaged = await RunAiAsync(_engine.BuildJsonSalvagePrompt(parsed.RawText),
+                announceFailure: false);
+            var second = reread(salvaged.Text);
+
+            _log?.Event($"PARSED   {subject} - the re-send "
+                + (second.WasStructured ? "parsed." : "did not parse either."));
+
+            if (second.WasStructured) return second;
         }
 
-        _log?.Block($"PARSED   {subject} - JSON-shaped and unparseable, re-asking the tool for it",
-            parsed.RawText);
+        if (await EarlierInTheTurnAsync(parsed, reread, subject, transcript) is { } earlier)
+            return earlier;
+
+        _log?.Event($"PARSED   {subject} - not structured anywhere in the turn, taken as prose.");
+        return parsed;
+    }
+
+    /// <summary>
+    /// The same block, read out of the whole turn rather than out of the tool's last message.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The answer is the last message and the deliverable is not always in it.</b> Measured
+    /// live, 2026-09-09: a review sixteen minutes in had already written its json block when a
+    /// background task of its own finished, so it wrote one more paragraph about that — "the review
+    /// above is complete, there is nothing new" — and Claude Code's <c>result</c> line, which is its
+    /// final message and the whole of what this side reads, was that paragraph. The findings, the
+    /// severities and the verdict went to a message nobody looked at, the tile showed no blockers, no
+    /// errors and no warnings, and the goal was marked unmet with the paragraph handed to the next
+    /// attempt as "the findings from the previous review".</para>
+    /// <para><b>Last, not first, and the order of the three attempts is the whole of the safety.</b> A
+    /// block that parsed is never overridden — this is only reached when the last message carried none
+    /// — and a broken block in the last message is re-asked of the tool <em>before</em> this, because
+    /// it is the tool's newer word and a valid block three messages back is a draft it moved on
+    /// from. What is left for this is the case where the last message is not an answer at all.</para>
+    /// <para><b>Within the turn the last block still wins</b>, which is <c>ExtractJson</c>'s own rule
+    /// and costs nothing to keep: the transcript is in the order the tool wrote it, so a schema the
+    /// tool echoed on its way in loses to the review it wrote afterwards. That echo is the one way this
+    /// can be wrong, which is why it is said out loud — in the log and in the transcript — rather than
+    /// quietly preferred.</para>
+    /// <para>Free: no process, no second call, and the string was built by the reader that was running
+    /// anyway. Empty for an agent that cannot stream, where the turn <em>is</em> the answer.</para>
+    /// </remarks>
+    private async Task<TBlock?> EarlierInTheTurnAsync<TBlock>(
+        TBlock parsed, Func<string?, TBlock> reread, string subject, string? transcript)
+        where TBlock : class, IGoalParsedBlock
+    {
+        if (transcript is not { Length: > 0 } whole || whole == parsed.RawText) return null;
+
+        var earlier = reread(whole);
+        if (!earlier.WasStructured) return null;
+
+        // The whole turn, and only down this path. A run's transcript is most of a goal log on its own,
+        // and logging it every time would bury the one thing these files are read for; logged here it
+        // is the evidence for a reading that came from somewhere other than the answer — which is
+        // exactly what was missing the day this was found.
+        _log?.Block($"PARSED   {subject} - the tool's last message carried no block; taken from an "
+            + "earlier message of the same turn", whole);
+
+        // Said on screen too. This is the one reading here that can be wrong in a way the user could
+        // otherwise never see: a tool that echoed the shape it was asked for and then never answered
+        // would have its example read as the answer, and a review of somebody else's example is worth
+        // knowing about.
+        await AddMessageAsync(GoalMessageRole.System,
+            $"The tool's last message was not the {subject} — it was taken from an earlier message of "
+            + "the same run.", CurrentPhase);
+
+        return earlier;
+    }
+
+    /// <summary>
+    /// The commit plan, read out of the whole turn when the tool's last message carried none.
+    /// </summary>
+    /// <remarks>
+    /// The same substitution <see cref="EarlierInTheTurnAsync{TBlock}"/> makes for clarify and review,
+    /// and the same reason for it: a tool interrupted by something of its own finishing writes one more
+    /// paragraph, and that paragraph — not the plan before it — becomes the last message. Not routed
+    /// through <see cref="SalvagedAsync{TBlock}"/> itself, because a commit plan has no prose fallback
+    /// and no salvage round to order this against; the visibility <c>EarlierInTheTurnAsync</c> gives the
+    /// same reading — a log entry and a line in the transcript — is repeated here by hand instead, for
+    /// the reason given there: an echoed example read as the answer is the one way this can be wrong,
+    /// and it must not happen silently.
+    /// </remarks>
+    private async Task<List<GoalCommit>> CommitPlanFromEarlierInTurnAsync(string? transcript)
+    {
+        if (transcript is not { Length: > 0 } whole) return [];
+
+        var earlier = GoalResponseParser.ParseCommitPlan(whole);
+        if (earlier.Count == 0) return earlier;
+
+        _log?.Block("PARSED   commit plan - the tool's last message carried no usable plan; taken from "
+            + "an earlier message of the same turn", whole);
 
         await AddMessageAsync(GoalMessageRole.System,
-            $"The {subject} came back as JSON this tile could not parse — asking the tool to re-send " +
-            "the same block in a valid form.", CurrentPhase);
+            "The tool's last message did not carry a usable commit plan — it was taken from an earlier "
+            + "message of the same run.", CurrentPhase);
 
-        var salvaged = await RunAiAsync(_engine.BuildJsonSalvagePrompt(parsed.RawText), announceFailure: false);
-        var second = reread(salvaged.Text);
-
-        _log?.Event($"PARSED   {subject} - the re-send "
-            + (second.WasStructured ? "parsed." : "did not parse either; keeping the first answer."));
-
-        return second.WasStructured ? second : parsed;
+        return earlier;
     }
 
     /// <summary>
@@ -3175,7 +3277,11 @@ public partial class GoalTileViewModel
     /// its own bug — cancellation, then a missing tool, then a failed process — with a call site
     /// somewhere forgetting the newest one every time.</para>
     /// </summary>
-    private readonly record struct AiRun(GoalRunVerdict Verdict, string? Text);
+    /// <param name="Transcript">Everything the tool said this run, in order, when it could be told —
+    /// <see cref="AiOutput.Transcript"/>. Never what the user is shown and never what a verdict is
+    /// judged on: it is where <see cref="SalvagedAsync"/> looks for a block the last message did not
+    /// carry.</param>
+    private readonly record struct AiRun(GoalRunVerdict Verdict, string? Text, string? Transcript = null);
 
     /// <summary>
     /// What the agent is being asked to do right now: the phase, and whether the criteria oblige it to
@@ -3434,7 +3540,7 @@ public partial class GoalTileViewModel
 
             var verdict = GoalLoopPolicy.Judge(result.Text, cancelled: false);
             _log?.Event($"VERDICT  {phase} - {verdict}.");
-            return new AiRun(verdict, result.Text);
+            return new AiRun(verdict, result.Text, result.Transcript);
         }
         catch (OperationCanceledException)
         {
@@ -3468,7 +3574,11 @@ public partial class GoalTileViewModel
     /// one. Returned rather than kept inside because the loop compares the tree an implementation
     /// started from with the tree the review was handed, which is how it notices a tool that did
     /// nothing at all.</param>
-    private readonly record struct LoopAnswer(string Text, WorktreeSnapshot Tree);
+    /// <param name="Transcript">Everything the tool said this run — <see cref="AiRun.Transcript"/>.
+    /// Carried for the same reason the text is, and used by nothing but the block readers: a review
+    /// whose json went to a message before the last one is still in here.</param>
+    private readonly record struct LoopAnswer(
+        string Text, WorktreeSnapshot Tree, string? Transcript = null);
 
     /// <summary>
     /// One phase of the implement/review loop: move into it, read the working tree, ask the tool, and
@@ -3521,7 +3631,7 @@ public partial class GoalTileViewModel
             await AddMessageAsync(GoalMessageRole.Assistant, run.Text!, phase, markdown: true);
 
         if (run.Verdict == GoalRunVerdict.Answered)
-            return new LoopAnswer(run.Text!, tree);
+            return new LoopAnswer(run.Text!, tree, run.Transcript);
 
         await HandleNonAnswerAsync(run.Verdict, phase);
         return null;

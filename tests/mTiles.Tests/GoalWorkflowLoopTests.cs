@@ -3359,4 +3359,221 @@ public class GoalWorkflowLoopTests : IDisposable
             return Task.CompletedTask;
         });
     }
+
+    // ── A block the tool's last message did not carry ───
+
+    /// <summary>
+    /// What a tool said in one run: its last message, and the whole turn behind it.
+    /// </summary>
+    /// <remarks>Only <c>AiOutput.Text</c> reaches the user and the verdict; the turn is where a block
+    /// the last message did not carry is still to be found.</remarks>
+    private void AnswerWithTurns(params (string Answer, string? Turn)[] answers)
+    {
+        var asked = 0;
+        GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+        {
+            var (answer, turn) = answers[Math.Min(asked++, answers.Length - 1)];
+            return Task.FromResult(AiOutput.Answered(answer) with { WholeTurn = turn ?? "" });
+        };
+    }
+
+    /// <summary>What a tool writes when something of its own finishes while it is answering: one more
+    /// paragraph, which is then its last message and the whole of what a reader of the answer sees.
+    /// </summary>
+    private const string Epilogue = "The review above is complete, there is nothing new.";
+
+    [Fact]
+    public void A_review_the_last_message_did_not_carry_is_read_out_of_the_turn()
+    {
+        // Measured live, 2026-09-09. Sixteen minutes into a review the tool's own background task
+        // finished, so it wrote one more paragraph about that — and Claude Code's result line, which is
+        // its last message and the whole of what this side reads, was that paragraph. The findings, the
+        // severities and the verdict went to a message nobody looked at: the tile showed no blockers,
+        // no errors and no warnings, marked the goal unmet, and handed the paragraph to the next
+        // attempt as "the findings from the previous review".
+        OnUiThread(async () =>
+        {
+            AnswerWithTurns(
+                ("Which files?", null),
+                (NoMoreQuestions, null),
+                ("The plan", null),
+                ("Implemented it", null),
+                (Epilogue, CleanReview + "\n\n" + Epilogue));
+
+            using var vm = NewTile();
+            await RunToSummary(vm);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Text.StartsWith("Goal completed"));
+
+            // And said out loud, because this is the one reading here the user could not otherwise see.
+            Assert.Contains(vm.Messages,
+                m => m.Text.Contains("taken from an earlier message of the same run"));
+        });
+    }
+
+    [Fact]
+    public void A_block_the_last_message_did_carry_is_never_overridden_by_an_earlier_one()
+    {
+        // The order is the whole of the safety: the turn is only read when the answer carried nothing.
+        // An earlier draft — or a schema the tool echoed on its way in — must not beat what it
+        // actually answered with.
+        OnUiThread(async () =>
+        {
+            AnswerWithTurns(
+                ("Which files?", null),
+                (NoMoreQuestions, null),
+                ("The plan", null),
+                ("Implemented it", null),
+                (CleanReview, ErrorReview + "\n\n" + CleanReview));
+
+            using var vm = NewTile();
+            await RunToSummary(vm);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Text.StartsWith("Goal completed"));
+            Assert.DoesNotContain(vm.Messages,
+                m => m.Text.Contains("taken from an earlier message of the same run"));
+        });
+    }
+
+    [Fact]
+    public void The_last_block_of_a_turn_wins_the_way_the_last_block_of_an_answer_does()
+    {
+        // ExtractJson's own rule, kept across the turn: the transcript is in the order the tool wrote
+        // it, so a shape it echoed while reading the prompt loses to the review it wrote afterwards.
+        OnUiThread(async () =>
+        {
+            AnswerWithTurns(
+                ("Which files?", null),
+                (NoMoreQuestions, null),
+                ("The plan", null),
+                ("Implemented it", null),
+                (Epilogue, ErrorReview + "\n\n" + CleanReview + "\n\n" + Epilogue));
+
+            using var vm = NewTile();
+            await RunToSummary(vm);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.Contains(vm.Messages, m => m.Text.StartsWith("Goal completed"));
+        });
+    }
+
+    // ── The same fallback, for the commit plan ──────────
+
+    /// <summary>
+    /// A commit plan the tool's last message did not carry is read out of the turn, exactly as a review
+    /// or a clarification round is — and said out loud the same way, because <c>CommitWorkAsync</c> has
+    /// no salvage round to lean on and this is the one place the substitution could otherwise pass
+    /// unnoticed.
+    /// </summary>
+    /// <remarks>
+    /// Needs a real repository: <c>GoalCommitter.ScopeAsync</c> refuses to say anything about a
+    /// directory git does not recognise, and this test is about what happens once it has — a plan is
+    /// asked for and used, not the earlier "git could not say what changed" branch every other test in
+    /// this file gets by stubbing <see cref="GoalBaseline"/> away.
+    /// </remarks>
+    [Fact]
+    public void A_commit_plan_the_last_message_did_not_carry_is_read_out_of_the_turn()
+    {
+        OnUiThread(async () =>
+        {
+            Assert.True(HasGit(), "git is not on PATH, so this cannot say anything about the commit flow.");
+
+            // Three commits so a baseline in the middle has both a parent and a grandparent —
+            // GoalCommitter.ScopeAsync reads baseline^ and baseline^^ to work out what the user had
+            // already changed before the goal started.
+            Git("init -q");
+            Git("config user.name tester");
+            Git("config user.email tester@localhost");
+            Git("config commit.gpgsign false");
+            File.WriteAllText(Path.Combine(_dir, "seed.txt"), "a\n");
+            Git("add -A");
+            Git("commit -q -m c0");
+            File.WriteAllText(Path.Combine(_dir, "seed.txt"), "b\n");
+            Git("add -A");
+            Git("commit -q -m c1");
+            File.WriteAllText(Path.Combine(_dir, "seed.txt"), "c\n");
+            Git("add -A");
+            Git("commit -q -m baseline");
+            var baseline = Git("rev-parse HEAD").Trim();
+
+            // The first capture is the goal's own baseline; every one after it is the closing snapshot.
+            // Answering None for those keeps the scope unbounded, so it is read against the working tree
+            // as it stands now — which is where the run's own uncommitted file actually is.
+            var captures = 0;
+            GoalBaseline.Factory = (_, _) => Task.FromResult(
+                ++captures == 1 ? new GoalBaselineResult(baseline, false) : GoalBaselineResult.None);
+
+            // The run's own work: written to the tree and never committed, exactly as an implementation
+            // attempt leaves it for the review and then the commit to find.
+            File.WriteAllText(Path.Combine(_dir, "Feature.cs"), "class Feature { }\n");
+
+            const string plan = "```json\n{\"commits\":[{\"type\":\"feat\",\"subject\":\"add feature\"," +
+                                 "\"files\":[\"Feature.cs\"]}]}\n```";
+
+            AnswerWithTurns(
+                ("Which files?", null),
+                (NoMoreQuestions, null),
+                ("The plan", null),
+                ("Implemented it", null),
+                (CleanReview, null),
+                // The commit-plan run: interrupted the same way a review can be, so the plan is one
+                // message back from the one this side would otherwise read as the whole of the answer.
+                (Epilogue, plan + "\n\n" + Epilogue));
+
+            using var vm = NewTile();
+            await RunToSummary(vm);
+            Assert.True(vm.CanCommit);
+
+            await vm.CommitWorkCommand.ExecuteAsync(null);
+
+            // The plan's own commit, made under the subject the transcript carried — plus a sweep-up
+            // chore for whatever else this test's own harness left lying uncommitted (the tile's
+            // settings file, outside the .mtiles/ exclusion), which is unrelated to what this test is
+            // about.
+            Assert.Contains("feat: add feature", Git("log --format=%s -2"));
+            Assert.Contains(vm.Messages, m =>
+                m.Text.Contains("did not carry a usable commit plan")
+                && m.Text.Contains("taken from an earlier message of the same run"));
+        });
+    }
+
+    private static bool HasGit()
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "git", "--version")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            p!.WaitForExit(5000);
+            return p.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private string Git(string arguments)
+    {
+        using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+            "git", arguments)
+        {
+            WorkingDirectory = _dir,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        })!;
+        var output = p.StandardOutput.ReadToEnd();
+        p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        return output;
+    }
 }

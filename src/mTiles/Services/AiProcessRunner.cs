@@ -282,9 +282,10 @@ public static class AiProcessRunner
         if (process.HasExited && process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
             return AiOutput.Failure(
                 $"{output.Text.Trim()}\n\n[stderr] {stderr.Trim()}".Trim())
-                with { PermissionDenials = output.PermissionDenials };
+                with { PermissionDenials = output.PermissionDenials, WholeTurn = output.WholeTurn };
 
-        return new AiOutput(output.Text.Trim(), output.Failed, output.PermissionDenials);
+        return new AiOutput(output.Text.Trim(), output.Failed, output.PermissionDenials)
+            with { WholeTurn = output.WholeTurn };
     }
 
     /// <summary>The whole of standard output, for a tool that cannot say anything about itself as it
@@ -301,6 +302,12 @@ public static class AiProcessRunner
     /// final text rather than this side's reassembly of the pieces. Falling back to the pieces matters
     /// all the same: a run killed part way through has no result line, and the text it did produce is
     /// better than nothing to show for it.</para>
+    /// <para><b>The pieces are kept either way</b>, as <see cref="AiOutput.WholeTurn"/>. The result
+    /// line is the tool's last message and not necessarily the one carrying the block a caller asked
+    /// for — a tool interrupted by something of its own finishing writes one more paragraph, and that
+    /// paragraph is then the whole of the answer. Nothing here decides what to do about it; it costs
+    /// a string this method was already building and it is the only place the rest of the turn
+    /// exists.</para>
     /// <para>A line that parses to nothing is dropped, which is most of them — init, usage, tool
     /// results. Reading them is how the tile knows the difference between a tool that finished and one
     /// that stopped, which is the whole reason for streaming: with plain text output those two are the
@@ -351,11 +358,14 @@ public static class AiProcessRunner
                         break;
 
                     case AiChunkKind.Text:
-                        // Appended without a newline. A whole assistant message ends where it ends, and a
-                        // content_block_delta is a fragment — often half a word — so a line break between
-                        // them puts one inside the word. Claude emits no deltas without
-                        // --include-partial-messages, so this is unreached today and is written for the day
-                        // it is not.
+                        // A whole message starts a paragraph of its own; a fragment is glued on, and
+                        // AiOutputChunk.Partial is which of the two this is. Both halves are needed: a
+                        // content_block_delta is often half a word, so a break between two of those puts
+                        // one inside the word, while two whole messages run together end a code fence in
+                        // the middle of a line and take the block inside it with them. Claude emits no
+                        // deltas without --include-partial-messages, so the fragment half is unreached
+                        // today and is written for the day it is not.
+                        if (!chunk.Partial && text.Length > 0) text.Append("\n\n");
                         text.Append(chunk.Content);
                         break;
 
@@ -378,7 +388,13 @@ public static class AiProcessRunner
             : text.Length > 0 ? text.ToString().TrimEnd()
             : "";
 
-        if (error is not { Length: > 0 }) return AiOutput.Answered(answer) with { PermissionDenials = denied };
+        // Kept whether or not it was needed as the answer, because it answers a different question: the
+        // block this tile asks for is the deliverable, and the tool's final message is not always where
+        // the tool put it. See AiOutput.WholeTurn.
+        var whole = text.ToString().TrimEnd();
+
+        if (error is not { Length: > 0 })
+            return AiOutput.Answered(answer) with { PermissionDenials = denied, WholeTurn = whole };
 
         // Both halves. The text is kept because a failed implementation has usually already written
         // files and this is the only account of what is in the worktree; the flag is kept because
@@ -386,7 +402,7 @@ public static class AiProcessRunner
         // review, and carries on.
         return AiOutput.Failure(
             answer.Length > 0 ? $"{answer}\n\n[error] {error}" : error)
-            with { PermissionDenials = denied };
+            with { PermissionDenials = denied, WholeTurn = whole };
     }
 
     /// <summary>

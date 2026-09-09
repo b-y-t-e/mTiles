@@ -531,6 +531,32 @@ answers — and the round never announces a failure of its own (`RunAiAsync`'s q
 phase it belongs to succeeded; only its JSON did not. Prose answers that never named the keys earn no
 second call.
 
+**The answer is the tool's last message, and the block is not always in it.** Measured live,
+2026-09-09: sixteen minutes into a review, a background task the reviewer had started itself finished,
+so the reviewer wrote one more paragraph about that — *"the review above is complete, there is nothing
+new"* — and Claude Code's `result` line, which is its final message and the whole of what this side
+read, was that paragraph. The findings, the four severities and `goalMet` had gone to a message nobody
+looked at: the tile showed no blockers, no errors and no warnings, the goal was marked unmet, and the
+paragraph was handed to the next attempt as *the findings from the previous review*. The prose fallback
+worked exactly as designed and answered a question the reviewer had never been asked. So
+`AiOutput.WholeTurn` keeps **everything the tool said in the run**, beside the answer rather than
+instead of it — a string `AiProcessRunner.ReadStreamAsync` was already building and throwing away — and
+`SalvagedAsync` reads it when the answer carried no block. Four things make that safe rather than
+merely helpful. **A block that parsed is never overridden**: this is only reached when the last message
+had none. **A broken block in the last message is re-asked of the tool first**, before the turn is
+looked at, because it is the tool's newer word and a valid block three messages back is a draft it moved
+on from. **Within the turn the last block still wins**, which is `ExtractJson`'s own rule and costs
+nothing to keep: the transcript is in the order it was written, so a schema the tool echoed on its way in
+loses to the review it wrote afterwards. And it is **said out loud** — a block in the goal log and one
+line in the transcript — because a tool that echoed the shape and then never answered is the one way
+this reading can be wrong, and a wrong reading nobody can see is worse than the failure it replaces.
+The commit plan takes the same rule by hand (the answer first, then the turn); it has no prose fallback
+and no salvage round to order against, so there is nothing there for `SalvagedAsync` to arbitrate. The
+review prompt also asks for the block to be repeated in any message written after it, which lowers the
+frequency and is not the fix: the extra message was forced on the tool by something finishing, not
+chosen. Empty for an agent that cannot stream — today every one but Claude Code — where the turn is
+the answer and `AiOutput.Transcript` falls back to it.
+
 **An unchanged worktree still gets a verdict.** A `NoChange` stop used to be the end of it: the
 implementation wrote nothing, the loop ended, and the summary declared a dead end — even when the
 attempt's own account, right there in the transcript, said the tree already held the work ("everything

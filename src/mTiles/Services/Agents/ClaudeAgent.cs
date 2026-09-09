@@ -589,7 +589,15 @@ public sealed class ClaudeAgent : AiAgent
             if (type == "content_block_delta" && root.TryGetProperty("delta", out var delta)
                 && delta.TryGetProperty("text", out var deltaText))
             {
-                return [new AiOutputChunk { Kind = AiChunkKind.Text, Content = deltaText.GetString() ?? "" }];
+                // Partial, unlike the whole messages above: this is a fragment of one that is still
+                // being written, often half a word, and the reader glues it on rather than starting a
+                // paragraph with it.
+                return [new AiOutputChunk
+                {
+                    Kind = AiChunkKind.Text,
+                    Content = deltaText.GetString() ?? "",
+                    Partial = true,
+                }];
             }
 
             if (type == "result")

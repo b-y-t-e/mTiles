@@ -676,6 +676,76 @@ public class AiProcessRunnerTests
         Assert.Equal(1, output.PermissionDenials);
     }
 
+    // ── The whole turn, beside the final answer ─────────
+
+    [Fact]
+    public async Task The_whole_turn_is_kept_beside_the_final_answer()
+    {
+        // The result line is the tool's *last* message, and the block a caller asked for is not always
+        // in it. Measured live, 2026-09-09: a review had written its json when a background task of its
+        // own finished, wrote one more paragraph about that, and the paragraph was the whole of what
+        // this side saw — the findings went to a message nobody read.
+        const string first =
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"the review"}]}}""";
+        const string second =
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"one more thing"}]}}""";
+        const string last = """{"type":"result","result":"one more thing"}""";
+
+        var output = await AiProcessRunner.ReadStreamAsync(
+            new StringReader(string.Join("\n", [first, second, last])), new ClaudeAgent(), _ => { });
+
+        // What the user is shown does not move.
+        Assert.Equal("one more thing", output.Text);
+
+        // And what was said before it is still there to be read.
+        Assert.Contains("the review", output.WholeTurn);
+        Assert.Contains("one more thing", output.WholeTurn);
+        Assert.Equal(output.WholeTurn, output.Transcript);
+    }
+
+    [Fact]
+    public async Task Two_messages_do_not_run_together_on_one_line()
+    {
+        // A message ending in a closing fence and the next starting with a word became one line, which
+        // is enough to stop the fence being a fence and take the block inside it with it.
+        var ends = """{"type":"assistant","message":{"content":[{"type":"text","text":"""
+                   + System.Text.Json.JsonSerializer.Serialize("```json\n{\"goalMet\":true}\n```")
+                   + """}]}}""";
+        const string next =
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"and one more thing"}]}}""";
+
+        var output = await AiProcessRunner.ReadStreamAsync(
+            new StringReader(string.Join("\n", [ends, next])), new ClaudeAgent(), _ => { });
+
+        Assert.DoesNotContain("```and", output.Transcript);
+        Assert.Contains("```\n", output.Transcript);
+    }
+
+    [Fact]
+    public async Task A_fragment_is_glued_on_rather_than_given_a_line_of_its_own()
+    {
+        // The other half of the same rule. A content_block_delta is often half a word, so a break
+        // between two of them puts one inside the word.
+        const string a = """{"type":"content_block_delta","delta":{"text":"par"}}""";
+        const string b = """{"type":"content_block_delta","delta":{"text":"tial"}}""";
+
+        var output = await AiProcessRunner.ReadStreamAsync(
+            new StringReader(string.Join("\n", [a, b])), new ClaudeAgent(), _ => { });
+
+        Assert.Equal("partial", output.Transcript);
+    }
+
+    [Fact]
+    public void A_run_that_could_not_be_streamed_answers_the_turn_with_its_answer()
+    {
+        // Only Claude Code streams today. Everywhere else the turn is one blob and the answer is all
+        // of it, so nothing that reads Transcript has to ask which kind of run it got.
+        var output = AiOutput.Answered("the only thing it said");
+
+        Assert.Equal("", output.WholeTurn);
+        Assert.Equal("the only thing it said", output.Transcript);
+    }
+
     /// <summary>Starts a run and lets the guard throw before anything is launched. Whatever happens
     /// after that — no such executable — is not what these are asking about.</summary>
     private static void Run(string executable, string prompt, AiAgentInstance? instance = null) =>

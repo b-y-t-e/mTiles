@@ -943,7 +943,14 @@ public sealed class GoalPromptBuilder
                   // every goal unfinished. A fallback whose phrase is never requested is not a
                   // fallback.
                   "If you cannot produce the json block, end your reply with the line " +
-                  "VERDICT: PASS or VERDICT: FAIL instead.";
+                  "VERDICT: PASS or VERDICT: FAIL instead.\n" +
+                  // Second line of defence for the same failure the reader closed on the other side:
+                  // only the tool's *last* message reaches this tile, so a block written and then
+                  // followed by one more paragraph — because something of the tool's own finished
+                  // while it was writing — is a review nobody here ever sees. The reader now looks
+                  // through the whole turn for it, and this costs one line to make that unnecessary.
+                  "Only your final message is read. If you write anything after the json block, " +
+                  "repeat the block at the end of that message too.";
         return prompt;
     }
 
