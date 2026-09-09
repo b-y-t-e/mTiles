@@ -157,6 +157,65 @@ give, invent no files or constraints, name no principles and justify no steps �
 deliberately left out of this one, where it only ever came back as two more steps saying "run the
 tests".
 
+**Detection reads the whole working tree, not the tracked half of it, and it knows when it is looking
+at a fragment.** Measured on a real project, 2026-09-09: 102 tracked files changed and 44 untracked, of
+which the detection prompt carried seventeen names, no line counts and not one line of content — while
+the untracked half was the new work and therefore the goal. Four separate faults, and each is fixed
+where it lives.
+
+`WorktreeReader.ReadWholeTreeAsync` is the first. `ReadAsync` asks git two questions, and the second —
+`ls-files --others` — answers with *names*, so a new file reached the prompt as a path and appeared in no
+`--stat` at all. The way in already existed: `GoalBaseline.TreeNowAsync` writes the whole working tree,
+untracked files included and `.gitignore` honoured, into a tree object through a private `GIT_INDEX_FILE`
+— touching nothing the user can see. Diffed against `HEAD^{tree}` that is one diff carrying the new files
+as additions **with their contents**, and a `--stat` that counts them like everything else. It is the same
+call the scoped read already makes against a baseline; only the ref differs, so `ReadAgainstAsync` became
+`DiffFromAsync(baseRef, scoped)` and gained a second caller rather than a copy. On that project the change
+goes from 102 files and 2 818 insertions to **146 files and 6 838** — four thousand insertions that were
+previously invisible. **Detection is the only caller**, deliberately: it is the read where a file with no
+history is the *subject*, while everywhere else in the loop a new file the run wrote is in its baseline
+diff already, and the implement/review loop's read is the most load-bearing thing in the tile. A tree that
+cannot be written — an empty repository, a `git` that will not run, the ten-second budget — answers null
+and the caller falls back to exactly what it had before.
+
+`GoalDiffContext.StatBySize` is the second, and it runs **only when the summary will not fit**. git emits
+the stat in path order, so a summary clipped to a quarter is the quarter whose paths sort first — one
+directory, chosen by its initial. Ordered by size the surviving quarter is the largest quarter of the
+work, which is what somebody naming the goal would have looked at: on that project, 26 rows of 146 at
+between 799 and 103 changed lines instead of 26 alphabetical ones. **The total goes to the front**, and
+only here: git puts `146 files changed, 6 838 insertions(+)` last, which is precisely where a cut from
+the end destroys it — so the one line describing the change *everywhere* was the one line guaranteed to
+be lost. Moving it is legitimate exactly because the block is already being re-ordered on purpose;
+below the cap nothing moves and the block is byte-for-byte what git wrote. A row git could not put a
+number on — a binary file, a mode change — sorts as zero rather than being dropped, because its name is
+still evidence. A binary row is recognised by the `Bin` git writes in that column and never by the
+numbers beside it: those are **bytes**, so `Bin 300000 -> 250000 bytes` read as a line count outranks
+every real change in the repository and a clipped summary keeps the rewritten images instead of the
+work — the exact inverse of what the ordering is for.
+
+The third is that `MaxUntrackedChars` was a constant while the diff and the summary both followed the
+transport, so off the command line the diff was given forty thousand characters and the list of new
+files was still held to a thousand. It is `WorktreeCaps.Untracked` now, 1 000 on a command line and
+4 000 off it — the same reasoning `MaxDiffCharsOffCommandLine` already carried, applied to the part it
+had never been applied to.
+
+The fourth is what the truncation note says. "… file list truncated at 1000 characters" tells a model
+there is some more; **"17 of 44 files shown" is a fact it can act on**, and a character budget is this
+application's business and means nothing to the reader. Which is what the last piece rests on: the
+detection run is `AiUsage.Headless(GoalPhase.Goal)`, so it is `MayOnlyRead` — the tool has its own read
+tools and no permission to change anything, which is the shape of somebody who could answer this
+question properly. What it had instead was a diff and a closing instruction to answer in one sentence
+and nothing else, which reads as an instruction not to investigate. `GoalPromptBuilder.ReadTheRestYourself`
+now tells it to go and look at what it was not shown — **and only where a cut has actually happened**
+(`ShowsOnlyPartOfTheTree`, which asks about both cuts, since `GoalDiffContext` clips each part and
+`Block` clips whatever is left again, and asks `GoalDiffContext.CarriesTruncationNote`, which matches
+the note's own shape — its prefix at the start of a line plus the wording it ends with — rather than the
+bare word `truncated`: the block is somebody's diff, and this repository's own documentation of these
+notes is a hunk carrying that word, so a search for it alone told the tool the tree had been cut when
+nothing had). On a small working tree the block is the whole change, there is
+nothing to find, and the invitation would buy a slower and more expensive run for nothing. That
+conditional is the whole of not breaking it.
+
 **Detecting a goal answers in the language this machine is set up in.** Every other prompt ends with
 "answer in the same language as the goal above", which is free and impossible to get wrong. This one is
 reached from the + button over an uncommitted working tree: nothing has been typed, so the only thing in
