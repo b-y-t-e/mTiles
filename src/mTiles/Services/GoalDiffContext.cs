@@ -66,19 +66,29 @@ internal static class GoalDiffContext
     public static WorktreeCaps CapsFor(int? promptBudget) =>
         promptBudget is null ? OffCommandLine : OnCommandLine;
 
-    /// <summary>The tighter pair, for a prompt that has to fit a Windows command line. The answer a
+    /// <summary>The tighter set, for a prompt that has to fit a Windows command line. The answer a
     /// caller gets when it does not know which tool will receive the prompt: costing some context in a
     /// case that may not arise is cheaper than overflowing one that does.</summary>
     public static WorktreeCaps OnCommandLine { get; } =
-        new(MaxDiffCharsOnCommandLine, MaxSummaryCharsOnCommandLine);
+        new(MaxDiffCharsOnCommandLine, MaxSummaryCharsOnCommandLine, MaxUntrackedChars);
 
-    /// <summary>The generous pair, for a prompt handed over on stdin or on a system whose command line
+    /// <summary>The generous set, for a prompt handed over on stdin or on a system whose command line
     /// runs to megabytes.</summary>
     public static WorktreeCaps OffCommandLine { get; } =
-        new(MaxDiffCharsOffCommandLine, MaxSummaryChars);
+        new(MaxDiffCharsOffCommandLine, MaxSummaryChars, MaxUntrackedCharsOffCommandLine);
 
-    /// <summary>What the diff and the file summary may take, for one run.</summary>
-    public readonly record struct WorktreeCaps(int Diff, int Summary);
+    /// <summary>
+    /// What each part of the block may take, for one run.
+    /// </summary>
+    /// <remarks>
+    /// <b>The untracked names are in here and were not.</b> They were a constant while the diff and the
+    /// summary both followed the transport, so off the command line the diff was given forty thousand
+    /// characters and the list of new files was still held to a thousand — about seventeen paths. That
+    /// is the same oversight this class was written to fix, one part along: a new file's name is the
+    /// least replaceable thing in the block, and on a tree with dozens of them it was the part cut
+    /// hardest.
+    /// </remarks>
+    public readonly record struct WorktreeCaps(int Diff, int Summary, int Untracked);
 
     /// <summary>The diff's share once the summary has taken its own on the command-line path. Lower
     /// than <see cref="MaxDiffChars"/> by exactly what the summary is given, so the block as a whole is
@@ -86,8 +96,38 @@ internal static class GoalDiffContext
     public const int MaxDiffCharsOnCommandLine = 5_200;
 
     /// <summary>The names cost a line each and share the same budget as everything else in the
-    /// prompt.</summary>
+    /// prompt. Its share where the prompt goes on a command line.</summary>
     public const int MaxUntrackedChars = 1_000;
+
+    /// <summary>The same list where there is no command line to fit — the reasoning
+    /// <see cref="MaxDiffCharsOffCommandLine"/> gives, applied to the part it was never applied to.
+    /// Four thousand characters is roughly seventy paths, which is a working tree somebody is still
+    /// holding in their head.</summary>
+    public const int MaxUntrackedCharsOffCommandLine = 4_000;
+
+    /// <summary>The character every truncation note in these prompts opens with, on a line of its
+    /// own.</summary>
+    private const string TruncationNotePrefix = "…";
+
+    /// <summary>
+    /// Whether a composed block carries a note saying part of it was cut away.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The whole note, never the bare word.</b> The block is somebody's diff, so the word
+    /// "truncated" is ordinary content in it — this very repository's own documentation of these notes
+    /// is a hunk that carries it. Matched on the note's own shape instead: the prefix this class and
+    /// <c>GoalPromptBuilder.Block</c> both open with, at the start of a line, plus the two spellings
+    /// they end it with. A diff line quoting a note is prefixed with <c>+</c>, <c>-</c> or a space, so
+    /// it does not start one.</para>
+    /// <para>Shared with <c>GoalPromptBuilder</c>, which emits the same shape from its own clip and
+    /// reads it back to decide whether to invite the tool to go and look at the files itself. Two
+    /// spellings would make that question answerable in one place and not the other.</para>
+    /// </remarks>
+    public static bool CarriesTruncationNote(string text) =>
+        text.Split('\n').Any(line =>
+            line.StartsWith(TruncationNotePrefix, StringComparison.Ordinal)
+            && (line.Contains(" truncated at ", StringComparison.Ordinal)
+                || line.Contains(" truncated: ", StringComparison.Ordinal)));
 
     /// <summary>
     /// What <c>git diff --stat</c> may take. One line per file plus a total, so it is bounded by the
@@ -161,9 +201,15 @@ internal static class GoalDiffContext
 
         // Truncated before they are joined, never after: appending the list and then cutting the whole
         // thing to length threw the list away in precisely the case it was added for.
+        //
+        // The summary is re-ordered *only* when it will not fit — see StatBySize. Below its cap the
+        // block is byte-for-byte what git produced, which is what keeps an ordinary working tree
+        // reading exactly as it did before any of this.
         var body = Clip(diff, limits.Diff, "diff");
-        var names = Clip(untracked, MaxUntrackedChars, "file list");
-        var stat = Clip(summary, limits.Summary, "summary");
+        var names = Clip(untracked, limits.Untracked, "file list", "files");
+        var stat = Clip(
+            summary is { Length: > 0 } && summary.Length > limits.Summary ? StatBySize(summary) : summary,
+            limits.Summary, "summary", "files");
 
         // Smallest and least replaceable first, the diff last, because whatever cuts this block again
         // will cut it from the end. Something does: GoalPromptBuilder.Fit shrinks the borrowed blocks
@@ -189,9 +235,21 @@ internal static class GoalDiffContext
         return parts.Count == 0 ? null : string.Join("\n\n", parts);
     }
 
-    /// <summary>Cuts to length on a line boundary, so nothing is handed on half a line. A path cut in
-    /// two is a filename that does not exist, which is worse than one name fewer.</summary>
-    private static string Clip(string? text, int max, string what)
+    /// <summary>
+    /// Cuts to length on a line boundary, so nothing is handed on half a line. A path cut in two is a
+    /// filename that does not exist, which is worse than one name fewer.
+    /// </summary>
+    /// <param name="unit">What one line of this part is, when a count of them means something —
+    /// <c>files</c> for the untracked list and the summary. Given, the note says how many of how many
+    /// survived instead of naming a character limit.</param>
+    /// <remarks>
+    /// <b>The count is the point of the note, not the limit.</b> "… file list truncated at 1000
+    /// characters" tells a model there is some more; "44 files, 17 shown" is a fact it can act on, and
+    /// it is what makes the invitation in the detection prompt — go and read the rest yourself — an
+    /// instruction rather than a suggestion. A character budget is this application's business and
+    /// means nothing to the reader.
+    /// </remarks>
+    private static string Clip(string? text, int max, string what, string? unit = null)
     {
         var trimmed = text?.Trim() ?? "";
         if (trimmed.Length <= max) return trimmed;
@@ -200,6 +258,79 @@ internal static class GoalDiffContext
         var lastBreak = cut.LastIndexOf('\n');
         if (lastBreak > 0) cut = cut[..lastBreak];
 
-        return $"{cut}\n… {what} truncated at {max} characters.";
+        if (unit is null) return $"{cut}\n… {what} truncated at {max} characters.";
+
+        return $"{cut}\n… {what} truncated: {Lines(cut)} of {Lines(trimmed)} {unit} shown.";
+    }
+
+    /// <summary>How many lines a block carries, not counting a <c>--stat</c> total line.</summary>
+    /// <remarks>The total is git's own summary of the part being counted, so counting it would report
+    /// one file more than there are — and it is the one line this class hoists out of the ordering
+    /// below, which is exactly where an off-by-one would be least visible.</remarks>
+    private static int Lines(string text) =>
+        text.Split('\n').Count(line => line.Trim().Length > 0 && !IsStatTotal(line));
+
+    /// <summary>
+    /// A <c>--stat</c> block with its total first and its files in descending order of size.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Only when the block is about to be cut, and that is the whole of the safety.</b> git
+    /// emits the stat in path order, so a summary clipped to a quarter is the quarter that sorts first
+    /// alphabetically — which on any project laid out by area is one directory, chosen by its initial.
+    /// Ordered by size, the quarter that survives is the quarter of the work that is largest, which is
+    /// what somebody trying to name the goal would have looked at. Below the cap nothing is re-ordered
+    /// and the block is exactly what git wrote.</para>
+    /// <para><b>The total goes to the front, and only here.</b> git puts <c>102 files changed, 2818
+    /// insertions(+)</c> last, which is where a cut from the end destroys it — and it is the single
+    /// most informative line in the part, because it is the only one that describes the change
+    /// everywhere rather than in the lines that fitted. Moving it is legitimate exactly because this
+    /// block is already being re-ordered on purpose; an unclipped stat keeps git's own shape.</para>
+    /// <para>A line git could not put a number on — a binary file, a mode change — sorts as zero rather
+    /// than being dropped: its name is still evidence of where the change reaches.</para>
+    /// </remarks>
+    internal static string StatBySize(string stat)
+    {
+        var lines = stat.Split('\n')
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.Trim().Length > 0)
+            .ToList();
+
+        var total = lines.FirstOrDefault(IsStatTotal);
+
+        // OrderByDescending is stable, so files of equal size keep git's own order between them — which
+        // is path order, and is the best remaining answer once size has stopped telling them apart.
+        var files = lines.Where(line => !IsStatTotal(line)).OrderByDescending(ChangedLines);
+
+        return string.Join("\n", total is null ? files : [total, .. files]);
+    }
+
+    /// <summary>git's closing line: the one line of a <c>--stat</c> with no <c>|</c> in it.</summary>
+    private static bool IsStatTotal(string line) =>
+        !line.Contains('|') && line.Contains(" changed", StringComparison.Ordinal);
+
+    /// <summary>
+    /// How many lines a <c>--stat</c> row says changed — the number between the <c>|</c> and the bar of
+    /// plusses.
+    /// </summary>
+    /// <remarks>
+    /// <para>Zero for a row that counts no lines: a mode change, and a binary file, which carries
+    /// <b>byte</b> counts in that position — <c>Bin 300000 -&gt; 250000 bytes</c>, where the first number
+    /// read as lines would put a rewritten image above every real change in the file and leave the
+    /// modified binaries as what survives a cut, the exact inverse of why this ordering exists. Those
+    /// rows sort last and are kept: what they say is that the change reaches that file at all, and a
+    /// name is the part of this block that survives.</para>
+    /// </remarks>
+    private static int ChangedLines(string line)
+    {
+        var bar = line.LastIndexOf('|');
+        if (bar < 0) return 0;
+
+        var counts = line[(bar + 1)..];
+        if (counts.TrimStart().StartsWith("Bin", StringComparison.Ordinal)) return 0;
+
+        var digits = new string([.. line[(bar + 1)..].SkipWhile(c => !char.IsAsciiDigit(c))
+            .TakeWhile(char.IsAsciiDigit)]);
+
+        return int.TryParse(digits, out var count) ? count : 0;
     }
 }

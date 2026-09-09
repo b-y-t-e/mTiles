@@ -214,4 +214,107 @@ public class GoalDiffContextTests
 
         Assert.Contains("Cart.cs", composed);
     }
+
+    // ── The parts that only move when something is cut ──
+
+    [Fact]
+    public void The_untracked_list_follows_the_transport_like_everything_else()
+    {
+        // It was a constant while the diff and the summary both followed the transport, so off the
+        // command line the diff was given forty thousand characters and the list of new files was
+        // still held to a thousand — about seventeen paths, on a tree where the new files were the
+        // work.
+        Assert.Equal(GoalDiffContext.MaxUntrackedChars, GoalDiffContext.CapsFor(8_191).Untracked);
+        Assert.Equal(
+            GoalDiffContext.MaxUntrackedCharsOffCommandLine, GoalDiffContext.CapsFor(null).Untracked);
+
+        var names = string.Join("\n", Enumerable.Range(0, 90).Select(i => $"src/Feature{i}/New{i}.cs"));
+
+        Assert.Contains("file list truncated",
+            GoalDiffContext.Compose("", names, null, null, GoalDiffContext.CapsFor(8_191))!);
+        Assert.DoesNotContain("file list truncated",
+            GoalDiffContext.Compose("", names, null, null, GoalDiffContext.CapsFor(null))!);
+    }
+
+    [Fact]
+    public void A_truncated_list_says_how_many_files_there_are()
+    {
+        // "… truncated at 1000 characters" tells a model there is some more. A count is a fact it can
+        // act on, and it is what makes the detection prompt's invitation — go and read the rest — an
+        // instruction rather than a suggestion.
+        var names = string.Join("\n", Enumerable.Range(0, 200).Select(i => $"src/Feature{i}/New{i}.cs"));
+
+        var composed = GoalDiffContext.Compose("", names, null, null, GoalDiffContext.CapsFor(8_191))!;
+
+        Assert.Contains("of 200 files shown", composed);
+        Assert.DoesNotContain("characters", composed);
+    }
+
+    [Fact]
+    public void A_clipped_summary_keeps_the_largest_changes_and_the_total()
+    {
+        // git writes the stat in path order, so a summary clipped to a quarter is the quarter whose
+        // paths sort first — one directory, chosen by its initial. What somebody naming the goal would
+        // have looked at is the largest part of the work.
+        var rows = Enumerable.Range(0, 300)
+            .Select(i => $" src/Area{i:D3}/File{i}.cs | {(i == 299 ? 9000 : 1)} +-");
+        var stat = string.Join("\n", [.. rows, " 300 files changed, 9299 insertions(+)"]);
+
+        var composed = GoalDiffContext.Compose(
+            "diff --git a/x b/x", null, null, stat, GoalDiffContext.CapsFor(8_191))!;
+
+        // The one file that carries the change, which path order buried at the very end.
+        Assert.Contains("File299.cs", composed);
+
+        // And git's own total, which path order puts last and a cut from the end destroys — the only
+        // line in the part that describes the change everywhere rather than in the rows that fitted.
+        Assert.Contains("300 files changed", composed);
+        Assert.Contains("of 300 files shown", composed);
+    }
+
+    [Fact]
+    public void A_summary_that_fits_is_left_exactly_as_git_wrote_it()
+    {
+        // The re-ordering is what a cut costs, not a house style. Below the cap the block is what git
+        // produced, in git's order, which is what keeps an ordinary working tree reading as it did.
+        var stat = " src/Aaa.cs | 1 +\n src/Bbb.cs | 500 +++\n 2 files changed, 501 insertions(+)";
+
+        var composed = GoalDiffContext.Compose(null, null, null, stat)!;
+
+        // Trimmed, which is what Clip has always done to the block as a whole and is not the
+        // re-ordering: the rows are in git's order and the total is still last.
+        Assert.Equal($"Changed files:\n{stat.Trim()}", composed);
+    }
+
+    [Fact]
+    public void A_row_git_could_not_count_keeps_its_name()
+    {
+        // A binary file and a mode change carry no number. Sorted as zero rather than dropped: the name
+        // still says where the change reaches, and a name is the part of this block that survives.
+        var sorted = GoalDiffContext.StatBySize(
+            " assets/logo.png | Bin 0 -> 12 bytes\n src/Cart.cs | 40 ++--\n 2 files changed, 40 insertions(+)");
+
+        Assert.StartsWith(" 2 files changed", sorted);
+        Assert.Contains("assets/logo.png", sorted);
+        Assert.True(sorted.IndexOf("Cart.cs", StringComparison.Ordinal)
+                    < sorted.IndexOf("logo.png", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_modified_binary_sorts_by_nothing_rather_than_by_its_size_in_bytes()
+    {
+        // git writes byte counts in the position a text file writes line counts, so a rewritten image
+        // read literally outweighs every real change in the repository — and a clipped summary would
+        // then keep the binaries and drop the work, the exact inverse of why the ordering exists.
+        var sorted = GoalDiffContext.StatBySize(
+            " assets/big.png | Bin 300000 -> 250000 bytes\n"
+            + " assets/gone.png | Bin 524288 -> 0 bytes\n"
+            + " src/Cart.cs | 40 ++--\n"
+            + " 3 files changed, 40 insertions(+)");
+
+        Assert.True(sorted.IndexOf("Cart.cs", StringComparison.Ordinal)
+                    < sorted.IndexOf("big.png", StringComparison.Ordinal));
+        Assert.True(sorted.IndexOf("Cart.cs", StringComparison.Ordinal)
+                    < sorted.IndexOf("gone.png", StringComparison.Ordinal));
+    }
 }
