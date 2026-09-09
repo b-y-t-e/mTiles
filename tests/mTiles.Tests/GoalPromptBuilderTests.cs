@@ -374,4 +374,54 @@ public class GoalPromptBuilderTests
         Assert.True(running.IndexOf("paragraph first", StringComparison.Ordinal)
                     < running.IndexOf("```json", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// A detection shown a fragment is told to go and read the rest; one shown everything is not.
+    /// </summary>
+    /// <remarks>
+    /// <para>The run is <c>AiUsage.Headless(GoalPhase.Goal)</c>, which is <c>MayOnlyRead</c> — the tool
+    /// has its own read tools and no permission to change anything, which is the shape of somebody who
+    /// could answer this question properly. What it had was a diff and an instruction to answer in one
+    /// sentence and nothing else, which reads as an instruction not to investigate.</para>
+    /// <para>Conditional is the whole of not breaking it: on a small working tree the block is the
+    /// change, there is nothing to go and find, and the invitation would buy a slower and more
+    /// expensive run for nothing.</para>
+    /// </remarks>
+    [Fact]
+    public void Only_a_detection_looking_at_a_fragment_is_told_to_go_and_read_the_rest()
+    {
+        var builder = new GoalPromptBuilder();
+
+        var whole = builder.BuildDetectGoal("diff --git a/src/Cart.cs b/src/Cart.cs\n+// one line");
+        Assert.DoesNotContain("may read it", whole);
+
+        // The wording a clipped block carries, from GoalDiffContext.Clip.
+        var clipped = builder.BuildDetectGoal(
+            "Changed files:\n src/Cart.cs | 4 ++\n… summary truncated: 1 of 102 files shown.\n\ndiff --git a/x b/x");
+        Assert.Contains("may read it", clipped);
+
+        // And a block nothing said was clipped, but which will not fit the prompt this run is allowed,
+        // is the same case one line later — Block cuts it again on its way in.
+        var huge = builder.BuildDetectGoal(new string('x', 40_000), budget: 8_191);
+        Assert.Contains("may read it", huge);
+    }
+
+    /// <summary>
+    /// A diff that merely talks about truncation is not a truncated diff.
+    /// </summary>
+    /// <remarks>The block is somebody's working tree: this repository's own documentation of these
+    /// notes is a hunk carrying the word. Told the tree was cut, the tool reads a sentence that is
+    /// untrue and pays for a round of file reading to find work already in front of it.</remarks>
+    [Fact]
+    public void A_diff_that_mentions_truncation_is_not_read_as_a_truncated_one()
+    {
+        var builder = new GoalPromptBuilder();
+
+        var prompt = builder.BuildDetectGoal(
+            "diff --git a/docs/GOAL.md b/docs/GOAL.md\n"
+            + "+the note said \"… file list truncated at 1000 characters\" and said nothing useful\n"
+            + "+so it now says how many files were truncated: a count.");
+
+        Assert.DoesNotContain("may read it", prompt);
+    }
 }

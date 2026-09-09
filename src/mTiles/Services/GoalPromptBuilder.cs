@@ -1079,14 +1079,58 @@ public sealed class GoalPromptBuilder
             : $"Answer in {neutral.EnglishName}. Keep code and identifiers as they are.\n\n";
     }
 
+    /// <summary>
+    /// Whether the tool is being shown a fragment of the working tree rather than the whole of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Both cuts, because there are two and either one alone is the wrong answer:
+    /// <c>GoalDiffContext</c> clips each part of the block as it assembles it, and
+    /// <see cref="Block"/> clips whatever is left again to fit the prompt. A block that arrived whole
+    /// can still be halved on the next line.</para>
+    /// <para>Asked of <c>GoalDiffContext.CarriesTruncationNote</c>, which matches the note's own shape
+    /// — its prefix at the start of a line, plus the wording it ends with. The bare word "truncated" is
+    /// not enough: the block is somebody's diff, and a hunk touching a file that merely mentions
+    /// truncation would be told the tree was cut when nothing was, paying for a round of reading to
+    /// find work that is already in front of it.</para>
+    /// </remarks>
+    private static bool ShowsOnlyPartOfTheTree(string gitDiff, int blockCap) =>
+        GoalDiffContext.CarriesTruncationNote(gitDiff) || gitDiff.Length > blockCap;
+
+    /// <summary>
+    /// What a detection is told when it is looking at a fragment, and is not told otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The tool is standing in the repository and nothing had asked it to look.</b> Detection
+    /// runs under <c>AiUsage.Headless(GoalPhase.Goal)</c>, which is <c>MayOnlyRead</c> — so the agent
+    /// has its own read tools and no permission to change anything, which is exactly the shape of
+    /// somebody who could go and answer this question properly. What it had instead was a diff and a
+    /// closing instruction to answer in one sentence and nothing else, which reads as an
+    /// instruction not to investigate.</para>
+    /// <para><b>Conditional, and that is the whole of not breaking it.</b> On a small working tree the
+    /// block is the whole change, there is nothing to go and find, and an invitation to read files
+    /// would buy nothing for a slower and more expensive run. It appears only where a cut has actually
+    /// happened, which is where the alternative is a goal named from whatever fitted.</para>
+    /// <para>It leans on the counts <c>GoalDiffContext.Clip</c> now writes — "44 files, 17 shown" — so
+    /// that what the tool is being asked to make up its own mind about is a stated quantity rather than
+    /// the word "truncated".</para>
+    /// </remarks>
+    private const string ReadTheRestYourself =
+        "The working tree above is only part of the change: the notes in it say how much was left out. " +
+        "You are running inside this repository and may read it. Before you answer, look at what you " +
+        "were not shown — the files named in the summary, the new files, whatever the diff cut off — " +
+        "until you can name the work rather than the fragment.\n";
+
     private static string ComposeDetectGoal(string gitDiff, int cap, string? guideline = null)
     {
+        var blockCap = Math.Max(500, cap);
+
         // A floor, as the goal has in the other prompts and for the same reason: this one asks what the
         // changes are for, so a version of it with the changes trimmed away is not a smaller prompt but
         // an unanswerable one. If even that will not fit, the guard refuses and says why.
         return "Below are the uncommitted changes in a software project.\n\n"
                + DetectionSubject(guideline, cap)
-               + Block("Working tree", gitDiff, Math.Max(500, cap))
+               + Block("Working tree", gitDiff, blockCap)
+               + (ShowsOnlyPartOfTheTree(gitDiff, blockCap) ? ReadTheRestYourself : "")
                + "Work out what the person making these changes is trying to achieve, and state it as a " +
                  "goal that is not yet finished — what should be true when the work is done, not a list " +
                  "of what has been touched.\n" +
