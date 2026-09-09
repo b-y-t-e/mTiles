@@ -307,9 +307,22 @@ public partial class GoalTileViewModel
     /// summarise again, having spent nothing and changed nothing but looking exactly like a button that
     /// does not work.</para>
     /// </remarks>
-    public bool CanContinue =>
-        !IsRunning
-        && CurrentPhase == GoalPhase.Summary
+    public bool CanContinue => !IsRunning && ContinueIsOwed;
+
+    /// <summary>
+    /// Whether this run has somewhere to carry on to — everything <see cref="CanContinue"/> asks
+    /// except whether the tile is busy this instant.
+    /// </summary>
+    /// <remarks>
+    /// Split out because the summary is written from <em>inside</em> <c>WorkingAsync</c>, where
+    /// <c>IsRunning</c> is true by construction — so a summary asking <see cref="CanContinue"/> is
+    /// asking a question whose answer is always no. That is the same trap <c>CanCommit</c> fell into,
+    /// where it shipped the whole automatic commit dead; the fix there was the same one, and the two
+    /// halves are separated here rather than duplicated so the four stops that offer the button stay
+    /// decided in one place.
+    /// </remarks>
+    private bool ContinueIsOwed =>
+        CurrentPhase == GoalPhase.Summary
         && _engine.IterationCount < GoalCompletionPolicy.MostAttempts
         && _engine.LastStopReason switch
         {
@@ -1518,7 +1531,7 @@ public partial class GoalTileViewModel
         WorktreeSnapshot tree;
         try
         {
-            tree = await ReadWorktreeAsync(onlyPaths: scopePaths);
+            tree = await ReadWorktreeAsync(onlyPaths: scopePaths, forDetection: true);
         }
         catch (OperationCanceledException)
         {
@@ -2719,10 +2732,25 @@ public partial class GoalTileViewModel
         // The denials go with it only where they explain something: every other stop happened for a
         // reason of its own, and mentioning a refused tool call beside "the criteria were met" would
         // read as a problem with a run that had none.
+        // The last line names the way on, and where there is one it is not "type a new goal".
+        //
+        // A review asked for on its own is the case this was wrong for. It ends with findings and a
+        // Continue sitting directly under it — the button that implements them — and the summary
+        // pointed past it at the composer, so the one route from "here is what is wrong" to "fix it"
+        // was the one thing on screen nothing mentioned. It read as a feature that was missing.
+        //
+        // Asked of ContinueIsOwed rather than of the reason, because that is where the four stops
+        // offering the button are already decided and a second list of them here would be a second
+        // thing to keep in step. **Not CanContinue**: this runs inside WorkingAsync, where IsRunning is
+        // true by construction, so that property answers no however the run ended — the trap CanCommit
+        // shipped dead once already. The rest of it is settled by this point, since LastStopReason and
+        // the phase are both set above.
         var summary = GoalCompletionPolicy.Summarise(
                           reason, spentAttempts ? _engine.IterationCount : 0, outstanding,
                           reason == GoalStopReason.NoChange ? implementationDenials : 0)
-                      + "\nType a new goal, or start a fresh one with +.";
+                      + (ContinueIsOwed
+                          ? "\nContinue carries on from here, or type a new goal."
+                          : "\nType a new goal, or start a fresh one with +.");
 
         await AddMessageAsync(GoalMessageRole.System, summary, GoalPhase.Summary,
             isRunSummary: true);
@@ -3856,11 +3884,26 @@ public partial class GoalTileViewModel
     /// user is in the middle of, which is precisely their uncommitted work against HEAD, and it runs
     /// before a goal exists — so the only baseline in reach belongs to the goal being replaced.</para>
     /// </param>
+    /// <param name="forDetection">
+    /// Whether this read is the one the goal will be worked out from.
+    /// <para>The one caller that gets <c>WorktreeReader.ReadWholeTreeAsync</c>, and the asymmetry is
+    /// the reason: this is the read where a file with no history is the <em>subject</em> — a name and
+    /// no contents is most of the evidence thrown away — while everywhere else in the loop a new file
+    /// written by the run is in the baseline diff already. It costs one more git command and falls
+    /// back to the ordinary read when that command cannot be run.</para>
+    /// </param>
     private Task<WorktreeSnapshot> ReadWorktreeAsync(bool scoped = false,
-        IReadOnlyList<string>? onlyPaths = null) =>
-        NewWorktreeReader().ReadAsync(
-            _cts?.Token ?? CancellationToken.None, GoalDiffContext.CapsFor(PromptBudget()),
-            scoped ? DiffBase : null, onlyPaths ?? _engine.ScopePaths);
+        IReadOnlyList<string>? onlyPaths = null, bool forDetection = false)
+    {
+        var reader = NewWorktreeReader();
+        var token = _cts?.Token ?? CancellationToken.None;
+        var caps = GoalDiffContext.CapsFor(PromptBudget());
+        var paths = onlyPaths ?? _engine.ScopePaths;
+
+        return forDetection
+            ? reader.ReadWholeTreeAsync(token, caps, paths)
+            : reader.ReadAsync(token, caps, scoped ? DiffBase : null, paths);
+    }
 
     /// <summary>
     /// The scope the composer names, read off it — nothing cleared, nothing stored.

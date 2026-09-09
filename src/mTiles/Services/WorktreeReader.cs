@@ -149,7 +149,7 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// </param>
     /// <param name="baselineRef">
     /// The goal's baseline snapshot, when it has one. Given, the tree is read as <b>what this run
-    /// changed</b> rather than as everything uncommitted — see <see cref="ReadAgainstAsync"/>.
+    /// changed</b> rather than as everything uncommitted — see <see cref="DiffFromAsync"/>.
     /// </param>
     /// <param name="onlyPaths">
     /// The scope the user named, when they named one: the composed block is filtered to these paths
@@ -165,7 +165,7 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
 
         if (baselineRef is { Length: > 0 } baseline && Factory is null)
         {
-            var scoped = await ReadAgainstAsync(baseline, ct, caps, onlyPaths);
+            var scoped = await DiffFromAsync(baseline, scoped: true, ct, caps, onlyPaths);
             if (scoped is { } answered) return answered;
         }
 
@@ -266,7 +266,46 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     }
 
     /// <summary>
-    /// The tree as <b>what has changed since the goal started</b>, from the baseline snapshot.
+    /// Everything uncommitted, with the contents of the files that have no history yet.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>What <see cref="ReadAsync"/> cannot say.</b> That one asks git two questions —
+    /// <c>diff HEAD</c> and <c>ls-files --others</c> — and the second answers with <em>names</em>. A
+    /// new file therefore reaches the prompt as a path and nothing else, appears in no <c>--stat</c>
+    /// at all, and shares a cap of its own with every other new file. Measured on a real working tree,
+    /// 2026-09-09: 102 tracked files changed and 44 untracked, of which the detection prompt carried
+    /// seventeen names, no line counts and not one line of content — while the untracked half was the
+    /// new work and therefore the goal.</para>
+    /// <para><b>The way in already existed.</b> <c>GoalBaseline.TreeNowAsync</c> writes the whole
+    /// working tree — untracked files included, <c>.gitignore</c> honoured — into a tree object through
+    /// a private <c>GIT_INDEX_FILE</c>, touching nothing the user can see. Diffed against
+    /// <c>HEAD^{tree}</c> that is one diff carrying the new files as additions, with their contents,
+    /// and a <c>--stat</c> that counts them like everything else. It is the same call
+    /// <see cref="ReadAsync"/> already makes against a baseline; only the ref differs.</para>
+    /// <para><b>Not scoped</b>, unlike that one: this is everything uncommitted rather than what one
+    /// run changed, so the prompts that ask about the user's own parallel work go on asking.</para>
+    /// <para><b>And it falls back rather than failing.</b> An empty repository, a <c>git</c> that will
+    /// not run, a tree too large for the ten-second budget — every one of them answers null underneath,
+    /// and the answer is then exactly what this method's caller would have had before it existed.
+    /// Deliberately used by detection alone: the implement/review loop's read is the most load-bearing
+    /// thing in the tile and has no such problem, because a run's own new files are in its baseline
+    /// diff already.</para>
+    /// </remarks>
+    public async Task<WorktreeSnapshot> ReadWholeTreeAsync(
+        CancellationToken ct, GoalDiffContext.WorktreeCaps? caps = null,
+        IReadOnlyList<string>? onlyPaths = null)
+    {
+        // A stub is a fixture: it answers whatever it answers, and asking git for a tree object first
+        // would spawn a process in whatever directory a test happened to name.
+        if (Factory is null
+            && await DiffFromAsync("HEAD", scoped: false, ct, caps, onlyPaths) is { } whole)
+            return whole;
+
+        return await ReadAsync(ct, caps, onlyPaths: onlyPaths);
+    }
+
+    /// <summary>
+    /// One tree against the working tree as it stands: the goal's baseline, or <c>HEAD</c>.
     /// </summary>
     /// <remarks>
     /// <para>The heading over this block says "the changes that were just made", and against
@@ -286,8 +325,8 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// not be written. The caller falls back to reading against <c>HEAD</c>, which is worse and is not
     /// nothing.</para>
     /// </remarks>
-    private async Task<WorktreeSnapshot?> ReadAgainstAsync(
-        string baselineRef, CancellationToken ct, GoalDiffContext.WorktreeCaps? caps,
+    private async Task<WorktreeSnapshot?> DiffFromAsync(
+        string baseRef, bool scoped, CancellationToken ct, GoalDiffContext.WorktreeCaps? caps,
         IReadOnlyList<string>? onlyPaths)
     {
         var limits = caps ?? GoalDiffContext.OnCommandLine;
@@ -300,15 +339,17 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
             var git = new GitCommandRunner(workingDirectory, gitPath);
 
             // `<ref>^{tree}` rather than the ref itself, so both sides of the comparison are trees and
-            // git has no reason to consult the index for either.
-            var range = $"{baselineRef}^{{tree}} {now}";
+            // git has no reason to consult the index for either. It reads `HEAD` as readily as it reads
+            // a baseline, which is the whole of what ReadWholeTreeAsync needed.
+            var range = $"{baseRef}^{{tree}} {now}";
 
             var (diff, problem) = await RunAsync(
                 git, QuotePathOff + $" --no-optional-locks diff {range} -- {Excluded}", ct);
 
-            // A baseline that no longer resolves is not a failure to report in the prompt: the caller
-            // has a perfectly good HEAD to fall back to, and a note saying a ref is missing would tell
-            // the tool something about this application rather than about the code.
+            // A ref that no longer resolves is not a failure to report in the prompt: the caller has a
+            // fallback — HEAD for a baseline, the two-command read for HEAD itself — and a note saying
+            // a ref is missing would tell the tool something about this application rather than about
+            // the code.
             if (problem != null) return null;
 
             var (summary, _) = limits.Summary <= 0
@@ -325,7 +366,7 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
                 GoalDiffContext.Compose(diff, null, null, summary, limits, onlyPaths),
                 Readable: true,
                 WorktreeSnapshot.Digest(diff),
-                Scoped: true);
+                Scoped: scoped);
         }
         catch (OperationCanceledException)
         {

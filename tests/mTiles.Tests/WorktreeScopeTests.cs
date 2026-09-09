@@ -79,6 +79,73 @@ public class WorktreeScopeTests
         Assert.DoesNotContain("class Theirs", scoped.Text ?? "");
     }
 
+    /// <summary>
+    /// A file with no history reaches a detection with its contents, not as a bare name.
+    /// </summary>
+    /// <remarks>
+    /// <para><c>ReadAsync</c> asks git two questions and the second — <c>ls-files --others</c> —
+    /// answers with names. So a new file arrived as a path and nothing else, appeared in no
+    /// <c>--stat</c> at all, and shared a cap of its own with every other new file. Measured on a real
+    /// working tree, 2026-09-09: 102 tracked files changed and 44 untracked, of which the detection
+    /// prompt carried seventeen names, no line counts and not one line of content — while the
+    /// untracked half was the new work and therefore the goal.</para>
+    /// <para>Against a real repository, because the whole claim is about what git answers when the
+    /// working tree is written into a tree object through a private index.</para>
+    /// </remarks>
+    [Fact]
+    public async Task A_whole_tree_read_carries_new_files_contents_where_the_ordinary_one_has_names()
+    {
+        RequiresGit.OrFail("WorktreeReader");
+
+        using var repo = new TempRepo();
+        repo.Write("cart.cs", "class Cart { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m initial");
+
+        // The new work: a file git has never seen.
+        repo.Write("discount.cs", "class Discount { const int Percent = 10; }\n");
+
+        var reader = new WorktreeReader(repo.Path, "git");
+
+        var names = await reader.ReadAsync(CancellationToken.None);
+        Assert.Contains("discount.cs", names.Text ?? "");
+        Assert.DoesNotContain("class Discount", names.Text ?? "");
+
+        var whole = await reader.ReadWholeTreeAsync(CancellationToken.None);
+        Assert.Contains("class Discount", whole.Text ?? "");
+
+        // Everything uncommitted, not what one run changed: the prompts that warn about the user's own
+        // parallel work go on warning.
+        Assert.False(whole.Scoped);
+        Assert.True(whole.Readable);
+    }
+
+    [Fact]
+    public async Task A_whole_tree_read_that_cannot_be_taken_answers_as_the_ordinary_one_does()
+    {
+        RequiresGit.OrFail("WorktreeReader");
+
+        // No repository at all, so there is no HEAD to write a tree against. The point is that this
+        // degrades to the read it replaces rather than to an exception or to a tree that looks clean.
+        var plain = Path.Combine(Path.GetTempPath(), $"mtiles-scope-plain-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(plain);
+        try
+        {
+            File.WriteAllText(Path.Combine(plain, "notes.txt"), "no git here\n");
+
+            var reader = new WorktreeReader(plain, "git");
+            var whole = await reader.ReadWholeTreeAsync(CancellationToken.None);
+            var ordinary = await reader.ReadAsync(CancellationToken.None);
+
+            Assert.Equal(ordinary.Readable, whole.Readable);
+            Assert.False(whole.Readable);
+        }
+        finally
+        {
+            try { Directory.Delete(plain, recursive: true); } catch { /* not a test failure */ }
+        }
+    }
+
     private static bool HasGit()
     {
         try

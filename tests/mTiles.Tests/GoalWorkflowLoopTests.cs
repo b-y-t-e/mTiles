@@ -3478,7 +3478,7 @@ public class GoalWorkflowLoopTests : IDisposable
     {
         OnUiThread(async () =>
         {
-            Assert.True(HasGit(), "git is not on PATH, so this cannot say anything about the commit flow.");
+            RequiresGit.OrFail("the commit flow");
 
             // Three commits so a baseline in the middle has both a parent and a grandparent —
             // GoalCommitter.ScopeAsync reads baseline^ and baseline^^ to work out what the user had
@@ -3539,27 +3539,6 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
-    private static bool HasGit()
-    {
-        try
-        {
-            using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
-                "git", "--version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            p!.WaitForExit(5000);
-            return p.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private string Git(string arguments)
     {
         using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
@@ -3575,5 +3554,60 @@ public class GoalWorkflowLoopTests : IDisposable
         p.StandardError.ReadToEnd();
         p.WaitForExit();
         return output;
+    }
+
+    /// <summary>
+    /// A review on its own is Detect &amp; run stopped before the implementation, and the way on is
+    /// named where the user is looking.
+    /// </summary>
+    /// <remarks>
+    /// <para>The button was always there — <c>CanContinue</c> answers true for
+    /// <c>GoalStopReason.Reviewed</c>, and a review-only run spends no attempts, so the label is the
+    /// plain "what is already in the budget" form rather than the one that raises the ceiling.</para>
+    /// <para>What was missing is that the summary directly above it said "Type a new goal", pointing
+    /// past the one control that turns the findings into work. A route nothing mentions is a route
+    /// nobody finds, and this read as a feature that had not been built.</para>
+    /// </remarks>
+    [Fact]
+    public void A_review_on_its_own_offers_to_carry_on_and_says_so()
+    {
+        OnUiThread(async () =>
+        {
+            // Review with an empty composer: work the goal out of the changes, judge them once, stop.
+            AnswerWith("finish the discount work", ErrorReview);
+
+            using var vm = NewTile();
+            vm.InputText = "";
+            await vm.ReviewCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            Assert.True(vm.CanContinue);
+
+            // Nothing was spent, so nothing is added: the label spends the budget the panel defines
+            // rather than promising a `+N` it would not deliver.
+            Assert.Equal($"Continue · {vm.Criteria.MaxIterations} left", vm.ContinueLabel);
+
+            Assert.Contains(vm.Messages,
+                m => m.IsRunSummary && m.Text.Contains("Continue carries on from here"));
+        });
+    }
+
+    [Fact]
+    public void A_summary_with_nothing_to_continue_towards_still_points_at_the_composer()
+    {
+        // The other half of the same sentence: a met goal has no Continue, so naming one would send the
+        // user looking for a button that is not on screen.
+        OnUiThread(async () =>
+        {
+            AnswerWith("finish the discount work", CleanReview);
+
+            using var vm = NewTile();
+            vm.InputText = "";
+            await vm.ReviewCommand.ExecuteAsync(null);
+
+            Assert.False(vm.CanContinue);
+            Assert.Contains(vm.Messages,
+                m => m.IsRunSummary && m.Text.Contains("Type a new goal"));
+        });
     }
 }
