@@ -855,9 +855,15 @@ the global switch changes it after that.
 `Services/AgentFileSyncEngine.cs` is one per loaded workspace: a `FileSystemWatcher` filtered to
 exactly `CLAUDE.md` and `AGENTS.md` at the workspace root, plus a cache of each path's last-seen mtime
 and content. **Loop prevention is that cache, not a lock on the writer**: every write this engine makes
-immediately re-stamps the cache with the mtime the write produced, so the watcher event that write
-itself causes reads back a familiar mtime and does nothing — a real external edit is the only thing
-that leaves a path's mtime different from what is cached. Deletion is read as damage to repair from the
+immediately re-stamps the cache with the content the write produced, so the watcher event that write
+itself causes reads back bytes it already has and does nothing. **What says a side moved is its
+content, never its last-write time** — that used to be an mtime comparison, and a clock is too coarse
+to carry it: measured, two consecutive writes to one file land on the identical mtime about half the
+time, so a checkout or a formatter rewriting one of the two within a tick of the previous write was
+read as this engine's own output and thrown away, leaving the pair apart until somebody saved again.
+The comparison is free — the file is already in memory by then — and the mtime stays for the one
+question that is about the clock, which of two sides that both changed is newer.
+Deletion is read as damage to repair from the
 other file, never as opting out (opting out is the toggle, never `rm`); if both files change in the
 same debounce window, the one with the later actual mtime wins. **Starting is a reconcile, not only a
 seeding**: nothing watches while the application is closed, so a pull, a checkout or an edit in another

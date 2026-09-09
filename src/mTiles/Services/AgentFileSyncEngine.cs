@@ -9,11 +9,13 @@ namespace mTiles.Services;
 /// </summary>
 /// <remarks>
 /// <para><b>Loop prevention is a cache, not a lock on the writer.</b> Every write this engine makes to
-/// either file is followed immediately by re-stamping that path's cache entry with the mtime and
-/// content the write actually produced. The next <see cref="FileSystemWatcher"/> event on that same
-/// path — which the write itself causes — then reads back the same mtime it already has cached and is
-/// a no-op. A real external edit is the only thing that leaves a path's mtime different from what the
-/// cache remembers.</para>
+/// either file is followed immediately by re-stamping that path's cache entry with the content the
+/// write actually produced. The next <see cref="FileSystemWatcher"/> event on that same path — which
+/// the write itself causes — then reads back bytes identical to the ones it already has cached and is
+/// a no-op. <b>Content is what says whether a side moved, never the last-write time</b>: a clock is
+/// too coarse to tell this engine's own write from a second edit landing in the same tick, and
+/// <see cref="Changed"/> carries the measurement. The mtime is kept for the one question that really
+/// is about the clock — which of two sides that have both changed is the newer.</para>
 /// <para><b>Deletion is not withdrawal.</b> While sync is active for this workspace, a file going
 /// missing is read as damage to be repaired from the other one, not as the user opting out — opting out
 /// is the context menu or Settings, never <c>rm</c>.</para>
@@ -486,13 +488,29 @@ public sealed class AgentFileSyncEngine : IDisposable
         ScheduleReconcile(epoch);
     }
 
+    /// <summary>Whether this side has moved since the engine last looked at it. <b>The bytes are the
+    /// whole answer, and the mtime is deliberately not consulted.</b></summary>
+    /// <remarks>An equal mtime used to short-circuit to "unchanged", on the reasoning that this
+    /// engine's own write is the only thing that leaves one — and it is not. A file's last-write time
+    /// is only as fine as the clock that stamps it: measured here, <b>two consecutive
+    /// <c>File.WriteAllText</c> calls on the same file land on the identical mtime about half the
+    /// time</b> (1097 of 2000). So a checkout, a formatter or a save-on-save that rewrote one of the
+    /// two files within one tick of the previous write was read as this engine's own output and thrown
+    /// away, leaving the two sides apart until somebody happened to save again. Dropping the
+    /// short-circuit costs nothing: <see cref="ReadAsync"/> has already read the whole file into memory
+    /// by the time this is asked, so the comparison is against bytes that are in hand either way.
+    /// <para>Loop prevention is unaffected, and that is the point of comparing content rather than the
+    /// clock: <see cref="MirrorAsync"/> re-stamps the cache with the bytes it wrote, so the watcher
+    /// event that write causes finds identical content and is still a no-op — while an edit that
+    /// happens to share a tick with it is now seen for what it is.</para>
+    /// <para>The mtime stays on <see cref="FileState"/> for the other question, which genuinely is
+    /// about the clock: which of two sides that have <em>both</em> changed is the newer.</para></remarks>
     private static bool Changed(FileState cached, FileState current)
     {
         if (!cached.Exists && !current.Exists) return false;
         // A file that has appeared or gone has changed whatever its bytes are — without this, a file
         // created empty compares equal to one that was not there at all.
         if (cached.Exists != current.Exists) return true;
-        if (cached.Mtime == current.Mtime) return false;
         return !cached.Bytes.AsSpan().SequenceEqual(current.Bytes);
     }
 

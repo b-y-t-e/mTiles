@@ -130,6 +130,27 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         await WaitUntilAsync(() => File.Exists(Claude) && File.ReadAllText(Claude) == "two");
     }
 
+    /// <summary>An edit that lands on the same last-write time as the previous one is still an edit.
+    /// The mtime is only as fine as the clock stamping it — two consecutive writes to one file share
+    /// it about half the time on this machine — so a checkout or a formatter rewriting a file within
+    /// one tick used to be read as this engine's own output and thrown away, leaving the two sides
+    /// apart until somebody saved again. Stamped here rather than raced for, so the case is exercised
+    /// every run instead of on whichever runs happen to be fast enough.</summary>
+    [Fact]
+    public async Task An_edit_sharing_the_previous_writes_mtime_still_crosses()
+    {
+        File.WriteAllText(Claude, "one");
+        File.WriteAllText(Agents, "one");
+        var stamp = File.GetLastWriteTimeUtc(Agents);
+        _engine = new AgentFileSyncEngine(_dir);
+        await _engine.StartAsync();
+
+        File.WriteAllText(Agents, "two");
+        File.SetLastWriteTimeUtc(Agents, stamp); // exactly what the engine cached at seeding
+
+        await WaitUntilAsync(() => File.ReadAllText(Claude) == "two");
+    }
+
     [Fact]
     public async Task Deleting_one_file_recreates_it_from_the_other()
     {

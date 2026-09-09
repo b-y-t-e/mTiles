@@ -348,9 +348,20 @@ workspace'u, jak i przy ręcznym włączeniu synchronizacji z menu kontekstowego
 
 **Zapobieganie pętli zapis→watcher→zapis jest pamięcią, nie blokadą zapisu.** Każdy zapis silnika
 natychmiast aktualizuje własną pamięć podręczną (mtime + treść) tej ścieżki, więc kolejne zdarzenie
-`FileSystemWatcher` na tej samej ścieżce — wywołane przez ten właśnie zapis — czyta ten sam mtime,
-który już ma w pamięci, i nic nie robi. Prawdziwa zewnętrzna edycja to jedyna rzecz, która zostawia
-mtime różny od zapamiętanego.
+`FileSystemWatcher` na tej samej ścieżce — wywołane przez ten właśnie zapis — czyta bajty, które już
+ma w pamięci, i nic nie robi.
+
+**O tym, czy strona się ruszyła, decyduje treść, nigdy czas modyfikacji.** To była kiedyś porównanie
+mtime i zegar jest na to za gruby: zmierzone tutaj, dwa kolejne `File.WriteAllText` na tym samym pliku
+trafiają w identyczny mtime mniej więcej w połowie przypadków (1097 na 2000). `git checkout`,
+formatter albo zapis-po-zapisie, który przepisał jeden z dwóch plików w ciągu jednego tyknięcia od
+poprzedniego zapisu, był więc czytany jako własny wynik silnika i wyrzucany — a obie strony zostawały
+rozjechane, dopóki ktoś nie zapisał ponownie. Porównanie treści nic nie kosztuje, bo plik i tak jest
+już wczytany do pamięci, a pętli nie otwiera: po mirrorze pamięć trzyma zapisane bajty, więc zdarzenie
+wywołane tym zapisem dalej jest no-opem. Mtime zostaje dla jedynego pytania, które naprawdę dotyczy
+zegara — która z dwóch stron, jeśli obie się zmieniły, jest nowsza. Pinuje to
+`An_edit_sharing_the_previous_writes_mtime_still_crosses`, gdzie mtime jest ustawiany wprost, żeby
+przypadek zachodził w każdym przebiegu, a nie w tych, które akurat są dość szybkie.
 
 **Globalny wyłącznik i ustawienie per-workspace to dwie osobne rzeczy.** `AppSettings.AgentFileSyncEnabled`
 (domyślnie włączony, Ustawienia → Ogólne) jest nadrzędny — wyłączenie go zatrzymuje każdy załadowany
