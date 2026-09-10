@@ -146,6 +146,74 @@ What this replaces was a **verify command**: the clarification round proposed a 
 
 So the checking moves to the tool, and the two questions are split because the answers differ: a red suite is a thing a user may reasonably want left alone while still asking for code that compiles. The sentence that does the work is the one about **pre-existing failures** — *a failure that was already there before you started is not yours to fix: say so instead* — for the same reason the out-of-scope sentence in the SOLID rules does. A tool told the tests must pass, in front of a suite that was already red, goes and fixes somebody else's tests with the attempts meant for the goal. Nothing here reaches a shell that the tool was not already free to run, so there is no consent gate left to ask about.
 
+**Arguing with a plan carries the plan.** Rejecting one used to lose it: the remark was filed as a
+clarification and `RunPhaseAsync` cleared `ProposedPlan` on the way into the next planning run, so the
+tool was asked to write a plan while being shown neither the draft the user objected to nor which part
+of it they meant. A remark that stood on its own survived that; *leave step 2 and fix step 5* — which is
+how people actually argue with a plan — had nothing to refer to and came back as an unrelated document.
+The clearing stays, because it is what stops a second run that produced nothing leaving the turned-down
+plan standing and approvable; what carries the draft is a second pair of fields,
+`GoalWorkflowEngine.PlanUnderRevision` and `PlanRemark`, filed at the moment of the rejection, shown to
+the next prompt and approvable by no path at all. They are persisted, because the window between
+rejecting a plan and seeing the revised one is minutes of AI time and exactly when an application gets
+closed, and they are cleared on approval and with a fresh goal — a remark left standing would be shown
+to the planner of a goal it was never about.
+
+**And the reply always ends in a whole plan, whichever thing the user's words were.** A message about a
+plan is either a correction or a question, and telling them apart is a judgement about meaning: a rule
+in C# over the text — a question mark, a word list — is the guess this tile refuses everywhere else. The
+run that would write the plan anyway is told both cases instead (`GoalPromptBuilder.Revision`), at no
+extra call: words that change the plan get one or two sentences saying what changed and then the whole
+plan again, every step and every criterion; words that only ask get the answer and then the plan
+repeated word for word. Ending in a complete plan either way is what leaves the tile with no
+classification of its own to make — whatever was typed, the newest message in the transcript is
+something that can be approved, and `ApprovedPlan` is never a fragment. **The two sentences are then
+stripped back off** (`GoalResponseParser.ParsePlan`), because `ApprovedPlan` rides in every implement
+prompt for the rest of the run and a note about what changed between two drafts is history rather than
+instruction. The split is the shape the prompt already fixes — a plan opens with a line beginning
+`Goal:` — and it only ever splits when there is something to split, so a tool that ignores the shape
+loses nothing, which is the contract the rest of that class keeps. **That word is asked for in
+English by name**, because the same prompt ends by asking for the answer in the user's own
+language: a Polish plan opening `Cel:` is one the split cannot find, and the sentences about what
+was revised then ride into `ApprovedPlan` and into every implement prompt for the rest of the run
+— the very thing the split exists to prevent. It joins `Rejected:` and `VERDICT: PASS` as a marker
+the language rule holds back. **The word is asked for; the markdown around it is not.** That answer is
+rendered as markdown, so a tool writes `**Goal:**`, `## Goal:` or — copying the shape out of the
+prompt's own list of sections, where it reads `- Goal: one sentence` — the bullet. None of those is a
+tool ignoring the contract, and a rule wanting the word first on its line failed all three the silent
+way: the whole answer came back as the plan, revision notes and all. Heading hashes, one list marker
+and the emphasis markers are allowed in front of it, and the emphasis may close on either side of the
+colon; the run-up is spaces and tabs and never `\s`, or the match starts on the newline ending the note
+above and hands that line to the plan.
+
+**The plan phase sees what is already uncommitted, and used to see nothing at all.** Its prompt was a
+goal, some clarifications and the quality rules: 2 245 characters with no fact about the project in
+them. What saved it is that the phase runs read-only with the tool's own read tools, so a tool that
+happens to go and look plans well and one that does not plans the whole feature from scratch over code
+that already implements half of it — luck rather than design. Reading files answers *what does the code
+do*; only a diff answers *what is half-done*, and that is the state no amount of reading recovers
+cheaply. So `RunPlanAsync` reads the tree the way detection does — everything uncommitted, against
+`HEAD`, honouring the goal's own `@` narrowing — and the prompt carries it under *Already uncommitted in
+this project*, with `OtherPeoplesWork` beside it and one instruction under it: check the project before
+writing a step, and plan only what is left. **The heading follows the read** rather than being a
+constant (`GoalPromptBuilder.AlreadyThereHeading`): a goal carrying `@HEAD~1` is read from that commit
+to the working tree, so the block holds a commit as well, and named *uncommitted* it tells the planner
+that work somebody finished last week is unfinished business. Where a base was named the block says so
+— *Already changed in this project since `HEAD~1`, committed and not*. Against `HEAD` and not the baseline deliberately: nothing
+has been implemented when a plan is written, so a baseline read is empty by construction. A clean tree
+produces no block and the prompt is what it always was, a read that fails answers an unreadable snapshot
+whose text is null and builds the same prompt, and on a command line the tree is trimmed before anything
+else — the order the implement prompt already uses.
+
+**What deliberately did not change.** A rejection still routes through Clarify rather than straight back
+to Plan: that round is what lets the tool ask about a correction it does not understand, it answers
+"no questions" in seconds when there is nothing to ask, and re-routing it would be risk in a
+well-tested path for something passing the draft to the prompt already buys. Clarify still gets no
+working tree — it would sharpen "have I anything to ask", and it would cost that on every round and
+every rejection, in the one phase that is not where things go wrong. The review still gets no plan,
+because it judges against the **goal**: handed the plan, a plan that missed the goal would pass by its
+own account.
+
 **The plan is asked for the user's goal tightened, not expanded.** This phase's characteristic failure
 is an essay: the goal restated at four times the length, steps grouped under invented headings, and each
 one annotated with the principle it serves — the last of those invited by the quality rules being in the
@@ -156,6 +224,177 @@ the prompt says it three ways — restate the goal *only tighter*, add no scope 
 give, invent no files or constraints, name no principles and justify no steps — and `HealthRules` is
 deliberately left out of this one, where it only ever came back as two more steps saying "run the
 tests".
+
+**One box, one question, three entries.** The composer's menu had five, and two of them were the only
+controls on it that ignored what had been typed: *Detect goal* and *Detect & run* read the composer
+through `ReadScopeFromComposer`, passed the sentence in as a narrowing hint, and then replaced it with a
+goal read off the diff — the run variant clearing the box on its way past. Measured live, 2026-09-09:
+"sprawdz ostatni commit" typed, one uncommitted change to `.gitignore`, and the goal came back about
+`.gitignore`. The typed sentence was neither wrong nor unclear; nothing was ever going to answer it,
+because the detect prompt carries no commits and the words were a hint rather than the goal.
+
+So the five are three, and every one of them asks the box the same question. **Set goal / Detect goal**
+adopts a goal and goes on to the questions about it. **Review** judges the tree once and changes
+nothing. **Set goal & run / Detect & run** runs the loop. The labels follow the box because
+`PrimaryActionLabel` and `RunActionLabel` read `HasTypedGoal`, and the gates follow it too — `CanRun` is
+`CanSetGoalAndRun` for a typed goal and `CanDetectGoal` for one that has to be read, since "add Caddy
+support" on a clean tree is an ordinary thing to ask for and "work out what I was doing" is not.
+
+**A box holding only pointers is not a typed goal** (`GoalScopeFilter.WordsOnly`, which `HasTypedGoal`
+now asks). `@frontend` is not something to achieve, and adopted as a goal it is a sentence nobody wrote;
+it narrows, and the goal is still the one to be read out of the changes. Four states, and the menu
+multiplies them by three rather than adding entries: an empty box reads the goal from everything
+uncommitted, pointers alone read it from what they point at, words are the goal, words plus pointers are
+both.
+
+**And Submit is where that is finally enforced, not the labels.** Every entry that reads the box routes
+a pointer-only send to the detect half, but only where there is something to detect from. A clean tree
+with a live path named — `@src/Auth.cs`, a file that exists and holds no change — is the one shape where
+there is not: `CanDetectGoal` is false, the primary button falls through to `Submit`, and `SubmitCore`
+asked only whether the box was empty, so the path was adopted as `OriginalGoal` and the whole round of
+questions and the plan were written about a file name. The check is `WordsOnly` again, asked of the text
+rather than through `HasTypedGoal` — which reads the live box, and the box is cleared two lines below —
+and it comes before both the clear and the discard confirmation, because a refusal must cost the user
+neither their typing nor their transcript. What it says is the one thing that is actually missing: a
+pointer says where to look, not what to do.
+
+**`@` never empties the evidence, and it names commits as well as files.** It used to mean one thing —
+a hard filter — so "check the frontend against `@docs/spec.md`" filtered the diff down to a
+specification nobody had edited, came out empty, and replaced the evidence with a line saying the scope
+matched nothing, about the very file the user was pointing at. A path the user names and has not changed
+is a specification to compare against, a folder the work is to be done in, or a note to read; which of
+the three, only the words beside it can say. So the filter applies where it can and stands down where it
+would leave nothing, and the prompt hands the tool both halves. What a token *is* comes from outside
+this application: the filesystem answers first, and whatever is left goes to `git rev-parse`
+(`GoalScopeRef`), so `@src/Auth.cs` narrows, `@HEAD~1` moves the end the tree is read from, `@master..HEAD`
+compares two commits and leaves the working tree out of it, and `@admin` resolves as neither and changes
+nothing. **That last one is a rule and not a hope** (`GoalScopeRef.NamesARef`): git is asked only about a
+token spelled like a commit — ref punctuation, a commit id, `HEAD` itself — because the branch namespace
+is full of ordinary words, and `admin`, `dev`, `stable` and `release` are all branches somebody has. Asked
+about the bare word, git said yes, and "popraw formularz `@admin`" read the whole history since that
+branch as the changes that had just been made, with nothing on screen naming the two ends. A branch is
+named as the range git already spells it, `@master..`; the false yes costs a wasted run and the false no
+costs two keystrokes. **That spelling survives the tokeniser because it is made to**
+(`GoalScopeFilter.KeepRangeSeparator`): a mention gives up the punctuation a sentence ends with, and a
+trailing `..` was going with it, so the one documented way to name a branch called after an ordinary
+word came back as that ordinary word and was refused as prose — the scope never formed, the tree was
+read from `HEAD`, and nothing said so, while `@master..HEAD` escaped only because a letter happens to
+end it. Exactly two dots go back and never the whole run: `@master...` at the end of a sentence is a
+range and a full stop, and three of them are a symmetric difference this tile does not answer. A single ref keeps the working tree in — "the last commit *and* what I have not committed
+since" is what somebody still working on it means — while a named head is the other question. It is a
+fact about the goal, so it is persisted beside `ScopePaths` (`GoalTileState.ScopeRefBase`/`ScopeRefHead`)
+and a Resume tomorrow reads the same two ends.
+
+**Both ends are pinned to commit ids when the scope is worked out, not kept as the words that named
+them.** `HEAD~1` is a different commit the moment anybody commits, and committing is exactly what
+happens during a run — in the terminal tile next door, or between closing the tile and pressing Resume
+tomorrow. Kept as a token, the scope silently stopped covering the commit its goal was about: the
+reviewer got a block with the work under judgement missing from it and passed a verdict on something
+else, while every screen still said `@HEAD~1`. The same `rev-parse` that decides whether a token names
+a commit already prints which one, so pinning costs nothing and is what makes the promise above true
+rather than a hope. **The typed spelling is kept beside it** (`GoalReadBase.Named`, persisted as
+`ScopeRefNamed`) for the one thing an id is worse at: the plan's block is headed *Already changed in
+this project since …*, where `HEAD~1` says something to a reader and forty characters of hex do not. It
+names and never reads, so the two cannot come to disagree about which commit is meant, and a scope
+restored from a file written before it existed names itself by its id and is still right.
+
+**And the path to git goes through the same resolution every other caller here uses**
+(`GoalTileViewModel.GitPath`). `AppSettings.GitPath` is empty until somebody types one, and nothing
+fills it in — the Settings page's detection shows a path, it does not store it — so passing the setting
+straight through started a process with no file name at all. That threw, `GoalScopeRef` answered null
+the way it answers every failure, and on a fresh installation not one `@commit` token ever worked,
+with nothing on screen or in the log naming the empty setting as the reason.
+
+**A named head end survives detection alone** (`GoalScopeRef.EndingAtTheWorkingTree`). Detection reads
+the range exactly as it was typed, because it judges a range and changes nothing; every other read
+keeps the base and ends at the working tree. **The plan is on that side of the line although it writes
+nothing either**, and that is the correction: what its block exists to show is the work already in the
+tree, and `@master..HEAD` read literally is two commits with every uncommitted line left out — the
+planner shown history under a heading promising the opposite, and not one line of what the goal sent it
+to look at. Read literally, a range
+pins both ends of the implement/review loop to commits nothing the tool does can move: the
+implementation writes files, the next read comes back byte for byte identical, the review repeats the
+findings it has already made, and the run ends on no progress or on spent attempts with the fixes on
+disk unlooked at. `@master..HEAD` in a run is therefore `master` against the tree — those commits *and*
+everything written since, which is a superset of what was named and never less.
+
+**And one read serves the loop and the no-change check both.** The check compares digests, so the two
+must be asking git the same question: a digest of `diff HEAD` against one of `diff <named>^{tree}` can
+never be equal, and the stop silently retires — the run spends every attempt on a tool that wrote
+nothing and then ends giving some other reason. That happened once over the baseline and again over a
+named commit, the second time through a copy of the read kept in step by hand. There is one reader now
+(`ReadWorktreeAsync`), called by the check with the one thing that differs: a summary cap of zero.
+
+**A detection reads the ends its own composer names, never the replaced goal's.** The paths were always
+passed to that read explicitly for exactly this reason and the ref was not, so a goal set earlier with
+`@HEAD~3` had every later *Detect goal* reading three commits of history and deriving a goal nobody
+ordered, while a freshly typed `@HEAD~1` reached the read too late to change anything. The scope is
+resolved before the tree is read and adopted afterwards with the goal — an assignment rather than a
+second resolution, since git could answer differently if the user committed in between.
+
+**A typed run starts by judging what is already there only when the user pointed at work that is
+already there.** With a changed path or a commit named, that is what they asked about, and reviewing it
+first is the whole point of naming it — which is also the "typed goal, start at review" route that did
+not exist by any path before. Without one the default stays what *Set goal & run* always did, implement
+first, because a fresh goal on a dirty tree would otherwise take the user's unrelated uncommitted work
+as its subject and set about fixing it.
+
+**But it is not a way past the plan.** That gate used to enter the loop straight from the composer, and
+the loop is the only path a typed goal has to `RunPlanAsync` — so *add dark mode `@src/Theme.cs`* over a
+file with uncommitted changes was planned by nobody, and `ApprovedPlan` stayed empty in every implement
+prompt to the end of the run: the very damage the gate was added to remove, removed for a clean tree and
+reintroduced for a dirty one. The goal was typed a moment ago and nothing has yet asked the tool what it
+makes of it, so such a run is clarified and planned like any other; starting at the review is a fact
+about the loop's **first lap**, and it travels to the loop as one (`RunClarifyAsync` → `RunPlanAsync` →
+`ApproveAndImplementAsync`, a parameter each and no phase moved on the way). What the gate still sets
+here and now is `ReviewsExistingWork`, because the diff base is a fact about the whole run.
+
+**Naming a path is not the same as naming a change, and reading it as one was the worse half of the
+stand-down.** A path that holds none of the change is a specification, a folder or a note — which is
+precisely why the block stands its filter down and shows the whole tree instead. Taken as "there is
+something here to review", the two together turned *add dark mode `@docs/spec.md`* into a run that
+entered at the review, measured every diff from `HEAD`, and handed the reviewer the user's unrelated
+half-finished work under the heading "the changes that were just made"; its findings then reached the
+implement prompt as things to fix. The clean-tree case was the same mistake with nothing in it: the
+review judged an empty diff and the run skipped clarify and plan on the way past — which is now closed
+from the other end too, since no typed run skips them whatever the pointer names. So the question is put to git rather than to the text
+(`PointsAtWorkAlreadyThereAsync`), once, before the run takes its shape: one read narrowed exactly as
+the user named it, answered yes only where something survives the narrowing, and no where nobody could
+read the tree. A mistyped `@src/Cart` that named nothing never gets that far — it resolves to no scope
+at all — and the rule the read applies is `GoalScopeFilter.HoldsChange`, the same one the block's own
+stand-down asks, because two copies of it would let the block show the whole tree while the run went on
+treating the named paths as its subject.
+
+**But pointing at something is not claiming it.** Starting at the review means every diff from then on
+is measured from `HEAD`, because what is being judged was on disk before the run began — and that same
+answer used to be what told `GoalCommitter` to stop telling the user's work from the run's and offer
+everything uncommitted since `HEAD`. On the detect paths it may: the goal came out of those changes.
+Here the goal was typed a moment ago and the `@` said where to look, so the offer swept in an unrelated
+afternoon in the next directory. They are two facts now — `ReviewsExistingWork` for the diff base,
+`GoalReadFromTheTree` for the provenance — and only the detect paths set the second. It is persisted,
+and read as `null` meaning *ask the older one*: before the split one flag carried both answers, so a
+detected goal reopened from a file written then would be told it may claim nothing and offer a Commit
+button over an empty scope.
+
+**And a clean tree is not the same as nothing to read.** Whether the detect entries are offered came
+from `git status`, which knows nothing about the commits an `@` token can name — so the flagship case,
+*check the last commit* on a repository where everything is committed, went dead in every direction at
+once: Run and Review disabled, and the primary button falling through to Submit, which adopted `@HEAD~1`
+as the goal's own text, the very thing `WordsOnly` exists to prevent. Nothing under the buttons needed
+changing; the read already handled it. The question the gate asks is the filesystem's, because it is
+re-asked on every keystroke and a token naming nothing on disk is the only kind that *can* be a commit
+— which of the two it really is stays `GoalScopeRef`'s answer, given once, when the run reads the tree.
+A token that turns out to be neither costs one sentence saying there was nothing to work a goal out of,
+which is what a clean tree already answers; a dead menu says nothing at all.
+
+**And the tool is sent to look whenever the user described rather than named** (`ShouldGoAndLook`).
+"The save button in configuration" names a set of files nobody can enumerate without reading the
+project, and those words reach the prompt beside a diff that was assembled and clipped before anybody
+read them — the narrowing arriving after the evidence was chosen. The invitation was gated on truncation
+alone; it now fires on a typed narrowing too, and the review gained the sentence pair the detection
+already had (`ReviewSubject`): what the block of words is for, and that a file named in it is to be
+opened and held to. It stays conditional, because on a small tree with nothing typed there is nothing to
+find and a round of reading buys nothing.
 
 **Detection reads the whole working tree, not the tracked half of it, and it knows when it is looking
 at a fragment.** Measured on a real project, 2026-09-09: 102 tracked files changed and 44 untracked, of

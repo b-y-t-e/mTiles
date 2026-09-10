@@ -146,6 +146,193 @@ public class WorktreeScopeTests
         }
     }
 
+    /// <summary>
+    /// An <c>@</c> token that names a commit moves the end the tree is read from.
+    /// </summary>
+    /// <remarks>
+    /// "Sprawdź ostatni commit" is the case this exists for: the change is committed, the tree is
+    /// nearly clean, and everything the tile knew how to show was the handful of files still
+    /// uncommitted. The token is not a path — <c>HEAD~1</c> carries neither a slash nor a dot — so the
+    /// filesystem answers no and git answers yes, and neither answer is guessed at here.
+    /// </remarks>
+    [Fact]
+    public async Task A_named_commit_becomes_the_end_the_tree_is_read_from()
+    {
+        RequiresGit.OrFail("WorktreeReader");
+
+        using var repo = new TempRepo();
+        repo.Write("cart.cs", "class Cart { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m initial");
+
+        // The work that is already committed, and therefore invisible to every read against HEAD.
+        repo.Write("discount.cs", "class Discount { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m discounts");
+
+        // And one thing still uncommitted beside it.
+        repo.Write("notes.md", "a note\n");
+
+        var reader = new WorktreeReader(repo.Path, "git");
+
+        var againstHead = await reader.ReadWholeTreeAsync(CancellationToken.None);
+        Assert.Contains("notes.md", againstHead.Text ?? "");
+        Assert.DoesNotContain("class Discount", againstHead.Text ?? "");
+
+        var named = await GoalScopeRef.ResolveAsync(["HEAD~1"], repo.Path, "git", CancellationToken.None);
+        Assert.NotNull(named);
+
+        // The last commit *and* what is not committed yet, which is what somebody still working on it
+        // is asking about.
+        var since = await reader.ReadWholeTreeAsync(CancellationToken.None, readBase: named);
+        Assert.Contains("class Discount", since.Text ?? "");
+        Assert.Contains("notes.md", since.Text ?? "");
+    }
+
+    /// <summary>
+    /// The commit is pinned when the scope is worked out, so a commit made afterwards does not move it.
+    /// </summary>
+    /// <remarks>
+    /// <c>HEAD~1</c> is a relative name: committing in the terminal tile next door, or between closing
+    /// the tile and pressing Resume tomorrow, makes it a different commit — and the run would then
+    /// stop covering the very commit its goal was about, handing the reviewer a block with the work
+    /// under judgement missing from it. Resolving to an id once is what makes the scope survive that.
+    /// </remarks>
+    [Fact]
+    public async Task A_named_commit_is_pinned_and_does_not_move_when_the_user_commits()
+    {
+        RequiresGit.OrFail("WorktreeReader");
+
+        using var repo = new TempRepo();
+        repo.Write("cart.cs", "class Cart { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m initial");
+        repo.Write("discount.cs", "class Discount { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m discounts");
+
+        var named = await GoalScopeRef.ResolveAsync(["HEAD~1"], repo.Path, "git", CancellationToken.None);
+        Assert.NotNull(named);
+        Assert.Equal(repo.Git("rev-parse HEAD~1").Trim(), named!.Value.Base);
+
+        // Somebody commits while the run is under way.
+        repo.Write("shipping.cs", "class Shipping { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m shipping");
+
+        // The commit the goal was about is still in the read, which is what a relative token would
+        // have lost the moment HEAD moved.
+        var since = await new WorktreeReader(repo.Path, "git")
+            .ReadWholeTreeAsync(CancellationToken.None, readBase: named);
+        Assert.Contains("class Discount", since.Text ?? "");
+
+        // And the sentence the plan's prompt puts it in still says what the user typed.
+        Assert.Equal("HEAD~1", named.Value.Spelling);
+    }
+
+    [Fact]
+    public async Task A_named_range_compares_two_commits_and_leaves_the_working_tree_out()
+    {
+        RequiresGit.OrFail("WorktreeReader");
+
+        using var repo = new TempRepo();
+        repo.Write("cart.cs", "class Cart { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m initial");
+        repo.Write("discount.cs", "class Discount { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m discounts");
+        repo.Write("scratch.md", "not committed\n");
+
+        var range = await GoalScopeRef.ResolveAsync(
+            ["HEAD~1..HEAD"], repo.Path, "git", CancellationToken.None);
+        Assert.NotNull(range);
+
+        // Both ends come back as commit ids rather than as the words that named them, which is what
+        // makes the range mean the same thing after somebody commits.
+        Assert.NotNull(range!.Value.Head);
+        Assert.Equal(repo.Git("rev-parse HEAD").Trim(), range.Value.Head);
+        Assert.Equal(repo.Git("rev-parse HEAD~1").Trim(), range.Value.Base);
+        Assert.Equal("HEAD~1", range.Value.Named);
+
+        var read = await new WorktreeReader(repo.Path, "git")
+            .ReadWholeTreeAsync(CancellationToken.None, readBase: range);
+
+        Assert.Contains("class Discount", read.Text ?? "");
+        Assert.DoesNotContain("scratch.md", read.Text ?? "");
+    }
+
+    /// <summary>
+    /// A read that ends at the working tree keeps the base the user named and drops the head.
+    /// </summary>
+    /// <remarks>
+    /// The rule the implement/review loop reads through: a pinned head end is two commits nothing the
+    /// tool writes can move, so the same diff comes back every lap. Nothing else about the scope
+    /// changes — a single ref already ends at the tree, and no ref at all still means none.
+    /// </remarks>
+    [Theory]
+    [InlineData(null, null, null, null)]
+    [InlineData("HEAD~1", null, "HEAD~1", null)]
+    [InlineData("master", "HEAD", "master", null)]
+    public void A_read_that_writes_ends_at_the_working_tree(
+        string? baseRef, string? headRef, string? expectedBase, string? expectedHead)
+    {
+        GoalReadBase? scope = baseRef is null ? null : new GoalReadBase(baseRef, headRef);
+
+        var ended = GoalScopeRef.EndingAtTheWorkingTree(scope);
+
+        Assert.Equal(expectedBase, ended?.Base);
+        Assert.Equal(expectedHead, ended?.Head);
+    }
+
+    [Fact]
+    public async Task A_token_that_is_neither_a_file_nor_a_commit_changes_nothing()
+    {
+        RequiresGit.OrFail("WorktreeReader");
+
+        using var repo = new TempRepo();
+        repo.Write("cart.cs", "class Cart { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m initial");
+
+        // "@admin about the failure" is prose with an at-sign in it, and an option-looking token is
+        // refused before git ever sees it.
+        Assert.Null(await GoalScopeRef.ResolveAsync(
+            ["admin", "--hard", "nope/does/not/exist"], repo.Path, "git", CancellationToken.None));
+    }
+
+    /// <summary>
+    /// A word that happens to be a branch name is still prose, and does not move the diff base.
+    /// </summary>
+    /// <remarks>
+    /// The one shape where asking git alone answered yes to a sentence: "popraw formularz @admin" in a
+    /// repository with an <c>admin</c> branch read the whole history since that branch as the changes
+    /// that were just made. Naming the branch on purpose still works, as the range git already spells
+    /// it: <c>@admin..</c>.
+    /// </remarks>
+    [Fact]
+    public async Task A_word_that_is_also_a_branch_name_is_still_prose()
+    {
+        RequiresGit.OrFail("WorktreeReader");
+
+        using var repo = new TempRepo();
+        repo.Write("cart.cs", "class Cart { }\n");
+        repo.Git("add -A");
+        repo.Git("commit -q -m initial");
+        repo.Git("branch admin");
+
+        Assert.Null(await GoalScopeRef.ResolveAsync(
+            ["admin"], repo.Path, "git", CancellationToken.None));
+
+        var named = await GoalScopeRef.ResolveAsync(
+            ["admin.."], repo.Path, "git", CancellationToken.None);
+
+        // The branch resolves, and what is kept is the commit it stood on — the branch itself will
+        // move. What still says "admin" is the spelling the prompt reads it out by.
+        Assert.Equal(repo.Git("rev-parse admin").Trim(), named?.Base);
+        Assert.Equal("admin", named?.Spelling);
+    }
+
     private static bool HasGit()
     {
         try

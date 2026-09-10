@@ -121,7 +121,7 @@ public class GoalImageAttachmentTests : IDisposable
         var prompt = phase switch
         {
             "clarify" => engine.BuildClarifyPrompt(),
-            "plan" => engine.BuildPlanPrompt(),
+            "plan" => engine.BuildPlanPrompt(null),
             "implement" => engine.BuildImplementPrompt(gitDiff: null),
             _ => engine.BuildReviewPrompt(gitDiff: null),
         };
@@ -137,7 +137,7 @@ public class GoalImageAttachmentTests : IDisposable
     {
         // The block is fixed overhead in four prompts that are already fitted to a command line, so a
         // goal that pasted nothing must not pay for the heading, the fence and the instruction.
-        var prompt = new GoalWorkflowEngine().BuildPlanPrompt();
+        var prompt = new GoalWorkflowEngine().BuildPlanPrompt(null);
 
         Assert.DoesNotContain("Attached images", prompt);
     }

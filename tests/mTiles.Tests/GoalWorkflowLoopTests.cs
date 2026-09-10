@@ -499,6 +499,222 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     /// <summary>
+    /// A named range keeps its base end everywhere and its head end only where nothing is written.
+    /// </summary>
+    /// <remarks>
+    /// <para>Read literally, <c>@master..HEAD</c> pins both ends of the implement/review loop to two
+    /// commits nothing the tool does can move: the implementation writes files, the next read comes
+    /// back identical, the review repeats itself, and the run ends on no progress with the fixes
+    /// sitting on disk. The base end is what the user pointed at and stays; the head end becomes the
+    /// working tree wherever the run writes, which is the only end that can show the work.</para>
+    /// <para>Detection is the one read that keeps both, because it judges a range and changes
+    /// nothing. The plan does not, though it writes nothing either: the block it is shown is the work
+    /// already in the tree, and a pinned head end is precisely the read that leaves that out.</para>
+    /// </remarks>
+    [Fact]
+    public void A_named_range_is_read_to_the_working_tree_wherever_the_run_writes()
+    {
+        OnUiThread(async () =>
+        {
+            var bases = new List<GoalReadBase?>();
+            GoalScopeRef.Factory = (token, _) => Task.FromResult<GoalReadBase?>(
+                token == "master..HEAD" ? new GoalReadBase("master", "HEAD") : null);
+            WorktreeReader.BaseObserved = read => bases.Add(read);
+            try
+            {
+                AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", CleanReview);
+
+                using var vm = NewTile();
+
+                vm.InputText = "napraw to @master..HEAD";
+                await vm.SubmitCommand.ExecuteAsync(null);
+                vm.InputText = "all of it";
+                await vm.SubmitCommand.ExecuteAsync(null);
+                vm.InputText = "ok";
+                await vm.SubmitCommand.ExecuteAsync(null);
+
+                // Nothing falls back to HEAD: the stretch of history the user named is on every read
+                // of this goal, the no-change check included — two reads answering different questions
+                // can never be equal, and that is the stop silently retired.
+                Assert.NotEmpty(bases);
+                Assert.All(bases, read => Assert.Equal("master", read?.Base));
+
+                // Every read of a typed run ends at the working tree, the plan's included: what the
+                // planner is shown is what is already there to be finished, and two commits against
+                // each other show none of it.
+                Assert.All(bases, read => Assert.Null(read?.Head));
+            }
+            finally
+            {
+                WorktreeReader.BaseObserved = null;
+                GoalScopeRef.Factory = null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// And a detection still reads the range exactly as it was typed.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the rule above, because it could be satisfied by dropping the head end
+    /// everywhere: <c>@master..HEAD</c> asked of a detection is a question about two commits, and the
+    /// goal it works out has to be the one those commits describe.
+    /// </remarks>
+    [Fact]
+    public void A_detection_keeps_the_head_end_the_user_named()
+    {
+        OnUiThread(async () =>
+        {
+            var bases = new List<GoalReadBase?>();
+            GoalScopeRef.Factory = (token, _) => Task.FromResult<GoalReadBase?>(
+                token == "master..HEAD" ? new GoalReadBase("master", "HEAD") : null);
+            WorktreeReader.BaseObserved = read => bases.Add(read);
+            try
+            {
+                AnswerWith("Finish the cart");
+
+                using var vm = NewTile();
+
+                vm.InputText = "@master..HEAD";
+                await vm.DetectGoalCommand.ExecuteAsync(null);
+
+                Assert.Contains(bases, read => read is { Base: "master", Head: "HEAD" });
+            }
+            finally
+            {
+                WorktreeReader.BaseObserved = null;
+                GoalScopeRef.Factory = null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// A detection reads the ends its own composer names, never the ones the goal it replaces named.
+    /// </summary>
+    /// <remarks>
+    /// The paths were always passed to this read explicitly, for exactly this reason; the ref was
+    /// taken off the engine. So a goal set earlier with <c>@HEAD~3</c> had every later "Detect goal"
+    /// reading three commits of history and working a goal out of them — one nobody asked for.
+    /// </remarks>
+    [Fact]
+    public void A_detection_does_not_read_through_the_ref_of_the_goal_it_replaces()
+    {
+        OnUiThread(async () =>
+        {
+            var bases = new List<GoalReadBase?>();
+            GoalScopeRef.Factory = (token, _) => Task.FromResult<GoalReadBase?>(
+                token == "HEAD~3" ? new GoalReadBase("HEAD~3", null) : null);
+            try
+            {
+                AnswerWith("Which files?", NoMoreQuestions);
+
+                using var vm = NewTile();
+
+                vm.InputText = "napraw to @HEAD~3";
+                await vm.SubmitCommand.ExecuteAsync(null);
+
+                // Watched only from here: what the goal being replaced read is not the question.
+                WorktreeReader.BaseObserved = read => bases.Add(read);
+
+                vm.InputText = "";
+                await vm.DetectGoalCommand.ExecuteAsync(null);
+
+                Assert.NotEmpty(bases);
+                Assert.All(bases, Assert.Null);
+            }
+            finally
+            {
+                WorktreeReader.BaseObserved = null;
+                GoalScopeRef.Factory = null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Pausing while git is resolving an <c>@</c> ref stops the run cleanly, not as a fault.
+    /// </summary>
+    /// <remarks>
+    /// Resolving a range is a handful of git calls the user waits on with Pause on screen, and the
+    /// cancellation that raises used to travel straight past the scope step — the one piece of git
+    /// work here with no guard around it, unlike the tree read standing beside it. It came out into
+    /// the catch of last resort, which wrote "Unexpected error: The operation was canceled" into the
+    /// transcript for a button the user had pressed on purpose and left the phase label saying the
+    /// tile was still working.
+    /// </remarks>
+    [Fact]
+    public void A_pause_while_a_ref_is_resolving_is_not_an_unexpected_error()
+    {
+        OnUiThread(async () =>
+        {
+            // What a cancelled rev-parse does, without a clock to race: the resolution is where the
+            // pause lands, so that is where the exception comes from.
+            GoalScopeRef.Factory = (_, _) => throw new OperationCanceledException();
+            try
+            {
+                AnswerWith("Which files?", NoMoreQuestions);
+
+                using var vm = NewTile();
+
+                vm.InputText = "napraw to @master..HEAD";
+                await vm.SubmitCommand.ExecuteAsync(null);
+
+                Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("Unexpected error"));
+
+                // The other half: detection resolves its own composer's ends before it reads anything,
+                // and had the same unguarded step.
+                vm.InputText = "@master..HEAD";
+                await vm.DetectGoalCommand.ExecuteAsync(null);
+
+                Assert.DoesNotContain(vm.Messages, m => m.Text.Contains("Unexpected error"));
+            }
+            finally
+            {
+                GoalScopeRef.Factory = null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// That same pause keeps the paths, which were never git's to answer for.
+    /// </summary>
+    /// <remarks>
+    /// They came off the composer and were known before anything was asked; only the ref costs a
+    /// <c>rev-parse</c> the user waits on with Pause on screen. Adopted together on the far side of
+    /// that wait, a pause inside the window threw them away as well — and by then the goal had been
+    /// started and the composer cleared, so the typed <c>@</c> stood in the transcript while every
+    /// later read of the tree for that goal went over the whole repository.
+    /// </remarks>
+    [Fact]
+    public void A_pause_while_a_ref_is_resolving_keeps_the_paths_the_composer_already_named()
+    {
+        OnUiThread(async () =>
+        {
+            GoalScopeRef.Factory = (_, _) => throw new OperationCanceledException();
+            try
+            {
+                AnswerWith("Which files?", NoMoreQuestions);
+
+                using var vm = NewTile();
+                var path = vm.FilePath;
+
+                Directory.CreateDirectory(Path.Combine(_dir, "src"));
+                File.WriteAllText(Path.Combine(_dir, "src/Cart.cs"), "// c");
+
+                vm.InputText = "popraw koszyk @src/Cart.cs @master..HEAD";
+                await vm.SubmitCommand.ExecuteAsync(null);
+
+                vm.Dispose();
+                var state = new GoalStatePersistence().Load(path);
+                Assert.Equal(["src/Cart.cs"], state!.ScopePaths);
+            }
+            finally
+            {
+                GoalScopeRef.Factory = null;
+            }
+        });
+    }
+
+    /// <summary>
     /// An attempt that wrote nothing, whose review then found something nobody had been told about,
     /// gets the next attempt instead of a button.
     /// </summary>
@@ -3608,6 +3824,539 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.False(vm.CanContinue);
             Assert.Contains(vm.Messages,
                 m => m.IsRunSummary && m.Text.Contains("Type a new goal"));
+        });
+    }
+
+    // ── One box, one question, three entries ────────────
+
+    /// <summary>
+    /// A box holding only pointers is not a typed goal.
+    /// </summary>
+    /// <remarks>
+    /// "@frontend" is not something to achieve, and adopted as a goal it is a sentence nobody wrote.
+    /// It narrows, and the goal is still the one to be read out of the changes — so both labels follow
+    /// the words rather than the length of the box.
+    /// </remarks>
+    [Fact]
+    public void Pointers_alone_leave_the_goal_to_be_read_from_the_changes()
+    {
+        OnUiThread(() =>
+        {
+            using var vm = NewTile();
+
+            vm.InputText = "";
+            Assert.False(vm.HasTypedGoal);
+
+            vm.InputText = "@src/Auth.cs @HEAD~1";
+            Assert.False(vm.HasTypedGoal);
+            Assert.Equal("Detect & run", vm.RunActionLabel);
+
+            vm.InputText = "make logging stateless @src/Auth.cs";
+            Assert.True(vm.HasTypedGoal);
+            Assert.Equal("Set goal & run", vm.RunActionLabel);
+
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// A typed goal with nothing pointed at implements first, and leaves the user's own work alone.
+    /// </summary>
+    /// <remarks>
+    /// This is the case that has to survive the menu merge. Starting such a run at the review would
+    /// hand a fresh goal the user's unrelated uncommitted files as its subject, and the loop would set
+    /// about "fixing" them — the one thing <c>DiffBase</c> and <c>ReviewsExistingWork</c> exist to keep
+    /// apart. So the default stays what "Set goal &amp; run" always did.
+    /// </remarks>
+    [Fact]
+    public void A_typed_run_with_nothing_pointed_at_still_implements_first()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var asked = 0;
+            string[] answers = [NoMoreQuestions, "The plan", "Implemented it", CleanReview];
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
+            };
+
+            using var vm = NewTile();
+            vm.InputText = "add Caddy support to the installer";
+            await vm.RunCommand.ExecuteAsync(null);
+
+            // Clarify ran, which is what "no questions, then plan, then implement" begins with. A run
+            // that had started at the review would have asked for none of it.
+            Assert.Contains(prompts, p => p.Contains("clarif", StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+        });
+    }
+
+    /// <summary>
+    /// A typed goal that points at a path is still not a claim on the user's other uncommitted work.
+    /// </summary>
+    /// <remarks>
+    /// <para>Such a run starts at the review, so it measures its diffs from HEAD — the changes it is
+    /// judging were on disk before it began. That is <c>ReviewsExistingWork</c>, and it is right here.
+    /// What is not right is the second thing the same flag used to say: <c>GoalCommitter.ScopeAsync</c>
+    /// reads it to collapse the split between the user's work and the run's and offer everything
+    /// uncommitted since HEAD. On the detect paths that is honest, because the goal came out of those
+    /// changes; here the goal was typed a moment ago and the <c>@</c> only said where to look, so the
+    /// offer would have swept in an unrelated afternoon in the next directory.</para>
+    /// </remarks>
+    [Fact]
+    public void A_typed_goal_pointing_at_a_path_does_not_claim_the_tree_for_its_commit()
+    {
+        OnUiThread(async () =>
+        {
+            // The stub tree's one changed file, so the path the user names actually holds part of
+            // the change — which is what makes this a review-first run at all.
+            File.WriteAllText(Path.Combine(_dir, "x"), "");
+
+            using var vm = NewTile();
+            var path = vm.FilePath;
+
+            AnswerWith(CleanReview);
+
+            vm.InputText = "add dark mode @x";
+            await vm.RunCommand.ExecuteAsync(null);
+            vm.Dispose();
+
+            var state = new GoalStatePersistence().Load(path);
+
+            Assert.NotNull(state);
+            Assert.True(state!.ReviewsExistingWork,
+                "a run that starts at the review has to measure from HEAD, or it judges an empty diff");
+            Assert.False(state.GoalReadFromTheTree,
+                "the goal was typed and the @ only narrowed, so the commit may not claim the whole "
+                + "tree — the user's unrelated uncommitted work would go into this goal's history");
+        });
+    }
+
+    /// <summary>
+    /// And a typed goal that points at work already there is still clarified and planned.
+    /// </summary>
+    /// <remarks>
+    /// <para>Starting at the review is a fact about the loop's first lap and nothing else. Entering
+    /// the loop straight from the composer skipped the only path a typed goal has to a plan, so "add
+    /// dark mode <c>@x</c>" was planned by nobody and <c>ApprovedPlan</c> stayed empty in every
+    /// implement prompt for the whole run — the damage the review-first gate was added to remove.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_typed_goal_pointing_at_work_already_there_is_still_planned()
+    {
+        OnUiThread(async () =>
+        {
+            // The stub tree's one changed file, so the pointer names work that is already there.
+            File.WriteAllText(Path.Combine(_dir, "x"), "");
+
+            var prompts = new List<string>();
+            var asked = 0;
+            string[] answers = [NoMoreQuestions, "Goal: add dark mode.\nSteps:\n1. x - paint it.",
+                CleanReview];
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
+            };
+
+            using var vm = NewTile();
+            var path = vm.FilePath;
+
+            vm.InputText = "add dark mode @x";
+            await vm.RunCommand.ExecuteAsync(null);
+            vm.Dispose();
+
+            Assert.Contains(prompts, p => p.Contains("clarif", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(prompts, p => p.Contains("You are planning the implementation",
+                StringComparison.Ordinal));
+
+            // And the plan reached the run rather than being written and dropped: it is what every
+            // implementation after the opening review carries.
+            var state = new GoalStatePersistence().Load(path);
+
+            Assert.NotNull(state);
+            Assert.Contains("paint it", state!.ApprovedPlan);
+            Assert.True(state.ReviewsExistingWork,
+                "the pointer named work already on disk, so the loop still opens with a review");
+        });
+    }
+
+    /// <summary>
+    /// A typed goal pointing at a path that holds none of the change implements first.
+    /// </summary>
+    /// <remarks>
+    /// <para>Pointing at something is not pointing at work that is already there. A path named beside
+    /// a typed goal is as often a specification to hold the work to, and <c>GoalDiffContext</c> stands
+    /// its filter down for exactly that case rather than showing the tool an empty block. Read as
+    /// "there is something here to review", the two together were ruinous: the run entered at the
+    /// review, measured every diff from HEAD, and handed the reviewer the user's unrelated
+    /// uncommitted work as the changes that had just been made — whose findings went straight into the
+    /// implement prompt as things to fix.</para>
+    /// </remarks>
+    [Fact]
+    public void A_typed_goal_pointing_at_an_unchanged_path_still_implements_first()
+    {
+        OnUiThread(async () =>
+        {
+            // Named, real, and nowhere in the stub tree — which only ever changes "x".
+            Directory.CreateDirectory(Path.Combine(_dir, "docs"));
+            File.WriteAllText(Path.Combine(_dir, "docs", "spec.md"), "what it should do");
+
+            var prompts = new List<string>();
+            var asked = 0;
+            string[] answers = [NoMoreQuestions, "The plan", "Implemented it", CleanReview];
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
+            };
+
+            using var vm = NewTile();
+            var path = vm.FilePath;
+
+            vm.InputText = "add dark mode @docs/spec.md";
+            await vm.RunCommand.ExecuteAsync(null);
+            vm.Dispose();
+
+            Assert.Contains(prompts, p => p.Contains("clarif", StringComparison.OrdinalIgnoreCase));
+
+            var state = new GoalStatePersistence().Load(path);
+            Assert.NotNull(state);
+            Assert.False(state!.ReviewsExistingWork,
+                "the named path holds none of the change, so there is nothing already there to judge "
+                + "— measuring from HEAD would make the user's own uncommitted work this run's subject");
+        });
+    }
+
+    /// <summary>And a pointer at a tree with nothing in it implements first too.</summary>
+    /// <remarks>
+    /// The same mistake with nothing in it: entered at the review, the run judged an empty diff and
+    /// skipped clarify and plan on its way past, so <c>ApprovedPlan</c> stayed empty for its whole
+    /// length. "Add dark mode in the frontend" over a committed tree is an ordinary thing to ask for.
+    /// </remarks>
+    [Fact]
+    public void A_typed_goal_pointing_at_a_path_in_a_clean_tree_still_implements_first()
+    {
+        OnUiThread(async () =>
+        {
+            Directory.CreateDirectory(Path.Combine(_dir, "src", "Frontend"));
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>(null);
+
+            var prompts = new List<string>();
+            var asked = 0;
+            string[] answers = [NoMoreQuestions, "The plan", "Implemented it", CleanReview];
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
+            };
+
+            using var vm = NewTile();
+
+            vm.InputText = "add dark mode @src/Frontend";
+            await vm.RunCommand.ExecuteAsync(null);
+
+            Assert.Contains(prompts, p => p.Contains("clarif", StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    /// <summary>And a goal actually read out of the tree still claims it.</summary>
+    /// <remarks>
+    /// The other half, because the split above could be satisfied by never setting the new fact at
+    /// all — which would leave every detected goal offering an empty commit scope.
+    /// </remarks>
+    [Fact]
+    public void A_goal_read_from_the_tree_claims_it()
+    {
+        OnUiThread(async () =>
+        {
+            using var vm = NewTile();
+            var path = vm.FilePath;
+
+            AnswerWith("Finish the cart", CleanReview);
+
+            await vm.ReviewCommand.ExecuteAsync(null);
+            vm.Dispose();
+
+            var state = new GoalStatePersistence().Load(path);
+
+            Assert.NotNull(state);
+            Assert.True(state!.GoalReadFromTheTree);
+        });
+    }
+
+    /// <summary>
+    /// A file written before the two facts were told apart still lets its goal commit.
+    /// </summary>
+    /// <remarks>
+    /// Absent means "ask the older field", never false: one flag used to carry both answers, so a
+    /// detected goal reopened from such a file would otherwise be told it may claim nothing.
+    /// </remarks>
+    [Fact]
+    public void A_state_written_before_the_split_reads_its_claim_off_the_older_flag()
+    {
+        var engine = new GoalWorkflowEngine();
+
+        engine.LoadFrom(new GoalTileState
+        {
+            OriginalGoal = "Finish the cart",
+            ReviewsExistingWork = true,
+            GoalReadFromTheTree = null,
+        });
+
+        Assert.True(engine.GoalReadFromTheTree);
+    }
+
+    /// <summary>
+    /// A commit named in the composer is something to read, whatever <c>git status</c> says.
+    /// </summary>
+    /// <remarks>
+    /// The flagship case is "check the last commit" on a tree where everything is committed. It used
+    /// to go dead in every direction: Run and Review disabled, and the primary button falling through
+    /// to Submit, which adopted "@HEAD~1" as the goal's own text — exactly what <c>WordsOnly</c> is
+    /// there to prevent. Nothing below the buttons needed changing; the read already handled it.
+    /// </remarks>
+    [Fact]
+    public void A_pointer_at_a_commit_offers_the_detect_actions_on_a_clean_tree()
+    {
+        OnUiThread(() =>
+        {
+            using var vm = NewTile();
+            Assert.False(vm.HasUncommittedChanges);
+
+            Assert.False(vm.CanDetectGoal, "a clean tree with an empty box has nothing to read");
+
+            vm.InputText = "@HEAD~1";
+
+            Assert.False(vm.HasTypedGoal, "a pointer alone is not a goal somebody typed");
+            Assert.True(vm.CanDetectGoal,
+                "a named commit is something to read a goal from, and git status cannot see it");
+            Assert.True(vm.CanRun);
+            Assert.Equal("Detect goal", vm.PrimaryActionLabel);
+
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// A box holding nothing but a live path is never adopted as the goal's own text.
+    /// </summary>
+    /// <remarks>
+    /// The gate above sends a pointer-only box to the detect half — but only where there is something
+    /// to detect from. A clean tree with a file that exists and holds no change is the one shape where
+    /// there is not: <c>CanDetectGoal</c> is false, the primary button falls through to Submit, and
+    /// the path was set as the goal, so the whole round of questions and the plan were written about a
+    /// file name. Submit is where it has to be refused, because Submit is what the button reaches.
+    /// </remarks>
+    [Fact]
+    public void A_pointer_alone_is_refused_rather_than_adopted_as_the_goal()
+    {
+        OnUiThread(async () =>
+        {
+            Directory.CreateDirectory(Path.Combine(_dir, "src"));
+            File.WriteAllText(Path.Combine(_dir, "src", "Auth.cs"), "class Auth;");
+
+            using var vm = NewTile();
+            Assert.False(vm.HasUncommittedChanges);
+
+            vm.InputText = "@src/Auth.cs";
+
+            Assert.False(vm.HasTypedGoal);
+            Assert.False(vm.CanDetectGoal, "a live path on a clean tree is nothing to read a goal from");
+            Assert.Equal("Set goal", vm.PrimaryActionLabel);
+
+            await vm.PrimaryActionCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Goal, vm.CurrentPhase);
+            Assert.DoesNotContain(vm.Messages, m => m.Role == GoalMessageRole.User);
+            Assert.Contains(vm.Messages, m => m.Text.Contains("says where to look, not what to do"));
+
+            // The typing is kept: a refusal must cost nothing, and the pointer is the half of the
+            // sentence the user has already got right.
+            Assert.Equal("@src/Auth.cs", vm.InputText);
+        });
+    }
+
+    /// <summary>And a word that names neither a file nor a commit does not open the gate for ever.
+    /// </summary>
+    /// <remarks>
+    /// Emptying the box has to close it again, which is the half a property that only ever widens
+    /// would pass without.
+    /// </remarks>
+    [Fact]
+    public void Clearing_the_composer_closes_the_detect_actions_again()
+    {
+        OnUiThread(() =>
+        {
+            using var vm = NewTile();
+
+            vm.InputText = "@HEAD~1";
+            Assert.True(vm.CanDetectGoal);
+
+            vm.InputText = "";
+            Assert.False(vm.CanDetectGoal);
+
+            return Task.CompletedTask;
+        });
+    }
+
+    // ── Arguing with a plan ─────────────────────────────
+
+    /// <summary>
+    /// A remark about a plan reaches the next planning run together with the plan it was about.
+    /// </summary>
+    /// <remarks>
+    /// It used to reach it alone. The remark was filed as a clarification and the draft was cleared on
+    /// the way into the next Plan run, so "leave step 1 and add a test" arrived at a planner that had
+    /// never seen a step 1 and came back as an unrelated document.
+    /// </remarks>
+    [Fact]
+    public void A_remark_about_a_plan_carries_the_plan_it_was_about()
+    {
+        OnUiThread(async () =>
+        {
+            const string firstPlan = "Goal: tighten the cart.\nSteps:\n1. src/Cart.cs - apply discounts.";
+            const string revised = "Changed step 1.\n\nGoal: tighten the cart.\nSteps:\n1. tests/CartTests.cs - cover it.";
+
+            var prompts = new List<string>();
+            var asked = 0;
+            string[] answers = [NoMoreQuestions, firstPlan, NoMoreQuestions, revised];
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
+            };
+
+            using var vm = NewTile();
+            vm.InputText = "tighten the cart";
+            await vm.SubmitCommand.ExecuteAsync(null);   // Goal -> Clarify -> Plan
+
+            vm.InputText = "leave step 1 and add a test";
+            await vm.SubmitCommand.ExecuteAsync(null);   // the argument, then a second plan
+
+            var replan = prompts.Last();
+            Assert.Contains("The plan you proposed last time", replan);
+            Assert.Contains("apply discounts", replan);
+            Assert.Contains("leave step 1 and add a test", replan);
+        });
+    }
+
+    /// <summary>
+    /// What gets approved is the revised plan, without the sentence about revising it.
+    /// </summary>
+    /// <remarks>
+    /// <c>ApprovedPlan</c> is carried by every implement prompt for the rest of the run, so a note
+    /// about what changed between two drafts would be handed to an implementation that never saw the
+    /// first one.
+    /// </remarks>
+    [Fact]
+    public void Approving_a_revision_adopts_the_plan_and_not_the_note_above_it()
+    {
+        OnUiThread(async () =>
+        {
+            const string firstPlan = "Goal: tighten the cart.\nSteps:\n1. src/Cart.cs - apply discounts.";
+            const string revised = "Changed step 1, as you asked.\n\nGoal: tighten the cart.\nSteps:\n1. tests/CartTests.cs - cover it.";
+
+            var prompts = new List<string>();
+            var asked = 0;
+            string[] answers =
+                [NoMoreQuestions, firstPlan, NoMoreQuestions, revised, "Implemented it", CleanReview];
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
+            };
+
+            using var vm = NewTile();
+            vm.InputText = "tighten the cart";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "leave step 1 and add a test";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            var implement = prompts.First(p => p.Contains("Approved implementation plan"));
+            Assert.Contains("cover it", implement);
+            Assert.DoesNotContain("as you asked", implement);
+        });
+    }
+
+    /// <summary>
+    /// Arguing twice over one draft still shows the tool the draft.
+    /// </summary>
+    /// <remarks>
+    /// A planning run that produced nothing leaves the phase at Plan with no proposed plan in it, so
+    /// the user's second remark used to file that emptiness over the draft the first remark had kept:
+    /// the next prompt had no revision block at all, and both remarks reached the planner as bare
+    /// sentences in the clarification history — the very situation the field exists for, reached by
+    /// the one path that goes through it twice.
+    /// </remarks>
+    [Fact]
+    public void A_second_remark_after_a_replan_that_answered_nothing_keeps_the_draft()
+    {
+        OnUiThread(async () =>
+        {
+            const string firstPlan = "Goal: tighten the cart.\nSteps:\n1. src/Cart.cs - apply discounts.";
+
+            var prompts = new List<string>();
+            var asked = 0;
+            string[] answers =
+                [NoMoreQuestions, firstPlan, NoMoreQuestions, "   ", NoMoreQuestions, firstPlan];
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
+            };
+
+            using var vm = NewTile();
+            vm.InputText = "tighten the cart";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "leave step 1 and add a test";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "and drop the logging while you are there";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            var replan = prompts.Last(p => p.Contains("You are planning the implementation"));
+            Assert.Contains("The plan you proposed last time", replan);
+            Assert.Contains("apply discounts", replan);
+            Assert.Contains("drop the logging", replan);
+        });
+    }
+
+    /// <summary>
+    /// A replan that produced nothing still leaves nothing to approve.
+    /// </summary>
+    /// <remarks>
+    /// The guarantee <c>RecordProposedPlan(null)</c> exists for, and the reason the draft handed to the
+    /// next prompt is a second field rather than that one kept alive: without the clearing, "ok" after
+    /// a failed second run approved the plan the user had just turned down.
+    /// </remarks>
+    [Fact]
+    public void A_replan_that_answers_nothing_does_not_leave_the_rejected_plan_approvable()
+    {
+        OnUiThread(async () =>
+        {
+            var asked = 0;
+            string[] answers =
+                [NoMoreQuestions, "Goal: tighten the cart.\nSteps:\n1. src/Cart.cs - apply discounts.",
+                 NoMoreQuestions, "   "];
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+                Task.FromResult<AiOutput>(answers[Math.Min(asked++, answers.Length - 1)]);
+
+            using var vm = NewTile();
+            vm.InputText = "tighten the cart";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "no, do it the other way";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Contains(vm.Messages, m => m.Text.Contains("no plan to approve yet"));
+            Assert.NotEqual(GoalPhase.Implement, vm.CurrentPhase);
         });
     }
 }

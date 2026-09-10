@@ -183,20 +183,45 @@ internal static class GoalDiffContext
 
         if (onlyPaths is { Count: > 0 })
         {
-            var keptDiff = GoalScopeFilter.Diff(diff, onlyPaths);
-            var keptNames = GoalScopeFilter.Lines(untracked, onlyPaths);
-            var keptStat = GoalScopeFilter.Stat(summary, onlyPaths);
+            // **A named path that is not in the change is not a filter.** It is a specification to
+            // compare against, a folder the work is to be done in, a note to read — and every one of
+            // those is a path the user has good reason to name and no reason to have changed yet.
+            // Filtered on regardless, the block came out empty and carried a line saying the scope
+            // matched nothing: the evidence gone, and the sentence that replaced it saying so about
+            // the very file the user was pointing at rather than about the tree.
+            //
+            // So the filter applies where it can and stands down where it cannot. It is never the
+            // reason a tool is shown nothing: which of the three a path is, only the words beside it
+            // can say, and the prompt hands the tool both.
+            //
+            // What decides is whether anything at all is left, never the diff alone. A tree whose
+            // whole change is new files has an empty `git diff HEAD` and a full `ls-files --others`,
+            // so a rule asking after the diff let that case straight through the filter: the names
+            // went, no note was written, and the block came out empty with nothing saying why — the
+            // clean tree this stand-down exists to prevent, reached by the one shape of change the
+            // condition did not cover.
+            //
+            // The stat is not part of the question. It is derived from the diff and describes it, so
+            // a scope that keeps a file keeps its line; on its own it is totals about a change the
+            // block is no longer showing.
+            //
+            // The rule itself is GoalScopeFilter's, because the Goal tile asks it too — there, to
+            // decide whether a typed run has anything already in the tree to review. Two copies of it
+            // would let this block stand its filter down while the run went on treating the same
+            // paths as a subject, which is the whole working tree handed to a reviewer as work to fix.
+            var hadSubstance = diff is { Length: > 0 } || untracked is { Length: > 0 };
 
-            // The note rides on the diff alone, and deliberately: a scope naming one file empties the
-            // untracked list and the stat in the ordinary course of things — none of the others matched
-            // — while a diff that emptied is the substance of the block gone, and that is the case the
-            // tool must not read as a clean tree.
-            if (diff is { Length: > 0 } && keptDiff is null)
-                scopeNote = "nothing in the change is inside the scope the user named";
-
-            diff = keptDiff;
-            untracked = keptNames;
-            summary = keptStat;
+            if (hadSubstance && !GoalScopeFilter.HoldsChange(diff, untracked, onlyPaths))
+            {
+                scopeNote = "the paths the user named hold none of this change, so they are something "
+                            + "to open and read rather than a filter — the whole working tree is below";
+            }
+            else
+            {
+                diff = GoalScopeFilter.Diff(diff, onlyPaths);
+                untracked = GoalScopeFilter.Lines(untracked, onlyPaths);
+                summary = GoalScopeFilter.Stat(summary, onlyPaths);
+            }
         }
 
         // Truncated before they are joined, never after: appending the list and then cutting the whole

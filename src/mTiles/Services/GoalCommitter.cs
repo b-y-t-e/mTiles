@@ -152,9 +152,12 @@ internal sealed class GoalCommitter(string workingDirectory, string gitPath)
     /// the work this run had no right to touch; there, it is the subject of the run. Left in, every
     /// file fell into <c>LeftAlone</c>, the scope came back empty, and the summary offered a Commit
     /// button whose only possible outcome was "there is nothing here this run can claim".</para>
-    /// <para>It is the same statement <c>ReviewsExistingWork</c> makes about the diff: measure from
-    /// HEAD, because the changes are the point. Making one of the two say it and not the other is how
-    /// the tile ended up reviewing one set of files and offering to commit another.</para>
+    /// <para>It is <c>GoalWorkflowEngine.GoalReadFromTheTree</c> and never
+    /// <c>ReviewsExistingWork</c>, which is the nearer neighbour and answers a different question.
+    /// That one is about the diff base — measure from HEAD, because what is being judged was on disk
+    /// before the run started — and a typed goal carrying an <c>@</c> pointer says it too. Reading it
+    /// here let such a run claim the user's unrelated uncommitted work, which is the very split the
+    /// rest of this method is built on.</para>
     /// </param>
     /// <param name="endRef">
     /// The ref holding the tree as this run finished, or null when none was recorded.

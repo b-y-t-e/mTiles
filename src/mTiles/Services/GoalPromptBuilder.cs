@@ -272,11 +272,13 @@ public sealed class GoalPromptBuilder
     /// nobody should have to answer about their own writing.</para>
     /// <para>The carve-out is the load-bearing half, and it is wider than the json. These prompts ask
     /// for English keys and a fixed set of severity values that <see cref="GoalResponseParser"/> matches
-    /// on; they also ask for two literal markers that are parsed rather than read — the
-    /// <c>Rejected:</c> line <c>GoalWorkflowEngine.Note</c> keeps for the next attempt, and the
-    /// <c>VERDICT: PASS</c> line that is the review's fallback when no json arrives. Translate either
-    /// and the machinery quietly stops seeing it: the note falls back to the last two lines, and a
-    /// review whose verdict cannot be read counts as not met, for the whole budget. And what these
+    /// on; they also ask for three literal markers that are parsed rather than read — the
+    /// <c>Rejected:</c> line <c>GoalWorkflowEngine.Note</c> keeps for the next attempt, the
+    /// <c>Goal:</c> line a plan opens with and <c>GoalResponseParser.ParsePlan</c> splits on, and the
+    /// <c>VERDICT: PASS</c> line that is the review's fallback when no json arrives. Translate any of
+    /// them and the machinery quietly stops seeing it: the note falls back to the last two lines, a
+    /// revised plan carries its own revision notes into every implement prompt, and a review whose
+    /// verdict cannot be read counts as not met, for the whole budget. And what these
     /// prompts act on is code in a project with its own conventions. A model told simply to answer in
     /// the user's language translates exactly the things nothing can read afterwards.</para>
     /// <para>One line, because it is fixed overhead in every prompt — the same argument that keeps
@@ -354,16 +356,119 @@ public sealed class GoalPromptBuilder
         return prompt;
     }
 
-    public string BuildPlan(string goal, IReadOnlyList<string> clarificationHistory, int? budget = null) =>
-        Fit(cap => ComposePlan(goal, clarificationHistory, cap), budget);
+    /// <param name="previousPlan">The draft the user has just argued with, when they have. Null on a
+    /// first plan, which is most of them.</param>
+    /// <param name="remark">What they said about it.</param>
+    /// <param name="gitDiff">
+    /// What is already in this project that the goal has not been implemented over, or null for a
+    /// clean tree.
+    /// </param>
+    /// <param name="changedSince">
+    /// The older end that block was read from, when the user named one, or null for <c>HEAD</c> —
+    /// which is what makes the block's own heading true. See <see cref="AlreadyThereHeading"/>.
+    /// </param>
+    /// <remarks>
+    /// <para><b>Why the plan sees the working tree at all, when it changes nothing.</b> This was the
+    /// one phase with no fact about the project in its prompt: a goal, some clarifications, and rules.
+    /// What saved it was that the phase runs read-only with the tool's own read tools, so a tool that
+    /// happens to go and look plans well and a tool that does not plans the whole feature from
+    /// scratch over code that already implements half of it. That is luck, not design, and the state
+    /// no amount of reading recovers cheaply is exactly this one: which files are <em>already
+    /// changed</em>. Reading files answers "what does the code do"; only the diff answers "what is
+    /// half-done".</para>
+    /// <para>It costs nothing on a clean tree, where the block is empty and the prompt is what it
+    /// always was, and it is trimmed before anything else when the prompt has to fit a command
+    /// line — the same order the implement prompt uses, and for the same reason.</para>
+    /// </remarks>
+    public string BuildPlan(string goal, IReadOnlyList<string> clarificationHistory, int? budget = null,
+        string? previousPlan = null, string? remark = null, string? gitDiff = null,
+        string? changedSince = null) =>
+        Fit(cap => ComposePlan(goal, clarificationHistory, cap, previousPlan, remark, gitDiff,
+            changedSince), budget);
 
-    private string ComposePlan(string goal, IReadOnlyList<string> clarificationHistory, int cap)
+    /// <summary>
+    /// What the block of work already in the tree is called, which follows what was actually read.
+    /// </summary>
+    /// <remarks>
+    /// <para>"Already uncommitted in this project" is true of the ordinary read and of nothing else. A
+    /// goal carrying <c>@HEAD~1</c> is read from that commit to the working tree, so the block holds a
+    /// commit as well as the uncommitted work — headed as uncommitted, the planner is told that a
+    /// commit somebody made last week is unfinished business, and plans around it.</para>
+    /// <para>Naming the base is the whole correction, because it is the only part of the two ends the
+    /// user chose: the newer end is always the working tree here (<c>GoalScopeRef
+    /// .EndingAtTheWorkingTree</c>), or the planner would be shown a range that excludes the very
+    /// changes this block exists to show it.</para>
+    /// </remarks>
+    private static string AlreadyThereHeading(string? changedSince) =>
+        changedSince is { Length: > 0 } since
+            ? $"Already changed in this project since {since}, committed and not"
+            : "Already uncommitted in this project";
+
+    /// <summary>
+    /// What the tool is told when it is being asked to plan again after the user answered.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Three problems, one block.</b> Rejecting a plan used to lose the plan: the remark was
+    /// filed as a clarification and the next run started with the draft already forgotten, so "leave
+    /// step 2 and fix step 5" had nothing to refer to and came back as an unrelated document. The user
+    /// was then left diffing two screens of prose by eye to find out what their remark had done. And
+    /// a remark that was only a <em>question</em> — "what happens if the tree is clean?" — was treated
+    /// as a rejection like any other, so asking about a plan silently rewrote it.</para>
+    /// <para><b>The classification is the tool's, not ours.</b> Whether a sentence changes a plan or
+    /// asks about one is a judgement about meaning, and a rule in C# over the text — a question mark,
+    /// a word list — is the kind of guess this tile refuses everywhere else. The same run that would
+    /// write the plan can simply be told both cases and answer accordingly, at no extra call.</para>
+    /// <para><b>And both cases end in a whole plan</b>, which is what makes the tile need no
+    /// classification of its own: whatever the user wrote, the newest message in the transcript is a
+    /// complete, current plan they can approve. A revision that answered with only the changed step
+    /// would leave the approvable text a fragment, and <c>ApprovedPlan</c> is what every implement
+    /// prompt carries for the rest of the run.</para>
+    /// <para>The two sentences of what changed are asked for separately and are stripped back off by
+    /// <c>GoalResponseParser.ParsePlan</c>, because they are history rather than instruction.</para>
+    /// </remarks>
+    private static string Revision(string? previousPlan, string? remark, int cap)
+    {
+        if (previousPlan is not { Length: > 0 } || cap <= 0) return "";
+
+        return Block("The plan you proposed last time", previousPlan, Cap(cap))
+               + Block("What the user said about it", (remark ?? "").Trim(), Cap(cap))
+               + "Decide which of these two the user's words are, and answer accordingly:\n" +
+                 "- they change the plan: open with one or two sentences saying what you changed and " +
+                 "why, then write the whole plan again below them — every step and every criterion, " +
+                 "not only the parts that moved.\n" +
+                 "- they only ask about it: open with the answer to what they asked, then repeat the " +
+                 "plan below it word for word, unchanged.\n" +
+                 "Either way the reply ends with a complete plan, because that is what the user " +
+                 "approves.\n\n";
+    }
+
+    private string ComposePlan(string goal, IReadOnlyList<string> clarificationHistory, int cap,
+        string? previousPlan = null, string? remark = null, string? gitDiff = null,
+        string? changedSince = null)
     {
         var prompt = "You are planning the implementation of a goal in a software project.\n\n"
                      + Block("Original goal", goal, GoalCap(cap))
                      + Images(cap);
         if (clarificationHistory.Count > 0 && cap > 0)
             prompt += Block("User clarifications", Recent(clarificationHistory, Cap(cap)), int.MaxValue);
+
+        prompt += Revision(previousPlan, remark, cap);
+
+        // Below the goal and the argument about it, above the rules: it is evidence, and the two
+        // blocks over it are what the evidence is being read for.
+        //
+        // The warning goes with it for the reason the implement prompt carries the same sentence — a
+        // plan written over somebody's unrelated uncommitted work plans to finish it. And the
+        // instruction under it is the whole point of showing a diff to a planner: steps that name
+        // work already done are the characteristic failure of planning blind, and this phase is the
+        // one that can check cheaply, because it is standing in the repository with nothing to lose
+        // by looking.
+        if (gitDiff is { Length: > 0 })
+            prompt += Block(AlreadyThereHeading(changedSince), gitDiff, Math.Max(TreeFloor, cap))
+                      + OtherPeoplesWork
+                      + "Some of the goal may already be done. Before you write a step, check the "
+                      + "project for it: open the files the block names, and read whatever the goal "
+                      + "talks about. Plan only what is left.\n\n";
         prompt += QualityRules();
         prompt += AnswerLanguage;
         // Said three ways, because a plan that inflates is this phase's characteristic failure and one
@@ -384,6 +489,16 @@ public sealed class GoalPromptBuilder
         prompt += "Write the plan. Keep it minimal:\n" +
                   "- Goal: one sentence. Restate the goal above as the user wrote it, only tighter. Do " +
                   "not add scope, requirements or detail they did not give you.\n" +
+                  // The one marker in this prompt that is parsed rather than read:
+                  // GoalResponseParser.ParsePlan splits the plan off whatever the tool wrote above it
+                  // on this line, and AnswerLanguage sends the rest of the answer into the user's own
+                  // language. A Polish plan opening "Cel:" is a plan the split cannot find, so the
+                  // sentences about what was revised ride into ApprovedPlan and from there into every
+                  // implement prompt for the rest of the run — which is the whole thing ParsePlan
+                  // exists to prevent. Asked for by name, because "keep marker words in English" only
+                  // binds a word the prompt has named as one.
+                  "Write that line so it begins with the English word \"Goal:\", exactly, even when the " +
+                  "rest of your answer is in another language.\n" +
                   "- Steps: one line each — the file, then what changes in it. As few steps as the work " +
                   "needs.\n" +
                   "- Success criteria: one line each, each one checkable.\n" +
@@ -584,6 +699,33 @@ public sealed class GoalPromptBuilder
                "the changes it points at, and prefer it to your own reading of the diff wherever the " +
                "two disagree. If it names a file — a plan, an issue, a note — open it and use what it " +
                "says.\n\n";
+    }
+
+    /// <summary>
+    /// What the user typed beside the button, as the <b>subject</b> of a review.
+    /// </summary>
+    /// <remarks>
+    /// <para>The review had the block and not the sentence around it. <see cref="Narrowing"/> put the
+    /// words in and stopped there, so "check the save button in configuration" arrived as a paragraph
+    /// with nothing said about what to do with it — beside a diff of twenty unrelated things, and
+    /// beside a reading instruction that says to open <em>the files the block names</em>. The words
+    /// describe files the block may never have named.</para>
+    /// <para>Two sentences, the same pair <see cref="DetectionSubject"/> already carries, because they
+    /// answer the same two questions: which part of the change this is about, and what to do with a
+    /// path named in it. The second is the one that matters most here — a specification, an issue or a
+    /// note is exactly what somebody points a review at, and it is exactly what no diff carries,
+    /// because they did not change it.</para>
+    /// </remarks>
+    private static string ReviewSubject(string? guideline, int cap)
+    {
+        var block = Narrowing(guideline, "review", cap);
+        if (block.Length == 0) return "";
+
+        return block +
+               "That block is what the user wants judged. Where it describes a part of the project " +
+               "rather than naming files, go and find that part in the repository before you judge it " +
+               "— it may reach files the block below never mentions. If it names a file — a " +
+               "specification, an issue, a note — open it and hold the changes to what it says.\n\n";
     }
 
     /// <summary>
@@ -886,7 +1028,7 @@ public sealed class GoalPromptBuilder
     {
         var prompt = "Review the code changes that were just made in this project.\n\n"
                      + Block("The original goal was", goal, GoalCap(cap))
-                     + Narrowing(guideline, "review", cap)
+                     + ReviewSubject(guideline, cap)
                      + Images(cap);
         prompt += QualityRules();
         prompt += HealthRules(review: true);
@@ -1115,10 +1257,29 @@ public sealed class GoalPromptBuilder
     /// the word "truncated".</para>
     /// </remarks>
     private const string ReadTheRestYourself =
-        "The working tree above is only part of the change: the notes in it say how much was left out. " +
-        "You are running inside this repository and may read it. Before you answer, look at what you " +
-        "were not shown — the files named in the summary, the new files, whatever the diff cut off — " +
-        "until you can name the work rather than the fragment.\n";
+        "What you have been shown is not all there is. You are running inside this repository and may " +
+        "read it. Before you answer, go and look: the files named in the summary, the new files, " +
+        "whatever the block was cut off before, and anything the user named or described that is not " +
+        "in the block at all. Answer about the work, not about the fragment in front of you.\n";
+
+    /// <summary>
+    /// Whether the tool should be sent to read the repository before it answers.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Two reasons, and the second is why this is no longer only about truncation.</b> A
+    /// block that was cut is the obvious one: the tool cannot see the rest and has to be told it
+    /// exists. The other is a user who described what they meant in words — "the save button in
+    /// configuration", "everything about writing counterparties" — which names a set of files nobody
+    /// can enumerate without reading the project. Those words reach the prompt beside a diff that was
+    /// assembled and clipped before anyone read them, so the narrowing arrives after the evidence was
+    /// chosen. Sending the tool to look is what puts the two back in the right order.</para>
+    /// <para><b>And it stays conditional.</b> On a small tree with nothing typed the block is the whole
+    /// change, there is nothing to find, and an invitation to go reading buys a slower and more
+    /// expensive run for nothing.</para>
+    /// </remarks>
+    private static bool ShouldGoAndLook(string? treeBlock, int blockCap, string? guideline) =>
+        !string.IsNullOrWhiteSpace(guideline)
+        || (treeBlock is { Length: > 0 } && ShowsOnlyPartOfTheTree(treeBlock, blockCap));
 
     private static string ComposeDetectGoal(string gitDiff, int cap, string? guideline = null)
     {
@@ -1130,7 +1291,7 @@ public sealed class GoalPromptBuilder
         return "Below are the uncommitted changes in a software project.\n\n"
                + DetectionSubject(guideline, cap)
                + Block("Working tree", gitDiff, blockCap)
-               + (ShowsOnlyPartOfTheTree(gitDiff, blockCap) ? ReadTheRestYourself : "")
+               + (ShouldGoAndLook(gitDiff, blockCap, guideline) ? ReadTheRestYourself : "")
                + "Work out what the person making these changes is trying to achieve, and state it as a " +
                  "goal that is not yet finished — what should be true when the work is done, not a list " +
                  "of what has been touched.\n" +

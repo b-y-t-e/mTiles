@@ -178,6 +178,27 @@ public sealed class GoalTileState
     }
     private List<string> _scopePaths = [];
 
+    /// <summary>The plan the user last argued with, and what they said about it — see
+    /// <c>GoalWorkflowEngine.PlanUnderRevision</c>. Both null until somebody rejects a plan.</summary>
+    public string? PlanUnderRevision { get; set; }
+
+    /// <inheritdoc cref="PlanUnderRevision"/>
+    public string? PlanRemark { get; set; }
+
+    /// <summary>The older end of what this goal is read against, as a resolved commit id, or null for
+    /// <c>HEAD</c> — see <c>GoalWorkflowEngine.ScopeRef</c>.</summary>
+    public string? ScopeRefBase { get; set; }
+
+    /// <summary>How the user spelled that end — <c>HEAD~1</c>, <c>master</c> — for the sentence the
+    /// plan's prompt puts it in. Null in a file written before the id was pinned, where the id is the
+    /// only spelling there ever was.</summary>
+    public string? ScopeRefNamed { get; set; }
+
+    /// <summary>The newer end, or null for the working tree as it stands. Two fields rather than one
+    /// string with a separator in it: a ref may itself contain almost anything, and re-parsing a
+    /// spelling this application chose is a rule to get wrong twice.</summary>
+    public string? ScopeRefHead { get; set; }
+
     /// <summary>
     /// The ref holding the working tree as this run <em>finished</em>, or null when none was taken.
     /// </summary>
@@ -199,6 +220,21 @@ public sealed class GoalTileState
     /// an empty diff.
     /// </remarks>
     public bool ReviewsExistingWork { get; set; }
+
+    /// <summary>
+    /// True when the goal itself was read out of the work that was already in the tree.
+    /// </summary>
+    /// <remarks>
+    /// <para>Set by the two detect paths and by nothing else. It is what lets a commit claim
+    /// everything that was uncommitted when the run finished, which is the honest consequence of
+    /// having said "these changes are the goal" — see <c>GoalCommitter.ScopeAsync</c>.</para>
+    /// <para><b>Nullable, and that is the migration.</b> Before the split this question and
+    /// <see cref="ReviewsExistingWork"/> were one field, so a file written by an older build says
+    /// nothing here and the older field is the only record of what the goal was: absent means "ask
+    /// that one instead". A plain <c>false</c> would tell a reopened detected goal that it may claim
+    /// nothing, and its Commit button would offer an empty scope.</para>
+    /// </remarks>
+    public bool? GoalReadFromTheTree { get; set; }
 
     /// <summary>What the attempts field said before Continue raised it. Null until it does. Saved,
     /// because a tile reopened halfway through a continued run has nothing else to restore the user's

@@ -411,6 +411,76 @@ internal static partial class GoalResponseParser
         return commits;
     }
 
+    // ── Plan ────────────────────────────────────────────
+
+    /// <summary>
+    /// The plan out of a planning answer, without the sentences the tool wrote about revising it.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why there is anything to strip.</b> A plan that comes back after the user has argued
+    /// with the last one is asked to say, in a sentence or two, what it changed — otherwise a revision
+    /// arrives as a fresh document and the user has to diff two screens of text by eye to find out
+    /// what their remark did. But this text becomes <c>ApprovedPlan</c>, which every implement prompt
+    /// carries for the rest of the run, and a note about what changed between two drafts is history
+    /// rather than instruction: left in, the implementation is handed a paragraph about a plan it
+    /// never saw.</para>
+    /// <para><b>The split is the shape the prompt already fixes</b>, not a marker invented for it: a
+    /// plan opens with a line beginning <c>Goal:</c>, which is asked for and exemplified. So the plan
+    /// is that line and everything after it, and whatever precedes it is the note.</para>
+    /// <para><b>It only ever splits when there is something to split</b>, which is what makes it safe
+    /// to put in front of every plan rather than only a revised one: no <c>Goal:</c> line, or nothing
+    /// before it, and the whole answer is the plan exactly as it has always been. A tool that ignores
+    /// the shape loses nothing, which is the same contract the rest of this class keeps.</para>
+    /// </remarks>
+    public static (string Note, string Plan) ParsePlan(string? response)
+    {
+        var text = (response ?? "").Trim();
+        if (text.Length == 0) return ("", "");
+
+        var at = IndexOfGoalLine(text);
+        if (at <= 0) return ("", text);
+
+        return (text[..at].Trim(), text[at..].Trim());
+    }
+
+    /// <summary>
+    /// Where the plan proper begins: the first line opening with <c>Goal:</c>, however the tool
+    /// decorated it.
+    /// </summary>
+    /// <remarks>
+    /// <para>The word is English and stays English whatever language the plan is written in: the plan
+    /// prompt asks for that line by name, and <c>GoalPromptBuilder.AnswerLanguage</c> keeps the marker
+    /// words out of the translation for exactly this reason. Without it a Polish plan opens "Cel:",
+    /// nothing here finds it, and the sentences the tool wrote about what it revised ride into
+    /// <c>ApprovedPlan</c> and from there into every implement prompt for the rest of the run — which
+    /// is the whole thing this method exists to prevent.</para>
+    /// <para><b>The word is asked for; the punctuation around it is not, and never was.</b> This
+    /// answer is rendered as markdown — the transcript carries the planning phase with
+    /// <c>markdown: true</c> — so a tool writing a headed document writes <c>## Goal:</c>, one
+    /// writing an emphasised label writes <c>**Goal:**</c> or <c>**Goal**:</c>, and one copying the
+    /// shape out of the prompt itself, where the sections are listed as <c>- Goal: one sentence</c>,
+    /// writes the bullet. None of those is a tool ignoring the contract; all three failed a rule that
+    /// wanted the word first on its line, and the failure is the silent one — the whole answer is
+    /// returned as the plan and the revision notes ride into every implement prompt after it. So the
+    /// heading hashes, one list marker and the emphasis markers are allowed in front, and the
+    /// emphasis is allowed to close on either side of the colon.</para>
+    /// <para>What is <em>not</em> allowed is a blank line inside the run-up: the whitespace here is
+    /// spaces and tabs, never <c>\s</c>, or the match begins on the newline that ends the note above
+    /// and the split hands that line to the plan. The index is the start of the line, so whatever
+    /// decoration the tool chose stays on the plan where it belongs.</para>
+    /// <para>Matched case-insensitively, because the capital is the tool's and not worth losing an
+    /// answer over. A plan that ignores the shape anyway is one with no note in front of it, which is
+    /// the answer this returns for anything it cannot find.</para>
+    /// </remarks>
+    private static int IndexOfGoalLine(string text) =>
+        GoalLine().Match(text) is { Success: true } found ? found.Index : -1;
+
+    [GeneratedRegex(
+        @"^[ \t]*(?:#{1,6}[ \t]*)?(?:[-*+][ \t]+|\d+[.)][ \t]+)?" +
+        @"(?:\*\*|__|\*|_)?[ \t]*Goal[ \t]*(?:\*\*|__|\*|_)?[ \t]*:",
+        RegexOptions.Multiline | RegexOptions.IgnoreCase)]
+    private static partial Regex GoalLine();
+
     // ── Detected goal ───────────────────────────────────
 
     /// <summary>

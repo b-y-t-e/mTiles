@@ -220,13 +220,38 @@ public partial class GoalTileViewModel
     /// only when there is something to read. A button that reads the working tree has nothing to say
     /// about a clean one, and offering it there is offering a run that ends in "there are no changes".
     /// </para>
+    /// <para>"Something to read" is the tree <em>or</em> a commit the composer points at, which is one
+    /// question and used to be half of one — see <see cref="ComposerMayNameACommit"/>.</para>
     /// </summary>
     public bool CanDetectGoal =>
-        HasUncommittedChanges && !IsRunning && CurrentPhase is GoalPhase.Goal or GoalPhase.Summary;
+        (HasUncommittedChanges || ComposerMayNameACommit)
+        && !IsRunning && CurrentPhase is GoalPhase.Goal or GoalPhase.Summary;
+
+    /// <summary>
+    /// Whether the composer points somewhere <c>git status</c> cannot see.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A clean tree is not the same as nothing to read.</b>
+    /// <see cref="HasUncommittedChanges"/> comes from <c>git status</c>, which knows nothing about the
+    /// commits an <c>@</c> token can name — so "sprawdź ostatni commit" with <c>@HEAD~1</c> beside it,
+    /// on a repository where everything is committed, went dead in every direction at once: Run and
+    /// Review disabled, the primary button falling through to <see cref="Submit"/>, and the pointer
+    /// adopted as the goal's own text — which is exactly what <c>GoalScopeFilter.WordsOnly</c> exists
+    /// to prevent. The read itself would have coped with it perfectly well.</para>
+    /// <para><b>Asked of the filesystem and not of git</b>, because this decides whether a button is
+    /// enabled and is re-asked on every keystroke: a token naming nothing on disk is the only kind
+    /// that <em>can</em> be a commit, and which of the two it is stays
+    /// <see cref="GoalScopeRef"/>'s answer, given once, when the run reads the tree. A token that
+    /// turns out to be neither costs one sentence saying there was nothing to work a goal out of,
+    /// which is the same sentence a clean tree already gets — a dead menu says nothing at all.</para>
+    /// </remarks>
+    private bool ComposerMayNameACommit =>
+        GoalScopeFilter.Mentions(InputText) is { Count: > 0 } named
+        && LivePaths(named).Count < named.Count;
 
     /// <summary>Whether the composer holds anything to send. What tells a typed goal from a detected
     /// one, and therefore what every label and gate below follows.</summary>
-    public bool HasTypedGoal => InputText.Trim().Length > 0;
+    public bool HasTypedGoal => GoalScopeFilter.WordsOnly(InputText).Length > 0;
 
     /// <summary>
     /// Whether the composer is where a <em>goal</em> is typed at all.
@@ -383,11 +408,7 @@ public partial class GoalTileViewModel
             : Math.Min(_engine.IterationCount + GoalCompletionPolicy.Attempts(_engine.Criteria),
                        GoalCompletionPolicy.MostAttempts) - _engine.IterationCount;
 
-    partial void OnHasUncommittedChangesChanged(bool value)
-    {
-        OnPropertyChanged(nameof(CanDetectGoal));
-        RefreshComposerActions();
-    }
+    partial void OnHasUncommittedChangesChanged(bool value) => RefreshComposerActions();
 
     /// <summary>Pausing and resuming move the button in the conversation, not only the header's glyph.
     /// </summary>
@@ -396,7 +417,6 @@ public partial class GoalTileViewModel
     partial void OnIsRunningChanged(bool value)
     {
         OnPropertyChanged(nameof(Activity));
-        OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
         RefreshComposerActions();
         RefreshFinishedRunActions();
@@ -407,7 +427,6 @@ public partial class GoalTileViewModel
     {
         _log?.Event($"Phase -> {value}.");
         OnPropertyChanged(nameof(RunStage));
-        OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanContinue));
         RefreshComposerActions();
         RefreshFinishedRunActions();
@@ -427,9 +446,17 @@ public partial class GoalTileViewModel
     private void RefreshComposerActions()
     {
         OnPropertyChanged(nameof(HasTypedGoal));
+        // In here rather than beside each caller, because the box is now part of the answer: an @
+        // pointer at a commit is something to read on a tree git status calls clean, so the detect
+        // entries move with every keystroke exactly as the labels beside them do.
+        OnPropertyChanged(nameof(CanDetectGoal));
         OnPropertyChanged(nameof(CanSetGoal));
         OnPropertyChanged(nameof(CanSetGoalAndRun));
         OnPropertyChanged(nameof(PrimaryActionLabel));
+        // Beside it, because it asks the same box the same question: the menu's run entry is called
+        // after where its goal comes from, and a label left behind names the other act.
+        OnPropertyChanged(nameof(RunActionLabel));
+        OnPropertyChanged(nameof(CanRun));
         OnPropertyChanged(nameof(PrimaryActionHint));
     }
 
@@ -1523,15 +1550,28 @@ public partial class GoalTileViewModel
         // draft in the composer, which is the only copy of those words there is. They are consumed
         // below, where the goal is adopted.
         //
-        // The fresh scope is passed explicitly, and an empty list with it: the goal being replaced had
+        // The fresh scope is passed explicitly, and an empty one at that: the goal being replaced had
         // a scope of its own, and a detection reading through that one — or falling back to it where
         // the new text named none — would answer a question the user did not ask.
+        //
+        // **Both halves of it, which is the correction here.** The paths were always passed; the ref
+        // was taken off the engine, so a goal set earlier with @HEAD~3 had every later "Detect goal"
+        // reading three commits of history and working a goal out of them, while a freshly typed
+        // @HEAD~1 — a pointer alone, so Detect is the action — reached this read too late to change
+        // anything. It is resolved here, before the tree is read, and adopted below with the goal.
         var (guideline, scopePaths) = ReadScopeFromComposer();
 
+        GoalScope scope;
         WorktreeSnapshot tree;
         try
         {
-            tree = await ReadWorktreeAsync(onlyPaths: scopePaths, forDetection: true);
+            // Inside the same guard as the read below, because resolving a ref is the same kind of
+            // work: a handful of git calls the user is waiting on, with Pause on screen throughout.
+            // Left outside it, a pause taken during rev-parse came out of WorkingAsync into the
+            // catch of last resort and wrote "Unexpected error: The operation was canceled" into the
+            // transcript — a fault reported for a button the user pressed on purpose.
+            scope = await ResolveScopeAsync(guideline, scopePaths);
+            tree = await ReadWorktreeAsync(scope: scope, wholeTree: true, judgesARange: true);
         }
         catch (OperationCanceledException)
         {
@@ -1617,7 +1657,11 @@ public partial class GoalTileViewModel
         // Set after StartFreshGoal, which clears the scope of the goal being replaced: the paths named
         // here belong to the one that has just started.
         StartFreshGoal(goal);
-        _engine.ScopePaths = LivePaths(scopePaths);
+        // Already resolved, before the read it narrowed. Adopting it is an assignment rather than a
+        // second resolution: git would be asked the same question twice, and could answer it
+        // differently if the user committed in between — leaving the goal reading from an end its own
+        // detection never saw.
+        ApplyScope(scope);
         if (andRun || andReview) InputText = "";
         SyncFromEngine(save: File.Exists(_filePath));
         await AddMessageAsync(GoalMessageRole.User, goal, GoalPhase.Goal);
@@ -1631,6 +1675,11 @@ public partial class GoalTileViewModel
             // afterwards did not: the loop scoped to a baseline taken over those very changes, judged a
             // fraction of them, and could report the goal met over work it had never seen.
             _engine.ReviewsExistingWork = true;
+
+            // And the goal itself came out of those changes, which is what lets a commit claim them.
+            // Recorded separately from the diff base because a typed goal pointing at a path says the
+            // first and not the second — see GoalWorkflowEngine.GoalReadFromTheTree.
+            _engine.GoalReadFromTheTree = true;
 
             // The tree has just been read to work the goal out, and nothing has touched it since — so
             // it is read again rather than kept, for one reason: that read was capped for the *detect*
@@ -1665,6 +1714,10 @@ public partial class GoalTileViewModel
         // kept: the tool is about to edit the user's uncommitted work, which is exactly when a way back
         // is worth having.
         _engine.ReviewsExistingWork = true;
+
+        // The goal was read out of those changes, so they are this run's to commit — see
+        // GoalWorkflowEngine.GoalReadFromTheTree.
+        _engine.GoalReadFromTheTree = true;
 
         _engine.CurrentPhase = GoalPhase.Review;
         SyncFromEngine();
@@ -1753,6 +1806,32 @@ public partial class GoalTileViewModel
     private Task SetGoalAndRunAsync() =>
         CanSetGoalAndRun ? SubmitCore(echoTyped: true, TypedGoalStart.Unattended) : Task.CompletedTask;
 
+    /// <summary>What the menu's third entry does, which is whatever <see cref="RunActionLabel"/>
+    /// says.</summary>
+    /// <remarks>
+    /// The pair it replaces was two entries that differed only in where the goal came from, and only
+    /// one of them read the box. That is what let a typed sentence be silently demoted to a hint by
+    /// the other, so the two are one entry that asks the box the same question every other control on
+    /// this composer asks it.
+    /// </remarks>
+    [RelayCommand]
+    private Task RunAsync() =>
+        HasTypedGoal ? SetGoalAndRunAsync() : DetectGoalAndRunAsync();
+
+    /// <summary>What that entry is called, which has to follow the box or it names the other act.
+    /// </summary>
+    public string RunActionLabel => HasTypedGoal ? "Set goal & run" : "Detect & run";
+
+    /// <summary>
+    /// Whether that entry can be pressed, which is a different question for each half of the box.
+    /// </summary>
+    /// <remarks>
+    /// A typed goal needs no uncommitted changes: "add Caddy support" on a clean tree is an ordinary
+    /// thing to ask for. A goal that has to be <em>read</em> from the changes needs them to exist, and
+    /// the entry says so by going dead rather than by starting a run with nothing to read.
+    /// </remarks>
+    public bool CanRun => HasTypedGoal ? CanSetGoalAndRun : CanDetectGoal;
+
     /// <summary>
     /// What a goal typed into the composer does once it has been adopted — and the <em>only</em> thing
     /// the three typed entries differ in.
@@ -1792,6 +1871,27 @@ public partial class GoalTileViewModel
     {
         var text = InputText.Trim();
         if (string.IsNullOrEmpty(text) || IsRunning) return;
+
+        // **A box holding nothing but pointers is not a goal**, and this is the last place that can
+        // say so. Every entry that reads the box routes a pointer-only send to the detect half —
+        // PrimaryActionAsync, RunAsync, ReviewAsync — but only where there is something to detect
+        // from, and on a clean tree with a live path named (@src/Auth.cs, a file that exists and
+        // holds no change) there is not: CanDetectGoal is false, the primary button falls through to
+        // Submit, and the path was adopted as the goal's own text. The whole round of questions and
+        // the plan were then written about a file name, which is the one outcome
+        // GoalScopeFilter.WordsOnly exists to prevent.
+        //
+        // Before the box is cleared and before the discard is confirmed, because a refusal must cost
+        // the user neither their typing nor their transcript. Asked of `text` rather than through
+        // HasTypedGoal, which reads the live box: after the clear it answers false for everything.
+        if (ComposerSetsGoal && GoalScopeFilter.WordsOnly(text).Length == 0)
+        {
+            await SayOnceAsync("An @ pointer says where to look, not what to do. Type what you want " +
+                               "done — or, with changes to read, use Detect goal to work a goal out " +
+                               "of them.");
+            return;
+        }
+
         InputText = "";
 
         // Asked before anything is changed. Typing into a finished tile used to clear the transcript on
@@ -1839,19 +1939,44 @@ public partial class GoalTileViewModel
                 case GoalPhase.Goal:
                 case GoalPhase.Summary:
                     StartFreshGoal(text);
-                    // The typed goal is its own narrowing: @ paths in it scope every tree read of the
-                    // goal that starts here. After StartFreshGoal, which clears the replaced goal's
-                    // scope — these belong to the one that has just started.
-                    _engine.ScopePaths = LivePaths(GoalScopeFilter.Mentions(text));
                     SyncFromEngine();
                     await AddMessageAsync(GoalMessageRole.User, text, GoalPhase.Goal);
 
-                    // Inside WorkingAsync, not before it. That is what holds IsRunning and the run's
-                    // one CancellationTokenSource: outside it the tile showed the composer while git
-                    // worked, and the snapshot's own timeout had no token to be cancelled through, so
-                    // Pause during it did nothing.
+                    // Inside WorkingAsync, not before it — and that is true of the scope as much as of
+                    // the baseline. WorkingAsync is what holds IsRunning and the run's one
+                    // CancellationTokenSource: outside it the tile showed a live composer while git
+                    // worked, with no token for the five-second resolve to be cancelled through, so
+                    // Pause had nothing to cancel and a second Enter started a second goal inside the
+                    // first.
                     await WorkingAsync(async () =>
                     {
+                        // The typed goal is its own narrowing: @ tokens in it scope every tree read of
+                        // the goal that starts here — as paths where they name a file, and as the end
+                        // the tree is read from where they name a commit. After StartFreshGoal, which
+                        // clears the replaced goal's scope: these belong to the one just started.
+                        bool reviewFirst;
+                        try
+                        {
+                            await ApplyScopeAsync(text, LivePaths(GoalScopeFilter.Mentions(text)));
+
+                            // Asked here, inside the same guard and before the baseline: it is a read
+                            // of HEAD and owes the snapshot nothing, and a pause taken during it is
+                            // the same clean stop the scope resolution above makes.
+                            reviewFirst = start == TypedGoalStart.Unattended
+                                          && await PointsAtWorkAlreadyThereAsync();
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // A pause taken while git was resolving an @ref, which is the same clean
+                            // stop every tree read here makes. Without it the cancellation carried on
+                            // out to the catch of last resort, which files it as "Unexpected error"
+                            // and leaves the phase label saying the tile is still working.
+                            PhaseLabel = _engine.GetPhaseLabel();
+                            return;
+                        }
+
+                        SyncFromEngine();
+
                         await CaptureBaselineAsync();
 
                         if (start == TypedGoalStart.ReviewOnly)
@@ -1871,7 +1996,31 @@ public partial class GoalTileViewModel
                             return;
                         }
 
-                        await RunClarifyAsync(noQuestions: start == TypedGoalStart.Unattended);
+                        // **A typed run starts by judging what is already there only when the user
+                        // pointed at work that is already there.** With a changed path or a commit
+                        // named, that is what they asked about, and reviewing it first is the whole
+                        // point of naming it. Without one, a fresh goal on a dirty tree would take the
+                        // user's unrelated uncommitted work as its subject and set about "fixing" it,
+                        // which is the one thing DiffBase and ReviewsExistingWork exist to keep apart.
+                        // So the default stays what it was: implement first, and their work stays
+                        // outside the scope. See PointsAtWorkAlreadyThereAsync.
+                        //
+                        // **What it is not is a way past the plan.** It used to enter the loop here,
+                        // and the loop is the only path a typed goal has to RunPlanAsync — so "add
+                        // dark mode @src/Theme.cs" was planned by nobody and ApprovedPlan stayed
+                        // empty in every implement prompt to the end of the run, which is the damage
+                        // the gate was added to remove rather than to move. The goal was typed a
+                        // moment ago and nothing has asked the tool what it makes of it; starting at
+                        // the review is a fact about the loop's first lap, so it travels to the loop
+                        // and changes nothing on the way.
+                        if (reviewFirst)
+                        {
+                            _engine.ReviewsExistingWork = true;
+                            SyncFromEngine();
+                        }
+
+                        await RunClarifyAsync(noQuestions: start == TypedGoalStart.Unattended,
+                            startAtReview: reviewFirst);
                     });
                     break;
 
@@ -1915,6 +2064,13 @@ public partial class GoalTileViewModel
                     }
                     else
                     {
+                        // Filed here, before anything moves the phase. Answering a plan sends the tile
+                        // back through Clarify, and RunPhaseAsync clears the draft on its way into the
+                        // next Plan run — so by the time the prompt is built there is nothing left to
+                        // show the tool. Without this the user's "leave step 2 and fix step 5" reached
+                        // a planner that had never seen a step 2.
+                        _engine.RecordPlanUnderRevision(_engine.ProposedPlan, text);
+
                         _engine.RecordClarification(text);
                         await WorkingAsync(() => RunClarifyAsync());
                     }
@@ -1952,7 +2108,13 @@ public partial class GoalTileViewModel
     /// <param name="noQuestions">Whether this run stops for questions at all. Set by "Set goal &amp;
     /// run": the tool is told nobody is waiting, and the plan it goes on to write is approved as it
     /// arrives.</param>
-    private async Task RunClarifyAsync(bool noQuestions = false)
+    /// <param name="startAtReview">
+    /// Whether the loop this leads to opens with a review rather than an implementation — see
+    /// <see cref="RunImplementReviewLoopAsync"/>. Carried rather than decided here: what knows the
+    /// user pointed at work that is already in the tree is the run that read it, and the phases
+    /// between here and the loop neither read it nor change it.
+    /// </param>
+    private async Task RunClarifyAsync(bool noQuestions = false, bool startAtReview = false)
     {
         // First, before the budget is even looked at. Whatever is on screen is about to be answered by
         // a fresh set, by none, or by the tile giving up and planning — and that last path returns
@@ -1976,13 +2138,13 @@ public partial class GoalTileViewModel
 
             _engine.CurrentPhase = GoalPhase.Plan;
             SyncFromEngine();
-            await RunPlanAsync(autoApprove: noQuestions);
+            await RunPlanAsync(autoApprove: noQuestions, startAtReview: startAtReview);
             return;
         }
 
         await RunPhaseAsync(GoalPhase.Clarify, "AI is checking the goal...",
             _engine.BuildClarifyPrompt(PromptBudget(), noQuestions),
-            run => OnClarifyAnsweredAsync(run, noQuestions));
+            run => OnClarifyAnsweredAsync(run, noQuestions, startAtReview));
     }
 
     /// <summary>
@@ -1994,7 +2156,7 @@ public partial class GoalTileViewModel
     /// </para>
     /// </summary>
     /// <inheritdoc cref="RunClarifyAsync"/>
-    private async Task OnClarifyAnsweredAsync(AiRun run, bool noQuestions)
+    private async Task OnClarifyAnsweredAsync(AiRun run, bool noQuestions, bool startAtReview = false)
     {
         var clarify = await SalvagedAsync(GoalResponseParser.ParseClarify(run.Text),
             GoalResponseParser.ParseClarify, "round", run.Transcript);
@@ -2028,7 +2190,7 @@ public partial class GoalTileViewModel
 
             _engine.CurrentPhase = GoalPhase.Plan;
             SyncFromEngine();
-            await RunPlanAsync(autoApprove: true);
+            await RunPlanAsync(autoApprove: true, startAtReview: startAtReview);
             return;
         }
 
@@ -2047,7 +2209,7 @@ public partial class GoalTileViewModel
 
             _engine.CurrentPhase = GoalPhase.Plan;
             SyncFromEngine();
-            await RunPlanAsync();
+            await RunPlanAsync(startAtReview: startAtReview);
             return;
         }
 
@@ -2094,12 +2256,49 @@ public partial class GoalTileViewModel
 
     /// <param name="autoApprove">Whether the plan is approved as it arrives rather than waiting for
     /// the user — see <see cref="SetGoalAndRunAsync"/>.</param>
-    private async Task RunPlanAsync(bool autoApprove = false)
+    /// <inheritdoc cref="RunClarifyAsync" path="/param[@name='startAtReview']"/>
+    /// <remarks>
+    /// <para>The tree is read here rather than left out, which is what every other phase that reasons
+    /// about this project already does. A planner shown no diff cannot tell which part of the goal is
+    /// already half-written, so it plans the whole of it — over code that may already implement most
+    /// of it — and the steps that come back name work nobody has to do.</para>
+    /// <para><b>Against HEAD and unscoped by the baseline</b>, deliberately: nothing has been
+    /// implemented yet when a plan is written, so a read against the goal's own baseline is empty by
+    /// construction. What the planner needs is everything uncommitted, which is the same question
+    /// detection asks. The goal's own <c>@</c> narrowing still applies, because that is the user
+    /// saying which part of it any of this is about.</para>
+    /// <para><b>And it ends at the working tree even where the user named a head</b>, which is the
+    /// one thing this read does not share with detection. <c>@master..HEAD</c> read literally is two
+    /// commits with everything uncommitted left out, so the planner was shown history under a heading
+    /// promising uncommitted work and none of the work the goal sent it to look at. A named base is
+    /// kept — that is the stretch the user pointed at — and the block is then named after it, so the
+    /// heading says what was read rather than what the ordinary case reads.</para>
+    /// <para>A read that fails answers an unreadable snapshot, whose <c>Text</c> is null — and a null
+    /// diff builds exactly the prompt this phase had before it read anything, so the plan is written
+    /// rather than refused.</para>
+    /// </remarks>
+    private async Task RunPlanAsync(bool autoApprove = false, bool startAtReview = false)
     {
-        await RunPhaseAsync(GoalPhase.Plan, "AI is creating a plan...",
-            _engine.BuildPlanPrompt(PromptBudget()));
+        WorktreeSnapshot tree;
+        try
+        {
+            // Whole-tree, so a file the user has written and not yet committed arrives with its
+            // contents; ending at the working tree, because those contents are the point. A named
+            // head end would leave them out of the very block that exists to show them.
+            tree = await ReadWorktreeAsync(wholeTree: true);
+        }
+        catch (OperationCanceledException)
+        {
+            // A pause taken while git was being read. The phase label goes back, exactly as the loop's
+            // own reader does it, and nothing is planned over a tree nobody finished reading.
+            PhaseLabel = _engine.GetPhaseLabel();
+            return;
+        }
 
-        if (autoApprove) await ApproveAndImplementAsync();
+        await RunPhaseAsync(GoalPhase.Plan, "AI is creating a plan...",
+            _engine.BuildPlanPrompt(tree.Text, PromptBudget()));
+
+        if (autoApprove) await ApproveAndImplementAsync(startAtReview);
     }
 
     /// <summary>
@@ -2112,7 +2311,7 @@ public partial class GoalTileViewModel
     /// <para>The approval itself is <see cref="AdoptProposedPlan"/>, the same step the typed "ok" takes,
     /// so the automatic path and the hand-approved one cannot drift.</para>
     /// </remarks>
-    private async Task ApproveAndImplementAsync()
+    private async Task ApproveAndImplementAsync(bool startAtReview = false)
     {
         if (PauseRequested || _engine.ProposedPlan is not { Length: > 0 }) return;
 
@@ -2121,7 +2320,7 @@ public partial class GoalTileViewModel
         await AddMessageAsync(GoalMessageRole.System,
             "Plan approved automatically — implementing now.", GoalPhase.Plan);
 
-        if (AdoptProposedPlan()) await RunImplementReviewLoopAsync();
+        if (AdoptProposedPlan()) await RunImplementReviewLoopAsync(startAtReview: startAtReview);
     }
 
     /// <summary>
@@ -2190,7 +2389,14 @@ public partial class GoalTileViewModel
         {
             case GoalRunVerdict.Answered:
                 if (phase == GoalPhase.Plan)
-                    _engine.RecordProposedPlan(run.Text!);
+                    // The plan without the sentences the tool wrote *about* revising it. Those two
+                    // are asked for on purpose — a revision that arrives as a fresh document leaves
+                    // the user diffing two screens of prose to find out what their remark did — and
+                    // they are taken back off just as deliberately: this text becomes ApprovedPlan,
+                    // which every implement prompt carries for the rest of the run, and a note about
+                    // what changed between two drafts is history rather than instruction. The
+                    // transcript below still shows the answer whole, which is where the note belongs.
+                    _engine.RecordProposedPlan(GoalResponseParser.ParsePlan(run.Text).Plan);
 
                     // Said here rather than left to IsRunning going false a moment later. ProposedPlan
                     // is a plain field that notifies nobody, and the phase does not move when a plan
@@ -3007,8 +3213,12 @@ public partial class GoalTileViewModel
             Working("Working out what this run changed...");
 
             var committer = new GoalCommitter(_workingDirectory, GitPath());
+            // GoalReadFromTheTree, not ReviewsExistingWork: what the committer is being told is that
+            // the changes already in the tree are the goal, and only the detect paths can say that. A
+            // typed goal narrowed with an @ pointer reads its diffs from HEAD for the same reason a
+            // detected one does, and still has no claim on the user's unrelated uncommitted work.
             var scope = await committer.ScopeAsync(baseline, _engine.EndRef,
-                _cts?.Token ?? CancellationToken.None, _engine.ReviewsExistingWork);
+                _cts?.Token ?? CancellationToken.None, _engine.GoalReadFromTheTree);
 
             if (!scope.Readable)
             {
@@ -3048,7 +3258,7 @@ public partial class GoalTileViewModel
             }
 
             if (!await confirm(GoalCommitPlan.Ask(scope, Count(GoalSeverity.Warning),
-                    Count(GoalSeverity.Suggestion), _engine.ReviewsExistingWork)))
+                    Count(GoalSeverity.Suggestion), _engine.GoalReadFromTheTree)))
                 return;
 
             Working("Working out how to divide the changes into commits...");
@@ -3212,6 +3422,26 @@ public partial class GoalTileViewModel
         if (await EarlierInTheTurnAsync(parsed, reread, subject, transcript) is { } earlier)
             return earlier;
 
+        // **Known gap, and this is where the fourth attempt belongs.** A review that answers in prose
+        // and names no verdict at all is not a review that found nothing — it is a review that did not
+        // answer, and the two are the same outcome here. Measured live, 2026-09-09: a review ran for
+        // 631 seconds, wrote "Reasoning behind the two verdicts", listed everything it had checked and
+        // cleared, reported `Build: exit 0` and `Tests: 2574 passed` — and emitted neither the json
+        // block nor the `VERDICT: PASS` line the prompt offers as the way out. The prose fallback can
+        // only read that as the goal unmet with no findings, so the run spent an attempt sending the
+        // agent back to fix work it had just called finished.
+        //
+        // The salvage round above does not fire, and correctly: LooksLikeJson matches quoted keys and
+        // there was no JSON to repair. What is missing is the other cheap re-ask — "answer with the
+        // block only" — on a narrow condition: not JSON-shaped *and* carrying no verdict either way.
+        // Three things have to come with it. GoalWorkflowEngine.IsVerdictPass answers a bool, so it
+        // cannot tell "said FAIL" from "said nothing" and needs a second question beside it.
+        // GoalPromptBuilder needs a second salvage prompt, since BuildJsonSalvage sends a broken block
+        // back to be repaired and here there is nothing to repair. And the condition must be narrow,
+        // because this method also serves the clarify round, where a verdict does not exist and asking
+        // for one would be a round spent on a question nobody posed — so it belongs on
+        // IGoalParsedBlock, where WasStructured and RawText already are, rather than as a flag a caller
+        // has to remember to pass.
         _log?.Event($"PARSED   {subject} - not structured anywhere in the turn, taken as prose.");
         return parsed;
     }
@@ -3633,7 +3863,11 @@ public partial class GoalTileViewModel
         WorktreeSnapshot tree;
         try
         {
-            tree = await ReadWorktreeAsync(scoped, onlyPaths);
+            // A re-review narrows to its own paths and keeps the goal's ref: which files this one
+            // review is about is the reviewer's question, which commits the goal is read against is
+            // the goal's.
+            tree = await ReadWorktreeAsync(
+                scoped, onlyPaths is null ? null : EngineScope with { Paths = onlyPaths });
         }
         catch (OperationCanceledException)
         {
@@ -3884,26 +4118,66 @@ public partial class GoalTileViewModel
     /// user is in the middle of, which is precisely their uncommitted work against HEAD, and it runs
     /// before a goal exists — so the only baseline in reach belongs to the goal being replaced.</para>
     /// </param>
-    /// <param name="forDetection">
-    /// Whether this read is the one the goal will be worked out from.
-    /// <para>The one caller that gets <c>WorktreeReader.ReadWholeTreeAsync</c>, and the asymmetry is
-    /// the reason: this is the read where a file with no history is the <em>subject</em> — a name and
-    /// no contents is most of the evidence thrown away — while everywhere else in the loop a new file
+    /// <param name="wholeTree">
+    /// Whether a file with no history is <em>substance</em> here rather than a name in a list.
+    /// <para>What <c>WorktreeReader.ReadWholeTreeAsync</c> buys, and the two callers that ask for it
+    /// are the two that reason about work nobody has committed: detection, where an untracked file is
+    /// the subject, and the plan, where it is half the answer to "what is already half-done". A name
+    /// and no contents is most of that evidence thrown away. Everywhere else in the loop a new file
     /// written by the run is in the baseline diff already. It costs one more git command and falls
     /// back to the ordinary read when that command cannot be run.</para>
     /// </param>
+    /// <param name="judgesARange">
+    /// Whether this read keeps a head end the user named, instead of ending at the working tree.
+    /// <para>Detection alone, and the two questions are separate because the plan needs one and not
+    /// the other: <c>@master..HEAD</c> read literally is two commits with the working tree left out
+    /// of it, so a plan read that way is shown the history and not one line of the uncommitted work
+    /// it is being read for — under a heading calling it uncommitted. See
+    /// <see cref="GoalScopeRef.EndingAtTheWorkingTree"/>.</para>
+    /// </param>
+    /// <param name="scope">
+    /// What this one read is narrowed to, or null for the goal's own. Passed explicitly by the one
+    /// read that must not use the goal's — detection, which is working out the goal that replaces it.
+    /// </param>
+    /// <param name="caps">
+    /// What the block may cost, or null for what the tool about to receive it allows. Named by the
+    /// no-change check alone, which wants no summary and never reads the text.
+    /// </param>
     private Task<WorktreeSnapshot> ReadWorktreeAsync(bool scoped = false,
-        IReadOnlyList<string>? onlyPaths = null, bool forDetection = false)
+        GoalScope? scope = null, bool wholeTree = false, bool judgesARange = false,
+        GoalDiffContext.WorktreeCaps? caps = null)
     {
         var reader = NewWorktreeReader();
         var token = _cts?.Token ?? CancellationToken.None;
-        var caps = GoalDiffContext.CapsFor(PromptBudget());
-        var paths = onlyPaths ?? _engine.ScopePaths;
+        var limits = caps ?? GoalDiffContext.CapsFor(PromptBudget());
+        var narrowing = scope ?? EngineScope;
 
-        return forDetection
-            ? reader.ReadWholeTreeAsync(token, caps, paths)
-            : reader.ReadAsync(token, caps, scoped ? DiffBase : null, paths);
+        // Detection reads the two ends the user named exactly as they named them; everything else
+        // reads to the working tree — see GoalScopeRef.EndingAtTheWorkingTree.
+        var readBase = judgesARange
+            ? narrowing.Ref
+            : GoalScopeRef.EndingAtTheWorkingTree(narrowing.Ref);
+
+        // A named commit is a whole-tree question by construction: it says which two ends to compare,
+        // and the goal's own baseline — "what changed since this run started" — has nothing to do with
+        // it. Without one nothing here moves.
+        return wholeTree || readBase is not null
+            ? reader.ReadWholeTreeAsync(token, limits, narrowing.Paths, readBase)
+            : reader.ReadAsync(token, limits, scoped ? DiffBase : null, narrowing.Paths);
     }
+
+    /// <summary>
+    /// What one read is narrowed to: the paths the user named, and the commit they named.
+    /// </summary>
+    /// <remarks>
+    /// One value rather than two parameters, because they are one answer and the read that took them
+    /// separately took the paths from its caller and the ref from the engine. That is how a detection
+    /// handed a fresh set of paths went on reading through the <em>replaced</em> goal's ref.
+    /// </remarks>
+    private readonly record struct GoalScope(IReadOnlyList<string> Paths, GoalReadBase? Ref);
+
+    private GoalScope EngineScope => new(_engine.ScopePaths, _engine.ScopeRef);
+
 
     /// <summary>
     /// The scope the composer names, read off it — nothing cleared, nothing stored.
@@ -3929,17 +4203,74 @@ public partial class GoalTileViewModel
     /// </summary>
     /// <remarks>
     /// <para>A completion never offers a file that is not there, but the composer holds anything a
-    /// user typed — and a token that only looks like a path (<c>john.doe</c> out of an email-style
-    /// word) passes the syntax rule and, left in, filters the whole tree to nothing over a typo. A
-    /// scope naming nothing is the most expensive way a letter can be wrong: the diff is gone and the
-    /// note saying so does not bring it back. Words that name nothing stay in the soft half — the
-    /// guideline sentence still carries them.</para>
+    /// user typed, and <see cref="GoalScopeFilter"/> keeps no opinion about what exists — so this is
+    /// the whole of the question "is that token a path", and the only judge of it. It has to be the
+    /// filesystem and not a spelling rule, in both directions: <c>john.doe</c> out of an email-style
+    /// word looks exactly like a file and names none, while <c>@frontend</c> looks like a word and is
+    /// a directory somebody is pointing at.</para>
+    /// <para>What is left over is not thrown away — <c>ResolveScopeAsync</c> offers it to
+    /// <see cref="GoalScopeRef"/>, where a commit is recognised and prose resolves as nothing. And
+    /// words that name neither stay in the soft half either way: the guideline sentence still carries
+    /// them.</para>
     /// </remarks>
     private IReadOnlyList<string> LivePaths(IReadOnlyList<string> paths) =>
         paths.Where(path =>
                 File.Exists(Path.Combine(_workingDirectory, path))
                 || Directory.Exists(Path.Combine(_workingDirectory, path)))
             .ToList();
+
+    /// <summary>
+    /// Files the composer named, commits it named, and what neither of those is.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>One marker, two meanings, and the answer comes from outside this application.</b> A
+    /// token that names something on disk is a path; whatever is left is offered to
+    /// <see cref="GoalScopeRef"/>, and git decides. So <c>@src/Auth.cs</c> narrows, <c>@HEAD~1</c>
+    /// moves the end the tree is read from, and <c>@admin</c> resolves as neither and changes nothing
+    /// — which is the whole reason the question is asked of the filesystem and of git rather than of a
+    /// spelling rule.</para>
+    /// <para>Set where the goal is adopted, alongside <c>ScopePaths</c> and for the same reason: it is
+    /// a fact about the goal, so a Resume tomorrow reads the same two ends. Re-review's own narrowing
+    /// stays per-review and per-path, as it was.</para>
+    /// <para><b>The paths are adopted before the await, and the ref after it.</b> They are known
+    /// without asking anybody — they arrived as an argument, off the composer — while the ref costs a
+    /// <c>rev-parse</c> that waits up to five seconds and is cancelled by Pause like every other read
+    /// here. Assigned together on the far side of that await, a pause taken inside the window threw
+    /// the paths away too: the goal had already been adopted and the composer already cleared, so the
+    /// typed <c>popraw koszyk @src/Cart.cs</c> stood in the transcript with its <c>@</c> while every
+    /// later read of the tree for that goal went over the whole repository. A cancelled resolve
+    /// leaves the ref exactly as <c>StartFreshGoal</c> left it, which is none.</para>
+    /// </remarks>
+    private async Task ApplyScopeAsync(string composerText, IReadOnlyList<string> paths)
+    {
+        _engine.ScopePaths = paths;
+        ApplyScope(await ResolveScopeAsync(composerText, paths));
+    }
+
+    /// <inheritdoc cref="ApplyScopeAsync"/>
+    /// <remarks>
+    /// <para>Resolving and adopting are separate because detection needs them apart: the scope has to
+    /// narrow the very read the goal is worked out from, which happens before there is a goal to
+    /// adopt it for. Everywhere else the two are one step, which is what <see cref="ApplyScopeAsync"/>
+    /// stays for.</para>
+    /// </remarks>
+    private async Task<GoalScope> ResolveScopeAsync(string composerText, IReadOnlyList<string> paths)
+    {
+        var named = GoalScopeFilter.Mentions(composerText)
+            .Where(token => !paths.Contains(token, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        return new GoalScope(paths, await GoalScopeRef.ResolveAsync(
+            named, _workingDirectory, GitPath(),
+            _cts?.Token ?? CancellationToken.None));
+    }
+
+    /// <inheritdoc cref="ApplyScopeAsync"/>
+    private void ApplyScope(GoalScope scope)
+    {
+        _engine.ScopePaths = scope.Paths;
+        _engine.ScopeRef = scope.Ref;
+    }
 
     /// <summary>
     /// What a scoped read measures from — the goal's baseline, or <c>HEAD</c> where the work being
@@ -3959,29 +4290,63 @@ public partial class GoalTileViewModel
     private string? DiffBase => _engine.ReviewsExistingWork ? null : _engine.BaselineRef;
 
     /// <summary>
+    /// Whether what the composer pointed at is work that is <b>already in the tree</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Pointing at something is not pointing at work.</b> A path named beside a typed goal is
+    /// as often a specification to hold the work to, a folder to do it in, or a note to read — and
+    /// none of those has been changed yet, which is exactly why <c>GoalDiffContext.Compose</c> stands
+    /// its filter down rather than showing the tool an empty block. Read as "there is something here
+    /// to review", that stand-down was ruinous in the other direction: "add dark mode
+    /// <c>@docs/spec.md</c>" entered the run at the review, measured every diff from <c>HEAD</c>, and
+    /// handed the reviewer the user's unrelated half-finished work in the next directory under the
+    /// heading "the changes that were just made" — whose findings then went into the implement prompt
+    /// as things to fix.</para>
+    /// <para>The same mistake with nothing in it is a pointer at a clean tree: the review judged an
+    /// empty diff. It cost a plan as well while this answer was also the way into the loop; it no
+    /// longer is — every typed run is clarified and planned, and this decides the loop's first lap
+    /// alone.</para>
+    /// <para>So the question is put to git rather than to the text, once, before the run takes its
+    /// shape — narrowed exactly as the user named it, and answered yes only where something survives
+    /// the narrowing. It costs one read, on the one path that was about to read the tree anyway; a
+    /// tree nobody could read answers no, which is the ordinary implement-first run.</para>
+    /// <para>Naming nothing is not asked at all: a run with no scope implements first by the rule
+    /// above, and a git process to confirm it would be spent on a decision already made.</para>
+    /// </remarks>
+    private async Task<bool> PointsAtWorkAlreadyThereAsync()
+    {
+        if (_engine.ScopePaths.Count == 0 && _engine.ScopeRef is null) return false;
+
+        // No summary: this read is one yes-or-no and never reaches a prompt, and the --stat is a git
+        // process of its own — the same economy ReadWorktreeForComparisonAsync makes below.
+        var tree = await ReadWorktreeAsync(
+            caps: GoalDiffContext.CapsFor(PromptBudget()) with { Summary = 0 });
+
+        return tree.HoldsChangeInScope;
+    }
+
+    /// <summary>
     /// The working tree read for its <see cref="WorktreeSnapshot.Fingerprint"/> alone — the no-change
     /// check, which never looks at the text.
     /// </summary>
     /// <remarks>
-    /// The file summary is asked for with a cap of zero, which is how the reader is told not to run the
-    /// command at all. It is deliberately outside the fingerprint, so a summary gathered here could not
-    /// change the answer by any route: it was a git process per check, twice a lap, in the user's own
-    /// repository, spent on something nothing would read.
+    /// <para><b>The loop's own reader, and not a second one that agrees with it by hand.</b> A digest
+    /// of <c>diff baseline..now</c> and a digest of <c>diff HEAD</c> are answers to two different
+    /// questions and can never be equal, so a check reading one while the loop reads the other
+    /// silently retires the no-change stop: the run goes on spending attempts on a tool that has
+    /// written nothing, and ends giving some other, misleading reason. That happened once over the
+    /// baseline and again over a named commit — the second time through a copy of the read that had
+    /// been kept in step by hand and then fell out of it. There is one read now, called with the one
+    /// thing that differs.</para>
+    /// <para>The summary is asked for with a cap of zero, which is how the reader is told not to run
+    /// the command at all. It is deliberately outside the fingerprint, so a summary gathered here
+    /// could not change the answer by any route: it was a git process per check, twice a lap, in the
+    /// user's own repository, spent on something nothing would read.</para>
     /// </remarks>
     private Task<WorktreeSnapshot> ReadWorktreeForComparisonAsync() =>
-        NewWorktreeReader().ReadAsync(
-            _cts?.Token ?? CancellationToken.None,
-            GoalDiffContext.CapsFor(PromptBudget()) with { Summary = 0 },
-            // Scoped, because the tree it is compared against was. A digest of `diff baseline..now` and
-            // a digest of `diff HEAD` are answers to two different questions and can never be equal, so
-            // reading only one of them this way silently retired the no-change stop — the run carried
-            // on spending attempts on a tool that had written nothing.
-            DiffBase,
-            // The scope rides along so every read of this goal reports the same answer about itself.
-            // The fingerprint does not need it — it is taken from the raw diff, not from the filtered
-            // block — but a read of a narrowed goal that silently claimed the whole tree would be one
-            // answer in the transcript and another in the check.
-            _engine.ScopePaths);
+        ReadWorktreeAsync(
+            scoped: true,
+            caps: GoalDiffContext.CapsFor(PromptBudget()) with { Summary = 0 });
 
     private WorktreeReader NewWorktreeReader() =>
         new(_workingDirectory, GitPath());

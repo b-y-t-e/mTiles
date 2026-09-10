@@ -261,6 +261,24 @@ public class GoalPromptBuilderTests
     }
 
     /// <summary>
+    /// The one word in a plan that is parsed rather than read stays English.
+    /// </summary>
+    /// <remarks>
+    /// The prompt ends by asking for the answer in the user's own language, so a Polish plan opens
+    /// "Cel:" unless the marker is named. <c>GoalResponseParser.ParsePlan</c> splits on that line, and
+    /// a split that cannot find it hands the sentences about what was revised to <c>ApprovedPlan</c>,
+    /// which every implement prompt carries for the rest of the run.
+    /// </remarks>
+    [Fact]
+    public void The_line_a_plan_opens_with_is_asked_for_in_english_by_name()
+    {
+        var prompt = new GoalPromptBuilder().BuildPlan("popraw koszyk", []);
+
+        Assert.Contains("Answer in the same language as the goal above", prompt);
+        Assert.Contains("begins with the English word \"Goal:\"", prompt);
+    }
+
+    /// <summary>
     /// The one prompt with no goal to take a language from asks for the machine's own.
     /// </summary>
     /// <remarks>
@@ -423,5 +441,151 @@ public class GoalPromptBuilderTests
             + "+so it now says how many files were truncated: a count.");
 
         Assert.DoesNotContain("may read it", prompt);
+    }
+
+    /// <summary>
+    /// Words in the composer send the tool to look, whatever size the block is.
+    /// </summary>
+    /// <remarks>
+    /// "The save button in configuration" names a set of files nobody can enumerate without reading
+    /// the project, and those words reach the prompt beside a diff that was assembled and clipped
+    /// before anybody read them. Without this the narrowing arrives after the evidence was chosen,
+    /// which is the wrong order, and is why a tiny tree could still be answered about the wrong thing.
+    /// </remarks>
+    [Fact]
+    public void A_described_region_sends_the_tool_to_look_even_when_nothing_was_cut()
+    {
+        var tiny = "diff --git a/src/Cart.cs b/src/Cart.cs\n+// one line";
+
+        Assert.DoesNotContain("may read it", new GoalPromptBuilder().BuildDetectGoal(tiny));
+        Assert.Contains("may read it",
+            new GoalPromptBuilder().BuildDetectGoal(tiny, guideline: "the save button in configuration"));
+    }
+
+    /// <summary>
+    /// A review is told what to do with the words it was given, not only handed them.
+    /// </summary>
+    /// <remarks>
+    /// The review carried the narrowing block and stopped there, so a description arrived as a
+    /// paragraph with nothing said about it, beside a reading instruction that says to open the files
+    /// <em>the block</em> names. That is precisely not where a described region lives, and not where a
+    /// specification the user never edited lives either.
+    /// </remarks>
+    [Fact]
+    public void A_review_is_told_what_the_users_words_are_for()
+    {
+        var review = new GoalPromptBuilder().BuildReview(
+            "a goal", "diff --git a/src/Cart.cs b/src/Cart.cs", scoped: false,
+            guideline: "check the save button in configuration against @docs/spec.md");
+
+        Assert.Contains("what the user wants judged", review);
+        Assert.Contains("go and find that part in the repository", review);
+        Assert.Contains("open it and hold the changes to what it says", review);
+    }
+
+    // ── Planning again after the user answered ──────────
+
+    /// <summary>
+    /// A plan written after the user argued with one is shown the draft they argued with.
+    /// </summary>
+    /// <remarks>
+    /// Rejecting a plan used to lose the plan: the remark was filed as a clarification and the next
+    /// run started with the draft already cleared, so "leave step 2 and fix step 5" reached a planner
+    /// that had never seen a step 2 and came back with an unrelated document.
+    /// </remarks>
+    [Fact]
+    public void A_replan_carries_the_draft_the_user_argued_with_and_what_they_said()
+    {
+        var prompt = new GoalPromptBuilder().BuildPlan(
+            "a goal", [],
+            previousPlan: "Goal: tighten the cart.\nSteps:\n1. src/Cart.cs - apply discounts first.",
+            remark: "leave step 1 and add a test");
+
+        Assert.Contains("The plan you proposed last time", prompt);
+        Assert.Contains("apply discounts first", prompt);
+        Assert.Contains("What the user said about it", prompt);
+        Assert.Contains("leave step 1 and add a test", prompt);
+    }
+
+    /// <summary>
+    /// Both cases are named, and both end in a whole plan.
+    /// </summary>
+    /// <remarks>
+    /// <para>Whether a sentence changes a plan or only asks about one is a judgement about meaning,
+    /// and a rule in C# over the text would be the kind of guess this tile refuses everywhere else.
+    /// The run that would write the plan anyway is told both cases instead, at no extra call.</para>
+    /// <para>Ending in a complete plan either way is what makes the tile need no classification of its
+    /// own: whatever the user wrote, the newest message is something they can approve, and
+    /// <c>ApprovedPlan</c> is never a fragment.</para>
+    /// </remarks>
+    [Fact]
+    public void A_replan_is_told_to_answer_a_question_without_rewriting_the_plan()
+    {
+        var prompt = new GoalPromptBuilder().BuildPlan(
+            "a goal", [], previousPlan: "Goal: tighten the cart.", remark: "what happens on a clean tree?");
+
+        Assert.Contains("they change the plan", prompt);
+        Assert.Contains("they only ask about it", prompt);
+        Assert.Contains("word for word, unchanged", prompt);
+        Assert.Contains("ends with a complete plan", prompt);
+    }
+
+    [Fact]
+    public void A_first_plan_carries_none_of_that()
+    {
+        // Most plans are first plans, and a block about revising one that does not exist is prompt
+        // spent on nothing.
+        var prompt = new GoalPromptBuilder().BuildPlan("a goal", []);
+
+        Assert.DoesNotContain("The plan you proposed last time", prompt);
+        Assert.DoesNotContain("they only ask about it", prompt);
+    }
+
+    /// <summary>
+    /// The plan phase sees what is already uncommitted, and says nothing about it on a clean tree.
+    /// </summary>
+    /// <remarks>
+    /// It was the one phase with no fact about the project in its prompt. What saved it is that the
+    /// phase runs read-only with the tool's own read tools, so a tool that happens to look plans well
+    /// and one that does not plans the whole feature over code that already implements half of it.
+    /// Reading files answers what the code does; only the diff answers what is half-done.
+    /// </remarks>
+    [Fact]
+    public void A_plan_is_shown_what_is_already_half_done()
+    {
+        var builder = new GoalPromptBuilder();
+
+        var clean = builder.BuildPlan("a goal", []);
+        Assert.DoesNotContain("Already uncommitted in this project", clean);
+
+        var dirty = builder.BuildPlan("a goal", [],
+            gitDiff: "diff --git a/src/Cart.cs b/src/Cart.cs\n+// half of it is here already");
+
+        Assert.Contains("Already uncommitted in this project", dirty);
+        Assert.Contains("half of it is here already", dirty);
+        Assert.Contains("Plan only what is left", dirty);
+
+        // And the sentence that keeps a fresh goal from planning to finish somebody else's work.
+        Assert.Contains("the user's own parallel work", dirty);
+    }
+
+    /// <summary>
+    /// A block read from a named commit is not called uncommitted work.
+    /// </summary>
+    /// <remarks>
+    /// A goal carrying <c>@HEAD~1</c> is read from that commit to the working tree, so the block holds
+    /// a commit as well as everything uncommitted. Headed as uncommitted, the planner is told that
+    /// work somebody finished last week is unfinished business and plans around it.
+    /// </remarks>
+    [Fact]
+    public void A_plan_block_read_from_a_named_commit_says_which_one()
+    {
+        var prompt = new GoalPromptBuilder().BuildPlan(
+            "a goal", [],
+            gitDiff: "diff --git a/src/Cart.cs b/src/Cart.cs\n+// half of it is here already",
+            changedSince: "HEAD~1");
+
+        Assert.Contains("Already changed in this project since HEAD~1", prompt);
+        Assert.DoesNotContain("Already uncommitted in this project", prompt);
     }
 }

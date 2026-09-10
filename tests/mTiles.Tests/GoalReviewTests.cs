@@ -706,6 +706,103 @@ public class GoalReviewParsingTests
         // and the no-progress stop would never fire.
         Assert.Equal(first.Fingerprint(), second.Fingerprint());
     }
+
+    // ── The plan, and the note about revising it ────────
+
+    /// <summary>
+    /// The sentences a revised plan opens with are not part of the plan.
+    /// </summary>
+    /// <remarks>
+    /// <para>They are asked for on purpose: a revision that arrives as a fresh document leaves the
+    /// user diffing two screens of prose to find out what their remark did. And they are taken back
+    /// off just as deliberately, because this text becomes <c>ApprovedPlan</c>, which every implement
+    /// prompt carries for the rest of the run — a note about what changed between two drafts is
+    /// history, and the implementation would be handed a paragraph about a plan it never saw.</para>
+    /// <para>The split is the shape the prompt already fixes rather than a marker invented for it.</para>
+    /// </remarks>
+    [Fact]
+    public void A_note_above_a_revised_plan_is_kept_out_of_the_plan()
+    {
+        var (note, plan) = GoalResponseParser.ParsePlan(
+            "Dropped the caching step and added a test, as you asked.\n\n"
+            + "Goal: the cart totals correctly.\nSteps:\n1. src/Cart.cs - apply discounts first.");
+
+        Assert.Equal("Dropped the caching step and added a test, as you asked.", note);
+        Assert.StartsWith("Goal: the cart totals correctly.", plan);
+        Assert.DoesNotContain("as you asked", plan);
+    }
+
+    [Fact]
+    public void A_plain_plan_is_taken_whole_exactly_as_it_always_was()
+    {
+        // Which is what makes the split safe in front of every plan rather than only a revised one: no
+        // Goal line, or nothing before it, and nothing is taken away.
+        const string plain = "Goal: the cart totals correctly.\nSteps:\n1. src/Cart.cs - fix it.";
+
+        var (note, plan) = GoalResponseParser.ParsePlan(plain);
+        Assert.Equal("", note);
+        Assert.Equal(plain, plan);
+
+        var (noneNote, whole) = GoalResponseParser.ParsePlan("Just some prose with no shape at all.");
+        Assert.Equal("", noneNote);
+        Assert.Equal("Just some prose with no shape at all.", whole);
+    }
+
+    [Fact]
+    public void The_goal_line_is_found_whatever_case_the_tool_wrote_it_in()
+    {
+        // The capital is the tool's; the word itself is not — the plan prompt asks for that line to
+        // open with the English "Goal:" whatever language the rest of the answer is in.
+        var (note, plan) = GoalResponseParser.ParsePlan("Changed step two.\n\ngoal: something.\nSteps:\n1. x");
+
+        Assert.Equal("Changed step two.", note);
+        Assert.StartsWith("goal: something.", plan);
+    }
+
+    /// <summary>
+    /// The marker word is asked for; the markdown around it is not, and the tool writes some.
+    /// </summary>
+    /// <remarks>
+    /// The planning answer is rendered as markdown, so a tool writing a headed document, an
+    /// emphasised label, or the bullet it copied out of the prompt's own list of sections is writing
+    /// an ordinary plan and not ignoring the contract. A rule wanting the word first on its line
+    /// failed all three, and failed them silently: the whole answer came back as the plan, and the
+    /// sentences about what was revised rode into <c>ApprovedPlan</c> and into every implement prompt
+    /// after it.
+    /// </remarks>
+    [Theory]
+    [InlineData("**Goal:** the cart totals correctly.")]
+    [InlineData("**Goal**: the cart totals correctly.")]
+    [InlineData("## Goal: the cart totals correctly.")]
+    [InlineData("### **Goal:** the cart totals correctly.")]
+    [InlineData("- Goal: the cart totals correctly.")]
+    [InlineData("* **Goal:** the cart totals correctly.")]
+    [InlineData("1. Goal: the cart totals correctly.")]
+    [InlineData("_Goal:_ the cart totals correctly.")]
+    [InlineData("  Goal: the cart totals correctly.")]
+    public void The_goal_line_is_found_through_whatever_markdown_dresses_it(string goalLine)
+    {
+        var (note, plan) = GoalResponseParser.ParsePlan(
+            "Dropped the caching step, as you asked.\n\n" + goalLine
+            + "\nSteps:\n1. src/Cart.cs - fix it.");
+
+        Assert.Equal("Dropped the caching step, as you asked.", note);
+        // The decoration belongs to the plan, so the line the user approves reads as the tool wrote it
+        // — trimmed, because the split trims both halves and always has.
+        Assert.StartsWith(goalLine.Trim(), plan);
+        Assert.DoesNotContain("as you asked", plan);
+    }
+
+    [Fact]
+    public void A_blank_line_above_the_goal_line_stays_with_the_note()
+    {
+        // The run-up is spaces and tabs and never \s: matching whitespace across the newline would put
+        // the match on the line above and hand the note's own last line to the plan.
+        var (note, plan) = GoalResponseParser.ParsePlan("Changed step two.\n\n## Goal: x.\nSteps:\n1. y");
+
+        Assert.Equal("Changed step two.", note);
+        Assert.StartsWith("## Goal: x.", plan);
+    }
 }
 
 /// <summary>The clarification round, which can now end without a question being asked.</summary>

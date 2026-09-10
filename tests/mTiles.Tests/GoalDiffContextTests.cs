@@ -176,19 +176,67 @@ public class GoalDiffContextTests
         Assert.DoesNotContain("files changed", composed);
     }
 
+    /// <summary>
+    /// A named path that holds none of the change stands the filter down instead of emptying the block.
+    /// </summary>
+    /// <remarks>
+    /// <para>This reverses what the same case used to do, and the old behaviour was wrong about what a
+    /// mention means. <c>@</c> was read as "show me only this", so "check the frontend against
+    /// <c>@docs/spec.md</c>" filtered the diff down to a specification nobody had edited, came out
+    /// empty, and replaced the evidence with a line saying the scope matched nothing — about the very
+    /// file the user was pointing at rather than about the tree.</para>
+    /// <para>A path the user names and has not changed is a specification to compare against, a folder
+    /// the work is to be done in, or a note to read. Which of the three, only the words beside it can
+    /// say, and the prompt hands the tool both — so the filter applies where it can and stands down
+    /// where it cannot, and is never the reason a tool is shown nothing.</para>
+    /// </remarks>
     [Fact]
-    public void A_scope_matching_nothing_says_so_rather_than_looking_clean()
+    public void A_named_path_that_is_not_in_the_change_stands_the_filter_down()
     {
-        // A block gone silent about every file but none must not read as a tree where nothing else
-        // changed — the omission was the user's, and the tool is told it was deliberate. Its own
-        // wording, too: the git-failure note opens "could not be read in full", and the tree here was
-        // read perfectly well.
         var composed = GoalDiffContext.Compose("diff --git a/src/Cart.cs b/src/Cart.cs\n--- a/src/Cart.cs",
             null, onlyPaths: ["docs/"])!;
 
-        Assert.Contains("nothing in the change is inside the scope the user named", composed);
+        // The evidence stays.
+        Assert.Contains("Cart.cs", composed);
+
+        // And the tool is told why the paths it was given are not in it, in this block's own wording:
+        // the git-failure note opens "could not be read in full", and the tree here was read fine.
+        Assert.Contains("something to open and read rather than a filter", composed);
         Assert.DoesNotContain("could not be read in full", composed);
-        Assert.DoesNotContain("Cart.cs", composed);
+    }
+
+    [Fact]
+    public void A_named_path_that_is_in_the_change_still_filters()
+    {
+        // The other half, unchanged: point at code you did change and the block holds that and nothing
+        // else. Standing the filter down only ever happens where it would leave nothing at all.
+        var composed = GoalDiffContext.Compose(
+            "diff --git a/src/Cart.cs b/src/Cart.cs\n--- a/src/Cart.cs\n"
+            + "diff --git a/src/Other.cs b/src/Other.cs\n--- a/src/Other.cs",
+            null, onlyPaths: ["src/Cart.cs"])!;
+
+        Assert.Contains("Cart.cs", composed);
+        Assert.DoesNotContain("Other.cs", composed);
+        Assert.DoesNotContain("something to open and read", composed);
+    }
+
+    /// <summary>
+    /// A change made entirely of new files stands the filter down too.
+    /// </summary>
+    /// <remarks>
+    /// An empty <c>git diff HEAD</c> beside a full <c>ls-files --others</c> is what a tree looks like
+    /// when the whole of the work is new files, and a stand-down asking after the diff let exactly
+    /// that case through: the names went, no note was written, and the tool read the empty block as a
+    /// clean tree.
+    /// </remarks>
+    [Fact]
+    public void A_change_that_is_only_new_files_stands_the_filter_down_as_well()
+    {
+        var composed = GoalDiffContext.Compose(null, "src/Cart.cs\nsrc/Other.cs",
+            onlyPaths: ["docs/spec.md"])!;
+
+        Assert.Contains("src/Cart.cs", composed);
+        Assert.Contains("something to open and read rather than a filter", composed);
     }
 
     [Fact]

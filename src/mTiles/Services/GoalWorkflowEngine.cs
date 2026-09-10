@@ -36,6 +36,16 @@ public sealed partial class GoalWorkflowEngine
     /// </remarks>
     public IReadOnlyList<string> ScopePaths { get; set; } = [];
 
+    /// <summary>
+    /// The commit this goal is read against, when the user named one — <c>@HEAD~1</c>, <c>@abc1234</c>,
+    /// <c>@master..HEAD</c>. Null is the ordinary answer: everything uncommitted, measured from
+    /// <c>HEAD</c>.
+    /// </summary>
+    /// <remarks>A fact about the goal for the same reason <see cref="ScopePaths"/> is: a tile reopened
+    /// after a restart must read the same thing its run was started on, or a Resume judges a range
+    /// nobody asked about.</remarks>
+    public GoalReadBase? ScopeRef { get; set; }
+
     /// <summary>The questions waiting for an answer, in the order they were asked. Empty whenever the
     /// tile is not waiting on the user — see <c>GoalTileViewModel.ShowQuestions</c>.</summary>
     public List<GoalQuestion> PendingQuestions { get; private set; } = [];
@@ -215,6 +225,22 @@ public sealed partial class GoalWorkflowEngine
     public bool ReviewsExistingWork { get; set; }
 
     /// <summary>
+    /// Whether the goal itself was <em>read</em> out of the work that was already in the tree.
+    /// </summary>
+    /// <remarks>
+    /// <para>The other half of what <see cref="ReviewsExistingWork"/> used to say on its own, and they
+    /// are two facts rather than one. That one is about the <em>diff base</em>: measure from HEAD,
+    /// because what is being judged was on disk before this run started. This one is about
+    /// <em>provenance</em>: the goal came out of those changes, so they are the run's to commit.</para>
+    /// <para>Every detect path sets both. A typed goal carrying an <c>@</c> pointer sets only the
+    /// first: pointing at <c>src/Frontend</c> says where to look, not that the afternoon's unrelated
+    /// uncommitted work in the next directory is now part of "add dark mode". Told otherwise, the
+    /// committer collapses the distinction between the user's work and the run's and offers the whole
+    /// tree from HEAD — which is the one thing that distinction exists to keep apart.</para>
+    /// </remarks>
+    public bool GoalReadFromTheTree { get; set; }
+
+    /// <summary>
     /// What the attempts field said before Continue raised it, or null where Continue has not been used
     /// on this goal.
     /// </summary>
@@ -271,8 +297,17 @@ public sealed partial class GoalWorkflowEngine
         _promptBuilder.BuildClarify(OriginalGoal, ClarificationHistory, budget, noQuestions);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
-    public string BuildPlanPrompt(int? budget = null) =>
-        _promptBuilder.BuildPlan(OriginalGoal, ClarificationHistory, budget);
+    /// <remarks>
+    /// The base of the goal's own scope goes with the diff, because it is what the read used and
+    /// therefore what the block may be called — see <c>GoalPromptBuilder.AlreadyThereHeading</c>. Only
+    /// the base: every read of this phase ends at the working tree, whatever head the user named. And
+    /// as the user spelled it rather than as the pinned id, because this is the one use of the base
+    /// that is read by a person: the read itself takes <c>Base</c>, so the two cannot disagree about
+    /// which commit is meant.
+    /// </remarks>
+    public string BuildPlanPrompt(string? gitDiff, int? budget = null) =>
+        _promptBuilder.BuildPlan(OriginalGoal, ClarificationHistory, budget,
+            PlanUnderRevision, PlanRemark, gitDiff, ScopeRef?.Spelling);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
     public string BuildImplementPrompt(string? gitDiff, int? budget = null) =>
@@ -311,6 +346,7 @@ public sealed partial class GoalWorkflowEngine
         OriginalGoal = goal;
         ClarificationHistory.Clear();
         ScopePaths = [];
+        ScopeRef = null;
 
         // Kept if the new goal still refers to them, dropped with the old goal otherwise — and it has
         // to be this way round rather than an outright clear. The markers are in the text *before* this
@@ -322,6 +358,7 @@ public sealed partial class GoalWorkflowEngine
 
         ApprovedPlan = "";
         ProposedPlan = null;
+        ClearPlanUnderRevision();
         LastReviewFeedback = null;
         LastReviewFingerprint = null;
         LastReviewCounts = [];
@@ -336,6 +373,7 @@ public sealed partial class GoalWorkflowEngine
         // Belongs to the goal being replaced, exactly as the snapshot does. A new goal typed into a
         // tile that had detected one would otherwise go on measuring its diffs from HEAD.
         ReviewsExistingWork = false;
+        GoalReadFromTheTree = false;
         ClarifyRounds = 0;
         PendingQuestions = [];
         IsPaused = false;
@@ -387,6 +425,64 @@ public sealed partial class GoalWorkflowEngine
     public void RecordProposedPlan(string? planText) => ProposedPlan = planText;
 
     /// <summary>
+    /// The plan the user has just argued with, and what they said about it.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>What this exists to fix.</b> Rejecting a plan used to lose the plan. The rejection was
+    /// filed as a clarification and the next planning run started with <see cref="ProposedPlan"/>
+    /// already cleared, so the tool was asked to write a plan while being shown neither the draft the
+    /// user was objecting to nor which part of it they meant. A remark that stands on its own survived
+    /// that; "leave step 2 and fix step 5" — which is how people actually argue with a plan — had
+    /// nothing to refer to and came back as a fresh document.</para>
+    /// <para><b>It is deliberately not <see cref="ProposedPlan"/> kept alive.</b> That field is what
+    /// "ok" approves, and keeping a rejected draft in it is precisely the bug the clearing above
+    /// exists to prevent: a second planning run that produced nothing would leave the turned-down plan
+    /// standing and approvable. This one goes into the next prompt and nowhere else, and is never
+    /// approvable by any path.</para>
+    /// <para>Persisted with the rest of the goal, because the window between rejecting a plan and
+    /// seeing the revised one is minutes of AI time and exactly when an application gets closed.</para>
+    /// </remarks>
+    public string? PlanUnderRevision { get; set; }
+
+    /// <inheritdoc cref="PlanUnderRevision"/>
+    public string? PlanRemark { get; set; }
+
+    /// <summary>
+    /// Files the draft the user has just answered, together with their answer.
+    /// </summary>
+    /// <remarks>
+    /// <para>Called at the moment of the rejection rather than when the next plan is asked for: by
+    /// then the phase has moved through Clarify and <see cref="RecordProposedPlan"/> has cleared the
+    /// draft, which is the whole reason a second field is needed.</para>
+    /// <para><b>A draft is only ever replaced by another draft.</b> The user can argue twice over one
+    /// of them: a planning run that produced nothing — the tool failed, or the run was stopped —
+    /// leaves the phase at Plan with <see cref="ProposedPlan"/> null, and the second remark then
+    /// arrived here carrying that null. Written through, it erased the very draft the first remark had
+    /// filed, the next prompt had no revision block at all, and both remarks reached the planner as
+    /// bare sentences in the clarification history — which is the situation this pair exists to
+    /// prevent, reached by the one path that goes through it twice. The remark is written either way,
+    /// because the newest thing the user said about that draft is what the planner has to answer;
+    /// what came before it is in the clarification history already.</para>
+    /// <para>Forgetting is therefore <see cref="ClearPlanUnderRevision"/>'s alone, and it says so by
+    /// assigning rather than by passing a null through here.</para>
+    /// </remarks>
+    public void RecordPlanUnderRevision(string? planText, string remark)
+    {
+        if (planText is { Length: > 0 }) PlanUnderRevision = planText;
+        PlanRemark = remark;
+    }
+
+    /// <summary>Forgets the draft being argued with — the argument is over.</summary>
+    /// <remarks>Both on approval and when a fresh goal starts. A remark left standing would be shown
+    /// to the planner of a goal it was never about, which is the same class of mistake as the stale
+    /// plan above, one field along.</remarks>
+    public void ClearPlanUnderRevision()
+    {
+        PlanUnderRevision = null;
+        PlanRemark = null;
+    }
+
+    /// <summary>
     /// Adopts the plan the tool proposed, or answers false when there is not one.
     /// <para>It used to be dug out of the transcript — the last assistant message, whatever that was.
     /// Once an empty or failed run could leave the Plan phase paused with no answer in it, typing "ok"
@@ -399,6 +495,9 @@ public sealed partial class GoalWorkflowEngine
 
         ApprovedPlan = ProposedPlan;
         LastReviewFeedback = null;
+
+        // The argument is settled, so what it was about goes with it.
+        ClearPlanUnderRevision();
 
         // The findings of the *previous* plan's reviews go with it. Left standing, the first review of
         // the new plan could match the last review of the old one — easily, since a rejected plan and
@@ -609,10 +708,15 @@ public sealed partial class GoalWorkflowEngine
     {
         OriginalGoal = OriginalGoal,
         ScopePaths = [..ScopePaths],
+        ScopeRefBase = ScopeRef?.Base,
+        ScopeRefHead = ScopeRef?.Head,
+        ScopeRefNamed = ScopeRef?.Named,
         ClarificationHistory = [..ClarificationHistory],
         AttachedImages = [..AttachedImages],
         ApprovedPlan = ApprovedPlan,
         ProposedPlan = ProposedPlan,
+        PlanUnderRevision = PlanUnderRevision,
+        PlanRemark = PlanRemark,
         CurrentPhase = CurrentPhase,
         ExecutionAgentInstanceId = executionAgentInstanceId,
         ReviewAgentInstanceId = reviewAgentInstanceId,
@@ -621,6 +725,7 @@ public sealed partial class GoalWorkflowEngine
         BaselineRef = BaselineRef,
         EndRef = EndRef,
         ReviewsExistingWork = ReviewsExistingWork,
+        GoalReadFromTheTree = GoalReadFromTheTree,
         AttemptsBeforeExtension = AttemptsBeforeExtension,
         ClarifyRounds = ClarifyRounds,
         PendingQuestions = [..PendingQuestions],
@@ -641,6 +746,9 @@ public sealed partial class GoalWorkflowEngine
     {
         OriginalGoal = state.OriginalGoal;
         ScopePaths = state.ScopePaths;
+        ScopeRef = state.ScopeRefBase is { Length: > 0 } storedBase
+            ? new GoalReadBase(storedBase, state.ScopeRefHead, state.ScopeRefNamed)
+            : null;
         ClarificationHistory.Clear();
 
         // Labelled on the way in, because a file written before the labels existed holds bare answers,
@@ -655,12 +763,19 @@ public sealed partial class GoalWorkflowEngine
         AttachedImages.AddRange(state.AttachedImages);
         ApprovedPlan = state.ApprovedPlan;
         ProposedPlan = state.ProposedPlan;
+        PlanUnderRevision = state.PlanUnderRevision;
+        PlanRemark = state.PlanRemark;
         CurrentPhase = state.CurrentPhase;
         IterationCount = state.IterationCount;
         LastStopReason = state.LastStopReason;
         BaselineRef = state.BaselineRef;
         EndRef = state.EndRef;
         ReviewsExistingWork = state.ReviewsExistingWork;
+
+        // Absent is "ask the older field", never false: before the split one flag carried both facts,
+        // so a detected goal reopened from a file written then would otherwise be told it may claim
+        // nothing and offer a Commit button over an empty scope.
+        GoalReadFromTheTree = state.GoalReadFromTheTree ?? state.ReviewsExistingWork;
         AttemptsBeforeExtension = state.AttemptsBeforeExtension;
         ClarifyRounds = state.ClarifyRounds;
         PendingQuestions = [..state.PendingQuestions];

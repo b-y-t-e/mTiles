@@ -1326,34 +1326,29 @@
                                          send is an answer or an approval, and an entry named after
                                          the goal it does not set would be the label the primary
                                          segment was corrected away from. -->
-                                    <MenuItem Header="Set goal"
-                                              Command="{Binding SubmitCommand}"
+                                    <!-- Three entries, and every one of them reads the box the same
+                                         way: words are the goal, an empty box means read one from the
+                                         changes, and an @ points at a file or a commit either way.
+                                         There used to be five, of which two — Detect goal and Detect
+                                         & run — were the only controls on this composer that ignored
+                                         what had been typed: the sentence was demoted to a hint and
+                                         then replaced by a goal read off the diff, and the run
+                                         variant cleared the box on its way past. So the pairs are
+                                         merged and the label says which half of the box the entry is
+                                         about to read. -->
+                                    <MenuItem Header="{Binding PrimaryActionLabel}"
+                                              Command="{Binding PrimaryActionCommand}"
                                               IsEnabled="{Binding CanSetGoal}"
-                                              ToolTip.Tip="Set what you have typed as the goal and go on to the questions about it" />
-                                    <!-- The typed twin of Detect &amp; run: no questions, and the
-                                         plan is approved as it arrives. -->
-                                    <MenuItem Header="Set goal &amp; run"
-                                              Command="{Binding SetGoalAndRunCommand}"
-                                              IsEnabled="{Binding CanSetGoalAndRun}"
-                                              ToolTip.Tip="Set what you have typed as the goal and run it to the end without stopping" />
+                                              ToolTip.Tip="Adopt the goal — what you typed, or one read from your changes when the box is empty — and go on to the questions about it" />
                                     <Separator />
-                                    <MenuItem Header="Detect goal"
-                                              Command="{Binding DetectGoalCommand}"
-                                              IsEnabled="{Binding CanDetectGoal}"
-                                              ToolTip.Tip="Read the uncommitted changes, adopt the goal and go on to the questions about it" />
-                                    <MenuItem Header="Detect &amp; run"
-                                              Command="{Binding DetectGoalAndRunCommand}"
-                                              IsEnabled="{Binding CanDetectGoal}"
-                                              ToolTip.Tip="Read the goal from your changes and start reviewing and fixing straight away" />
-                                    <Separator />
-                                    <!-- Contextual, unlike the two above it: with something typed it
-                                         judges the tree against that, and with an empty box against
-                                         a goal read from the changes. Both answer the same question,
-                                         so they are one entry. -->
                                     <MenuItem Header="Review"
                                               Command="{Binding ReviewCommand}"
                                               IsEnabled="{Binding CanDetectGoal}"
                                               ToolTip.Tip="Judge the working tree once, against what you typed or against a goal read from your changes. Nothing is changed." />
+                                    <MenuItem Header="{Binding RunActionLabel}"
+                                              Command="{Binding RunCommand}"
+                                              IsEnabled="{Binding CanRun}"
+                                              ToolTip.Tip="Adopt the goal and run the fix loop to the end without stopping" />
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>

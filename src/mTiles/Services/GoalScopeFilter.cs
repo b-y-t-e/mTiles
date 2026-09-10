@@ -18,12 +18,25 @@ namespace mTiles.Services;
 internal static partial class GoalScopeFilter
 {
     /// <summary>
-    /// The paths the composer names as <c>@</c> mentions, deduplicated, forward-slashed.
+    /// Every <c>@</c> token the composer names, deduplicated and forward-slashed — cleaned, but not
+    /// judged.
     /// </summary>
     /// <remarks>
-    /// Two spellings arrive from <see cref="FileMentionToken.Mention"/>: a bare token, and a quoted one
-    /// for a path with whitespace. The <c>@</c> must open a word — an address like
-    /// <c>someone@example.com</c> is prose, not a mention — which is what the lookbehind buys.
+    /// <para>Two spellings arrive from <see cref="FileMentionToken.Mention"/>: a bare token, and a
+    /// quoted one for a path with whitespace. The <c>@</c> must open a word — an address like
+    /// <c>someone@example.com</c> is prose, not a mention — which is what the lookbehind buys.</para>
+    /// <para><b>What a token names is not decided here, and used to be half-decided here.</b> A syntax
+    /// rule stood in front of this list and dropped any token carrying neither a slash nor a dot as
+    /// prose, which cost the two things people most often point at. <c>@frontend</c> is a directory,
+    /// and it never reached the scope: pointing at a folder read the whole tree unnarrowed. Worse, in
+    /// a repository with a branch of that name the token then fell through to <c>GoalScopeRef</c>, so
+    /// the diff was read from a branch instead of filtered to a folder — the one spelling where the
+    /// rule did not merely lose the narrowing but answered a different question.</para>
+    /// <para>So the callers ask the two things that know: the filesystem first, and
+    /// <c>git rev-parse</c> with whatever is left. A token that is neither — <c>@admin</c>,
+    /// <c>@mentions</c> — resolves as nothing and changes nothing, which is the same answer the
+    /// syntax rule gave, for a good deal less. This class stays pure text, and keeps no opinion about
+    /// what exists.</para>
     /// </remarks>
     public static IReadOnlyList<string> Mentions(string? composerText)
     {
@@ -39,23 +52,90 @@ internal static partial class GoalScopeFilter
         return found;
     }
 
+    /// <summary>
+    /// What the composer says once its <c>@</c> tokens are taken out.
+    /// </summary>
+    /// <remarks>
+    /// <para>The question this answers is whether the box holds a <b>goal</b>. A box holding only
+    /// pointers does not: "@frontend" is not something to achieve, and adopted as a goal it is a
+    /// sentence nobody wrote. It is a narrowing, and the goal is still the one to be read out of the
+    /// changes.</para>
+    /// <para>Text rather than a flag, because the caller wants both answers from it: whether anything
+    /// is left, and what the words are once the pointers stop competing with them.</para>
+    /// <para><b>Cut by position, never by text.</b> Replacing a token's spelling wherever it occurs
+    /// makes one mention eat the head of another: in "@src @src/Cart.cs" the first replacement takes
+    /// the opening of the second and leaves "/Cart.cs" behind, which reads here as words — so a box
+    /// holding nothing but pointers was adopted as a goal, the one case this method exists to catch.
+    /// The matches carry their own offsets, so what is kept is copied between them and the spelling
+    /// of a token is never looked for a second time.</para>
+    /// </remarks>
+    public static string WordsOnly(string? composerText)
+    {
+        var text = composerText ?? "";
+        var spans = new List<(int Start, int End)>();
+
+        foreach (Match mention in QuotedMention().Matches(text))
+            spans.Add((mention.Index, mention.Index + mention.Length));
+
+        foreach (Match mention in BareMention().Matches(text))
+            spans.Add((mention.Index, mention.Index + mention.Length));
+
+        // Kept rather than cut, so two spans that overlap — a bare token inside a quoted one — cost
+        // nothing to reconcile: the writer simply never goes backwards.
+        var kept = new StringBuilder();
+        var copiedTo = 0;
+        foreach (var (start, end) in spans.OrderBy(span => span.Start))
+        {
+            if (start > copiedTo) kept.Append(text, copiedTo, start - copiedTo);
+            if (end > copiedTo)
+            {
+                kept.Append(' ');
+                copiedTo = end;
+            }
+        }
+
+        if (copiedTo < text.Length) kept.Append(text, copiedTo, text.Length - copiedTo);
+
+        return kept.ToString().Trim();
+    }
+
     private static void Add(List<string> found, string raw)
     {
         // A sentence ends the way sentences do, and a path that picked one up stops matching the tree
         // it names. Nothing inside a path ends this way on Windows, where these characters are illegal
         // in a file name — and the trailing slash goes too: "@src/" is how a folder mention is typed,
         // and the scope it names is "src", not "src/".
-        var cleaned = raw.Replace('\\', '/').Trim().TrimEnd('.', ',', ';', ':', '!', '?').TrimEnd('/');
+        var text = raw.Replace('\\', '/').Trim();
+        var cleaned = KeepRangeSeparator(text, text.AsSpan().TrimEnd(SentenceEnd).Length).TrimEnd('/');
         if (cleaned.Length == 0) return;
-
-        // A token with neither a directory nor an extension names nothing on disk — "@admin about the
-        // failure" is prose with an at-sign in it. Letting it into the scope would filter the whole
-        // tree to nothing over a word nobody meant as a path, and the note saying so would not give the
-        // diff back.
-        if (!cleaned.Contains('/') && !cleaned.Contains('.')) return;
 
         if (!found.Contains(cleaned, StringComparer.OrdinalIgnoreCase)) found.Add(cleaned);
     }
+
+    /// <summary>Punctuation that ends a sentence and never a path.</summary>
+    private static readonly char[] SentenceEnd = ['.', ',', ';', ':', '!', '?'];
+
+    /// <summary>
+    /// The token cut back to <paramref name="end"/>, unless the cut would eat a range's own
+    /// separator.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A trailing <c>..</c> is git's spelling, not the user's full stop.</b>
+    /// <c>@master..</c> is the one documented way to name a branch called after an ordinary word —
+    /// <c>GoalScopeRef.NamesARef</c> refuses the bare token on purpose, because <c>admin</c>,
+    /// <c>dev</c> and <c>release</c> are words as often as they are branches. Trimmed with the rest of
+    /// the sentence punctuation it came back as <c>master</c>, which is exactly the bare word that
+    /// rule throws away: the scope never formed, the tree was read from <c>HEAD</c>, and nothing
+    /// anywhere said so. <c>@master..HEAD</c> escaped it only because a letter happens to end it.</para>
+    /// <para>Exactly two are put back, never the whole run: <c>@master...</c> at the end of a sentence
+    /// is a range and a full stop, and three dots are a symmetric difference this tile does not
+    /// answer. A token whose cut stops anywhere else — <c>@src/Cart.cs.</c> — is untouched, because
+    /// what follows the cut is one dot and not a separator.</para>
+    /// </remarks>
+    private static string KeepRangeSeparator(string token, int end) =>
+        end + 2 <= token.Length && token.AsSpan(end, 2) is ".."
+            ? token[..(end + 2)]
+            : token[..end];
 
     /// <summary>
     /// Whether one changed path sits inside the scope the composer named.
@@ -74,6 +154,31 @@ internal static partial class GoalScopeFilter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Whether this change holds anything inside the paths the user named.
+    /// </summary>
+    /// <remarks>
+    /// <para>One rule, asked by two callers who must not disagree about it. <c>GoalDiffContext</c>
+    /// asks it to decide whether the filter can be applied at all — a named path holding none of the
+    /// change is a specification, a folder or a note, and filtering on it would show the tool an empty
+    /// block. The Goal tile asks it to decide whether a typed run has anything to review: pointing at
+    /// something is not the same as pointing at work that is already there.</para>
+    /// <para><b>The diff alone cannot answer it.</b> A tree whose whole change is new files has an
+    /// empty <c>git diff HEAD</c> and a full <c>ls-files --others</c>, so both halves are asked and
+    /// either one surviving is enough. The <c>--stat</c> summary is deliberately not part of the
+    /// question: it is derived from the diff and describes it, so on its own it is totals about a
+    /// change nothing is showing.</para>
+    /// <para>Naming no paths narrows nothing, so the answer is simply whether there is a change at
+    /// all.</para>
+    /// </remarks>
+    public static bool HoldsChange(string? diff, string? untracked, IReadOnlyList<string>? mentions)
+    {
+        if (diff is not { Length: > 0 } && untracked is not { Length: > 0 }) return false;
+        if (mentions is not { Count: > 0 }) return true;
+
+        return Diff(diff, mentions) is { Length: > 0 } || Lines(untracked, mentions) is { Length: > 0 };
     }
 
     /// <summary>

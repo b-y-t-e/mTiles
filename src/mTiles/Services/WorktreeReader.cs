@@ -40,8 +40,19 @@ namespace mTiles.Services;
 /// since it invites a reviewer to stay quiet about something in scope, and a silenced finding leaves no
 /// trace at all while a false one is there in the transcript to be seen.</para>
 /// </param>
+/// <param name="HoldsChangeInScope">
+/// Whether this read found a change <em>inside</em> what the caller narrowed it to.
+/// <para>Its own field because <see cref="Text"/> cannot answer it either. A scope naming paths that
+/// hold none of the change makes <c>GoalDiffContext.Compose</c> stand its filter down and show the
+/// whole tree, so the text is full and says nothing about the paths — and the Goal tile read that as
+/// "there is work here to review", entered a typed run at the review, and handed the reviewer the
+/// user's unrelated uncommitted files as the changes that had just been made.</para>
+/// <para>False where nobody could read the tree, and false for a clean one: the question is only ever
+/// asked to start a run at the review, so anything short of a change here has to answer no.</para>
+/// </param>
 internal readonly record struct WorktreeSnapshot(
-    string? Text, bool Readable, string? Fingerprint = null, bool Scoped = false)
+    string? Text, bool Readable, string? Fingerprint = null, bool Scoped = false,
+    bool HoldsChangeInScope = false)
 {
     public static readonly WorktreeSnapshot Unreadable = new(null, false);
 
@@ -97,6 +108,14 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// nothing is watching. The scope threading this observes is one piece — the session field, the
     /// per-call override, the fallback between them — none of which a stub can see.</summary>
     internal static Action<IReadOnlyList<string>?>? ReadObserved { get; set; }
+
+    /// <summary>A test seam beside <see cref="ReadObserved"/>: the two ends every whole-tree read was
+    /// given. Null means nothing is watching.</summary>
+    /// <remarks>Its own observer rather than a second argument to that one, because it answers a
+    /// question no stub can: which <em>ends</em> a caller asked for is decided above this class and is
+    /// exactly what a stubbed read throws away. It fires before the stub is consulted, or a fixture
+    /// would silence the thing being watched.</remarks>
+    internal static Action<GoalReadBase?>? BaseObserved { get; set; }
 
     /// <summary>
     /// The pathspec every read here carries: this application's own workspace state, under both the
@@ -176,7 +195,9 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
         if (Factory is { } stub)
         {
             var stubbed = await stub(workingDirectory, ct);
-            return new WorktreeSnapshot(stubbed, Readable: true, WorktreeSnapshot.Digest(stubbed ?? ""));
+            return new WorktreeSnapshot(
+                stubbed, Readable: true, WorktreeSnapshot.Digest(stubbed ?? ""),
+                HoldsChangeInScope: GoalScopeFilter.HoldsChange(stubbed, null, onlyPaths));
         }
 
         try
@@ -252,7 +273,8 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
             return new WorktreeSnapshot(
                 GoalDiffContext.Compose(diff, untracked, problems, summary, limits, onlyPaths),
                 readable,
-                readable ? WorktreeSnapshot.Digest(whole) : null);
+                readable ? WorktreeSnapshot.Digest(whole) : null,
+                HoldsChangeInScope: GoalScopeFilter.HoldsChange(diff, untracked, onlyPaths));
         }
         catch (OperationCanceledException)
         {
@@ -291,14 +313,19 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// thing in the tile and has no such problem, because a run's own new files are in its baseline
     /// diff already.</para>
     /// </remarks>
+    /// <param name="readBase">What the user named with an <c>@</c> commit, when they named one. Null is
+    /// the ordinary answer and means everything uncommitted, measured from <c>HEAD</c>.</param>
     public async Task<WorktreeSnapshot> ReadWholeTreeAsync(
         CancellationToken ct, GoalDiffContext.WorktreeCaps? caps = null,
-        IReadOnlyList<string>? onlyPaths = null)
+        IReadOnlyList<string>? onlyPaths = null, GoalReadBase? readBase = null)
     {
+        try { BaseObserved?.Invoke(readBase); } catch { /* an observer is not worth a read */ }
+
         // A stub is a fixture: it answers whatever it answers, and asking git for a tree object first
         // would spawn a process in whatever directory a test happened to name.
         if (Factory is null
-            && await DiffFromAsync("HEAD", scoped: false, ct, caps, onlyPaths) is { } whole)
+            && await DiffFromAsync(readBase?.Base ?? "HEAD", scoped: false, ct, caps, onlyPaths,
+                readBase?.Head) is { } whole)
             return whole;
 
         return await ReadAsync(ct, caps, onlyPaths: onlyPaths);
@@ -325,15 +352,20 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
     /// not be written. The caller falls back to reading against <c>HEAD</c>, which is worse and is not
     /// nothing.</para>
     /// </remarks>
+    /// <param name="headRef">The newer end when the user named one, or null for the working tree as it
+    /// stands. A named head is the one case where nothing on disk is being judged at all — it is two
+    /// commits against each other — so no tree object is written for it.</param>
     private async Task<WorktreeSnapshot?> DiffFromAsync(
         string baseRef, bool scoped, CancellationToken ct, GoalDiffContext.WorktreeCaps? caps,
-        IReadOnlyList<string>? onlyPaths)
+        IReadOnlyList<string>? onlyPaths, string? headRef = null)
     {
         var limits = caps ?? GoalDiffContext.OnCommandLine;
 
         try
         {
-            var now = await new GoalBaseline(workingDirectory, gitPath).TreeNowAsync(ct);
+            var now = headRef is { Length: > 0 } named
+                ? $"{named}^{{tree}}"
+                : await new GoalBaseline(workingDirectory, gitPath).TreeNowAsync(ct);
             if (now is null) return null;
 
             var git = new GitCommandRunner(workingDirectory, gitPath);
@@ -366,7 +398,8 @@ internal sealed class WorktreeReader(string workingDirectory, string gitPath)
                 GoalDiffContext.Compose(diff, null, null, summary, limits, onlyPaths),
                 Readable: true,
                 WorktreeSnapshot.Digest(diff),
-                Scoped: scoped);
+                Scoped: scoped,
+                HoldsChangeInScope: GoalScopeFilter.HoldsChange(diff, null, onlyPaths));
         }
         catch (OperationCanceledException)
         {

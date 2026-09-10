@@ -55,14 +55,39 @@ public class GoalScopeFilterTests
     }
 
     [Fact]
-    public void An_at_token_that_names_no_path_is_prose_not_a_scope()
+    public void A_token_with_no_slash_and_no_dot_is_still_a_mention()
     {
-        // "@admin about the failure" or "@mentions in chat" — a token with neither a directory nor an
-        // extension names nothing on disk, and letting it scope would have filtered the whole tree to
-        // nothing over a word nobody meant as a path.
-        Assert.Empty(GoalScopeFilter.Mentions("ping @admin about the failure"));
-        Assert.Empty(GoalScopeFilter.Mentions("handle @mentions in chat"));
+        // A folder is the commonest thing anybody points at and is spelled exactly like a word, so a
+        // syntax rule here dropped "@frontend" before the filesystem was ever asked: the tree was read
+        // unnarrowed, and in a repository with a branch of that name the token went on to be resolved
+        // as a commit instead. What a token names is the filesystem's answer and then git's — this
+        // class only says which words carry an "@".
+        Assert.Equal(["frontend"], GoalScopeFilter.Mentions("popraw @frontend"));
+        Assert.Equal(["HEAD~1"], GoalScopeFilter.Mentions("sprawdz @HEAD~1"));
+        Assert.Equal(["admin"], GoalScopeFilter.Mentions("ping @admin about the failure"));
         Assert.Equal(["notes.md"], GoalScopeFilter.Mentions("see @notes.md"));
+    }
+
+    [Fact]
+    public void A_trailing_range_separator_survives_the_sentence_trim()
+    {
+        // "@master.." is the one documented way to name a branch called after an ordinary word:
+        // GoalScopeRef refuses the bare token, because "master", "admin" and "release" are words as
+        // often as they are branches. Trimmed with the sentence punctuation it came back as exactly
+        // that bare word, so the scope never formed and the tree was read from HEAD in silence —
+        // while "@master..HEAD" escaped only because a letter happens to end it.
+        Assert.Equal(["master.."], GoalScopeFilter.Mentions("popraw formularz @master.."));
+        Assert.Equal(["master..HEAD"], GoalScopeFilter.Mentions("popraw formularz @master..HEAD"));
+
+        // Exactly two go back, never the whole run. A third dot is the sentence's, and three of them
+        // are a symmetric difference this tile does not answer.
+        Assert.Equal(["master.."], GoalScopeFilter.Mentions("sprawdz @master..."));
+        Assert.Equal(["master.."], GoalScopeFilter.Mentions("sprawdz @master.., potem reszte"));
+
+        // And an ordinary sentence still loses its full stop: what follows the cut is one dot, not a
+        // separator.
+        Assert.Equal(["src/Cart.cs"], GoalScopeFilter.Mentions("zobacz @src/Cart.cs."));
+        Assert.Equal(["v1.2"], GoalScopeFilter.Mentions("od @v1.2."));
     }
 
     private const string Diff =
@@ -152,5 +177,24 @@ public class GoalScopeFilterTests
         Assert.Contains("src/Agents/New.cs", kept);
         Assert.Contains("Agents}/Helper.cs", kept);
         Assert.DoesNotContain("src/Cart.cs", kept);
+    }
+
+    [Fact]
+    public void A_mention_that_opens_another_one_does_not_leave_its_tail_behind()
+    {
+        // Cut by position, never by spelling: taking "@src" out wherever it occurs also takes the head
+        // of "@src/Cart.cs" and leaves "/Cart.cs" standing, which reads as words — so a box holding
+        // nothing but pointers was adopted as a goal instead of narrowing one read from the changes.
+        Assert.Equal("", GoalScopeFilter.WordsOnly("@src @src/Cart.cs"));
+        Assert.Equal("", GoalScopeFilter.WordsOnly("@docs/GOAL.md @docs/GOAL.md.bak"));
+    }
+
+    [Fact]
+    public void The_words_left_over_are_what_the_user_actually_asked_for()
+    {
+        // The pointer leaves a space where it stood, as it always did — the words either side of it
+        // are what the caller reads, and squeezing the gap is not this method's question.
+        Assert.Equal("popraw   koszyk", GoalScopeFilter.WordsOnly("popraw @src/Cart.cs koszyk"));
+        Assert.Equal("", GoalScopeFilter.WordsOnly("  @HEAD~1  "));
     }
 }
