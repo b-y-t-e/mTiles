@@ -367,7 +367,9 @@ fields, the getters go.
 
 **A tile can take the whole workspace, and five kinds may** (`IMaximizableTile` — terminal, agent, note,
 todo, goal). The gesture is a header button that changes shape (`Fullscreen` → `FullscreenExit`, lit while it
-is on), Ctrl+Shift+F, and an overflow entry. It is drawn by `TileMaximizeScope` — one per workspace, like
+is on), Ctrl+Shift+F, an overflow entry, and a **double-click in the empty part of the header** — the
+one every window manager already uses for it, guarded so that a button's second press and the name
+label's own rename gesture are not it. It is drawn by `TileMaximizeScope` — one per workspace, like
 `TileActivationScope` — writing `SplitTileNodeViewModel.Solo` on every split between the root and that
 leaf, so each of them draws one child at full size: the same `LeafTileView` and the same
 `TerminalControl` the layout already held, because a full-screen view built as a *second* view of the

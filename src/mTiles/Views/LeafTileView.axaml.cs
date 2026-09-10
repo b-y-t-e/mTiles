@@ -524,6 +524,11 @@ public partial class LeafTileView : UserControl
 
     private void TileNameLabel_DoubleTapped(object? sender, TappedEventArgs e)
     {
+        // The gesture is claimed here, because the toolbar behind this label answers the same one by
+        // filling the workspace with the tile. Both would otherwise run on one double-click: a rename
+        // box opened over a tile that had just gone full screen.
+        e.Handled = true;
+
         if (DataContext is LeafTileNodeViewModel leaf)
             _originalTileName = leaf.TileName;
 
@@ -570,6 +575,36 @@ public partial class LeafTileView : UserControl
 
         TileNameEditor.IsVisible = false;
         TileNameLabel.IsVisible = true;
+    }
+
+    /// <summary>Fills the workspace with this tile, or puts the layout back, on a double-click in the
+    /// empty part of its header.</summary>
+    /// <remarks>
+    /// <para>The gesture every window manager on both platforms already uses for the same thing, on the
+    /// one strip of the tile that is not the tile's content: the header. It is a second route to
+    /// <see cref="LeafTileNodeViewModel.ToggleMaximizeCommand"/> and nothing else, so the button, the
+    /// menu entry, Ctrl+Shift+F and this are one behaviour - the state the glyph shows is the state
+    /// this toggles, and a tile whose kind cannot be maximized simply does not answer.</para>
+    /// <para><em>Empty</em> is what the guards define. A button's own double-click would otherwise
+    /// arrive here as well, which is a full screen nobody asked for on the second press of Restart or
+    /// New session; and the name label answers this gesture with the rename box, which it now claims -
+    /// the source check is the other half of that, for a press that lands on the label or on the editor
+    /// open over it. Everything else in the strip - the kind glyph, the note saying what the tile runs,
+    /// and the gap the header mostly is - is empty space.</para>
+    /// <para>Bound in the markup rather than added in the constructor beside the drag handlers, because
+    /// those three tunnel on purpose (a press has to be seen before a child consumes it) and this one
+    /// must not: bubbling is what lets the label and the buttons answer first.</para>
+    /// </remarks>
+    private void OnToolbarDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (IsInsideButton(e.Source as Control)) return;
+        if (e.Source == TileNameLabel || e.Source == TileNameEditor) return;
+        if (TileNameEditor.IsVisible) return;
+
+        if (DataContext is not LeafTileNodeViewModel { CanMaximize: true } leaf) return;
+
+        leaf.ToggleMaximizeCommand.Execute(null);
+        e.Handled = true;
     }
 
     // Suppress activation during Focus() to prevent GotFocus → Activate → FocusContent ping-pong

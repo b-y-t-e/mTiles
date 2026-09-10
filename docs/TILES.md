@@ -137,6 +137,15 @@ width — the tile most worth expanding is the narrow one — while the split bu
 the tile is maximized: splitting restores first, so offering it there would read as "split this
 full-screen view in two", which is not what happens.
 
+**And a double-click in the empty part of the header does the same thing**, both ways: the gesture every
+window manager already uses for it, on the one strip of a tile that is not the tile's content. It is a
+second route to `ToggleMaximizeCommand` and nothing else, so a kind that cannot be maximized simply does
+not answer. *Empty* is what the guards in `LeafTileView.OnToolbarDoubleTapped` define — not a button
+(the second press of Restart shell would otherwise fill the workspace) and not the tile's name, which
+answers the same gesture with the rename box and therefore claims it. It is bound in the markup rather
+than added beside the drag handlers in the constructor: those tunnel on purpose, and this one has to
+bubble so the buttons and the name label answer first.
+
 ### `IDescribedTile` — what the tile is *running*
 
 ```csharp

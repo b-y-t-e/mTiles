@@ -42,7 +42,8 @@
                         BorderBrush="{DynamicResource BorderSubtle}"
                         BorderThickness="{DynamicResource BorderBottom}"
                         Padding="6,0"
-                        Height="27">
+                        Height="27"
+                        DoubleTapped="OnToolbarDoubleTapped">
                     <DockPanel x:Name="TileHeaderContent">
                         <!-- Everything here is also in the overflow, and the overflow is the only one
                              of them that never stands down. That is the whole arrangement: the buttons
