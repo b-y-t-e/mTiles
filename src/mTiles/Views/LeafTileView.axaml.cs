@@ -55,6 +55,15 @@ public partial class LeafTileView : UserControl
         leaf.RefreshChangeKindOptions();
     }
 
+    /// <summary>How far the pointer has to travel, with the button still down, before the header's
+    /// press becomes a drag of the tile.</summary>
+    /// <remarks>Comfortably above the platform's own double-tap slop (Avalonia's default is 4 DIP, so
+    /// the second click of a double-click has to land within 2 of the first): at 6 the band between
+    /// "still a double-click" and "already a drag" was four pixels wide, which on a mouse with no
+    /// pointer acceleration — the usual Linux configuration — is hand tremor. Below it the header's
+    /// double-click did not fire and the tile went translucent instead.</remarks>
+    private const double DragThreshold = 12;
+
     /// <summary>Below this, the header stops offering to split the tile.</summary>
     private const double SplitButtonsNeedWidth = 260;
 
@@ -603,6 +612,7 @@ public partial class LeafTileView : UserControl
 
         if (DataContext is not LeafTileNodeViewModel { CanMaximize: true } leaf) return;
 
+        DisarmDrag();
         leaf.ToggleMaximizeCommand.Execute(null);
         e.Handled = true;
     }
@@ -642,26 +652,51 @@ public partial class LeafTileView : UserControl
 
     #region Drag & Drop
 
+    /// <remarks>The second click of a double-click never arms a drag. Avalonia raises
+    /// <c>DoubleTapped</c> from that very press, and this handler tunnels — so it runs first, armed the
+    /// drag, and <see cref="OnToolbarDoubleTapped"/> then filled the workspace with the tile, which
+    /// detaches its view and puts it back somewhere else entirely. The armed origin was measured in the
+    /// layout that no longer exists, so the next pointer move — a pixel of it — read as a drag of
+    /// several hundred.</remarks>
     private void OnToolbarPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        DisarmDrag();
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        if (e.ClickCount > 1) return;
         if (IsInsideButton(e.Source as Control)) return;
         if (TileNameEditor.IsVisible) return;
         _dragStartPoint = e.GetPosition(this);
         _dragPressedArgs = e;
     }
 
+    private void DisarmDrag()
+    {
+        _dragStartPoint = null;
+        _dragPressedArgs = null;
+    }
+
     private async void OnToolbarPointerMoved(object? sender, PointerEventArgs e)
     {
         if (_dragStartPoint == null || _dragPressedArgs == null) return;
 
+        // A drag only ever begins while the button is still down, and this is the check rather than the
+        // release handler below: a release is not guaranteed to arrive. On Wayland the pointer's focused
+        // surface is cleared by a leave, and a button event with no focused surface is dropped by the
+        // backend outright — which a maximize triggered from the header does, since it resizes the
+        // window under the pointer mid-gesture. The arm then survived the whole click and the next move
+        // put the tile into a drag nobody started.
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            DisarmDrag();
+            return;
+        }
+
         var pos = e.GetPosition(this);
         var delta = pos - _dragStartPoint.Value;
-        if (Math.Abs(delta.X) < 6 && Math.Abs(delta.Y) < 6) return;
+        if (Math.Abs(delta.X) < DragThreshold && Math.Abs(delta.Y) < DragThreshold) return;
 
         var pressedArgs = _dragPressedArgs;
-        _dragStartPoint = null;
-        _dragPressedArgs = null;
+        DisarmDrag();
 
         if (DataContext is not LeafTileNodeViewModel leaf) return;
 
@@ -685,11 +720,7 @@ public partial class LeafTileView : UserControl
         }
     }
 
-    private void OnToolbarPointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        _dragStartPoint = null;
-        _dragPressedArgs = null;
-    }
+    private void OnToolbarPointerReleased(object? sender, PointerReleasedEventArgs e) => DisarmDrag();
 
     private void OnDragOver(object? sender, DragEventArgs e)
     {
