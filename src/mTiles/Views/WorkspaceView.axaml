@@ -5,12 +5,30 @@
              x:Class="mTiles.Views.WorkspaceView"
              x:DataType="vm:WorkspaceViewModel"
              Background="{DynamicResource BgCanvas}"
-             Padding="0,8,8,8">
+             Padding="0,8,8,8"
+             DragDrop.AllowDrop="True">
 
     <!-- The gutter the splitters leave between tiles, put back around the outside as well. Without it
          the outermost ring of cards is cut off by the window frame, which is where the whole idea is
          most visible: a card clipped by the title bar is not a card. No padding on the left — the
-         panel's own column already leaves the same gap there. -->
-    <views:TileNodeView x:Name="RootTileView"
-                        DataContext="{Binding RootTile}" />
+         panel's own column already leaves the same gap there.
+
+         **This is the workspace's one drop target**, and the tiles inside it have none of their own.
+         Three things can be under the pointer during a tile drag — the workspace's outer band, a
+         split's gutter, a tile — and they are ranked rather than weighed, so exactly one of them may
+         answer. A tile that answered for itself would have to be overruled by whatever ranked the
+         three, and this application has already paid once for two writers on one property. -->
+    <Grid>
+        <views:TileNodeView x:Name="RootTileView"
+                            DataContext="{Binding RootTile}" />
+
+        <!-- The hint for a drop that lands between tiles rather than on one. A tile's own hint is drawn
+             by the tile, inside the card's clip; this one is the band the dropped tile will occupy, in
+             the coordinates of the tile tree it is laid over. -->
+        <Border x:Name="DropHint"
+                IsVisible="False"
+                IsHitTestVisible="False"
+                ZIndex="200"
+                CornerRadius="{DynamicResource RadiusTile}" />
+    </Grid>
 </UserControl>

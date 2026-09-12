@@ -35,10 +35,6 @@ public partial class LeafTileView : UserControl
         TileToolbar.AddHandler(InputElement.PointerPressedEvent, OnToolbarPointerPressed, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         TileToolbar.AddHandler(InputElement.PointerMovedEvent, OnToolbarPointerMoved, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         TileToolbar.AddHandler(InputElement.PointerReleasedEvent, OnToolbarPointerReleased, Avalonia.Interactivity.RoutingStrategies.Tunnel);
-        AddHandler(DragDrop.DragOverEvent, OnDragOver);
-        AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
-        AddHandler(DragDrop.DropEvent, OnDrop);
-
         DropOverlay.BorderThickness = new Thickness(2);
         TileToolbar.SizeChanged += (_, e) => ApplyHeaderWidth(e.NewSize.Width);
     }
@@ -717,55 +713,29 @@ public partial class LeafTileView : UserControl
         {
             Opacity = 1.0;
             TileDragDrop.DragSource = null;
+
+            // The hint is put away by whoever drew it, from the one place that always runs. A drag
+            // abandoned with Escape over a tile is not guaranteed to raise DragLeave anywhere, and a
+            // band of accent left painted across a workspace for the rest of the session is the kind of
+            // thing a user has to restart the application to be rid of.
+            this.GetVisualAncestors().OfType<WorkspaceView>().FirstOrDefault()?.ClearDropHints();
         }
     }
 
     private void OnToolbarPointerReleased(object? sender, PointerReleasedEventArgs e) => DisarmDrag();
 
-    private void OnDragOver(object? sender, DragEventArgs e)
-    {
-        var source = TileDragDrop.DragSource;
-        if (source == null || source == DataContext)
-        {
-            e.DragEffects = DragDropEffects.None;
-            HideDropOverlay();
-            return;
-        }
-
-        var pos = e.GetPosition(this);
-        var zone = TileDragDrop.GetDropZone(pos, Bounds.Size);
-        ShowDropOverlay(zone);
-        e.DragEffects = DragDropEffects.Move;
-        e.Handled = true;
-    }
-
-    private void OnDragLeave(object? sender, DragEventArgs e)
-    {
-        HideDropOverlay();
-    }
-
-    private void OnDrop(object? sender, DragEventArgs e)
-    {
-        HideDropOverlay();
-
-        var source = TileDragDrop.DragSource;
-        var target = DataContext as LeafTileNodeViewModel;
-        if (source == null || target == null || source == target) return;
-
-        var pos = e.GetPosition(this);
-        var zone = TileDragDrop.GetDropZone(pos, Bounds.Size);
-        TileDragDrop.Execute(source, target, zone);
-        e.Handled = true;
-    }
-
-    private void ShowDropOverlay(DropZone zone)
+    /// <summary>Draws the hint for a drop landing on this tile.</summary>
+    /// <remarks>Called by <see cref="WorkspaceView"/> rather than by a drag handler of this view's own.
+    /// The three kinds of target — the workspace's edge, a gutter, a tile — are ranked against each
+    /// other, and a tile that decided for itself would have to be overruled afterwards by whatever
+    /// ranked them: two writers for one hint, which is the arrangement this application has already
+    /// paid for once in the tile header. What stays here is the drawing, because the overlay belongs
+    /// inside the card's own clip and nothing above it knows that radius.</remarks>
+    internal void ShowDropOverlay(DropZone zone)
     {
         if (zone == DropZone.None) { HideDropOverlay(); return; }
 
-        var accent = this.FindResource("AccentHover") as ISolidColorBrush;
-        var accentColor = accent?.Color ?? Color.FromRgb(0x3a, 0x6f, 0xa0);
-        var fillBrush = new SolidColorBrush(Color.FromArgb(55, accentColor.R, accentColor.G, accentColor.B));
-        var borderBrush = new SolidColorBrush(Color.FromArgb(140, accentColor.R, accentColor.G, accentColor.B));
+        var (fillBrush, borderBrush) = DropHintBrushes.For(this);
 
         var w = Bounds.Width;
         var h = Bounds.Height;
@@ -794,7 +764,7 @@ public partial class LeafTileView : UserControl
         DropOverlay.IsVisible = true;
     }
 
-    private void HideDropOverlay()
+    internal void HideDropOverlay()
     {
         DropOverlay.IsVisible = false;
     }

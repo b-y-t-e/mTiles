@@ -4,8 +4,7 @@
              xmlns:mi="using:Material.Icons.Avalonia"
              xmlns:views="using:mTiles.Views"
              x:Class="mTiles.Views.LeafTileView"
-             x:DataType="vm:LeafTileNodeViewModel"
-             DragDrop.AllowDrop="True">
+             x:DataType="vm:LeafTileNodeViewModel">
 
     <!-- The tile is a card: rounded, on its own background, with the canvas showing in the gaps that
          the splitters leave. ClipToBounds on the card is what rounds everything inside it — the

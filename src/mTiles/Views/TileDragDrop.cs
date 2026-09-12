@@ -1,15 +1,45 @@
 using Avalonia;
 using Avalonia.Layout;
+using mTiles.Services;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
 internal enum DropZone { None, Left, Right, Top, Bottom, Center }
 
+/// <summary>What the pointer is over during a tile drag, in the order the three are asked.</summary>
+internal enum TileDropKind
+{
+    /// <summary>Nothing this gesture can be dropped on.</summary>
+    None,
+
+    /// <summary>The outer band of the workspace — a new column or row beside the whole layout.</summary>
+    WorkspaceEdge,
+
+    /// <summary>The gutter of a split — between the two tiles it holds.</summary>
+    Gutter,
+
+    /// <summary>A tile: its middle swaps, its edges split it.</summary>
+    Leaf
+}
+
 internal static class TileDragDrop
 {
     public const string DataFormat = "application/x-mtiles-tile";
     public static LeafTileNodeViewModel? DragSource { get; set; }
+
+    /// <summary>How far into the workspace the outer drop band reaches.</summary>
+    /// <remarks>
+    /// <para>It has to overlap the outermost tiles, and that is forced rather than chosen: the
+    /// workspace's padding is eight pixels on three sides and <b>nothing on the left</b>, where the gap
+    /// is the panel's own splitter column and belongs to the window. A band living only in the padding
+    /// would therefore have no left edge at all.</para>
+    /// <para>So it wins over the tile underneath, and the width is the price of that: wide enough to
+    /// hit with a mouse, narrow enough that a tile 200px across keeps most of its own 30% edge zone.
+    /// Capped at a third of the shorter side so that a workspace narrower than two bands still has a
+    /// middle.</para>
+    /// </remarks>
+    public const double WorkspaceEdgeBand = 28;
 
     public static DropZone GetDropZone(Point position, Size bounds)
     {
@@ -29,6 +59,32 @@ internal static class TileDragDrop
 
         if (minD >= edge)
             return DropZone.Center;
+
+        if (minD == dLeft) return DropZone.Left;
+        if (minD == dRight) return DropZone.Right;
+        if (minD == dTop) return DropZone.Top;
+        return DropZone.Bottom;
+    }
+
+    /// <summary>
+    /// Which edge of the workspace the pointer is in the band of, or <see cref="DropZone.None"/>.
+    /// </summary>
+    /// <remarks>A position <em>outside</em> the bounds answers with the nearest side rather than with
+    /// nothing: the workspace's padding is drawn outside the tile tree, and a pointer in it is as much
+    /// on that edge as one a pixel inside is.</remarks>
+    public static DropZone GetWorkspaceEdge(Point position, Size bounds)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0) return DropZone.None;
+
+        var band = Math.Min(WorkspaceEdgeBand, Math.Min(bounds.Width, bounds.Height) / 3);
+
+        var dLeft = position.X;
+        var dRight = bounds.Width - position.X;
+        var dTop = position.Y;
+        var dBottom = bounds.Height - position.Y;
+        var minD = Math.Min(Math.Min(dLeft, dRight), Math.Min(dTop, dBottom));
+
+        if (minD > band) return DropZone.None;
 
         if (minD == dLeft) return DropZone.Left;
         if (minD == dRight) return DropZone.Right;
@@ -90,6 +146,148 @@ internal static class TileDragDrop
 
         a.LayoutChanged?.Invoke();
     }
+
+    /// <summary>
+    /// Drops a tile onto a split's gutter: it goes between the two tiles that split holds.
+    /// </summary>
+    /// <remarks>
+    /// <para>The tree is binary, so "three side by side" is a split inside a split — the newcomer and
+    /// the old second child under the slot the second child had. What keeps that from reading as a
+    /// nested pane is the pair of ratios (<see cref="TileDropRatio.Gutter"/>): the newcomer takes a
+    /// third of the whole split and the two tiles already there keep their proportion to each other, so
+    /// what the user sees is one row of three.</para>
+    /// <para><b>A tile dropped on the gutter of its own split is left alone.</b> Detaching it would
+    /// lift its sibling into the split's slot and take the split out of the tree, leaving this method
+    /// inserting into a node nobody draws — and the gesture asks for a layout that is already on
+    /// screen.</para>
+    /// </remarks>
+    public static void ExecuteGutter(LeafTileNodeViewModel source, SplitTileNodeViewModel split)
+    {
+        if (ReferenceEquals(split.First, source) || ReferenceEquals(split.Second, source)) return;
+        if (!DetachFromTree(source)) return;
+
+        // Both read after the detach, never before: lifting the source's sibling can have replaced
+        // either of this split's children with it.
+        if (split.Second is not { } second) return;
+        var neighbour = FirstLeaf(split);
+
+        var (outer, inner) = TileDropRatio.Gutter(split.SplitRatio);
+
+        var inserted = new SplitTileNodeViewModel(split.Orientation, source, second)
+        {
+            Parent = split,
+            LayoutChanged = split.LayoutChanged,
+            SplitRatio = inner
+        };
+
+        source.Parent = inserted;
+        second.Parent = inserted;
+
+        // The same rule MoveToEdge follows, and for the same reason: the dropped tile belongs to this
+        // tree now, so it is configured by whoever configures this tree rather than by copying whatever
+        // callbacks somebody once listed here.
+        if (neighbour?.ConfigureNewLeaf is { } configure)
+            configure(source);
+        else
+            source.LayoutChanged = split.LayoutChanged;
+
+        // The ratio first and the child second: only the child rebuilds the view, so assigning it last
+        // is what lets one rebuild read both halves of the change.
+        split.SplitRatio = outer;
+        split.Second = inserted;
+
+        source.LayoutChanged?.Invoke();
+        source.MaximizeScope?.ReviewLayout();
+    }
+
+    /// <summary>
+    /// Drops a tile onto the workspace's outer band: a new column or row beside the whole layout.
+    /// </summary>
+    /// <remarks>
+    /// <para>The root is read through a delegate rather than taken as an argument, and read
+    /// <em>twice</em>, because detaching the source can replace it: with two tiles in the workspace the
+    /// survivor is lifted into the root's own slot, so a root captured before the detach is a node that
+    /// is no longer in the tree.</para>
+    /// <para>A workspace whose root is a single tile is refused outright. There is nothing to put a
+    /// column beside, and the tile's own edge zone already answers that gesture.</para>
+    /// </remarks>
+    public static void ExecuteWorkspaceEdge(
+        LeafTileNodeViewModel source, Func<TileNodeViewModel?> readRoot, DropZone zone)
+    {
+        if (zone is DropZone.None or DropZone.Center) return;
+        if (readRoot() is not SplitTileNodeViewModel) return;
+        if (!DetachFromTree(source)) return;
+        if (readRoot() is not { } root) return;
+
+        var orientation = zone is DropZone.Left or DropZone.Right
+            ? Orientation.Vertical : Orientation.Horizontal;
+        var sourceFirst = zone is DropZone.Left or DropZone.Top;
+
+        var first = sourceFirst ? (TileNodeViewModel)source : root;
+        var second = sourceFirst ? root : source;
+
+        var split = new SplitTileNodeViewModel(orientation, first, second)
+        {
+            SplitRatio = TileDropRatio.Edge(sourceFirst),
+            LayoutChanged = root.LayoutChanged
+        };
+
+        first.Parent = split;
+        second.Parent = split;
+
+        // RootReplaced is the workspace's own "here is the new tree", and it configures every node under
+        // it — the dropped tile included — so nothing here has to hand the source its callbacks back.
+        source.RootReplaced?.Invoke(split);
+        source.MaximizeScope?.ReviewLayout();
+    }
+
+    /// <summary>
+    /// The node a gutter drop lands in once the dragged tile has been taken out of the tree, or
+    /// <c>null</c> when taking it out leaves that node where it is.
+    /// </summary>
+    /// <remarks>Every drop detaches its source first, and that lifts the source's sibling into the slot
+    /// the two of them shared. A split anywhere under that sibling is therefore about to grow, and the
+    /// hint has to be drawn against the room it will have rather than the room it has now.</remarks>
+    public static TileNodeViewModel? LiftedByDetach(LeafTileNodeViewModel source, TileNodeViewModel target)
+    {
+        if (source.Parent is not SplitTileNodeViewModel parent) return null;
+
+        var sibling = ReferenceEquals(parent.First, source) ? parent.Second : parent.First;
+        for (TileNodeViewModel? node = target; node != null; node = node.Parent)
+        {
+            if (ReferenceEquals(node, sibling)) return sibling;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Where a rectangle inside the lifted sibling ends up once that sibling fills the slot it shared.
+    /// </summary>
+    /// <param name="rect">What is being moved, in the same coordinates as the other two.</param>
+    /// <param name="lifted">The sibling's bounds now.</param>
+    /// <param name="vacated">The bounds of the split that held the sibling and the dragged tile.</param>
+    public static Rect AfterDetach(Rect rect, Rect lifted, Rect vacated)
+    {
+        if (lifted.Width <= 0 || lifted.Height <= 0) return rect;
+
+        var scaleX = vacated.Width / lifted.Width;
+        var scaleY = vacated.Height / lifted.Height;
+
+        return new Rect(
+            vacated.X + (rect.X - lifted.X) * scaleX,
+            vacated.Y + (rect.Y - lifted.Y) * scaleY,
+            rect.Width * scaleX,
+            rect.Height * scaleY);
+    }
+
+    /// <summary>The first leaf under a node, used to ask a tree how it configures its tiles.</summary>
+    private static LeafTileNodeViewModel? FirstLeaf(TileNodeViewModel? node) => node switch
+    {
+        LeafTileNodeViewModel leaf => leaf,
+        SplitTileNodeViewModel split => FirstLeaf(split.First) ?? FirstLeaf(split.Second),
+        _ => null
+    };
 
     public static bool DetachFromTree(LeafTileNodeViewModel node)
     {

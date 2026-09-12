@@ -257,6 +257,55 @@ reading its neighbour's id and "Restart shell" reopened the wrong `--session-id`
 nothing to keep in step: content, id, name and the leaf that owns all three never come apart.
 `TileDragDropTests` asserts the pairing rather than the movement, because the pairing is what broke.
 
+### Where a dragged tile can land
+
+Three targets, and they are **ranked rather than weighed** — the workspace's outer band silences the
+gutter, the gutter silences the tile — the same construction as the activity sources and for the same
+reason: two of them answering at once is two hints painted at once and a drop whose result depends on
+which handler ran last.
+
+| Target | What the drop means | Room the tile gets |
+|---|---|---|
+| Workspace's outer band (28px) | A new column or row beside the whole layout | a third of the workspace |
+| A split's gutter | Between the two tiles that split holds | a third of that split |
+| A tile's edge (outer 30%) | Splits that one tile in two | half of it |
+| A tile's middle | The two tiles change places | unchanged |
+
+**The arbitration lives in `WorkspaceView` and nowhere else**, which is why that is the only control in
+a workspace carrying `DragDrop.AllowDrop`. A tile deciding for itself would have to be overruled
+afterwards by whatever ranked the three, and that is two writers for one hint — the arrangement
+`CLAUDE.md` records the tile header having already paid for. What a tile still draws is its *own* hint,
+because that overlay belongs inside the card's clip and nothing outside it knows that radius.
+
+**The outer band has to overlap the outermost tiles, and that is forced rather than chosen.** The
+workspace's padding is eight pixels on three sides and **nothing on the left**, where the gap is the
+panel's own splitter column and belongs to the window — so a band living only in the padding would have
+no left edge at all. It therefore outranks the tile underneath, and 28px is the price: wide enough to
+hit with a mouse, narrow enough that a tile 200px across keeps most of its own edge zone. Capped at a
+third of the shorter side, so a workspace narrower than two bands still has a middle.
+
+**A third, taken from both sides** (`TileDropRatio`, pure and argued in a table test). A drop on a
+tile's own edge splits that one tile, so half is what the gesture said. A drop on a gutter or on the
+workspace's edge says something else — between what is there, or beside all of it — and taking the room
+out of one neighbour alone makes the gesture asymmetric in a way nothing on screen explains. Two panes
+that were 80/20 come back 53/13 and are still 80/20 of what is left to them. The hint draws that same
+band rather than a marker sized by eye, so what is under the pointer is the room the tile actually gets.
+
+**Three tiles in a row are a split inside a split**, because the tree is binary. What keeps that from
+reading as a nested pane is the pair of ratios, which is why `TileDragDropTests` asserts the three
+*shares* rather than the shape: a nested split left at its own default renders as one wide tile beside
+two narrow ones, and that is a layout, not a crash, so nothing else would catch it.
+
+Two refusals are load-bearing. **A tile dropped on the gutter of its own split is left where it is** —
+detaching it lifts its sibling into that split's slot and takes the split out of the tree, so the insert
+would go into a node nobody draws and the tile would be gone; the gesture also asks for a layout that is
+already on screen. And **the workspace's root is read again after the detach**, never captured before
+it: with two tiles in the workspace, taking one out lifts the other into the root's own slot, so a root
+read too early is a split that is no longer in the tree.
+
+**Cross-workspace drops are still not possible**, and not because anything refuses them: only one
+workspace's view is visible at a time, so there is never a second workspace's tile under the pointer.
+
 ### Why `ITile` is this thin
 
 The thinness is the design, not a shortcut. Three things were considered for it and rejected, and the
