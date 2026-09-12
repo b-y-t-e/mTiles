@@ -298,6 +298,17 @@ desktop and for every kind of grab, including the ones no registry lists — an 
 cached**, because the one thing a user does after reading the sentence is go and free the shortcut, and a
 remembered answer would go on warning about a collision they had just removed.
 
+**The generic hint stands down wherever something better is on screen** (`ShowsShortcutHint`). Two cases,
+both of which put it on screen saying nothing useful. While a shortcut is being *chosen* the whole button
+row is hidden, and the hint ends by telling the user to use the button below it. And once the desktop has
+named the culprit, the step already carries a sentence saying which application took the keys and where
+to take them back, so a second one guessing at the same thing underneath it is the paragraph a reader
+learns to skip. It stands down rather than being answered: leaving the capture by Escape changes nothing
+about the machine, and waiting out the twelve seconds again to be told the same thing is worse than the
+sentence. The transcript box keeps its size either way and says what it is waiting for while it is empty
+— unlabelled it was the largest thing on the step and read as a part of the window that had failed to
+draw.
+
 The spelling of a gesture in each desktop's language is pure and pinned by a table test
 (`ShortcutSpellingTests`) for the reason `AiAgentTests` pins the agents' flags: every number in there is
 somebody else's, and a wrong one names the wrong culprit or none, neither of which shows up as an error.

@@ -791,6 +791,37 @@ public class SpeechSetupTests : IDisposable
     }
 
     /// <summary>
+    /// The hint stands down while the user is choosing keys, and comes straight back if they do not.
+    /// </summary>
+    /// <remarks>
+    /// It ends by pointing at the Record button, and choosing a shortcut hides the whole button row —
+    /// so on screen it named a control that was not there. Standing down rather than being cleared is
+    /// what makes the second half true: leaving the capture by Escape changes nothing about the machine,
+    /// and having to wait out the twelve seconds again to be told the same thing is worse than the
+    /// sentence itself.
+    /// </remarks>
+    [Fact]
+    public void The_hint_stands_down_while_a_shortcut_is_being_chosen()
+    {
+        var schedule = new ManualSchedule();
+        var (wizard, dictation, settings) = Build(schedule: schedule);
+        using var _ = settings;
+        using var _d = dictation;
+        using var _w = wizard;
+
+        wizard.Step = SpeechSetupStep.Test;
+        schedule.Elapse();
+        Assert.True(wizard.ShowsShortcutHint);
+
+        wizard.BeginCaptureHotkeyCommand.Execute(null);
+        Assert.False(wizard.ShowsShortcutHint);
+        Assert.True(wizard.ShowHotkeyHint);          // stood down, not answered
+
+        wizard.CancelCaptureHotkeyCommand.Execute(null);
+        Assert.True(wizard.ShowsShortcutHint);
+    }
+
+    /// <summary>
     /// A shortcut that does arrive answers the hint, whether or not the recording then starts.
     /// </summary>
     /// <remarks>

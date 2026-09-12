@@ -269,6 +269,29 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _showHotkeyHint;
 
+    /// <summary>Whoever the desktop says already holds the shortcut, once it has answered.</summary>
+    private ShortcutOwner? _shortcutOwner;
+
+    /// <summary>
+    /// Whether the generic hint is what this step still has to offer.
+    /// </summary>
+    /// <remarks>
+    /// <para>Three conditions, and the hint's own timer is only the first of them. <b>Not while a
+    /// shortcut is being chosen</b>: that mode hides the button row, and the sentence ends by pointing at
+    /// a button below it — which was on screen, naming a control that was not. <b>Not once the desktop
+    /// has named the culprit</b>: the step then carries a sentence saying which application took the
+    /// keys and where to take them back, and a second one guessing at the same thing underneath it is
+    /// the paragraph a reader learns to skip.</para>
+    /// <para>The timer's own flag stays as it was rather than being cleared at either point: leaving the
+    /// capture mode by Escape changes nothing about the machine, so the hint belongs back on screen
+    /// without having to be waited for a second time.</para>
+    /// </remarks>
+    public bool ShowsShortcutHint => ShowHotkeyHint && !IsCapturingHotkey && _shortcutOwner is null;
+
+    partial void OnShowHotkeyHintChanged(bool value) => OnPropertyChanged(nameof(ShowsShortcutHint));
+
+    partial void OnIsCapturingHotkeyChanged(bool value) => OnPropertyChanged(nameof(ShowsShortcutHint));
+
     /// <summary>Which visit to the last step a pending hint belongs to, so one scheduled for a visit the
     /// user has left cannot fire over a later one.</summary>
     private int _hintGeneration;
@@ -428,6 +451,11 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
         IsShortcutBlank = string.IsNullOrWhiteSpace(_settings.Settings.Speech.Hotkey);
         HotkeyWarning = HotkeyAdvice.ForSetting(_settings.Settings.Speech.Hotkey);
 
+        // An owner belongs to the shortcut it was asked about, so a new one starts with nobody. The
+        // question is asked again below, and until it answers the generic hint is what there is.
+        _shortcutOwner = null;
+        OnPropertyChanged(nameof(ShowsShortcutHint));
+
         if (parsed is { } bound)
             _ = AskTheDesktopAboutAsync(bound);
     }
@@ -457,6 +485,8 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
                 return;
 
             HotkeyWarning = HotkeyAdvice.For(gesture, owner);
+            _shortcutOwner = owner;
+            OnPropertyChanged(nameof(ShowsShortcutHint));
         });
     }
 

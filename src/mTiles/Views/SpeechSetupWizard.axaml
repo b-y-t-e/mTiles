@@ -298,8 +298,11 @@
                                        Foreground="{DynamicResource TextMuted}" />
                         </StackPanel>
 
-                        <!-- ── the one failure with nothing on screen to read ── -->
-                        <TextBlock IsVisible="{Binding ShowHotkeyHint}"
+                        <!-- ── the one failure with nothing on screen to read ──
+                             Down to ShowsShortcutHint rather than the timer's own flag: this sentence
+                             ends by pointing at a button the capture mode hides, and it is a guess at
+                             what the sentence above already names when the desktop has answered. -->
+                        <TextBlock IsVisible="{Binding ShowsShortcutHint}"
                                    Text="Nothing happening? Some shortcuts are taken by the desktop before any application sees them. Try different keys, or use the button below."
                                    TextWrapping="Wrap"
                                    FontFamily="{DynamicResource UiFontFamily}"
@@ -333,15 +336,28 @@
                         </Button>
                     </StackPanel>
 
+                    <!-- The box keeps its size whether or not there is anything in it, so the page does
+                         not jump when a transcript arrives. Empty and unlabelled it was the largest thing
+                         on the step and said nothing at all, which reads as a part of the window that has
+                         failed to draw - hence one line saying what it is waiting for. -->
                     <Border Background="{DynamicResource BgSurface}"
                             CornerRadius="{DynamicResource RadiusMd}"
                             Padding="10,8">
-                        <TextBlock Text="{Binding Transcript}"
-                                   TextWrapping="Wrap"
-                                   VerticalAlignment="Top"
-                                   FontFamily="{DynamicResource UiFontFamily}"
-                                   FontSize="{DynamicResource FontSm}"
-                                   Foreground="{DynamicResource TextPrimary}" />
+                        <Panel>
+                            <TextBlock Text="What you say will appear here."
+                                       IsVisible="{Binding Transcript, Converter={x:Static StringConverters.IsNullOrEmpty}}"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Top"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource FontSm}"
+                                       Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="{Binding Transcript}"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Top"
+                                       FontFamily="{DynamicResource UiFontFamily}"
+                                       FontSize="{DynamicResource FontSm}"
+                                       Foreground="{DynamicResource TextPrimary}" />
+                        </Panel>
                     </Border>
                 </DockPanel>
             </Panel>
