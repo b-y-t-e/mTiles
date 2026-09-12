@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.Models;
@@ -91,6 +92,9 @@ public partial class SettingsViewModel
         // window entirely.
         _speechHotkeyWarning = HotkeyAdvice.ForSetting(speech.Hotkey);
 #pragma warning restore MVVMTK0034
+
+        if (HotkeyGesture.TryParse(speech.Hotkey, out var stored))
+            _ = AskTheDesktopAboutAsync(stored);
     }
 
     /// <summary>
@@ -449,6 +453,35 @@ public partial class SettingsViewModel
         SpeechHotkeyWarning = HotkeyAdvice.For(gesture);
 
         SaveSpeech(s => s.Hotkey = gesture.ToString());
+
+        _ = AskTheDesktopAboutAsync(gesture);
+    }
+
+    /// <summary>
+    /// Adds the desktop's own answer to the advice, when it has one.
+    /// </summary>
+    /// <remarks>
+    /// <para>Separate from the line above and later than it, because asking runs a program: the sentence
+    /// about a bare key is known here and now, and this one arrives when the compositor has answered.
+    /// Only ever additive — <see cref="DesktopShortcuts"/> reports an owner or nothing, so a desktop
+    /// that cannot be asked leaves exactly the advice that was already on screen.</para>
+    /// <para>The answer is thrown away when the box has moved on, and compared against the shortcut
+    /// rather than against a counter: capture writes a new shortcut per keystroke, so two of these can
+    /// easily be in flight, and the one that finishes last is not the one that is still true.</para>
+    /// </remarks>
+    private async Task AskTheDesktopAboutAsync(HotkeyGesture gesture)
+    {
+        if (await DesktopShortcuts.OwnerAsync(gesture) is not { } owner) return;
+
+        // Posted rather than assigned: one of the two callers is the settings load, which an import or a
+        // startup can reach from a thread that is not this window's, and a property change raised
+        // anywhere else is an exception inside a binding rather than a missing sentence.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!HotkeyGesture.TryParse(SpeechHotkey, out var current) || current != gesture) return;
+
+            SpeechHotkeyWarning = HotkeyAdvice.For(gesture, owner);
+        });
     }
 
     private void SaveSpeech(Action<SpeechSettings> change)

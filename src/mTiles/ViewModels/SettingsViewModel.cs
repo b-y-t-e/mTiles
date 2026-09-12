@@ -48,13 +48,36 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsAiTab));
         OnPropertyChanged(nameof(IsDatabaseTab));
         OnPropertyChanged(nameof(IsSpeechTab));
-        if (newValue == SettingsTabs.Speech)
-            LoadSpeechOptions();
-        if (newValue == SettingsTabs.Database)
-            RefreshDatabaseSettings();
+        EnterTab(newValue);
         if (oldValue == SettingsTabs.Database && newValue != SettingsTabs.Database && _dbManager != null)
             _dbManager.StateChanged -= OnDbManagerStateChanged;
     }
+
+    /// <summary>
+    /// Re-reads whatever the page on screen answers about the machine rather than about the settings
+    /// file.
+    /// </summary>
+    /// <remarks>Called both when the tab changes and when the dialog is shown, because this view model
+    /// outlives the dialog: it is built once and the tab it was left on is the tab it reopens on, so a
+    /// selection that does not move raises no change and every per-tab reading would stay as it was
+    /// when the page was last entered. That is exactly the case the clipboard notice is about — install
+    /// the helpers from this page, close Settings, open it again, and the sentence saying they are
+    /// missing would still be there.</remarks>
+    private void EnterTab(int tab)
+    {
+        if (tab == SettingsTabs.Speech)
+            LoadSpeechOptions();
+        // A PATH scan, so it is asked when the page is opened rather than held from startup: the two
+        // programs can arrive while the application is running — through the very tile this page's own
+        // button opens — and a notice that cannot go away is one the user learns to read past.
+        if (tab == SettingsTabs.Ai)
+            RefreshClipboardHelpers();
+        if (tab == SettingsTabs.Database)
+            RefreshDatabaseSettings();
+    }
+
+    /// <summary>Told that the dialog has just been shown, whichever gesture opened it.</summary>
+    public void OnOpened() => EnterTab(SelectedTab);
 
     [RelayCommand]
     private void SelectTab(int tab) => SelectedTab = tab;

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.Services;
@@ -426,6 +427,37 @@ public sealed partial class SpeechSetupViewModel : ObservableObject, IDisposable
         // feature keeps guarding against.
         IsShortcutBlank = string.IsNullOrWhiteSpace(_settings.Settings.Speech.Hotkey);
         HotkeyWarning = HotkeyAdvice.ForSetting(_settings.Settings.Speech.Hotkey);
+
+        if (parsed is { } bound)
+            _ = AskTheDesktopAboutAsync(bound);
+    }
+
+    /// <summary>
+    /// Adds the desktop's own answer to the advice, when it has one.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the step the answer was wanted for.</b> The last step teaches the shortcut by having
+    /// it used, so its one unanswerable failure is "I held the keys and nothing happened" — which is
+    /// what <see cref="SpeechSetupFlow.ShortcutHintDelay"/> waits twelve seconds to guess at. Where the
+    /// desktop will say who took the keys, it can be said at once and by name, and the timeout stays for
+    /// every desktop and every kind of grab that will not.
+    /// </remarks>
+    private async Task AskTheDesktopAboutAsync(HotkeyGesture gesture)
+    {
+        if (await DesktopShortcuts.OwnerAsync(gesture) is not { } owner) return;
+
+        // The shortcut can be rebound while the compositor is being asked, and a capture writes a new
+        // one per keystroke: what is on screen decides, never the order the answers come back in. Posted
+        // for the reason the Speech tab's copy is - a property change has to be raised on this window's
+        // thread whatever thread the refresh was reached from.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!HotkeyGesture.TryParse(_settings.Settings.Speech.Hotkey, out var current)
+                || current != gesture)
+                return;
+
+            HotkeyWarning = HotkeyAdvice.For(gesture, owner);
+        });
     }
 
     /// <summary>

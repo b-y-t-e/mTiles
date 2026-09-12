@@ -104,6 +104,18 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSettingsOpen;
 
+    /// <summary>Tells the settings dialog it is being shown, from the one place every gesture that
+    /// opens it goes through.</summary>
+    /// <remarks>On the property rather than in the three commands that set it: the dialog is one long
+    /// lived view model shown and hidden again, so anything it reads off the machine — which programs
+    /// are on <c>PATH</c>, which databases were discovered — is only as fresh as the last time somebody
+    /// changed tabs.</remarks>
+    partial void OnIsSettingsOpenChanged(bool value)
+    {
+        if (value)
+            Settings.OnOpened();
+    }
+
     [ObservableProperty]
     private bool _isUpdateAvailable;
 

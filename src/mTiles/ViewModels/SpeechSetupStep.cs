@@ -78,7 +78,7 @@ public static class SpeechSetupFlow
     /// <remarks>
     /// <para>The step's one unanswerable failure is "I held the keys and nothing happened" — there is
     /// nothing on screen to click and nothing to read. It has a real cause: shortcuts get taken by the
-    /// desktop before any application sees them, and <c>Alt+Space</c> is the window menu on Windows.</para>
+    /// desktop before any application sees them, and <c>Alt+Space</c> is KRunner's on Plasma.</para>
     /// <para>Long enough not to nag somebody who is still reading the sentence, short enough to arrive
     /// while they are still puzzled rather than after they have given up. It is only ever a hint, and it
     /// points at the two things that work regardless: another shortcut, or the button.</para>
