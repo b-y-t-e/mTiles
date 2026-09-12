@@ -252,6 +252,56 @@ shortcut off instead. A keystroke is marked handled **only where it is taken**; 
 bug that left the settings dialog unclosable. `HotkeyAdvice` holds the one sentence about a shortcut with
 no modifier, so the tab and the wizard cannot describe the same choice differently.
 
+**And the desktop is asked who already has the shortcut** (`DesktopShortcuts`, `ShortcutSpelling`). This
+is the failure with nothing on screen at all: the shortcut is a tunnelling handler on our own window, so
+a compositor that has taken the keys does not beat us to them — they never arrive, nothing is logged, and
+the user is left holding two keys at an application nobody told. It is not a corner case either.
+**`Alt+Space`, which ships as the default here, is taken on both Linux desktops it could be measured
+against**: KRunner's on Plasma 6 (measured 2026-09-12 through `org.kde.kglobalaccel`, where it is
+*not* in `kglobalshortcutsrc` — a compiled-in default, so reading the configuration files would have
+reported the key free) and `activate-window-menu` on GNOME (read out of
+`org.gnome.desktop.wm.keybindings`). Three readers answer: KDE over its own D-Bus API through `gdbus`,
+GNOME by listing the five keybinding schemas, Hyprland through `hyprctl binds -j` — the first two
+measured, the third written from documentation and marked so in its own comments. **Windows is not the
+third of those**: it opens the window menu from the same `Alt+Space` the window has already been given,
+so the keystroke arrives here and the shortcut works (measured — see *Alt+Space is safe here* below).
+
+**Each call is bounded and both of its pipes are drained asynchronously.** A `ReadToEnd` before the wait
+blocks until the child closes its output, so the two-second deadline was only checked after the very
+thing it was written for — a `gdbus` wedged on a D-Bus reply — had already parked a thread-pool thread
+for good; and standard error is redirected, so a child filling its 64 KB error buffer deadlocks the same
+way. Both reads and the wait share one cancellation token, and a timeout kills the child.
+
+**Windows gets the same sentence from a table, because there is nobody there to ask** (`WindowsShortcuts`).
+It publishes no register of what the shell has taken, so the choice is between writing the certainties
+down and saying nothing, and saying nothing is what leaves somebody holding `Win+H` at an application
+that will never see it. **What earns a place is only what the window never receives**, which is not the
+same as "Windows does something with it": `Alt+Tab`, `Ctrl+Esc`, `Ctrl+Alt+Del` and the `Win` chords are
+taken by the shell first, while `Alt+Space`, `Alt+F4` and `Ctrl+Shift+Esc` arrive as ordinary key
+messages and are acted on in `DefWindowProc` — Avalonia raises a key-down from each, the dictation
+handler sees it, and listing them told a user that a shortcut measured to work was dead. The list is
+short on purpose and is emphatically not the whole `Win` key space:
+Windows assigns most of those combinations but not all, and a sentence claiming a shortcut will never
+arrive has to be right, since being wrong in that direction tells a user their working shortcut is
+broken. Windows is also where a shortcut cannot be taken back, which is why an owner carries
+`ShortcutOwner.CanBeFreed`: a launcher's shortcut is a line in the user's own settings, and the Start
+menu is the shell's, so the offer to go and unbind it is dropped rather than sending somebody to look for
+a screen that does not exist.
+
+Three things about it are deliberate. **The answer is only ever "somebody has this"**: a desktop that
+cannot be asked, one nobody has written a reader for and a genuinely free shortcut all come back null, and
+null adds no sentence — a collapse that is safe only because nothing here ever prints the good case, and
+would have to be undone the moment something wanted to. **It does not replace the timeout**
+(`SpeechSetupFlow.ShortcutHintDelay`): that one notices that the keys were held and nothing came, on every
+desktop and for every kind of grab, including the ones no registry lists — an input-method switcher takes
+`Ctrl+Space` and appears in none of these. This is the half that can name a culprit. And **nothing is
+cached**, because the one thing a user does after reading the sentence is go and free the shortcut, and a
+remembered answer would go on warning about a collision they had just removed.
+
+The spelling of a gesture in each desktop's language is pure and pinned by a table test
+(`ShortcutSpellingTests`) for the reason `AiAgentTests` pins the agents' flags: every number in there is
+somebody else's, and a wrong one names the wrong culprit or none, neither of which shows up as an error.
+
 The wizard runs **its own `DictationHotkeyMachine`** over its own tunnelling handlers, and emphatically
 not `DictationHotkeys`: that is a static bound to one window, so attaching it here would tear the main
 window's shortcut down and detaching on close would leave the application with none until it restarted.
@@ -322,8 +372,8 @@ therefore accepted in silence, a warning from before it stayed up afterwards, an
 application cannot listen for opened the tab with nothing said about why the feature was dead.
 
 **Held the keys and nothing happened** is the one failure here with nothing on screen to read, and it has
-a real cause: shortcuts get taken by the desktop before any application sees them, and `Alt+Space` is the
-window menu on Windows. After `SpeechSetupFlow.ShortcutHintDelay` (12 s) on the step without the gesture
+a real cause: shortcuts get taken by the desktop before any application sees them, and `Alt+Space` is
+KRunner's on Plasma. After `SpeechSetupFlow.ShortcutHintDelay` (12 s) on the step without the gesture
 ever arriving, a hint says so and points at the two things that work regardless. It is armed only when
 there *is* a shortcut, cancelled the moment one arrives — whether or not the recording then starts,
 because the hint is about the keys reaching us and nothing else — and carries a generation counter so one

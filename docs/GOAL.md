@@ -1055,7 +1055,10 @@ the one thing it did do, silently, was hold text that a finishing detection then
 **An image can be pasted into the composer, and what goes into the prompt is a path.** `Ctrl+V` takes
 the clipboard's image when there is no text on it, `Alt+V` takes it regardless — the same pair, and the
 same "text wins when the clipboard holds both" rule, that a terminal tile already follows, so the
-gesture is the one a user pasting a screenshot at Claude Code already has in their fingers. The image is
+gesture is the one a user pasting a screenshot at Claude Code already has in their fingers. **Both are
+read here, off Avalonia's clipboard**, which is what makes the pair true on every platform: in a
+terminal tile the second half of it is the agent's to honour, and Claude Code binds `alt+v` on Windows
+and WSL alone. The image is
 written to `.mtiles/goals/images/` (`GoalImageStore`, PNG, never pruned) and a marker — `[Image #1]`,
 `GoalImageMarker`, Claude Code's own spelling — is inserted where the caret was, so the picture is
 referred to in the sentence it belongs to. The run then carries the pair in **every** prompt that
