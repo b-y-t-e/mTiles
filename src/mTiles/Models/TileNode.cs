@@ -75,6 +75,18 @@ public sealed class TileNode
 
     public Orientation SplitOrientation { get; set; } = Orientation.Vertical;
     public double SplitRatio { get; set; } = 0.5;
+
+    /// <summary>Which child is held at <see cref="FixedExtent"/> pixels, or null when the ratio decides.
+    /// </summary>
+    /// <remarks>Written only when a side is fixed, so every layout that has no such split — which is
+    /// every workspace layout — is saved byte for byte as it was, and a build that predates the field
+    /// reads the ratio beside it as it always did.</remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SplitFixedSide? FixedSide { get; set; }
+
+    /// <summary>The fixed child's size along the split, in pixels.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? FixedExtent { get; set; }
     public TileNode? First { get; set; }
     public TileNode? Second { get; set; }
 

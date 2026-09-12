@@ -41,6 +41,16 @@ public static class TileDropRatio
         return (outer, NewcomerShare / (NewcomerShare + second));
     }
 
+    /// <summary>
+    /// The ratio of the split a newcomer shares with the flexible side of a split whose other side is fixed.
+    /// </summary>
+    /// <remarks>The fixed side keeps its pixels, so there is only one pane to take the room out of, and
+    /// the newcomer takes a third of that pane — the same third as everywhere else, of what is actually
+    /// free to give.</remarks>
+    /// <param name="newcomerFirst">Whether the newcomer is the first child of the split it shares.</param>
+    public static double BesideFixed(bool newcomerFirst) =>
+        newcomerFirst ? NewcomerShare : 1 - NewcomerShare;
+
     /// <summary>The ratio of the split that puts a dropped tile along one edge of everything else.</summary>
     /// <param name="newcomerFirst">Whether the tile lands on the left or the top.</param>
     public static double Edge(bool newcomerFirst) =>
@@ -53,6 +63,17 @@ public static class TileDropRatio
     /// gets rather than a marker somebody sized by eye.</remarks>
     public static (double Start, double Size) GutterBand(double ratio) =>
         (Gutter(ratio).Outer, NewcomerShare);
+
+    /// <summary>
+    /// Where a tile dropped beside a fixed side ends up, as a fraction of the flexible side it goes into.
+    /// </summary>
+    /// <param name="newcomerFirst">Whether the newcomer is the first child of the split it shares — which
+    /// it is exactly when the fixed side is the first one, since it goes in next to the gutter.</param>
+    public static (double Start, double Size) BesideFixedBand(bool newcomerFirst)
+    {
+        var ratio = BesideFixed(newcomerFirst);
+        return newcomerFirst ? (0, ratio) : (ratio, 1 - ratio);
+    }
 
     /// <inheritdoc cref="GutterBand"/>
     public static (double Start, double Size) EdgeBand(bool newcomerFirst) =>

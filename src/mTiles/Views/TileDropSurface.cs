@@ -80,6 +80,16 @@ public class TileDropSurface : Border
     /// tree sets it where it can say so more directly.</remarks>
     public Func<TileNodeViewModel?> ReadRoot { get; set; }
 
+    /// <summary>
+    /// The pixels a dropped tile is held at along the split a drop creates, or null for the share it
+    /// has always been given.
+    /// </summary>
+    /// <remarks>Asked with the tile and the orientation of the split it would be put into, because
+    /// what a fixed size means depends on the axis — a list is as wide as a name when it stands beside
+    /// the layout and one row tall when it lies along it. Null by default, which is every workspace: its
+    /// tiles share their room.</remarks>
+    public Func<LeafTileNodeViewModel, Orientation, double?> FixedExtentFor { get; set; } = static (_, _) => null;
+
     /// <summary>Everything this surface has drawn for a drag, put away.</summary>
     internal void ClearDropHints()
     {
@@ -117,7 +127,7 @@ public class TileDropSurface : Border
         switch (target.Kind)
         {
             case TileDropKind.RootEdge:
-                TileTreeEdits.ExecuteRootEdge(source, ReadRoot, target.Zone);
+                TileTreeEdits.ExecuteRootEdge(source, ReadRoot, target.Zone, ExtentFor(source, target.Zone));
                 break;
 
             case TileDropKind.Gutter when target.Split is { } split:
@@ -125,7 +135,7 @@ public class TileDropSurface : Border
                 break;
 
             case TileDropKind.Leaf when target.Target?.DropNode is { } leaf:
-                TileTreeEdits.Execute(source, leaf, target.Zone);
+                TileTreeEdits.Execute(source, leaf, target.Zone, ExtentFor(source, target.Zone));
                 break;
 
             default:
@@ -185,13 +195,7 @@ public class TileDropSurface : Border
                 if (splitter.DataContext is not SplitTileNodeViewModel split) continue;
                 if (!ReferenceEquals(TileTreeEdits.RootOf(split), root)) continue;
 
-                // The gesture asks for a layout that is already on screen, so it is refused here rather
-                // than left to look like a drop that did nothing.
-                if (ReferenceEquals(split.First, source) || ReferenceEquals(split.Second, source))
-                    return default;
-
-                var owner = splitter.GetVisualAncestors().OfType<TileNodeView>().FirstOrDefault();
-                return new DropTarget(TileDropKind.Gutter, DropZone.Center, Split: split, SplitView: owner);
+                return GutterTarget(split, source, splitter);
             }
 
             if (node is ITileDropTarget { DropNode: { } leaf } target and Control control)
@@ -199,11 +203,29 @@ public class TileDropSurface : Border
                 if (!ReferenceEquals(TileTreeEdits.RootOf(leaf), root)) continue;
                 if (ReferenceEquals(leaf, source)) return default;
 
-                return new DropTarget(TileDropKind.Leaf, zoneOf(control), Target: target);
+                var zone = zoneOf(control);
+                return TileTreeEdits.FixedSplitAcross(leaf, zone) is { } fixedSplit
+                    ? GutterTarget(fixedSplit, source, control)
+                    : new DropTarget(TileDropKind.Leaf, zone, Target: target);
             }
         }
 
         return default;
+    }
+
+    /// <summary>A drop on <paramref name="split"/>'s gutter, found from a control drawn inside that split.</summary>
+    private static DropTarget GutterTarget(SplitTileNodeViewModel split, LeafTileNodeViewModel source, Visual inside)
+    {
+        split = TileTreeEdits.GutterSplitFor(split);
+
+        // The gesture asks for a layout that is already on screen, so it is refused here rather than
+        // left to look like a drop that did nothing.
+        if (ReferenceEquals(split.First, source) || ReferenceEquals(split.Second, source))
+            return default;
+
+        var owner = inside.GetVisualAncestors().OfType<TileNodeView>()
+            .FirstOrDefault(view => ReferenceEquals(view.DataContext, split));
+        return new DropTarget(TileDropKind.Gutter, DropZone.Center, Split: split, SplitView: owner);
     }
 
     private void ShowHint(DropTarget target)
@@ -218,6 +240,14 @@ public class TileDropSurface : Border
 
         if (target.Kind == TileDropKind.Leaf && target.Target is { } leaf)
         {
+            if (LeafEdgeBand(target) is { } fixedBand)
+            {
+                _hintedTarget = null;
+                leaf.HideDropOverlay();
+                Paint(fixedBand);
+                return;
+            }
+
             _hint.IsVisible = false;
             _hintedTarget = leaf;
             leaf.ShowDropOverlay(target.Zone);
@@ -240,21 +270,45 @@ public class TileDropSurface : Border
         Paint(band);
     }
 
-    /// <summary>The room a tile dropped on the tree's edge will actually take.</summary>
-    private Rect EdgeBand(DropZone zone)
+    /// <summary>The pixels <see cref="FixedExtentFor"/> answers for a drop into <paramref name="zone"/>.</summary>
+    private double? ExtentFor(LeafTileNodeViewModel source, DropZone zone) => zone switch
     {
-        var size = _tree!.Bounds.Size;
-        var horizontal = zone is DropZone.Left or DropZone.Right;
-        var (start, share) = TileDropRatio.EdgeBand(zone is DropZone.Left or DropZone.Top);
+        DropZone.Left or DropZone.Right => FixedExtentFor(source, Orientation.Vertical),
+        DropZone.Top or DropZone.Bottom => FixedExtentFor(source, Orientation.Horizontal),
+        _ => null
+    };
 
-        return horizontal
-            ? new Rect(start * size.Width, 0, share * size.Width, size.Height)
-            : new Rect(0, start * size.Height, size.Width, share * size.Height);
+    /// <summary>The room a tile dropped on the tree's edge will actually take.</summary>
+    private Rect? EdgeBand(DropZone zone) =>
+        TileDragSession.Source is { } source
+            ? TileDropGeometry.EdgeBand(
+                _tree!.Bounds.Size, zone, ExtentFor(source, zone), TileNodeView.TileGap, MinimumAlong(ReadRoot(), zone))
+            : null;
+
+    /// <summary>The minimum, along the axis a drop into <paramref name="zone"/> divides, of <paramref name="node"/>.</summary>
+    private static double MinimumAlong(TileNodeViewModel? node, DropZone zone) =>
+        zone is DropZone.Left or DropZone.Right
+            ? TileMinimumSize.Width(node, TileNodeView.TileGap)
+            : TileMinimumSize.Height(node, TileNodeView.TileGap);
+
+    /// <summary>The room a tile dropped on a tile's edge takes when it is held at a size in pixels.</summary>
+    /// <remarks>Null when it is not, and the tile draws its own hint: the band is the same
+    /// <see cref="TileDropGeometry.EdgeBand"/> the tree's edge draws, inside the tile the drop splits.</remarks>
+    private Rect? LeafEdgeBand(DropTarget target)
+    {
+        if (TileDragSession.Source is not { } source) return null;
+        if (ExtentFor(source, target.Zone) is not { } extent || !SplitTileNodeViewModel.IsUsableExtent(extent))
+            return null;
+        if (BoundsOf(target.Target as Visual) is not { } area) return null;
+
+        return TileDropGeometry.EdgeBand(
+                area.Size, target.Zone, extent, TileNodeView.TileGap, MinimumAlong(target.Target?.DropNode, target.Zone))
+            .Translate(area.Position);
     }
 
     /// <summary>The room a tile dropped between two others will actually take.</summary>
     /// <remarks>Drawn from the same rule the drop itself runs on
-    /// (<see cref="TileDropRatio.GutterBand"/>), rather than as a marker on the gutter sized by eye: a
+    /// (<see cref="TileDropGeometry.GutterBand"/>), rather than as a marker on the gutter sized by eye: a
     /// hint that is not the resulting geometry is a hint that stops being true the moment somebody
     /// drags a splitter.</remarks>
     private Rect? GutterBand(DropTarget target)
@@ -264,11 +318,7 @@ public class TileDropSurface : Border
         if (BoundsOf(view) is not { } area) return null;
 
         var room = RoomAfterDetach(source, split, view, area);
-        var (start, share) = TileDropRatio.GutterBand(split.SplitRatio);
-
-        return split.Orientation == Orientation.Vertical
-            ? new Rect(room.X + start * room.Width, room.Y, share * room.Width, room.Height)
-            : new Rect(room.X, room.Y + start * room.Height, room.Width, share * room.Height);
+        return TileDropGeometry.GutterBand(room, split, TileNodeView.TileGap);
     }
 
     /// <summary>The bounds a split will have once the dragged tile has been taken out of the tree.</summary>

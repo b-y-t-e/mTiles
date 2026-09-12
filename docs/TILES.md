@@ -327,6 +327,25 @@ has to be kept in step when a tile moves, because a tile that has moved already 
 `DragDrop.AllowDrop` is asked about a pointer over it, so the eight pixels round a workspace answer as
 its edge only because the surface draws them.
 
+**A split can hold one side at a size in pixels** (`SplitFixedSide`, `SplitTileNodeViewModel.Fix`).
+A share is right for tiles that should grow with the window and wrong for a tile whose size is a fact
+about its content — a list of names wants the width a name needs, a strip of tabs one row. The fixed
+side is laid out as a `Pixel` length and the other as a single star, so it takes whatever is left; the
+splitter moves the pixels and leaves the ratio alone, which is kept so letting the side go puts the
+split back where it was. **No workspace uses it**: only the window's own layout does, and a split with
+nothing fixed writes neither field, so every existing layout is saved exactly as before and an older
+build reads the ratio beside a fixed side as it always did. A side named without a usable size is read
+as no fixed side at all.
+
+The edits honour it in two places. **A gutter drop beside a fixed side goes into the other side** and
+takes its third from there alone — wrapped in with the fixed tile instead, the two would be held at the
+one tile's pixels between them. A drop on a fixed tile's own edge across its fixed axis is that same
+gutter drop (`TileTreeEdits.FixedSplitAcross`), for the same reason. And **an edge drop can be given pixels** (`fixedExtent`), asked of
+`TileDropSurface.FixedExtentFor` with the orientation of the split it would create, since what a fixed
+size means depends on the axis. A workspace's surface answers null, which is the share an edge drop has
+always given. The hints are drawn from the same rules (`TileDropGeometry.EdgeBand`, `GutterBand`) — a tile's own
+edge drop given pixels included, which the surface paints instead of the tile's fixed-share overlay.
+
 **Cross-workspace drops are still not possible**, and not because anything refuses them: only one
 workspace's view is visible at a time, so there is never a second workspace's tile under the pointer.
 

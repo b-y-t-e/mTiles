@@ -69,6 +69,8 @@ public sealed class TileTreeSerializer
                 IsLeaf = false,
                 SplitOrientation = split.Orientation,
                 SplitRatio = split.SplitRatio,
+                FixedSide = split.FixedSide == SplitFixedSide.None ? null : split.FixedSide,
+                FixedExtent = split.FixedSide == SplitFixedSide.None ? null : split.FixedExtent,
                 First = Serialize(split.First),
                 Second = Serialize(split.Second)
             },
@@ -107,9 +109,18 @@ public sealed class TileTreeSerializer
 
         var split = new SplitTileNodeViewModel(dto.SplitOrientation, first, second)
         {
-            SplitRatio = dto.SplitRatio,
-            LayoutChanged = scheduleSave
+            SplitRatio = dto.SplitRatio
         };
+
+        // A side named without a size, or a size that is not a number, is read as no fixed side at all:
+        // the ratio beside it is always written, so the split still comes back looking like a split.
+        // Before the save callback is attached, like the ratio above: reading a layout is not a change
+        // to it, and fixing a side announces one.
+        if (dto.FixedSide is { } side and not SplitFixedSide.None && dto.FixedExtent is { } extent)
+            split.Fix(side, extent);
+
+        split.LayoutChanged = scheduleSave;
+
         first.Parent = split;
         second.Parent = split;
         return split;

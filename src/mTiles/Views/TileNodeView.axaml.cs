@@ -2,6 +2,7 @@
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using mTiles.Models;
 using mTiles.Services;
 using mTiles.ViewModels;
 
@@ -44,13 +45,23 @@ public partial class TileNodeView : UserControl
 
     private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_vm is SplitTileNodeViewModel split &&
-            e.PropertyName is nameof(SplitTileNodeViewModel.First)
+        if (_vm is not SplitTileNodeViewModel split) return;
+
+        if (e.PropertyName is nameof(SplitTileNodeViewModel.First)
                 or nameof(SplitTileNodeViewModel.Second)
                 or nameof(SplitTileNodeViewModel.Orientation)
-                or nameof(SplitTileNodeViewModel.Solo))
+                or nameof(SplitTileNodeViewModel.Solo)
+                or nameof(SplitTileNodeViewModel.FixedSide))
         {
             Rebuild();
+        }
+        else if (e.PropertyName is nameof(SplitTileNodeViewModel.FixedExtent))
+        {
+            // In place rather than by a rebuild: the splitter itself writes this when it comes to rest,
+            // and replacing the grid from inside that splitter's own DragCompleted would tear down the
+            // control whose event is still being delivered. When it was the splitter, the definition
+            // already holds the value and nothing is written.
+            ApplyLengths(split, Content as Grid);
         }
     }
 
@@ -114,7 +125,7 @@ public partial class TileNodeView : UserControl
     /// the gap looked like a rendering fault. It is also the splitter's whole hit area, so this is the
     /// grab handle's width as much as it is the gutter's.</para>
     /// </summary>
-    private const int TileGap = 8;
+    internal const int TileGap = 8;
 
     /// <summary>The view of the split this one sits in, if there is one.</summary>
     /// <remarks>Splitting a tile deep inside a pane raises what every pane above it may be shrunk to,
@@ -176,11 +187,13 @@ public partial class TileNodeView : UserControl
         // changes — a narrowed window or a dragged panel splitter, neither of which rebuilds anything.
         grid.SizeChanged += (_, _) => ApplyMinimums(split, grid);
 
+        var (firstLength, secondLength) = LengthsFor(split);
+
         if (split.Orientation == Orientation.Vertical)
         {
-            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(split.SplitRatio, GridUnitType.Star)));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(firstLength));
             grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(TileGap, GridUnitType.Pixel)));
-            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1 - split.SplitRatio, GridUnitType.Star)));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(secondLength));
 
             Grid.SetColumn(_firstChild, 0);
             Grid.SetColumn(splitter, 1);
@@ -188,9 +201,9 @@ public partial class TileNodeView : UserControl
         }
         else
         {
-            grid.RowDefinitions.Add(new RowDefinition(new GridLength(split.SplitRatio, GridUnitType.Star)));
+            grid.RowDefinitions.Add(new RowDefinition(firstLength));
             grid.RowDefinitions.Add(new RowDefinition(new GridLength(TileGap, GridUnitType.Pixel)));
-            grid.RowDefinitions.Add(new RowDefinition(new GridLength(1 - split.SplitRatio, GridUnitType.Star)));
+            grid.RowDefinitions.Add(new RowDefinition(secondLength));
 
             Grid.SetRow(_firstChild, 0);
             Grid.SetRow(splitter, 1);
@@ -225,25 +238,40 @@ public partial class TileNodeView : UserControl
     {
         if (split.Orientation == Orientation.Vertical && grid.ColumnDefinitions.Count >= 3)
         {
+            var available = grid.Bounds.Width - TileGap;
             var (first, second) = TileMinimumSize.Fit(
                 TileMinimumSize.Width(split.First, TileGap),
                 TileMinimumSize.Width(split.Second, TileGap),
-                grid.Bounds.Width - TileGap);
+                available);
 
             grid.ColumnDefinitions[0].MinWidth = first;
             grid.ColumnDefinitions[2].MinWidth = second;
+            grid.ColumnDefinitions[0].MaxWidth = MaximumFor(split, SplitFixedSide.First, first, second, available);
+            grid.ColumnDefinitions[2].MaxWidth = MaximumFor(split, SplitFixedSide.Second, second, first, available);
         }
         else if (split.Orientation == Orientation.Horizontal && grid.RowDefinitions.Count >= 3)
         {
+            var available = grid.Bounds.Height - TileGap;
             var (first, second) = TileMinimumSize.Fit(
                 TileMinimumSize.Height(split.First, TileGap),
                 TileMinimumSize.Height(split.Second, TileGap),
-                grid.Bounds.Height - TileGap);
+                available);
 
             grid.RowDefinitions[0].MinHeight = first;
             grid.RowDefinitions[2].MinHeight = second;
+            grid.RowDefinitions[0].MaxHeight = MaximumFor(split, SplitFixedSide.First, first, second, available);
+            grid.RowDefinitions[2].MaxHeight = MaximumFor(split, SplitFixedSide.Second, second, first, available);
         }
     }
+
+    /// <summary>The cap on one pane's length: only a fixed side has one (<see cref="TileMinimumSize.FixedMaximum"/>).</summary>
+    /// <remarks>A star pane is already held inside the split by the grid itself; a pixel pane is not, and
+    /// is what would push the pane beside it past the edge.</remarks>
+    private static double MaximumFor(
+        SplitTileNodeViewModel split, SplitFixedSide side, double ownMinimum, double otherMinimum, double available) =>
+        split.FixedSide == side
+            ? TileMinimumSize.FixedMaximum(ownMinimum, otherMinimum, available)
+            : double.PositiveInfinity;
 
     /// <summary>Takes the minimums again, here and in every split this one sits in.</summary>
     private void RefreshMinimums()
@@ -254,24 +282,75 @@ public partial class TileNodeView : UserControl
         _owner?.RefreshMinimums();
     }
 
+    /// <summary>The lengths a split's two panes are laid out at.</summary>
+    /// <remarks>
+    /// <para>Shares of what the split has, as star weights, unless a side is fixed: then that side is its
+    /// pixels and the other is a single star, which is what lets it take whatever the window leaves.</para>
+    /// <para>A fixed side's pixels are not capped here but on its definition's maximum
+    /// (<see cref="ApplyMinimums"/>), which is taken again whenever the grid changes size: a grid gives a
+    /// pixel length its pixels before a star gets anything, so a minimum on the other pane alone would
+    /// not stop it being pushed past the edge — and a cap computed here, at build time, would be one
+    /// measured before the first layout pass, which is no size at all.</para>
+    /// </remarks>
+    internal static (GridLength First, GridLength Second) LengthsFor(SplitTileNodeViewModel split) =>
+        split.FixedSide switch
+        {
+            SplitFixedSide.First => (new GridLength(split.FixedExtent, GridUnitType.Pixel), new GridLength(1, GridUnitType.Star)),
+            SplitFixedSide.Second => (new GridLength(1, GridUnitType.Star), new GridLength(split.FixedExtent, GridUnitType.Pixel)),
+            _ => (new GridLength(split.SplitRatio, GridUnitType.Star), new GridLength(1 - split.SplitRatio, GridUnitType.Star))
+        };
+
+    /// <summary>Puts the split's lengths back on a grid already built for it, where they differ.</summary>
+    private static void ApplyLengths(SplitTileNodeViewModel split, Grid? grid)
+    {
+        if (grid is null) return;
+        var (first, second) = LengthsFor(split);
+
+        if (split.Orientation == Orientation.Vertical && grid.ColumnDefinitions.Count >= 3)
+        {
+            if (grid.ColumnDefinitions[0].Width != first) grid.ColumnDefinitions[0].Width = first;
+            if (grid.ColumnDefinitions[2].Width != second) grid.ColumnDefinitions[2].Width = second;
+        }
+        else if (split.Orientation == Orientation.Horizontal && grid.RowDefinitions.Count >= 3)
+        {
+            if (grid.RowDefinitions[0].Height != first) grid.RowDefinitions[0].Height = first;
+            if (grid.RowDefinitions[2].Height != second) grid.RowDefinitions[2].Height = second;
+        }
+    }
+
     /// <summary>
-    /// Stores where the splitter came to rest, as the star weights it left behind.
-    /// <para>The weights and not the measured sizes: the splitter writes the weights synchronously as
-    /// it is dragged — already clamped by the minimums — while <c>ActualWidth</c> is one layout pass
-    /// behind at <c>DragCompleted</c>, so reading it saves the split from before the drag.</para>
+    /// Stores where the splitter came to rest, as the lengths it left behind.
+    /// <para>The lengths and not the measured sizes: the splitter writes them synchronously as it is
+    /// dragged — already clamped by the minimums — while <c>ActualWidth</c> is one layout pass behind at
+    /// <c>DragCompleted</c>, so reading it saves the split from before the drag.</para>
     /// </summary>
     private static void UpdateSplitRatio(SplitTileNodeViewModel split, Grid grid)
     {
         if (split.Orientation == Orientation.Vertical && grid.ColumnDefinitions.Count >= 3)
-            StoreRatio(split, grid.ColumnDefinitions[0].Width.Value, grid.ColumnDefinitions[2].Width.Value);
+            StoreRest(split, grid.ColumnDefinitions[0].Width, grid.ColumnDefinitions[2].Width);
         else if (split.Orientation == Orientation.Horizontal && grid.RowDefinitions.Count >= 3)
-            StoreRatio(split, grid.RowDefinitions[0].Height.Value, grid.RowDefinitions[2].Height.Value);
+            StoreRest(split, grid.RowDefinitions[0].Height, grid.RowDefinitions[2].Height);
     }
 
-    private static void StoreRatio(SplitTileNodeViewModel split, double first, double second)
+    /// <summary>Writes the splitter's resting place back into the split.</summary>
+    /// <remarks>A fixed side keeps being a size in pixels after it is dragged: the splitter resizes a
+    /// pixel definition in pixels and leaves the star beside it a star, so the fixed side's new length is
+    /// the whole answer and the ratio is left as it was.</remarks>
+    internal static void StoreRest(SplitTileNodeViewModel split, GridLength first, GridLength second)
     {
-        var total = first + second;
-        if (total > 0)
-            split.SplitRatio = first / total;
+        switch (split.FixedSide)
+        {
+            case SplitFixedSide.First when first.IsAbsolute:
+                split.FixedExtent = first.Value;
+                return;
+            case SplitFixedSide.Second when second.IsAbsolute:
+                split.FixedExtent = second.Value;
+                return;
+            case SplitFixedSide.None:
+                var total = first.Value + second.Value;
+                if (total > 0)
+                    split.SplitRatio = first.Value / total;
+                return;
+        }
     }
 }

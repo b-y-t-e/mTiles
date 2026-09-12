@@ -1,4 +1,5 @@
 using Avalonia.Layout;
+using mTiles.Models;
 using mTiles.Services;
 
 namespace mTiles.ViewModels;
@@ -22,19 +23,70 @@ internal enum DropZone { None, Left, Right, Top, Bottom, Center }
 /// </remarks>
 internal static class TileTreeEdits
 {
-    public static void Execute(LeafTileNodeViewModel source, LeafTileNodeViewModel target, DropZone zone)
+    /// <summary>Drops a tile onto another: its middle swaps the two, its edges split it.</summary>
+    /// <param name="fixedExtent">Pixels to hold the dropped tile at along the new split, or null for the
+    /// even share an edge drop has always given. Ignored by a swap, which creates no split.</param>
+    public static void Execute(
+        LeafTileNodeViewModel source, LeafTileNodeViewModel target, DropZone zone, double? fixedExtent = null)
     {
         if (source == target || zone == DropZone.None) return;
 
         if (zone == DropZone.Center)
             SwapPlaces(source, target);
+        else if (FixedSplitAcross(target, zone) is { } fixedSplit)
+            ExecuteGutter(source, fixedSplit);
         else
-            MoveToEdge(source, target, zone);
+            MoveToEdge(source, target, zone, fixedExtent);
 
         // A drop moves a tile between parents, which is the other way the soloed splits stop describing
         // the tree — the same reason DetachFromTree says so, said once for both drops.
         source.MaximizeScope?.ReviewLayout();
     }
+
+    /// <summary>
+    /// The split a drop on <paramref name="target"/>'s edge is taken to as a gutter drop instead, or null
+    /// when the edge splits the tile as usual.
+    /// </summary>
+    /// <remarks>A tile held at a size in pixels along the axis of the drop cannot be split along it: the
+    /// new pair would be held at the one tile's pixels between them — the same reason
+    /// <see cref="ExecuteGutter"/> puts a newcomer into the flexible side. So either edge across that axis
+    /// is read as the split's own gutter, and the drop and its hint both ask here. The tile need not be
+    /// the fixed child itself: a tile inside a fixed pane shares those pixels just the same.</remarks>
+    public static SplitTileNodeViewModel? FixedSplitAcross(LeafTileNodeViewModel target, DropZone zone) =>
+        DividingAxis(zone) is { } axis ? FixedAncestorAlong(target, axis) : null;
+
+    /// <summary>The split a gutter drop on <paramref name="split"/> is actually made into.</summary>
+    /// <remarks>A split inside a pane held at a size in pixels along its own axis would put a third tile
+    /// into those pixels, so the drop goes to the gutter of the split that holds them instead.</remarks>
+    public static SplitTileNodeViewModel GutterSplitFor(SplitTileNodeViewModel split) =>
+        FixedAncestorAlong(split, split.Orientation) ?? split;
+
+    /// <summary>
+    /// The outermost split dividing <paramref name="axis"/> whose fixed side holds <paramref name="node"/>,
+    /// or null when no pane around it is held at a size in pixels along that axis.
+    /// </summary>
+    /// <remarks>The outermost and not the nearest: a nearer one's flexible side still lies inside the
+    /// outer one's pixels, so a newcomer put there would be squeezed into them all the same. Walking all
+    /// the way up also makes <see cref="GutterSplitFor"/> answer its own answer again, so the hint and the
+    /// drop, which each ask, land on the same split.</remarks>
+    private static SplitTileNodeViewModel? FixedAncestorAlong(TileNodeViewModel node, Orientation axis)
+    {
+        SplitTileNodeViewModel? outermost = null;
+        for (var child = node; child.Parent is SplitTileNodeViewModel parent; child = parent)
+        {
+            if (parent.Orientation == axis && parent.IsFixed(child))
+                outermost = parent;
+        }
+        return outermost;
+    }
+
+    /// <summary>The orientation of the split an edge drop into <paramref name="zone"/> would create.</summary>
+    private static Orientation? DividingAxis(DropZone zone) => zone switch
+    {
+        DropZone.Left or DropZone.Right => Orientation.Vertical,
+        DropZone.Top or DropZone.Bottom => Orientation.Horizontal,
+        _ => null
+    };
 
     /// <summary>
     /// Swaps two tiles by exchanging their places in the tree.
@@ -93,25 +145,39 @@ internal static class TileTreeEdits
     /// </remarks>
     public static void ExecuteGutter(LeafTileNodeViewModel source, SplitTileNodeViewModel split)
     {
+        split = GutterSplitFor(split);
         if (ReferenceEquals(split.First, source) || ReferenceEquals(split.Second, source)) return;
         if (!DetachFromTree(source)) return;
 
-        // Both read after the detach, never before: lifting the source's sibling can have replaced
-        // either of this split's children with it.
-        if (split.Second is not { } second) return;
+        // Read after the detach, never before: lifting the source's sibling can have replaced either of
+        // this split's children with it.
         var neighbour = FirstLeaf(split);
 
-        var (outer, inner) = TileDropRatio.Gutter(split.SplitRatio);
+        // A fixed side is a size somebody chose for that tile, so the newcomer is put into the other
+        // side and takes its room from there alone. Wrapped in with the fixed tile instead, the pair of
+        // them would be held at the one tile's pixels.
+        var intoFirst = split.FixedSide == SplitFixedSide.Second;
+        if ((intoFirst ? split.First : split.Second) is not { } kept) return;
 
-        var inserted = new SplitTileNodeViewModel(split.Orientation, source, second)
+        var inserted = intoFirst
+            ? new SplitTileNodeViewModel(split.Orientation, kept, source)
+            : new SplitTileNodeViewModel(split.Orientation, source, kept);
+        inserted.Parent = split;
+        inserted.LayoutChanged = split.LayoutChanged;
+
+        if (split.FixedSide == SplitFixedSide.None)
         {
-            Parent = split,
-            LayoutChanged = split.LayoutChanged,
-            SplitRatio = inner
-        };
+            var (outer, inner) = TileDropRatio.Gutter(split.SplitRatio);
+            inserted.SplitRatio = inner;
+            split.SplitRatio = outer;
+        }
+        else
+        {
+            inserted.SplitRatio = TileDropRatio.BesideFixed(newcomerFirst: !intoFirst);
+        }
 
         source.Parent = inserted;
-        second.Parent = inserted;
+        kept.Parent = inserted;
 
         // The same rule MoveToEdge follows, and for the same reason: the dropped tile belongs to this
         // tree now, so it is configured by whoever configures this tree rather than by copying whatever
@@ -121,10 +187,9 @@ internal static class TileTreeEdits
         else
             source.LayoutChanged = split.LayoutChanged;
 
-        // The ratio first and the child second: only the child rebuilds the view, so assigning it last
+        // The ratios first and the child second: only the child rebuilds the view, so assigning it last
         // is what lets one rebuild read both halves of the change.
-        split.SplitRatio = outer;
-        split.Second = inserted;
+        if (intoFirst) split.First = inserted; else split.Second = inserted;
 
         source.LayoutChanged?.Invoke();
         source.MaximizeScope?.ReviewLayout();
@@ -141,8 +206,10 @@ internal static class TileTreeEdits
     /// <para>A tree whose root is a single tile is refused outright. There is nothing to put a
     /// column beside, and the tile's own edge zone already answers that gesture.</para>
     /// </remarks>
+    /// <param name="fixedExtent">Pixels to hold the dropped tile at, or null for a third of the tree.</param>
     public static void ExecuteRootEdge(
-        LeafTileNodeViewModel source, Func<TileNodeViewModel?> readRoot, DropZone zone)
+        LeafTileNodeViewModel source, Func<TileNodeViewModel?> readRoot, DropZone zone,
+        double? fixedExtent = null)
     {
         if (zone is DropZone.None or DropZone.Center) return;
         if (readRoot() is not SplitTileNodeViewModel) return;
@@ -158,9 +225,10 @@ internal static class TileTreeEdits
 
         var split = new SplitTileNodeViewModel(orientation, first, second)
         {
-            SplitRatio = TileDropRatio.Edge(sourceFirst),
-            LayoutChanged = root.LayoutChanged
+            SplitRatio = TileDropRatio.Edge(sourceFirst)
         };
+        FixIfAsked(split, sourceFirst, fixedExtent);
+        split.LayoutChanged = root.LayoutChanged;
 
         first.Parent = split;
         second.Parent = split;
@@ -246,7 +314,17 @@ internal static class TileTreeEdits
         return true;
     }
 
-    private static void MoveToEdge(LeafTileNodeViewModel source, LeafTileNodeViewModel target, DropZone zone)
+    /// <summary>Holds the dropped tile's side of a new split at <paramref name="fixedExtent"/> pixels.</summary>
+    /// <remarks>Before the split's save callback is attached: the edit announces itself once, when it is
+    /// finished, and a split being assembled is not a change anybody has to be told about.</remarks>
+    private static void FixIfAsked(SplitTileNodeViewModel split, bool sourceFirst, double? fixedExtent)
+    {
+        if (fixedExtent is { } extent)
+            split.Fix(sourceFirst ? SplitFixedSide.First : SplitFixedSide.Second, extent);
+    }
+
+    private static void MoveToEdge(
+        LeafTileNodeViewModel source, LeafTileNodeViewModel target, DropZone zone, double? fixedExtent)
     {
         if (!DetachFromTree(source)) return;
 
@@ -261,9 +339,10 @@ internal static class TileTreeEdits
 
         var split = new SplitTileNodeViewModel(orientation, first, second)
         {
-            Parent = target.Parent,
-            LayoutChanged = target.LayoutChanged
+            Parent = target.Parent
         };
+        FixIfAsked(split, sourceFirst, fixedExtent);
+        split.LayoutChanged = target.LayoutChanged;
 
         first.Parent = split;
         second.Parent = split;

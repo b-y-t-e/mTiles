@@ -53,6 +53,17 @@ public static class TileMinimumSize
         return (first * scale, second * scale);
     }
 
+    /// <summary>The most a pane held at a size in pixels may take, so the pane beside it keeps its minimum.</summary>
+    /// <remarks>
+    /// <para>A grid gives a pixel length its pixels first and a star what is left, so a fixed side wider
+    /// than the split leaves the other pane nothing — past the edge and clipped, whatever minimum it was
+    /// given. The cap is what the split has less what the other pane needs, and never below the fixed
+    /// pane's own minimum; both minimums are expected already brought inside the room by <see cref="Fit"/>.</para>
+    /// <para><paramref name="available"/> of zero or less is a size not known yet, so nothing is capped.</para>
+    /// </remarks>
+    public static double FixedMaximum(double fixedMinimum, double flexibleMinimum, double available) =>
+        available <= 0 ? double.PositiveInfinity : Math.Max(fixedMinimum, available - flexibleMinimum);
+
     /// <param name="dividingAxis">The split orientation that divides the axis being measured — a
     /// <see cref="Orientation.Vertical"/> split puts its children side by side and so divides width.</param>
     private static double Along(TileNodeViewModel? node, Orientation dividingAxis, double gap)
