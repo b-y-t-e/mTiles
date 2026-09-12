@@ -191,7 +191,7 @@ public class LeafTileDisposalTests
         sibling.Dictation = null;
         configured = 0;
 
-        Assert.True(Views.TileDragDrop.DetachFromTree(tile));
+        Assert.True(TileTreeEdits.DetachFromTree(tile));
 
         Assert.Equal(1, configured);
         Assert.Same(service, sibling.Dictation);

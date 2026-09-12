@@ -35,7 +35,7 @@ public sealed record TileContext(
     /// moment it matters — which for a terminal is the launch — nothing has to be re-stamped.
     /// <para>Which is also why the function is bound to the tile it was built for and content is never
     /// moved between two of them: dragging one tile onto another exchanges the two leaves' places in
-    /// the tree (<c>TileDragDrop.SwapPlaces</c>), so content, id and owner stay together.</para>
+    /// the tree (<c>TileTreeEdits.SwapPlaces</c>), so content, id and owner stay together.</para>
     /// <para>The default answers with nothing, which is right for every kind that does not use it and
     /// for a context built without a tile behind it. The tile fills it in with
     /// <c>context with { TileId = () =&gt; TileId }</c> once, in its constructor.</para>

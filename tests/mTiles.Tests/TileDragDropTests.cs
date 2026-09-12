@@ -52,7 +52,7 @@ public class TileDragDropTests : IDisposable
         var (idOfFirst, idOfSecond) = (first.TileId, second.TileId);
         Assert.NotEqual(idOfFirst, idOfSecond);
 
-        TileDragDrop.Execute(first, second, DropZone.Center);
+        TileTreeEdits.Execute(first, second, DropZone.Center);
 
         // The tiles changed places...
         Assert.Same(second, split.First);
@@ -79,7 +79,7 @@ public class TileDragDropTests : IDisposable
         var (_, first, second) = TwoTerminals(workspace);
         var contentOfFirst = Assert.IsType<TerminalTileViewModel>(first.Content);
 
-        TileDragDrop.Execute(first, second, DropZone.Center);
+        TileTreeEdits.Execute(first, second, DropZone.Center);
 
         first.TileId = "fresh-session";
 
@@ -102,7 +102,7 @@ public class TileDragDropTests : IDisposable
         var inner = Assert.IsType<SplitTileNodeViewModel>(split.Second);
         var third = Assert.IsType<LeafTileNodeViewModel>(inner.Second);
 
-        TileDragDrop.ExecuteGutter(third, split);
+        TileTreeEdits.ExecuteGutter(third, split);
 
         Assert.Same(first, split.First);
         var pair = Assert.IsType<SplitTileNodeViewModel>(split.Second);
@@ -130,11 +130,11 @@ public class TileDragDropTests : IDisposable
         second.SplitVerticalCommand.Execute(null);
         var inner = Assert.IsType<SplitTileNodeViewModel>(split.Second);
 
-        Assert.Same(inner, TileDragDrop.LiftedByDetach(first, inner));
+        Assert.Same(inner, TileTreeEdits.LiftedByDetach(first, inner));
 
         var workspaceBounds = new Rect(0, 0, 900, 600);
         var innerBounds = new Rect(450, 0, 450, 600);
-        Assert.Equal(workspaceBounds, TileDragDrop.AfterDetach(innerBounds, innerBounds, workspaceBounds));
+        Assert.Equal(workspaceBounds, TileDropGeometry.AfterDetach(innerBounds, innerBounds, workspaceBounds));
     }
 
     /// <summary>A rectangle inside the lifted node is moved and scaled with it.</summary>
@@ -149,10 +149,10 @@ public class TileDragDropTests : IDisposable
         var lifted = new Rect(450, 0, 450, 600);
         var rightHalf = new Rect(675, 0, 225, 600);
 
-        Assert.Equal(new Rect(450, 0, 450, 600), TileDragDrop.AfterDetach(rightHalf, lifted, vacated));
+        Assert.Equal(new Rect(450, 0, 450, 600), TileDropGeometry.AfterDetach(rightHalf, lifted, vacated));
 
         var lowerHalfOfStack = new Rect(450, 300, 450, 300);
-        Assert.Equal(new Rect(0, 300, 900, 300), TileDragDrop.AfterDetach(lowerHalfOfStack, lifted, vacated));
+        Assert.Equal(new Rect(0, 300, 900, 300), TileDropGeometry.AfterDetach(lowerHalfOfStack, lifted, vacated));
     }
 
     /// <summary>A split the dragged tile is not beside keeps its bounds through the detach.</summary>
@@ -167,7 +167,7 @@ public class TileDragDropTests : IDisposable
         var inner = Assert.IsType<SplitTileNodeViewModel>(split.Second);
         var third = Assert.IsType<LeafTileNodeViewModel>(inner.Second);
 
-        Assert.Null(TileDragDrop.LiftedByDetach(third, split));
+        Assert.Null(TileTreeEdits.LiftedByDetach(third, split));
     }
 
     /// <summary>A tile dropped on the gutter of its own split asks for what is already on screen.</summary>
@@ -182,7 +182,7 @@ public class TileDragDropTests : IDisposable
 
         var (split, first, second) = TwoTerminals(workspace);
 
-        TileDragDrop.ExecuteGutter(second, split);
+        TileTreeEdits.ExecuteGutter(second, split);
 
         Assert.Same(first, split.First);
         Assert.Same(second, split.Second);
@@ -201,7 +201,7 @@ public class TileDragDropTests : IDisposable
         var third = Assert.IsType<LeafTileNodeViewModel>(
             Assert.IsType<SplitTileNodeViewModel>(split.Second).Second);
 
-        TileDragDrop.ExecuteWorkspaceEdge(third, () => workspace.RootTile, DropZone.Left);
+        TileTreeEdits.ExecuteRootEdge(third, () => workspace.RootTile, DropZone.Left);
 
         var root = Assert.IsType<SplitTileNodeViewModel>(workspace.RootTile);
         Assert.Equal(Orientation.Vertical, root.Orientation);
@@ -229,7 +229,7 @@ public class TileDragDropTests : IDisposable
 
         var (split, first, second) = TwoTerminals(workspace);
 
-        TileDragDrop.ExecuteWorkspaceEdge(second, () => workspace.RootTile, DropZone.Bottom);
+        TileTreeEdits.ExecuteRootEdge(second, () => workspace.RootTile, DropZone.Bottom);
 
         var root = Assert.IsType<SplitTileNodeViewModel>(workspace.RootTile);
         Assert.NotSame(split, root);
@@ -249,14 +249,14 @@ public class TileDragDropTests : IDisposable
         var only = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
         MakeTerminal(only);
 
-        TileDragDrop.ExecuteWorkspaceEdge(only, () => workspace.RootTile, DropZone.Right);
+        TileTreeEdits.ExecuteRootEdge(only, () => workspace.RootTile, DropZone.Right);
 
         Assert.Same(only, workspace.RootTile);
     }
 
     /// <summary>Which edge of the workspace a pointer is in the band of.</summary>
     /// <remarks>
-    /// <para>A table rather than a <c>Theory</c> because <c>DropZone</c> is internal to the view layer
+    /// <para>A table rather than a <c>Theory</c> because <c>DropZone</c> is internal to the application
     /// and an xUnit 2 theory's parameters have to be as public as the method holding them. Written out
     /// here so the rule is still read as a table.</para>
     /// <para>The negative coordinates are not a curiosity: the workspace's padding is drawn outside the
@@ -286,7 +286,7 @@ public class TileDragDropTests : IDisposable
         ];
 
         foreach (var (x, y, expected) in cases)
-            Assert.Equal(expected, TileDragDrop.GetWorkspaceEdge(new Point(x, y), workspace));
+            Assert.Equal(expected, TileDropGeometry.GetRootEdge(new Point(x, y), workspace));
     }
 
     /// <summary>A workspace narrower than two bands still has a middle.</summary>
@@ -295,8 +295,89 @@ public class TileDragDropTests : IDisposable
     {
         var tiny = new Size(60, 60);
 
-        Assert.Equal(DropZone.Left, TileDragDrop.GetWorkspaceEdge(new Point(4, 30), tiny));
-        Assert.Equal(DropZone.None, TileDragDrop.GetWorkspaceEdge(new Point(30, 30), tiny));
+        Assert.Equal(DropZone.Left, TileDropGeometry.GetRootEdge(new Point(4, 30), tiny));
+        Assert.Equal(DropZone.None, TileDropGeometry.GetRootEdge(new Point(30, 30), tiny));
+    }
+
+    /// <summary>A drag belongs to the tree its tile hangs in, and to no other.</summary>
+    /// <remarks>
+    /// <para>What lets two drop surfaces be drawn one inside the other: each accepts only a drag whose
+    /// tile has its own root, and leaves every other drag to bubble on to the surface that does. Answered
+    /// by walking the tile up to its root at the moment of asking, so a tile that has just been moved is
+    /// already answered for by where it is now.</para>
+    /// <para>Two workspaces stand in for the two levels here: they are two trees of the same node types,
+    /// which is exactly what the window's tree and a workspace's tree are to each other.</para>
+    /// </remarks>
+    [Fact]
+    public void A_drag_is_accepted_only_by_the_tree_its_tile_hangs_in()
+    {
+        using var settings = new TempSettings();
+        using var workspace = Build(settings);
+        using var other = Build(settings);
+
+        var (split, first, _) = TwoTerminals(workspace);
+        TwoTerminals(other);
+
+        Assert.Same(split, TileTreeEdits.RootOf(first));
+
+        try
+        {
+            TileDragSession.Begin(first);
+
+            Assert.True(TileDragSession.IsFrom(workspace.RootTile));
+            Assert.False(TileDragSession.IsFrom(other.RootTile));
+            Assert.False(TileDragSession.IsFrom(null));
+        }
+        finally
+        {
+            TileDragSession.End();
+        }
+
+        Assert.Null(TileDragSession.Source);
+        Assert.False(TileDragSession.IsFrom(workspace.RootTile));
+    }
+
+    /// <summary>A tile moved by a drop is answered for by the root it has now.</summary>
+    [Fact]
+    public void A_moved_tile_belongs_to_the_root_it_was_moved_under()
+    {
+        using var settings = new TempSettings();
+        using var workspace = Build(settings);
+
+        var (_, _, second) = TwoTerminals(workspace);
+
+        TileTreeEdits.ExecuteRootEdge(second, () => workspace.RootTile, DropZone.Top);
+
+        Assert.Same(workspace.RootTile, TileTreeEdits.RootOf(second));
+    }
+
+    /// <summary>Ending a drag puts away the hint of whoever was showing one, and only once.</summary>
+    /// <remarks>A drag abandoned with Escape is not guaranteed to raise <c>DragLeave</c>, so the end of
+    /// the drag is the one place a hint is sure to be put away — and a surface the pointer has since
+    /// left must have been told already, not twice.</remarks>
+    [Fact]
+    public void Ending_a_drag_clears_the_last_hint_shown()
+    {
+        using var settings = new TempSettings();
+        using var workspace = Build(settings);
+        var (_, first, _) = TwoTerminals(workspace);
+
+        var firstCleared = 0;
+        var secondCleared = 0;
+        void ClearFirst() => firstCleared++;
+        void ClearSecond() => secondCleared++;
+
+        TileDragSession.Begin(first);
+        TileDragSession.Hinting(ClearFirst);
+        TileDragSession.Hinting(ClearFirst);
+        Assert.Equal(0, firstCleared);
+
+        TileDragSession.Hinting(ClearSecond);
+        Assert.Equal(1, firstCleared);
+
+        TileDragSession.End();
+        Assert.Equal(1, firstCleared);
+        Assert.Equal(1, secondCleared);
     }
 
     /// <summary>A workspace of two terminals side by side, and the split holding them.</summary>

@@ -15,14 +15,13 @@ using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
-public partial class LeafTileView : UserControl
+public partial class LeafTileView : UserControl, ITileDropTarget
 {
     private ITile? _currentContentVm;
     private string _originalTileName = "";
     private LeafTileNodeViewModel? _subscribedLeaf;
     private ITile? _subscribedContent;
-    private Point? _dragStartPoint;
-    private PointerPressedEventArgs? _dragPressedArgs;
+    private readonly TileDragHandle _dragHandle;
 
     public LeafTileView()
     {
@@ -32,9 +31,13 @@ public partial class LeafTileView : UserControl
         AddHandler(InputElement.PointerPressedEvent, OnTilePointerPressed, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         AddHandler(InputElement.GotFocusEvent, OnTileGotFocus, Avalonia.Interactivity.RoutingStrategies.Bubble);
 
-        TileToolbar.AddHandler(InputElement.PointerPressedEvent, OnToolbarPointerPressed, Avalonia.Interactivity.RoutingStrategies.Tunnel);
-        TileToolbar.AddHandler(InputElement.PointerMovedEvent, OnToolbarPointerMoved, Avalonia.Interactivity.RoutingStrategies.Tunnel);
-        TileToolbar.AddHandler(InputElement.PointerReleasedEvent, OnToolbarPointerReleased, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        _dragHandle = new TileDragHandle(
+            TileToolbar,
+            measuredIn: this,
+            mayArm: e => !IsInsideButton(e.Source as Control) && !TileNameEditor.IsVisible,
+            source: () => DataContext as LeafTileNodeViewModel,
+            dragging: on => Opacity = on ? 0.4 : 1.0);
+
         DropOverlay.BorderThickness = new Thickness(2);
         TileToolbar.SizeChanged += (_, e) => ApplyHeaderWidth(e.NewSize.Width);
     }
@@ -50,15 +53,6 @@ public partial class LeafTileView : UserControl
         leaf.RefreshAgentInstances();
         leaf.RefreshChangeKindOptions();
     }
-
-    /// <summary>How far the pointer has to travel, with the button still down, before the header's
-    /// press becomes a drag of the tile.</summary>
-    /// <remarks>Comfortably above the platform's own double-tap slop (Avalonia's default is 4 DIP, so
-    /// the second click of a double-click has to land within 2 of the first): at 6 the band between
-    /// "still a double-click" and "already a drag" was four pixels wide, which on a mouse with no
-    /// pointer acceleration — the usual Linux configuration — is hand tremor. Below it the header's
-    /// double-click did not fire and the tile went translucent instead.</remarks>
-    private const double DragThreshold = 12;
 
     /// <summary>Below this, the header stops offering to split the tile.</summary>
     private const double SplitButtonsNeedWidth = 260;
@@ -608,7 +602,7 @@ public partial class LeafTileView : UserControl
 
         if (DataContext is not LeafTileNodeViewModel { CanMaximize: true } leaf) return;
 
-        DisarmDrag();
+        _dragHandle.Disarm();
         leaf.ToggleMaximizeCommand.Execute(null);
         e.Handled = true;
     }
@@ -648,90 +642,16 @@ public partial class LeafTileView : UserControl
 
     #region Drag & Drop
 
-    /// <remarks>The second click of a double-click never arms a drag. Avalonia raises
-    /// <c>DoubleTapped</c> from that very press, and this handler tunnels — so it runs first, armed the
-    /// drag, and <see cref="OnToolbarDoubleTapped"/> then filled the workspace with the tile, which
-    /// detaches its view and puts it back somewhere else entirely. The armed origin was measured in the
-    /// layout that no longer exists, so the next pointer move — a pixel of it — read as a drag of
-    /// several hundred.</remarks>
-    private void OnToolbarPointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        DisarmDrag();
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
-        if (e.ClickCount > 1) return;
-        if (IsInsideButton(e.Source as Control)) return;
-        if (TileNameEditor.IsVisible) return;
-        _dragStartPoint = e.GetPosition(this);
-        _dragPressedArgs = e;
-    }
-
-    private void DisarmDrag()
-    {
-        _dragStartPoint = null;
-        _dragPressedArgs = null;
-    }
-
-    private async void OnToolbarPointerMoved(object? sender, PointerEventArgs e)
-    {
-        if (_dragStartPoint == null || _dragPressedArgs == null) return;
-
-        // A drag only ever begins while the button is still down, and this is the check rather than the
-        // release handler below: a release is not guaranteed to arrive. On Wayland the pointer's focused
-        // surface is cleared by a leave, and a button event with no focused surface is dropped by the
-        // backend outright — which a maximize triggered from the header does, since it resizes the
-        // window under the pointer mid-gesture. The arm then survived the whole click and the next move
-        // put the tile into a drag nobody started.
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-        {
-            DisarmDrag();
-            return;
-        }
-
-        var pos = e.GetPosition(this);
-        var delta = pos - _dragStartPoint.Value;
-        if (Math.Abs(delta.X) < DragThreshold && Math.Abs(delta.Y) < DragThreshold) return;
-
-        var pressedArgs = _dragPressedArgs;
-        DisarmDrag();
-
-        if (DataContext is not LeafTileNodeViewModel leaf) return;
-
-        TileDragDrop.DragSource = leaf;
-        var data = new DataTransfer();
-        data.Add(DataTransferItem.CreateText(TileDragDrop.DataFormat));
-
-        Opacity = 0.4;
-        try
-        {
-            await DragDrop.DoDragDropAsync(pressedArgs, data, DragDropEffects.Move);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning("DragDrop failed: {0}", ex.Message);
-        }
-        finally
-        {
-            Opacity = 1.0;
-            TileDragDrop.DragSource = null;
-
-            // The hint is put away by whoever drew it, from the one place that always runs. A drag
-            // abandoned with Escape over a tile is not guaranteed to raise DragLeave anywhere, and a
-            // band of accent left painted across a workspace for the rest of the session is the kind of
-            // thing a user has to restart the application to be rid of.
-            this.GetVisualAncestors().OfType<WorkspaceView>().FirstOrDefault()?.ClearDropHints();
-        }
-    }
-
-    private void OnToolbarPointerReleased(object? sender, PointerReleasedEventArgs e) => DisarmDrag();
+    LeafTileNodeViewModel? ITileDropTarget.DropNode => DataContext as LeafTileNodeViewModel;
 
     /// <summary>Draws the hint for a drop landing on this tile.</summary>
-    /// <remarks>Called by <see cref="WorkspaceView"/> rather than by a drag handler of this view's own.
+    /// <remarks>Called by <see cref="TileDropSurface"/> rather than by a drag handler of this view's own.
     /// The three kinds of target — the workspace's edge, a gutter, a tile — are ranked against each
     /// other, and a tile that decided for itself would have to be overruled afterwards by whatever
     /// ranked them: two writers for one hint, which is the arrangement this application has already
     /// paid for once in the tile header. What stays here is the drawing, because the overlay belongs
     /// inside the card's own clip and nothing above it knows that radius.</remarks>
-    internal void ShowDropOverlay(DropZone zone)
+    void ITileDropTarget.ShowDropOverlay(DropZone zone)
     {
         if (zone == DropZone.None) { HideDropOverlay(); return; }
 
@@ -764,7 +684,7 @@ public partial class LeafTileView : UserControl
         DropOverlay.IsVisible = true;
     }
 
-    internal void HideDropOverlay()
+    public void HideDropOverlay()
     {
         DropOverlay.IsVisible = false;
     }

@@ -811,7 +811,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
         Dispose();          // the content goes with it
 
-        if (!Views.TileDragDrop.DetachFromTree(this))
+        if (!TileTreeEdits.DetachFromTree(this))
         {
             RootCleared?.Invoke();
             return;

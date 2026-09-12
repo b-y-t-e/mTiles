@@ -250,7 +250,7 @@ somebody else's session id. All four are gone.
 
 **The function is bound to the tile it was built for, so content never moves between two tiles.**
 Dropping one tile onto the middle of another exchanges the two leaves' places in the tree
-(`TileDragDrop.SwapPlaces`) instead of trading their `Content`, kind, name and `TileId`. Trading them
+(`TileTreeEdits.SwapPlaces`) instead of trading their `Content`, kind, name and `TileId`. Trading them
 looks identical on screen and is not: four values changed hands and the fifth — the closure, which
 answers with the id of the leaf that *created* the content — could not, so each terminal came out
 reading its neighbour's id and "Restart shell" reopened the wrong `--session-id`. Swapping places has
@@ -271,8 +271,8 @@ which handler ran last.
 | A tile's edge (outer 30%) | Splits that one tile in two | half of it |
 | A tile's middle | The two tiles change places | unchanged |
 
-**The arbitration lives in `WorkspaceView` and nowhere else**, which is why that is the only control in
-a workspace carrying `DragDrop.AllowDrop`. A tile deciding for itself would have to be overruled
+**The arbitration lives in `TileDropSurface` and nowhere else**, which is why that is the only control in
+a tree carrying `DragDrop.AllowDrop`. A tile deciding for itself would have to be overruled
 afterwards by whatever ranked the three, and that is two writers for one hint — the arrangement
 `CLAUDE.md` records the tile header having already paid for. What a tile still draws is its *own* hint,
 because that overlay belongs inside the card's clip and nothing outside it knows that radius.
@@ -302,6 +302,30 @@ would go into a node nobody draws and the tile would be gone; the gesture also a
 already on screen. And **the workspace's root is read again after the detach**, never captured before
 it: with two tiles in the workspace, taking one out lifts the other into the root's own slot, so a root
 read too early is a split that is no longer in the tree.
+
+**The gesture is four pieces, and none of them knows which tree it is in**, so the same gesture can serve
+a second level of tiles — the window's own layout — without a copy:
+
+- `TileTreeEdits` (view model layer) — the edits: swap, split beside, insert between, put beside the
+  whole tree, take out. It lives beside the node types rather than the views because closing a tile
+  detaches it too, and a view model reaching into `Views/` for that was a layering fault.
+- `TileDropGeometry` — the pure rules for where on screen a drop lands: a tile's zones, the tree's edge
+  band, the room a split has once the dragged tile has left it.
+- `TileDropSurface` — one per tree: resolves the target, ranks the three, draws the bands, runs the edit.
+  What it looks for under the pointer is `ITileDropTarget`, not a view type, so a tile drawn by another
+  view can be a target by implementing it.
+- `TileDragHandle` and `TileDragSession` — the start of a drag (threshold, the double-click guard, the
+  release Wayland drops) and the drag in flight.
+
+**Surfaces nest, and each answers only for its own tree.** Which tree a drag belongs to is *read*, never
+stored: `TileDragSession.IsFrom` walks the dragged tile up to its root and compares it with the surface's
+own. A surface refusing a drag leaves the event unhandled so it bubbles to the surface that owns it, and
+a gutter or a tile under the pointer from a tree nested inside is walked past rather than taken. Nothing
+has to be kept in step when a tile moves, because a tile that has moved already has a different root.
+
+**The padding belongs to the surface, not to the view around it.** Only the control carrying
+`DragDrop.AllowDrop` is asked about a pointer over it, so the eight pixels round a workspace answer as
+its edge only because the surface draws them.
 
 **Cross-workspace drops are still not possible**, and not because anything refuses them: only one
 workspace's view is visible at a time, so there is never a second workspace's tile under the pointer.

@@ -1,97 +1,27 @@
-using Avalonia;
 using Avalonia.Layout;
 using mTiles.Services;
-using mTiles.ViewModels;
 
-namespace mTiles.Views;
+namespace mTiles.ViewModels;
 
+/// <summary>Where on a target a dragged tile is dropped.</summary>
 internal enum DropZone { None, Left, Right, Top, Bottom, Center }
 
-/// <summary>What the pointer is over during a tile drag, in the order the three are asked.</summary>
-internal enum TileDropKind
+/// <summary>
+/// The changes a drag and drop makes to a tile tree: swap, split beside, insert between, put beside
+/// everything, and take out.
+/// </summary>
+/// <remarks>
+/// <para><b>Nothing here knows which tree it is editing.</b> A workspace's tiles and the window's own
+/// tiles are the same node types, and the root is either read through <c>Parent</c> or handed in, so
+/// the same edits serve both levels. That is the whole of what makes the gesture reusable: the
+/// arbitration on screen is <c>Views.TileDropSurface</c>, and the geometry is
+/// <c>Views.TileDropGeometry</c>.</para>
+/// <para>In the view model layer rather than beside the views that call it, because closing a tile
+/// takes it out of the tree through <see cref="DetachFromTree"/> too, and a view model reaching into
+/// <c>Views/</c> for that was the one place this layer depended on the one above it.</para>
+/// </remarks>
+internal static class TileTreeEdits
 {
-    /// <summary>Nothing this gesture can be dropped on.</summary>
-    None,
-
-    /// <summary>The outer band of the workspace — a new column or row beside the whole layout.</summary>
-    WorkspaceEdge,
-
-    /// <summary>The gutter of a split — between the two tiles it holds.</summary>
-    Gutter,
-
-    /// <summary>A tile: its middle swaps, its edges split it.</summary>
-    Leaf
-}
-
-internal static class TileDragDrop
-{
-    public const string DataFormat = "application/x-mtiles-tile";
-    public static LeafTileNodeViewModel? DragSource { get; set; }
-
-    /// <summary>How far into the workspace the outer drop band reaches.</summary>
-    /// <remarks>
-    /// <para>It has to overlap the outermost tiles, and that is forced rather than chosen: the
-    /// workspace's padding is eight pixels on three sides and <b>nothing on the left</b>, where the gap
-    /// is the panel's own splitter column and belongs to the window. A band living only in the padding
-    /// would therefore have no left edge at all.</para>
-    /// <para>So it wins over the tile underneath, and the width is the price of that: wide enough to
-    /// hit with a mouse, narrow enough that a tile 200px across keeps most of its own 30% edge zone.
-    /// Capped at a third of the shorter side so that a workspace narrower than two bands still has a
-    /// middle.</para>
-    /// </remarks>
-    public const double WorkspaceEdgeBand = 28;
-
-    public static DropZone GetDropZone(Point position, Size bounds)
-    {
-        if (bounds.Width < 40 || bounds.Height < 40)
-            return DropZone.Center;
-
-        var rx = position.X / bounds.Width;
-        var ry = position.Y / bounds.Height;
-
-        const double edge = 0.30;
-
-        var dLeft = rx;
-        var dRight = 1 - rx;
-        var dTop = ry;
-        var dBottom = 1 - ry;
-        var minD = Math.Min(Math.Min(dLeft, dRight), Math.Min(dTop, dBottom));
-
-        if (minD >= edge)
-            return DropZone.Center;
-
-        if (minD == dLeft) return DropZone.Left;
-        if (minD == dRight) return DropZone.Right;
-        if (minD == dTop) return DropZone.Top;
-        return DropZone.Bottom;
-    }
-
-    /// <summary>
-    /// Which edge of the workspace the pointer is in the band of, or <see cref="DropZone.None"/>.
-    /// </summary>
-    /// <remarks>A position <em>outside</em> the bounds answers with the nearest side rather than with
-    /// nothing: the workspace's padding is drawn outside the tile tree, and a pointer in it is as much
-    /// on that edge as one a pixel inside is.</remarks>
-    public static DropZone GetWorkspaceEdge(Point position, Size bounds)
-    {
-        if (bounds.Width <= 0 || bounds.Height <= 0) return DropZone.None;
-
-        var band = Math.Min(WorkspaceEdgeBand, Math.Min(bounds.Width, bounds.Height) / 3);
-
-        var dLeft = position.X;
-        var dRight = bounds.Width - position.X;
-        var dTop = position.Y;
-        var dBottom = bounds.Height - position.Y;
-        var minD = Math.Min(Math.Min(dLeft, dRight), Math.Min(dTop, dBottom));
-
-        if (minD > band) return DropZone.None;
-
-        if (minD == dLeft) return DropZone.Left;
-        if (minD == dRight) return DropZone.Right;
-        if (minD == dTop) return DropZone.Top;
-        return DropZone.Bottom;
-    }
-
     public static void Execute(LeafTileNodeViewModel source, LeafTileNodeViewModel target, DropZone zone)
     {
         if (source == target || zone == DropZone.None) return;
@@ -201,17 +131,17 @@ internal static class TileDragDrop
     }
 
     /// <summary>
-    /// Drops a tile onto the workspace's outer band: a new column or row beside the whole layout.
+    /// Drops a tile onto the tree's outer band: a new column or row beside the whole layout.
     /// </summary>
     /// <remarks>
     /// <para>The root is read through a delegate rather than taken as an argument, and read
-    /// <em>twice</em>, because detaching the source can replace it: with two tiles in the workspace the
+    /// <em>twice</em>, because detaching the source can replace it: with two tiles in the tree the
     /// survivor is lifted into the root's own slot, so a root captured before the detach is a node that
     /// is no longer in the tree.</para>
-    /// <para>A workspace whose root is a single tile is refused outright. There is nothing to put a
+    /// <para>A tree whose root is a single tile is refused outright. There is nothing to put a
     /// column beside, and the tile's own edge zone already answers that gesture.</para>
     /// </remarks>
-    public static void ExecuteWorkspaceEdge(
+    public static void ExecuteRootEdge(
         LeafTileNodeViewModel source, Func<TileNodeViewModel?> readRoot, DropZone zone)
     {
         if (zone is DropZone.None or DropZone.Center) return;
@@ -241,6 +171,19 @@ internal static class TileDragDrop
         source.MaximizeScope?.ReviewLayout();
     }
 
+    /// <summary>The root of the tree a node hangs in.</summary>
+    /// <remarks>What a drop surface asks before it accepts anything: the window's tree and a workspace's
+    /// tree are drawn one inside the other, so a pointer over a workspace tile is also over the window's
+    /// surface, and a gesture is only ever answered by the surface whose tree the dragged tile — and the
+    /// tile or gutter under the pointer — actually belongs to. Walked through <c>Parent</c> rather than
+    /// held as a field, so a tile moved by any of the edits here needs nothing re-stamped.</remarks>
+    public static TileNodeViewModel RootOf(TileNodeViewModel node)
+    {
+        while (node.Parent is { } parent)
+            node = parent;
+        return node;
+    }
+
     /// <summary>
     /// The node a gutter drop lands in once the dragged tile has been taken out of the tree, or
     /// <c>null</c> when taking it out leaves that node where it is.
@@ -259,26 +202,6 @@ internal static class TileDragDrop
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Where a rectangle inside the lifted sibling ends up once that sibling fills the slot it shared.
-    /// </summary>
-    /// <param name="rect">What is being moved, in the same coordinates as the other two.</param>
-    /// <param name="lifted">The sibling's bounds now.</param>
-    /// <param name="vacated">The bounds of the split that held the sibling and the dragged tile.</param>
-    public static Rect AfterDetach(Rect rect, Rect lifted, Rect vacated)
-    {
-        if (lifted.Width <= 0 || lifted.Height <= 0) return rect;
-
-        var scaleX = vacated.Width / lifted.Width;
-        var scaleY = vacated.Height / lifted.Height;
-
-        return new Rect(
-            vacated.X + (rect.X - lifted.X) * scaleX,
-            vacated.Y + (rect.Y - lifted.Y) * scaleY,
-            rect.Width * scaleX,
-            rect.Height * scaleY);
     }
 
     /// <summary>The first leaf under a node, used to ask a tree how it configures its tiles.</summary>
