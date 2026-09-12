@@ -433,8 +433,10 @@ public partial class GoalTileView : UserControl
     /// <para><b>Text wins when the clipboard holds both</b>, which is the rule the terminal tile
     /// already follows: a copy from a browser or a screenshot tool routinely puts text and an image on
     /// the clipboard at once, and pasting the picture instead of the words the user selected is the
-    /// more surprising of the two mistakes. <b>Alt+V</b> is the way past it, exactly as it is in a
-    /// terminal tile.</para>
+    /// more surprising of the two mistakes. <b>Alt+V</b> is the way past it, as it is in a terminal
+    /// tile — and here it is the way past it <em>everywhere</em>, because the clipboard is read on this
+    /// side. In a terminal tile that gesture is only as good as the agent's own keymap, and Claude Code
+    /// binds it on Windows and WSL alone.</para>
     /// <para>Encoded here rather than in the view model: what Avalonia hands back is a decoded bitmap,
     /// and turning one into bytes needs the imaging stack. The view model is given something it can be
     /// handed by a test.</para>

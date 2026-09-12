@@ -44,10 +44,25 @@ conflicts=('mtiles')
 # same for libX11, and Skia for libGL — none of it is visible to a linker-level check. What
 # namcap *is* right about is the one entry it reported as missing (hicolor-icon-theme) and the
 # ones it confirmed through DT_NEEDED: fontconfig and alsa-lib.
+#
+# The last two are of a different kind from everything above, and the difference is worth saying out
+# loud so that the next reader does not take them for a mistake: nothing in this package links them,
+# opens them or calls them. They are how an AI CLI running *inside* a tile reaches the clipboard.
+# Measured 2026-09-12 against Claude Code 2.1.269 and opencode 1.18.18: neither carries a clipboard
+# of its own on Linux, both shell out to these two programs to find out whether there is an image on
+# the clipboard and to take it (Claude Code tries xclip first and falls back to wl-paste; opencode
+# the other way round), and *neither says anything when the program is missing* — the check exits
+# non-zero, the paste returns nothing, and on screen that is indistinguishable from mTiles having
+# swallowed the keystroke. Hard depends rather than optdepends: handing a screenshot to an agent is
+# what this application is for, an optdepend is a line nobody reads during an upgrade, and the two
+# together are well under a megabyte.
+#   wl-clipboard   wl-paste, the route on a Wayland session
+#   xclip          the same on X11, and what both CLIs reach for first or second regardless
 depends=('glibc' 'gcc-libs' 'zlib' 'icu' 'openssl' 'krb5'
          'fontconfig' 'libglvnd' 'alsa-lib' 'libx11' 'libice' 'libsm'
          'wayland' 'libxkbcommon' 'mesa' 'libdrm'
-         'libjack.so' 'hicolor-icon-theme')
+         'libjack.so' 'hicolor-icon-theme'
+         'wl-clipboard' 'xclip')
 
 # A self-contained .NET publish carries prebuilt native libraries that are not ours to strip:
 # stripping libcoreclr/libSkiaSharp/libonnxruntime is at best pointless and at worst breaks the

@@ -66,6 +66,7 @@ public partial class SettingsViewModel
 
         OnPropertyChanged(nameof(HasNoProviderInstances));
         OnPropertyChanged(nameof(HasNoSignIns));
+        RefreshClipboardHelpers();
     }
 
     /// <summary>Whether anything has been set up at all — an empty list is an empty state, not a list of
@@ -75,6 +76,65 @@ public partial class SettingsViewModel
     /// <summary>Whether a second login has ever been set up. Empty is the ordinary state: one account
     /// per CLI is what everybody starts with.</summary>
     public bool HasNoSignIns => SignIns.Count == 0;
+
+    // ─────────────────────────── The clipboard helpers ───────────────────────────
+
+    private InstallPlan? _clipboardHelperInstall;
+
+    /// <summary>
+    /// Whether this page has to say that an image cannot reach an agent on this machine.
+    /// </summary>
+    /// <remarks>
+    /// <para>A statement on the page rather than a chip on a row, because it is not true of one agent:
+    /// every CLI here reads the clipboard the same way on Linux and every one of them fails the same
+    /// silent way (<see cref="ClipboardHelpers"/>). It sits above the lists for the same reason the
+    /// install buttons are on them — this is the page somebody is on when they are setting an agent up,
+    /// and the alternative is finding out by pasting a screenshot into a tile and watching nothing
+    /// happen.</para>
+    /// <para>Worked out when the page is loaded and when the tab is opened, never per binding: the
+    /// answer is a <c>PATH</c> scan, and a property a view reads is a property a view reads repeatedly.
+    /// </para>
+    /// </remarks>
+    public bool ShowsClipboardHelperNotice { get; private set; }
+
+    /// <summary>The sentence itself, which is the service's to write and not this page's.</summary>
+    public static string ClipboardHelperNotice => ClipboardHelpers.Explanation;
+
+    /// <summary>Whether there is a command to offer as well as the sentence.</summary>
+    /// <remarks>False on a distribution whose package manager is not one of the six, and the notice
+    /// stays up regardless: naming the two programs is the half that is always worth saying, and it is
+    /// the half somebody on an unknown distribution can act on.</remarks>
+    public bool CanInstallClipboardHelpers => _clipboardHelperInstall is not null;
+
+    private void RefreshClipboardHelpers()
+    {
+        ShowsClipboardHelperNotice = ClipboardHelpers.AppliesHere && !ClipboardHelpers.ArePresent;
+        _clipboardHelperInstall = ShowsClipboardHelperNotice ? ClipboardHelpers.Install : null;
+        OnPropertyChanged(nameof(ShowsClipboardHelperNotice));
+        OnPropertyChanged(nameof(CanInstallClipboardHelpers));
+    }
+
+    /// <summary>
+    /// Shows what installing the clipboard helpers would run, and runs it where it can be watched.
+    /// </summary>
+    /// <remarks>The same route an agent's own Install… takes, down to the confirmation carrying the
+    /// command: this one asks for elevation, which is all the more reason for the user to have read the
+    /// line before agreeing to it. The notice stays up afterwards — the command has only just started in
+    /// a tile, and re-checking now would answer about the machine as it was a moment ago. Opening the
+    /// page again is what re-asks.</remarks>
+    [RelayCommand]
+    private async Task InstallClipboardHelpersAsync()
+    {
+        if (_clipboardHelperInstall is not { } plan) return;
+
+        if (!await ConfirmedAsync("Install the clipboard helpers?", plan)) return;
+
+        if (RunInstallPlan is not { } run || !await run(plan))
+        {
+            await ShowProblemAsync("Install",
+                $"Open a workspace first — the command runs in a tile there.\n\n{plan.CommandLine}");
+        }
+    }
 
     // ─────────────────────────── Agent instances ───────────────────────────
 
