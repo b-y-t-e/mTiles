@@ -61,14 +61,16 @@ public class WindowLayoutViewTests : IDisposable
 
         try
         {
-            var frames = window.GetVisualDescendants().OfType<WindowTileFrame>().ToList();
-            Assert.Equal(2, frames.Count);
+            // Only the workspace is a frame; the list is a card like any other tile, with a header.
+            Assert.Single(window.GetVisualDescendants().OfType<WindowTileFrame>());
 
             var listView = Assert.Single(window.GetVisualDescendants().OfType<WorkspacesPanelView>());
             Assert.Same(vm.WorkspacesPanel, listView.DataContext);
+            var listCard = CardOf(listView);
+            Assert.Equal(TileKindIds.Workspaces, Assert.IsType<LeafTileNodeViewModel>(listCard.DataContext).KindId);
 
             // Beside the layout, at the panel's width.
-            Assert.Equal(WorkspacesTileKindWidth(settings), listView.Bounds.Width, precision: 0);
+            Assert.Equal(WorkspacesTileKindWidth(settings), listCard.Bounds.Width, precision: 0);
 
             var layout = vm.WindowLayout!;
             var list = TileTreeEdits.LeavesOf(layout.RootTile).Single(tile => tile.KindId == TileKindIds.Workspaces);
@@ -77,18 +79,19 @@ public class WindowLayoutViewTests : IDisposable
                 layout.FixedExtentFor(list, Orientation.Horizontal));
             window.UpdateLayout();
 
-            // The same control, now a strip along the top.
+            // The same list control, now a strip along the top: its card at the strip's height.
             Assert.Same(listView, Assert.Single(window.GetVisualDescendants().OfType<WorkspacesPanelView>()));
-            Assert.Equal(Services.Tiles.WorkspacesTileKind.StripHeight, listView.Bounds.Height, precision: 0);
+            Assert.Equal(Services.Tiles.WorkspacesTileKind.StripHeight, CardOf(listView).Bounds.Height, precision: 0);
 
-            vm.AddWindowTileCommand.Execute(TileKindIds.Note);
+            vm.WindowLayout!.AddTile(TileKindIds.Note);
             window.UpdateLayout();
 
             var cards = window.GetVisualDescendants().OfType<LeafTileView>()
                 .Select(card => card.DataContext).OfType<LeafTileNodeViewModel>()
                 .Where(tile => TileTreeEdits.RootOf(tile) == layout.RootTile)
+                .Select(tile => tile.KindId)
                 .ToList();
-            Assert.Equal(TileKindIds.Note, Assert.Single(cards).KindId);
+            Assert.Equal(new[] { TileKindIds.Workspaces, TileKindIds.Note }.Order(), cards.Order());
         }
         finally
         {
@@ -143,6 +146,10 @@ public class WindowLayoutViewTests : IDisposable
             vm.DisposeAll();
         }
     });
+
+    /// <summary>The card a control is drawn inside.</summary>
+    private static LeafTileView CardOf(Visual view) =>
+        view.GetVisualAncestors().OfType<LeafTileView>().First();
 
     private static double WorkspacesTileKindWidth(SettingsService settings) => settings.Settings.WorkspacesPanelWidth;
 }

@@ -7,7 +7,9 @@
              x:Class="mTiles.Views.WindowActionsBar"
              x:DataType="vm:WorkspacesPanelViewModel">
 
-    <!-- The application's own actions, which every shape of the workspaces list carries on its far end:
+    <!-- The application's own actions, which every shape of the workspaces list carries on its far end.
+         A tile for the window is not one of them: the list's own header splits it off, the way a tile is
+         added anywhere else. One definition, and:
          one definition, so a new window tile kind or a changed command reaches all three shapes at once. -->
     <UserControl.Styles>
         <Style Selector="mi|MaterialIcon.window-action">
@@ -17,26 +19,6 @@
     </UserControl.Styles>
 
     <StackPanel Orientation="{Binding $parent[views:WindowActionsBar].Orientation}" Spacing="2">
-        <!-- Adds a tile to the window's own layout, beside the workspaces rather than inside one. -->
-        <Button Classes="toolbar"
-                HorizontalAlignment="Center"
-                IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasWindowLayout}"
-                ToolTip.Tip="Add a tile to the window">
-            <mi:MaterialIcon Classes="window-action" Kind="ViewGridPlusOutline" />
-            <Button.Flyout>
-                <MenuFlyout>
-                    <MenuItem Header="Note"
-                              Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                              CommandParameter="{x:Static m:TileKindIds.Note}" />
-                    <MenuItem Header="Todo"
-                              Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                              CommandParameter="{x:Static m:TileKindIds.Todo}" />
-                    <MenuItem Header="Usage"
-                              Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                              CommandParameter="{x:Static m:TileKindIds.Usage}" />
-                </MenuFlyout>
-            </Button.Flyout>
-        </Button>
         <Button Classes="toolbar"
                 HorizontalAlignment="Center"
                 Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleSettingsCommand}"

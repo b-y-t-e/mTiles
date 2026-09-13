@@ -62,7 +62,7 @@ public class WindowActiveTileTests : IDisposable
             terminal.Activate();
             Assert.Same(terminal, window.ActiveTile);
 
-            window.AddWindowTileCommand.Execute(TileKindIds.Note);
+            window.WindowLayout!.AddTile(TileKindIds.Note);
             var note = TileTreeEdits.LeavesOf(window.WindowLayout!.RootTile).Single(t => t.KindId == TileKindIds.Note);
 
             var changes = 0;
@@ -99,7 +99,7 @@ public class WindowActiveTileTests : IDisposable
             window.WorkspacesPanel.SelectedWorkspace = window.WorkspacesPanel.Workspaces[0];
             Assert.IsType<LeafTileNodeViewModel>(window.CurrentWorkspace!.RootTile).Activate();
 
-            window.AddWindowTileCommand.Execute(TileKindIds.Note);
+            window.WindowLayout!.AddTile(TileKindIds.Note);
             var note = TileTreeEdits.LeavesOf(window.WindowLayout!.RootTile).Single(t => t.KindId == TileKindIds.Note);
             note.Activate();
 
@@ -122,7 +122,7 @@ public class WindowActiveTileTests : IDisposable
         try
         {
             window.WorkspacesPanel.SelectedWorkspace = window.WorkspacesPanel.Workspaces[0];
-            window.AddWindowTileCommand.Execute(TileKindIds.Note);
+            window.WindowLayout!.AddTile(TileKindIds.Note);
             var note = TileTreeEdits.LeavesOf(window.WindowLayout!.RootTile).Single(t => t.KindId == TileKindIds.Note);
             note.Activate();
             Assert.Same(note, window.ActiveTile);
@@ -157,7 +157,7 @@ public class WindowActiveTileTests : IDisposable
             var terminal = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
             terminal.Activate();
 
-            window.AddWindowTileCommand.Execute(TileKindIds.Note);
+            window.WindowLayout!.AddTile(TileKindIds.Note);
             TileTreeEdits.LeavesOf(window.WindowLayout!.RootTile).Single(t => t.KindId == TileKindIds.Note).Activate();
 
             Assert.False(terminal.IsActive);
@@ -180,7 +180,7 @@ public class WindowActiveTileTests : IDisposable
         try
         {
             window.WorkspacesPanel.SelectedWorkspace = window.WorkspacesPanel.Workspaces[0];
-            window.AddWindowTileCommand.Execute(TileKindIds.Note);
+            window.WindowLayout!.AddTile(TileKindIds.Note);
             var note = TileTreeEdits.LeavesOf(window.WindowLayout!.RootTile).Single(t => t.KindId == TileKindIds.Note);
             note.Activate();
 

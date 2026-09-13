@@ -173,17 +173,6 @@ public partial class MainWindowViewModel : ObservableObject
     /// test that exercises the workspaces alone.</summary>
     public WindowLayoutViewModel? WindowLayout { get; }
 
-    /// <summary>Whether tiles can be put beside the workspaces, which is what the list's add menu shows on.
-    /// </summary>
-    public bool HasWindowLayout => WindowLayout is not null;
-
-    /// <summary>Puts a note, a todo list or a usage dashboard beside the workspaces, and focuses it.</summary>
-    [RelayCommand]
-    private void AddWindowTile(string? kindId)
-    {
-        if (kindId is not { Length: > 0 } || WindowLayout is not { } layout) return;
-        layout.AddTile(kindId)?.RequestFocus();
-    }
 
     [ObservableProperty]
     private bool _isUpdateAvailable;

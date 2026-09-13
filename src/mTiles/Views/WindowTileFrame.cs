@@ -6,18 +6,17 @@ using mTiles.ViewModels;
 namespace mTiles.Views;
 
 /// <summary>
-/// Draws one of the window's permanent tiles — the list of workspaces, or the place the open workspace is
-/// drawn — without a card or a header of its own.
+/// Draws the place the open workspace is shown, as a tile of the window's layout, without a card or a
+/// header of its own.
 /// </summary>
 /// <remarks>
-/// <para>Neither of them is a card in the sense a note is. The list already is one, with its own heading;
-/// the workspace is a canvas of cards, and a second card round it would be a frame round the frames. So
+/// <para>The workspace is a canvas of cards, and a card round it would be a frame round the frames — so
 /// the frame adds nothing to look at and only what the tree needs: it is the tile's drop target, and it
-/// lays the drop hint over whatever it holds.</para>
-/// <para>What it holds is not its own. The list's view and the panel of cached workspace views belong to
-/// the window and are moved into whichever frame currently stands for their tile, so rebuilding the tree
-/// — moving the list to the top — re-parents them instead of building them again, and no workspace's
-/// shells are ended by it.</para>
+/// lays the drop hint over whatever it holds. The list of workspaces used to be drawn in one of these too;
+/// it is an ordinary card now, with the header every tile is dragged and split by.</para>
+/// <para>What it holds is not its own. The panel of cached workspace views belongs to the window and is
+/// moved into whichever frame currently stands for the tile, so rebuilding the tree re-parents it instead
+/// of building it again, and no workspace's shells are ended by it.</para>
 /// </remarks>
 internal sealed class WindowTileFrame : Grid, ITileDropTarget
 {

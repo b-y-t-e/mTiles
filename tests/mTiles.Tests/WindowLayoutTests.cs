@@ -299,6 +299,44 @@ public class WindowLayoutTests : IDisposable
         Assert.IsType<SplitTileNodeViewModel>(split.Second);
     });
 
+    /// <summary>Splitting the list beside the layout puts the new tile beside its column, not inside it.
+    /// </summary>
+    /// <remarks>The list is held at a size in pixels chosen for a list of names. Split in place, the new
+    /// tile would be squeezed into those pixels with it — so it goes where a drop on that edge puts a tile,
+    /// between the list and the workspace, taking its third from the workspace's side. Split downwards, it
+    /// stays in the column: that axis is not the fixed one.</remarks>
+    [Fact]
+    public void Splitting_the_list_sideways_puts_the_new_tile_beside_its_column() => OnUiThread(() =>
+    {
+        using var fixture = new Fixture(_dir, WindowDir);
+        using var layout = fixture.Layout();
+        var root = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
+        var list = Assert.IsType<LeafTileNodeViewModel>(root.First);
+        var host = Assert.IsType<LeafTileNodeViewModel>(root.Second);
+
+        list.SplitVerticalCommand.Execute(null);
+
+        Assert.Same(root, layout.RootTile);
+        Assert.Same(list, root.First);
+        Assert.True(root.IsFixed(list));
+        Assert.Equal(WorkspacesTileKind.DefaultWidth, root.FixedExtent);
+
+        var beside = Assert.IsType<SplitTileNodeViewModel>(root.Second);
+        var newcomer = Assert.IsType<LeafTileNodeViewModel>(beside.First);
+        Assert.Equal(TileKindIds.None, newcomer.KindId);
+        Assert.Same(host, beside.Second);
+
+        // The empty tile offers what the window may hold, and nothing permanent.
+        Assert.Equal(
+            new[] { TileKindIds.Note, TileKindIds.Todo, TileKindIds.Usage }.Order(),
+            newcomer.AvailableKinds.Select(kind => kind.Id).Order());
+
+        list.SplitHorizontalCommand.Execute(null);
+        var column = Assert.IsType<SplitTileNodeViewModel>(root.First);
+        Assert.Equal(Orientation.Horizontal, column.Orientation);
+        Assert.Same(list, column.First);
+    });
+
     private static void WaitForFile(string path)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);

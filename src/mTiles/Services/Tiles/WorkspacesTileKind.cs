@@ -15,9 +15,11 @@ public sealed class WorkspacesTileKind(Func<WorkspacesPanelViewModel> panel) : T
     public const double DefaultWidth = 240;
 
     /// <summary>How tall the list is when it lies along the top or the bottom of the window.</summary>
-    /// <remarks>One row of tabs: a list laid along the window is a strip to switch by, not a page to
-    /// read, and a share of the window's height would give it a third of the screen.</remarks>
-    public const double StripHeight = 40;
+    /// <remarks>Its card's header and one row of tabs: a list laid along the window is a strip to switch
+    /// by, not a page to read, and a share of the window's height would give it a third of the screen. The
+    /// header is the 27 pixels every tile's is, and it stays, because it is what the list is dragged and
+    /// split by.</remarks>
+    public const double StripHeight = 70;
 
     public override string Id => TileKindIds.Workspaces;
     public override string DisplayName => "Workspaces";

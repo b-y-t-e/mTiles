@@ -173,8 +173,21 @@ public partial class App : Application
     /// </remarks>
     internal static TileCatalog BuildWindowTileCatalog(AiUsageService usage, Func<WorkspacesPanelViewModel> panel) =>
         new TileCatalog()
-            .Register(new WorkspacesTileKind(panel),
-                tile => new WorkspacesPanelView { DataContext = ((WorkspacesTileViewModel)tile).Panel })
+            .Register(new WorkspacesTileKind(panel), tile =>
+            {
+                // One control for the life of the tile, handed to whichever card stands for it now, and
+                // given the list's view model before anything can inherit the card's tile into it.
+                var list = (WorkspacesTileViewModel)tile;
+                if (list.CachedView is WorkspacesPanelView kept)
+                {
+                    ControlHelper.DetachFromParent(kept);
+                    return kept;
+                }
+
+                var view = new WorkspacesPanelView { DataContext = list.Panel };
+                list.CachedView = view;
+                return view;
+            })
             .Register(new WorkspaceHostTileKind(), _ => new Avalonia.Controls.Panel())
             .Register(new NoteTileKind(), tile => new NoteTileView { DataContext = tile })
             .Register(new TodoTileKind(), tile => new TodoTileView { DataContext = tile })

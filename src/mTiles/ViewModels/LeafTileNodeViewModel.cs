@@ -789,6 +789,17 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
             newLeaf.MaximizeScope = MaximizeScope;
         }
 
+        // A tile held at a size in pixels along this axis — the list of workspaces beside the window's
+        // layout — would be split inside its own pixels, and the new tile squeezed into a column chosen
+        // for a list of names. It goes beside that pane instead, exactly where a drop on this edge puts a
+        // dragged tile, which is also the same third of the room.
+        var edge = orientation == Orientation.Vertical ? DropZone.Right : DropZone.Bottom;
+        if (TileTreeEdits.FixedSplitAcross(this, edge) is { } fixedSplit)
+        {
+            TileTreeEdits.InsertIntoGutter(newLeaf, TileTreeEdits.GutterSplitFor(fixedSplit));
+            return newLeaf;
+        }
+
         var oldParent = Parent;
 
         var split = new SplitTileNodeViewModel(orientation, this, newLeaf)

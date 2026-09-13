@@ -182,8 +182,22 @@ internal static class TileTreeEdits
         if (ReferenceEquals(split.First, source) || ReferenceEquals(split.Second, source)) return;
         if (!DetachFromTree(source)) return;
 
-        // Read after the detach, never before: lifting the source's sibling can have replaced either of
-        // this split's children with it.
+        // After the detach, never before: lifting the source's sibling can have replaced either of this
+        // split's children with it.
+        InsertIntoGutter(source, split);
+    }
+
+    /// <summary>
+    /// Puts a tile that is in no tree between the two children of <paramref name="split"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>The half of a gutter drop that comes after the detach, and on its own the other way a tile
+    /// arrives beside a fixed pane: a tile split off one held at a size in pixels along the split's axis
+    /// (<see cref="LeafTileNodeViewModel"/>'s split command) goes here rather than into those pixels.
+    /// </para>
+    /// </remarks>
+    public static void InsertIntoGutter(LeafTileNodeViewModel source, SplitTileNodeViewModel split)
+    {
         var neighbour = FirstLeaf(split);
 
         // A fixed side is a size somebody chose for that tile, so the newcomer is put into the other

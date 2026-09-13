@@ -29,15 +29,10 @@
         </Style>
     </UserControl.Styles>
 
-    <!-- A card, like the tiles: same ground, same radius, same hairline. The panel used to be the one
-         flat slab in the application, running from the title bar to the taskbar beside a column of
-         cards — which read as two applications sharing a window rather than as one. -->
-    <Border Background="{DynamicResource BgSurface}"
-            BorderBrush="{DynamicResource BorderSubtle}"
-            BorderThickness="{DynamicResource BorderThin}"
-            CornerRadius="{DynamicResource RadiusTile}">
-    <Border CornerRadius="{DynamicResource RadiusTileInner}" ClipToBounds="True">
-    <Panel>
+    <!-- No card of its own: the list is a tile of the window's layout, and the tile's card — its ground,
+         its radius, its hairline and the header it is dragged and split by — is drawn round it the way it
+         is drawn round every other tile. A second card in here was a frame inside a frame. -->
+    <Panel Background="{DynamicResource BgSurface}">
         <!-- ═══ EXPANDED MODE ═══ -->
         <DockPanel x:Name="ExpandedPanel">
             <!-- The application's rather than the list's, so a hairline separates it from the list. -->
@@ -77,13 +72,7 @@
                          full-width row at the foot of the list, which put it below the last workspace
                          and made a long list end in something that was not one. A heading also gives
                          the list an edge to start at. -->
-                    <!-- Also what the list is dragged by, to put it somewhere else in the window: the one
-                         part of the panel that is neither a workspace nor a button. Transparent rather than
-                         unset, or the gaps between the words would not take the press. -->
-                    <DockPanel x:Name="HeadingRow"
-                               Background="Transparent"
-                               Cursor="SizeAll"
-                               Margin="19,0,10,4">
+                    <DockPanel Margin="19,0,10,4">
                         <Button DockPanel.Dock="Right"
                                 Classes="ghost"
                                 Command="{Binding AddWorkspaceCommand}"
@@ -262,19 +251,6 @@
 
         <!-- ═══ COLLAPSED MODE (icon strip) ═══ -->
         <DockPanel x:Name="CollapsedPanel" IsVisible="False">
-            <!-- The collapsed strip has no heading to drag the list by, so it gets a grip of its own. -->
-            <Border x:Name="CollapsedHandle"
-                    DockPanel.Dock="Top"
-                    Height="18"
-                    Background="Transparent"
-                    Cursor="SizeAll"
-                    ToolTip.Tip="Drag to move the list">
-                <mi:MaterialIcon Kind="DragHorizontalVariant"
-                                 Width="14" Height="14"
-                                 Foreground="{DynamicResource TextFaint}"
-                                 HorizontalAlignment="Center"
-                                 VerticalAlignment="Center" />
-            </Border>
             <views:WindowActionsBar DockPanel.Dock="Bottom" Orientation="Vertical" HorizontalAlignment="Center" Margin="0,4,0,6" />
 
             <Button DockPanel.Dock="Bottom"
@@ -324,21 +300,6 @@
              and the list's other shapes. The application's own actions stand at the far end, where the
              list's bottom row puts them in the other two shapes. -->
         <DockPanel x:Name="TabsPanel" IsVisible="False">
-            <!-- The grip the list is dragged by in this shape, on its leading end where a heading would
-                 be: a row of tabs has no heading to take hold of. -->
-            <Border x:Name="TabsHandle"
-                    DockPanel.Dock="Left"
-                    Width="18"
-                    Background="Transparent"
-                    Cursor="SizeAll"
-                    ToolTip.Tip="Drag to move the list">
-                <mi:MaterialIcon Kind="DragVerticalVariant"
-                                 Width="14" Height="14"
-                                 Foreground="{DynamicResource TextFaint}"
-                                 HorizontalAlignment="Center"
-                                 VerticalAlignment="Center" />
-            </Border>
-
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" Margin="4,0,6,0"
                         VerticalAlignment="Center">
                 <!-- The filter as a button that opens the field, because a text box standing in a row of
@@ -430,6 +391,4 @@
             </ScrollViewer>
         </DockPanel>
     </Panel>
-    </Border>
-    </Border>
 </UserControl>

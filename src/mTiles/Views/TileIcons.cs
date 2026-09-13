@@ -41,6 +41,7 @@ public static class TileIcons
         "refresh" => MaterialIconKind.Refresh,
         "check" => MaterialIconKind.Check,
         "upload" => MaterialIconKind.Upload,
+        "workspaces" => MaterialIconKind.FolderMultipleOutline,
         "play" => MaterialIconKind.Play,
         "pause" => MaterialIconKind.Pause,
         _ => Placeholder,

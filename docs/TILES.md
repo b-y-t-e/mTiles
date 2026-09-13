@@ -383,12 +383,16 @@ carried out, so a list moved from one side to the other still reads its old spli
 
 **How it is drawn.** The window's surface and tree replace the grid `MainWindow` used to hold, and the
 tree is told which control stands for a tile (`TileNodeView.CreateLeafView`, passed down to every split):
-the list and the workspace get a `WindowTileFrame` — no card and no header, only the drop target and the
-hint overlay — round controls the window builds once and keeps, and every other tile is an ordinary card.
-So moving the list re-parents the same `WorkspacesPanelView` and the same panel of cached workspace views,
-and no workspace's shells end because the layout changed. The list is dragged by its heading, or by the
-grip the collapsed strip has instead of one. New tiles come from the add menu on the list's bottom row
-(`MainWindowViewModel.AddWindowTileCommand`), beside Settings, because that row is the application's.
+the workspace gets a `WindowTileFrame` — no card and no header, only the drop target and the hint overlay —
+round the panel of cached workspace views the window builds once and keeps, because the workspace is a
+canvas of cards already. **Every other tile is an ordinary card, the list of workspaces included**: it has
+the header every tile has, is dragged by it, and splits from it, and its `WorkspacesPanelView` is kept on
+the tile's view model so a card rebuilt when the tile moves takes the same list back. No workspace's
+shells end because the layout changed. A tile is added to the window by splitting one and choosing Note,
+Todo or Usage in the empty tile — there is no separate add button. Splitting a tile held at a size in
+pixels along the split's own axis puts the new tile beside that pane (`TileTreeEdits.InsertIntoGutter`),
+the same place a drop on that edge puts one; the list is 240 px chosen for names, and a note squeezed
+into it is not what a split asked for.
 
 **The window's hints are magenta, a workspace's keep their blue** (`DropHintBrushes`, the surface's
 `HintBrushKey`). The two levels are drawn one inside the other and their hints are the same bands, so

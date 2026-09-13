@@ -21,9 +21,6 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, WorkspaceView> _viewCache = new();
     private WorkspaceView? _activeWorkspaceView;
 
-    /// <summary>The list of workspaces, built once and moved into whichever frame stands for its tile.</summary>
-    private readonly WorkspacesPanelView _panelView = new();
-
     /// <summary>Where the cached workspace views live, one visible at a time.</summary>
     private Panel WorkspaceHost { get; } = new();
 
@@ -50,18 +47,6 @@ public partial class MainWindow : Window
         _hostContent.Children.Add(_noWorkspace);
 
         WindowTree.CreateLeafView = CreateWindowTileView;
-
-        // The list is dragged by its heading, or by the grip its other two shapes have instead of one. All
-        // start the same drag of the same tile, which is found when the drag starts rather than held: the
-        // tile is rebuilt whenever the layout file is replaced, and the panel view never is.
-        foreach (var handle in new[] { "HeadingRow", "CollapsedHandle", "TabsHandle" })
-        {
-            if (_panelView.FindControl<Control>(handle) is not { } control) continue;
-            _ = new TileDragHandle(control, _panelView,
-                mayArm: e => !IsInsideButton(e.Source as Control),
-                source: FindListTile,
-                dragging: on => _panelView.Opacity = on ? 0.4 : 1.0);
-        }
 
         // Tunneled, like the clipboard coordinator: a terminal consumes F11 as an escape sequence for
         // the child, so a bubbling handler never sees it while the focus sits in a terminal.
@@ -549,39 +534,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The control a tile of the window's layout is drawn in.</summary>
-    /// <remarks>The list and the workspace are frames round controls this window owns and keeps; every
-    /// other tile is an ordinary card, exactly as it would be in a workspace.
-    /// <para><b>The list is given its own view model before it is put in a frame, never after.</b>
-    /// Everything above it in the tree carries the tile as its data context, so a list attached first
-    /// inherits a <see cref="LeafTileNodeViewModel"/> for as long as it takes to be told otherwise — and its
-    /// compiled bindings, typed for the list, throw an <c>InvalidCastException</c> on the first one they
-    /// evaluate. The tree builds its frames the moment the window's own data context arrives, which is
-    /// before <see cref="BindWindowState"/> ever runs, which is why this is the list's only data context
-    /// writer.</para></remarks>
-    private Control CreateWindowTileView(LeafTileNodeViewModel tile)
-    {
-        switch (tile.KindId)
-        {
-            case TileKindIds.Workspaces:
-                if (DataContext is MainWindowViewModel vm)
-                    _panelView.DataContext = vm.WorkspacesPanel;
-                return new WindowTileFrame(tile, _panelView);
-            case TileKindIds.WorkspaceHost:
-                return new WindowTileFrame(tile, _hostContent);
-            default:
-                return new LeafTileView { DataContext = tile };
-        }
-    }
-
-    private LeafTileNodeViewModel? FindListTile() =>
-        DataContext is MainWindowViewModel { WindowLayout: { } layout }
-            ? TileTreeEdits.LeavesOf(layout.RootTile).FirstOrDefault(tile => tile.KindId == TileKindIds.Workspaces)
-            : null;
-
-    private static bool IsInsideButton(Control? control)
-    {
-        for (var node = control as Avalonia.Visual; node is not null; node = node.GetVisualParent())
-            if (node is Button) return true;
-        return false;
-    }
+    /// <remarks>The workspace is a frame round the panel of cached workspace views this window owns — no
+    /// card and no header, since it is a canvas of cards already. Every other tile, the list of workspaces
+    /// included, is an ordinary card with the header it is dragged and split by, exactly as in a
+    /// workspace.</remarks>
+    private Control CreateWindowTileView(LeafTileNodeViewModel tile) =>
+        tile.KindId == TileKindIds.WorkspaceHost
+            ? new WindowTileFrame(tile, _hostContent)
+            : new LeafTileView { DataContext = tile };
 }
