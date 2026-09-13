@@ -3,7 +3,11 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Data;
+using Avalonia.Data.Converters;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using mTiles.Models;
 using mTiles.Services;
 using mTiles.ViewModels;
 
@@ -14,15 +18,50 @@ public partial class MainWindow : Window
     private SettingsService? _settingsService;
     private Services.Speech.DictationService? _dictation;
     private Action<string>? _onDictationError;
-    private ColumnDefinition? _panelColumn;
     private readonly Dictionary<string, WorkspaceView> _viewCache = new();
     private WorkspaceView? _activeWorkspaceView;
+
+    /// <summary>The list of workspaces, built once and moved into whichever frame stands for its tile.</summary>
+    private readonly WorkspacesPanelView _panelView = new();
+
+    /// <summary>Where the cached workspace views live, one visible at a time.</summary>
+    private Panel WorkspaceHost { get; } = new();
+
+    /// <summary>The workspace host and the sentence shown while no workspace is open, as one control —
+    /// what the frame standing for the workspace tile holds.</summary>
+    private readonly Panel _hostContent = new();
+
+    private readonly TextBlock _noWorkspace = new()
+    {
+        Text = "Select or add a workspace to get started",
+        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+    };
 
     public MainWindow()
     {
         InitializeComponent();
         Title = $"mTiles {AppInfo.Version}";
         TerminalClipboardCoordinator.Attach(this);
+
+        _noWorkspace.Bind(TextBlock.FontSizeProperty, _noWorkspace.GetResourceObservable("FontLg"));
+        _noWorkspace.Bind(TextBlock.ForegroundProperty, _noWorkspace.GetResourceObservable("TextFaint"));
+        _hostContent.Children.Add(WorkspaceHost);
+        _hostContent.Children.Add(_noWorkspace);
+
+        WindowTree.CreateLeafView = CreateWindowTileView;
+
+        // The list is dragged by its heading, or by the grip the collapsed strip has instead of one. Both
+        // start the same drag of the same tile, which is found when the drag starts rather than held: the
+        // tile is rebuilt whenever the layout file is replaced, and the panel view never is.
+        foreach (var handle in new[] { "HeadingRow", "CollapsedHandle" })
+        {
+            if (_panelView.FindControl<Control>(handle) is not { } control) continue;
+            _ = new TileDragHandle(control, _panelView,
+                mayArm: e => !IsInsideButton(e.Source as Control),
+                source: FindListTile,
+                dragging: on => _panelView.Opacity = on ? 0.4 : 1.0);
+        }
 
         // Tunneled, like the clipboard coordinator: a terminal consumes F11 as an escape sequence for
         // the child, so a bubbling handler never sees it while the focus sits in a terminal.
@@ -48,7 +87,6 @@ public partial class MainWindow : Window
     public void BindWindowState(SettingsService settingsService)
     {
         _settingsService = settingsService;
-        _panelColumn = MainGrid.ColumnDefinitions[0];
         var s = settingsService.Settings;
 
         // Before the size is restored, so the window that comes back is the size it was saved at rather
@@ -76,10 +114,20 @@ public partial class MainWindow : Window
             }
         }
 
-        _panelColumn.Width = new GridLength(s.WorkspacesPanelWidth, GridUnitType.Pixel);
-
         if (DataContext is MainWindowViewModel vm)
         {
+            _panelView.DataContext = vm.WorkspacesPanel;
+            _noWorkspace.Bind(IsVisibleProperty, new Binding(nameof(MainWindowViewModel.CurrentWorkspace))
+            {
+                Source = vm,
+                Converter = ObjectConverters.IsNull
+            });
+
+            // The window's surface answers for the window's tree, and asks the layout what a dropped tile
+            // is held at: the list is a column beside the layout and a strip along it.
+            WindowSurface.ReadRoot = () => vm.WindowLayout?.RootTile;
+            WindowSurface.FixedExtentFor = (tile, orientation) => vm.WindowLayout?.FixedExtentFor(tile, orientation);
+
             vm.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(MainWindowViewModel.IsSettingsOpen))
@@ -493,9 +541,33 @@ public partial class MainWindow : Window
             s.WindowHeight = Height;
         }
 
-        if (_panelColumn != null && _panelColumn.Width.Value > 0)
-            s.WorkspacesPanelWidth = _panelColumn.Width.Value;
+        // Written back where the panel's width always was, so a build from before the window had a
+        // layout, put back by Velopack, opens the list at the width it was given here.
+        if (DataContext is MainWindowViewModel { WindowLayout: { } layout } && layout.ListWidth > 0)
+            s.WorkspacesPanelWidth = layout.ListWidth;
 
         _settingsService.Save();
+    }
+
+    /// <summary>The control a tile of the window's layout is drawn in.</summary>
+    /// <remarks>The list and the workspace are frames round controls this window owns and keeps; every
+    /// other tile is an ordinary card, exactly as it would be in a workspace.</remarks>
+    private Control CreateWindowTileView(LeafTileNodeViewModel tile) => tile.KindId switch
+    {
+        TileKindIds.Workspaces => new WindowTileFrame(tile, _panelView),
+        TileKindIds.WorkspaceHost => new WindowTileFrame(tile, _hostContent),
+        _ => new LeafTileView { DataContext = tile }
+    };
+
+    private LeafTileNodeViewModel? FindListTile() =>
+        DataContext is MainWindowViewModel { WindowLayout: { } layout }
+            ? TileTreeEdits.LeavesOf(layout.RootTile).FirstOrDefault(tile => tile.KindId == TileKindIds.Workspaces)
+            : null;
+
+    private static bool IsInsideButton(Control? control)
+    {
+        for (var node = control as Avalonia.Visual; node is not null; node = node.GetVisualParent())
+            if (node is Button) return true;
+        return false;
     }
 }

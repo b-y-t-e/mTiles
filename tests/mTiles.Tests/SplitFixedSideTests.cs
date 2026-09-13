@@ -171,6 +171,18 @@ public class SplitFixedSideTests : IDisposable
         Assert.Equal(SplitFixedSide.None, split.FixedSide);
     }
 
+    /// <summary>A fixed side's minimum never overrules the size somebody chose for it.</summary>
+    /// <remarks>A strip of tabs one row tall held at 40 px was drawn 50 tall, because the minimum that
+    /// keeps a splitter from squeezing a tile away was applied to it as to any pane.</remarks>
+    [Theory]
+    [InlineData(50, 40, 40)]
+    [InlineData(50, 240, 50)]
+    [InlineData(50, 50, 50)]
+    [InlineData(158, 40, 40)]
+    [InlineData(50, 0, 50)]
+    public void A_fixed_pane_is_never_held_above_its_own_pixels(double minimum, double extent, double expected) =>
+        Assert.Equal(expected, TileMinimumSize.ForFixedSide(minimum, extent));
+
     // ---- the edits ----------------------------------------------------------------------------------
 
     /// <summary>A gutter drop beside a fixed side takes its room from the other side alone.</summary>

@@ -651,43 +651,10 @@ public partial class LeafTileView : UserControl, ITileDropTarget
     /// ranked them: two writers for one hint, which is the arrangement this application has already
     /// paid for once in the tile header. What stays here is the drawing, because the overlay belongs
     /// inside the card's own clip and nothing above it knows that radius.</remarks>
-    void ITileDropTarget.ShowDropOverlay(DropZone zone)
-    {
-        if (zone == DropZone.None) { HideDropOverlay(); return; }
+    void ITileDropTarget.ShowDropOverlay(DropZone zone) =>
+        TileDropOverlay.Show(DropOverlay, zone, Bounds.Size, this);
 
-        var (fillBrush, borderBrush) = DropHintBrushes.For(this);
-
-        var w = Bounds.Width;
-        var h = Bounds.Height;
-
-        if (zone == DropZone.Center)
-        {
-            DropOverlay.Background = Brushes.Transparent;
-            DropOverlay.BorderBrush = borderBrush;
-            DropOverlay.BorderThickness = new Thickness(3);
-            DropOverlay.Margin = new Thickness(3);
-        }
-        else
-        {
-            DropOverlay.Background = fillBrush;
-            DropOverlay.BorderBrush = borderBrush;
-            DropOverlay.BorderThickness = new Thickness(2);
-            DropOverlay.Margin = zone switch
-            {
-                DropZone.Left   => new Thickness(2, 2, w * 0.70, 2),
-                DropZone.Right  => new Thickness(w * 0.70, 2, 2, 2),
-                DropZone.Top    => new Thickness(2, 2, 2, h * 0.70),
-                DropZone.Bottom => new Thickness(2, h * 0.70, 2, 2),
-                _ => default
-            };
-        }
-        DropOverlay.IsVisible = true;
-    }
-
-    public void HideDropOverlay()
-    {
-        DropOverlay.IsVisible = false;
-    }
+    public void HideDropOverlay() => TileDropOverlay.Hide(DropOverlay);
 
     private static bool IsInsideButton(Control? control)
     {

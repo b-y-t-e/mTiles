@@ -33,7 +33,8 @@ public class InterfaceScaleWiringTests
 
         // Everything is inside it — the workspaces panel, the tiles and the dialogs alike. A scaled
         // interface with an unscaled Settings drawn over it is the failure this asserts against.
-        var grid = window.GetVisualDescendants().OfType<Grid>().First(g => g.Name == "MainGrid");
+        // The window's own layout is the first thing inside the scale, and everything else is inside it.
+        var grid = window.GetVisualDescendants().OfType<TileDropSurface>().First(g => g.Name == "WindowSurface");
         var overlays = window.GetVisualDescendants().OfType<OverlayHost>().Single();
         Assert.Contains(host, grid.GetVisualAncestors());
         Assert.Contains(host, overlays.GetVisualAncestors());

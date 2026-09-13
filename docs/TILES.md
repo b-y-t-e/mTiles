@@ -277,10 +277,9 @@ afterwards by whatever ranked the three, and that is two writers for one hint �
 `CLAUDE.md` records the tile header having already paid for. What a tile still draws is its *own* hint,
 because that overlay belongs inside the card's clip and nothing outside it knows that radius.
 
-**The outer band has to overlap the outermost tiles, and that is forced rather than chosen.** The
-workspace's padding is eight pixels on three sides and **nothing on the left**, where the gap is the
-panel's own splitter column and belongs to the window — so a band living only in the padding would have
-no left edge at all. It therefore outranks the tile underneath, and 28px is the price: wide enough to
+**The outer band has to overlap the outermost tiles, and that is forced rather than chosen.** A
+workspace has **no padding at all** — it is a tile of the window's layout, and the gutter round it is the
+window's — so a band living only in the padding would not exist. It therefore outranks the tile underneath, and 28px is the price: wide enough to
 hit with a mouse, narrow enough that a tile 200px across keeps most of its own edge zone. Capped at a
 third of the shorter side, so a workspace narrower than two bands still has a middle.
 
@@ -381,6 +380,19 @@ not have leaves the file alone for the session.
 is as wide as it last stood — remembered, so a trip to the top and back does not reset it — and along the
 top or the bottom it is one strip of tabs (`WorkspacesTileKind.StripHeight`). Asked before the drop is
 carried out, so a list moved from one side to the other still reads its old split's width.
+
+**How it is drawn.** The window's surface and tree replace the grid `MainWindow` used to hold, and the
+tree is told which control stands for a tile (`TileNodeView.CreateLeafView`, passed down to every split):
+the list and the workspace get a `WindowTileFrame` — no card and no header, only the drop target and the
+hint overlay — round controls the window builds once and keeps, and every other tile is an ordinary card.
+So moving the list re-parents the same `WorkspacesPanelView` and the same panel of cached workspace views,
+and no workspace's shells end because the layout changed. The list is dragged by its heading, or by the
+grip the collapsed strip has instead of one. New tiles come from the add menu on the list's bottom row
+(`MainWindowViewModel.AddWindowTileCommand`), beside Settings, because that row is the application's.
+
+**A fixed pane's minimum never exceeds its own pixels** (`TileMinimumSize.ForFixedSide`). The minimum
+keeps a splitter from squeezing a tile away; applied to a strip of tabs held at 40 px, it drew the strip
+50 tall and overruled the size the layout chose.
 
 **Two pieces of `WorkspaceViewModel` became shared rather than copied**: `TileNameAllocator` (names are
 unique per tree) and `TileTreeEdits.LeavesOf`. The rest of the two view models differ for real — agent

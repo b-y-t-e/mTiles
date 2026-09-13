@@ -19,38 +19,20 @@
          variable that would do it. -->
     <LayoutTransformControl x:Name="ScaleHost">
     <Panel>
-        <Grid x:Name="MainGrid">
-            <Grid.ColumnDefinitions>
-                <!-- MinWidth leaves the collapsed strip a card 40px wide, which is what its 32px icon buttons
-                     need once the panel's own 8px gutter and the card's hairline are taken off. At the
-                     old 40 the buttons were being clipped by the card they had just been put inside. -->
-                <ColumnDefinition Width="240" MinWidth="56" MaxWidth="500" />
-                <!-- The same gutter the tiles have between them, for the same reason: the window is one
-                     canvas with cards on it, and the panel is one of the cards. -->
-                <ColumnDefinition Width="8" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+        <!-- The window's own tile layout: the list of workspaces, the place the open workspace is drawn,
+             and whatever tiles have been put beside them. The same tree, surface and gutters a workspace
+             has, one level up — the gutter round the outside is this surface's padding, which is why
+             neither the list nor the workspace carries a margin of its own any more.
 
-            <!-- Workspaces panel -->
-            <views:WorkspacesPanelView Grid.Column="0"
-                                       DataContext="{Binding WorkspacesPanel}" />
-
-            <!-- Resizer -->
-            <GridSplitter x:Name="PanelSplitter" Grid.Column="1"
-                          Classes="tile-gutter"
-                          ResizeDirection="Columns" />
-
-            <!-- Workspace content -->
-            <Panel Grid.Column="2">
-                <Panel x:Name="WorkspaceHost" />
-                <TextBlock Text="Select or add a workspace to get started"
-                           IsVisible="{Binding CurrentWorkspace, Converter={x:Static ObjectConverters.IsNull}}"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           FontSize="{DynamicResource FontLg}"
-                           Foreground="{DynamicResource TextFaint}" />
-            </Panel>
-        </Grid>
+             The list's view and the panel of workspace views are built by the window and handed to the
+             frames that stand for their tiles (see MainWindow.CreateWindowTileView), so moving the list
+             re-parents both rather than building either again. -->
+        <views:TileDropSurface x:Name="WindowSurface"
+                               Background="{DynamicResource BgCanvas}"
+                               Padding="8">
+            <views:TileNodeView x:Name="WindowTree"
+                                DataContext="{Binding WindowLayout.RootTile}" />
+        </views:TileDropSurface>
 
 
         <!-- ======== Every other dialog ========

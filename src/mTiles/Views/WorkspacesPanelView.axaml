@@ -5,8 +5,7 @@
              xmlns:mi="using:Material.Icons.Avalonia"
              xmlns:views="using:mTiles.Views"
              x:Class="mTiles.Views.WorkspacesPanelView"
-             x:DataType="vm:WorkspacesPanelViewModel"
-             Margin="8,8,0,8">
+             x:DataType="vm:WorkspacesPanelViewModel">
 
     <UserControl.Styles>
         <Style Selector="ScrollViewer.scroll-left">
@@ -42,6 +41,28 @@
         <!-- ═══ EXPANDED MODE ═══ -->
         <DockPanel x:Name="ExpandedPanel">
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="2" Margin="8,6,8,6">
+                <!-- Adds a tile to the window's own layout, beside the workspaces rather than inside one.
+                     On this row because the row is the application's rather than the list's: Settings and
+                     the phone are here for the same reason. -->
+                <Button Classes="toolbar"
+                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasWindowLayout}"
+                        ToolTip.Placement="Right"
+                        ToolTip.Tip="Add a tile to the window">
+                    <mi:MaterialIcon Kind="ViewGridPlusOutline" Width="18" Height="18" />
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Note"
+                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                                      CommandParameter="{x:Static m:TileKindIds.Note}" />
+                            <MenuItem Header="Todo"
+                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                                      CommandParameter="{x:Static m:TileKindIds.Todo}" />
+                            <MenuItem Header="Usage"
+                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                                      CommandParameter="{x:Static m:TileKindIds.Usage}" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
                 <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleSettingsCommand}"
                         ToolTip.Placement="Right"
@@ -99,7 +120,13 @@
                          full-width row at the foot of the list, which put it below the last workspace
                          and made a long list end in something that was not one. A heading also gives
                          the list an edge to start at. -->
-                    <DockPanel Margin="19,0,10,4">
+                    <!-- Also what the list is dragged by, to put it somewhere else in the window: the one
+                         part of the panel that is neither a workspace nor a button. Transparent rather than
+                         unset, or the gaps between the words would not take the press. -->
+                    <DockPanel x:Name="HeadingRow"
+                               Background="Transparent"
+                               Cursor="SizeAll"
+                               Margin="19,0,10,4">
                         <Button DockPanel.Dock="Right"
                                 Classes="ghost"
                                 Command="{Binding AddWorkspaceCommand}"
@@ -278,7 +305,43 @@
 
         <!-- ═══ COLLAPSED MODE (icon strip) ═══ -->
         <DockPanel x:Name="CollapsedPanel" IsVisible="False">
+            <!-- The collapsed strip has no heading to drag the list by, so it gets a grip of its own. -->
+            <Border x:Name="CollapsedHandle"
+                    DockPanel.Dock="Top"
+                    Height="18"
+                    Background="Transparent"
+                    Cursor="SizeAll"
+                    ToolTip.Tip="Drag to move the list">
+                <mi:MaterialIcon Kind="DragHorizontalVariant"
+                                 Width="14" Height="14"
+                                 Foreground="{DynamicResource TextFaint}"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center" />
+            </Border>
             <StackPanel DockPanel.Dock="Bottom" Spacing="2" HorizontalAlignment="Center" Margin="0,4,0,6">
+                <!-- Adds a tile to the window's own layout, beside the workspaces rather than inside one.
+                     On this row because the row is the application's rather than the list's: Settings and
+                     the phone are here for the same reason. -->
+                <Button Classes="toolbar"
+                        HorizontalAlignment="Center"
+                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasWindowLayout}"
+                        ToolTip.Placement="Right"
+                        ToolTip.Tip="Add a tile to the window">
+                    <mi:MaterialIcon Kind="ViewGridPlusOutline" Width="16" Height="16" />
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Note"
+                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                                      CommandParameter="{x:Static m:TileKindIds.Note}" />
+                            <MenuItem Header="Todo"
+                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                                      CommandParameter="{x:Static m:TileKindIds.Todo}" />
+                            <MenuItem Header="Usage"
+                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                                      CommandParameter="{x:Static m:TileKindIds.Usage}" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
                 <Button Classes="toolbar"
                         Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApplyUpdateCommand}"
                         ToolTip.Placement="Right"

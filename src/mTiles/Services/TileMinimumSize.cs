@@ -53,6 +53,19 @@ public static class TileMinimumSize
         return (first * scale, second * scale);
     }
 
+    /// <summary>The minimum of a pane held at a size in pixels.</summary>
+    /// <remarks>
+    /// <para>Never more than those pixels. The minimum is there so a splitter cannot squeeze a tile out
+    /// of sight; a fixed size is a size somebody chose — a strip of tabs one row tall — and a minimum
+    /// larger than it would quietly overrule the choice, drawing the strip taller than the layout says.
+    /// </para>
+    /// <para>What stops a fixed pane being dragged to nothing is unchanged: the pane's minimum is taken
+    /// when the grid is laid out, so a splitter drag cannot go below the size the pane had when it began,
+    /// and a pane at 50 or more keeps the full minimum.</para>
+    /// </remarks>
+    public static double ForFixedSide(double minimum, double fixedExtent) =>
+        fixedExtent > 0 ? Math.Min(minimum, fixedExtent) : minimum;
+
     /// <summary>The most a pane held at a size in pixels may take, so the pane beside it keeps its minimum.</summary>
     /// <remarks>
     /// <para>A grid gives a pixel length its pixels first and a star what is left, so a fixed side wider

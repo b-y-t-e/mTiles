@@ -107,15 +107,32 @@ public partial class TileNodeView : UserControl
         return (node as LeafTileNodeViewModel)?.ActivationScope;
     }
 
+    /// <summary>Builds the control a tile of this tree is drawn in.</summary>
+    /// <remarks>
+    /// <para>A workspace's tiles are all cards (<see cref="LeafTileView"/>), which is the default. The
+    /// window's tree is not: its list and the place its workspace is drawn are frames of their own, with
+    /// no card and no header, beside ordinary cards for a note or a todo list. Which control stands for a
+    /// tile is therefore the tree's answer, handed to the root view and passed down to every split under
+    /// it.</para>
+    /// <para>Set before the tree arrives. A view built for a tile is kept for as long as that tile stays
+    /// where it is, so changing the answer afterwards reaches only the tiles drawn after the change. What
+    /// it builds must be an <see cref="ITileDropTarget"/>: that is how a view is recognised as already
+    /// drawing the tile, and how the tile is found under a pointer during a drag.</para>
+    /// </remarks>
+    public Func<LeafTileNodeViewModel, Control> CreateLeafView { get; set; } =
+        static leaf => new LeafTileView { DataContext = leaf };
+
     private void ShowLeaf(LeafTileNodeViewModel leaf)
     {
         _firstChild = null;
         _secondChild = null;
 
-        if (Content is LeafTileView existing && existing.DataContext == leaf)
+        // Asked of the tile's own control and not of any control's DataContext: the grid a split was
+        // drawn in inherits this view's DataContext, which is the leaf by now, and would pass for it.
+        if (Content is ITileDropTarget { DropNode: var shown } && ReferenceEquals(shown, leaf))
             return;
 
-        Content = new LeafTileView { DataContext = leaf };
+        Content = CreateLeafView(leaf);
     }
 
     /// <summary>
@@ -144,8 +161,8 @@ public partial class TileNodeView : UserControl
 
     private void ShowSplit(SplitTileNodeViewModel split)
     {
-        _firstChild ??= new TileNodeView { _owner = this };
-        _secondChild ??= new TileNodeView { _owner = this };
+        _firstChild ??= new TileNodeView { _owner = this, CreateLeafView = CreateLeafView };
+        _secondChild ??= new TileNodeView { _owner = this, CreateLeafView = CreateLeafView };
 
         ControlHelper.DetachFromParent(_firstChild);
         ControlHelper.DetachFromParent(_secondChild);
@@ -240,8 +257,8 @@ public partial class TileNodeView : UserControl
         {
             var available = grid.Bounds.Width - TileGap;
             var (first, second) = TileMinimumSize.Fit(
-                TileMinimumSize.Width(split.First, TileGap),
-                TileMinimumSize.Width(split.Second, TileGap),
+                MinimumOf(split, SplitFixedSide.First, TileMinimumSize.Width(split.First, TileGap)),
+                MinimumOf(split, SplitFixedSide.Second, TileMinimumSize.Width(split.Second, TileGap)),
                 available);
 
             grid.ColumnDefinitions[0].MinWidth = first;
@@ -253,8 +270,8 @@ public partial class TileNodeView : UserControl
         {
             var available = grid.Bounds.Height - TileGap;
             var (first, second) = TileMinimumSize.Fit(
-                TileMinimumSize.Height(split.First, TileGap),
-                TileMinimumSize.Height(split.Second, TileGap),
+                MinimumOf(split, SplitFixedSide.First, TileMinimumSize.Height(split.First, TileGap)),
+                MinimumOf(split, SplitFixedSide.Second, TileMinimumSize.Height(split.Second, TileGap)),
                 available);
 
             grid.RowDefinitions[0].MinHeight = first;
@@ -263,6 +280,11 @@ public partial class TileNodeView : UserControl
             grid.RowDefinitions[2].MaxHeight = MaximumFor(split, SplitFixedSide.Second, second, first, available);
         }
     }
+
+    /// <summary>One pane's minimum, lowered to its own pixels when it is the fixed side
+    /// (<see cref="TileMinimumSize.ForFixedSide"/>).</summary>
+    private static double MinimumOf(SplitTileNodeViewModel split, SplitFixedSide side, double minimum) =>
+        split.FixedSide == side ? TileMinimumSize.ForFixedSide(minimum, split.FixedExtent) : minimum;
 
     /// <summary>The cap on one pane's length: only a fixed side has one (<see cref="TileMinimumSize.FixedMaximum"/>).</summary>
     /// <remarks>A star pane is already held inside the split by the grid itself; a pixel pane is not, and

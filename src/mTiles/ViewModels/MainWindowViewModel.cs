@@ -116,6 +116,22 @@ public partial class MainWindowViewModel : ObservableObject
             Settings.OnOpened();
     }
 
+    /// <summary>The window's own tile layout, or null where nothing composed one — which is only ever a
+    /// test that exercises the workspaces alone.</summary>
+    public WindowLayoutViewModel? WindowLayout { get; }
+
+    /// <summary>Whether tiles can be put beside the workspaces, which is what the list's add menu shows on.
+    /// </summary>
+    public bool HasWindowLayout => WindowLayout is not null;
+
+    /// <summary>Puts a note, a todo list or a usage dashboard beside the workspaces, and focuses it.</summary>
+    [RelayCommand]
+    private void AddWindowTile(string? kindId)
+    {
+        if (kindId is not { Length: > 0 } || WindowLayout is not { } layout) return;
+        layout.AddTile(kindId)?.RequestFocus();
+    }
+
     [ObservableProperty]
     private bool _isUpdateAvailable;
 
@@ -129,7 +145,9 @@ public partial class MainWindowViewModel : ObservableObject
         Services.Speech.DictationService? dictation = null,
         Services.Phone.PhoneBridgeManager? phoneBridge = null,
         IProcessMemoryProbe? memoryProbe = null,
-        AgentFileSyncCoordinator? agentFileSync = null)
+        AgentFileSyncCoordinator? agentFileSync = null,
+        Func<Func<WorkspacesPanelViewModel>, TileCatalog>? windowCatalog = null,
+        PersistenceService? windowPersistence = null)
     {
         _memoryProbe = memoryProbe ?? new ProcessTreeMemory();
         _persistenceService = persistenceService;
@@ -144,6 +162,17 @@ public partial class MainWindowViewModel : ObservableObject
         PhoneBridge = phoneBridge;
         _updateService = new UpdateService();
         _workspacesPanel = new WorkspacesPanelViewModel(workspaceService, settingsService, _agentFileSync);
+
+        // Handed the list rather than building a catalog around it: the catalog is the application's to
+        // compose, because it registers the views that draw each kind, and the list is this object's.
+        if (windowCatalog is not null)
+        {
+            var directory = AppPaths.GetWindowDirectory();
+            WindowLayout = new WindowLayoutViewModel(
+                windowPersistence ?? new PersistenceService(directory), settingsService,
+                windowCatalog(() => _workspacesPanel), directory,
+                settingsService.Settings.WorkspacesPanelWidth, OpenSettingsOn);
+        }
         _settings = new SettingsViewModel(settingsService, dbManager, dictation);
 
         // An install command runs in a tile, and only this object knows which workspace is open. Null
@@ -331,6 +360,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     public void DisposeAll()
     {
+        WindowLayout?.Dispose();
         _memoryTimer.Stop();
         _settingsService.SettingsChanged -= OnSettingsChanged;
         _updateService.Dispose();

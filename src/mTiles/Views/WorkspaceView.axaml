@@ -6,18 +6,12 @@
              x:DataType="vm:WorkspaceViewModel"
              Background="{DynamicResource BgCanvas}">
 
-    <!-- The gutter the splitters leave between tiles, put back around the outside as well. Without it
-         the outermost ring of cards is cut off by the window frame, which is where the whole idea is
-         most visible: a card clipped by the title bar is not a card. No padding on the left — the
-         panel's own column already leaves the same gap there.
-
-         The padding is the surface's rather than this view's, and that is load-bearing: a pointer in
-         the padding is on the workspace's edge, and only the control carrying DragDrop.AllowDrop is
-         asked about a pointer over it. The surface is the workspace's one drop target, and the tiles
+    <!-- No padding of its own: the gutter round the outside of the workspace is the window's, since the
+         workspace is a tile of the window's layout and the gutter between that tile and its neighbours
+         is the one every tile has. The surface is still the workspace's one drop target, and the tiles
          inside it have none of their own (see TileDropSurface). -->
     <views:TileDropSurface x:Name="DropSurface"
-                           Background="{DynamicResource BgCanvas}"
-                           Padding="0,8,8,8">
+                           Background="{DynamicResource BgCanvas}">
         <views:TileNodeView x:Name="RootTileView"
                             DataContext="{Binding RootTile}" />
     </views:TileDropSurface>

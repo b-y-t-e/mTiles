@@ -89,6 +89,20 @@ public sealed partial class WindowLayoutViewModel : ObservableObject, IDisposabl
         RootTile = CreateDefaultLayout();
     }
 
+    /// <summary>How wide the list stands beside the layout, or last stood there if it is along an edge now.
+    /// </summary>
+    /// <remarks>What the window writes back into <c>AppSettings.WorkspacesPanelWidth</c> when it closes,
+    /// so a build rolled back to before the window had a layout opens the panel at the width it was
+    /// given here.</remarks>
+    public double ListWidth
+    {
+        get
+        {
+            RememberListWidth();
+            return _listWidth;
+        }
+    }
+
     /// <summary>Which of the window's tiles has the whole window to itself, if any.</summary>
     public TileMaximizeScope MaximizeScope => _maximizeScope;
 

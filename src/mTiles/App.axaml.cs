@@ -80,7 +80,8 @@ public partial class App : Application
 
         var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
             BuildTileCatalog(_dbManager, _usage), _dbManager, _dictation, _phoneBridge,
-            agentFileSync: _agentFileSync);
+            agentFileSync: _agentFileSync,
+            windowCatalog: panel => BuildWindowTileCatalog(_usage, panel));
         mainVmRef = mainVm;
 
         // The other half of the Func above: it says what the active tile is, this says when to look
