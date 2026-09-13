@@ -164,7 +164,7 @@ public partial class MainWindow : Window
                 // Window-level and tunnelling, like the clipboard coordinator: terminals consume keys,
                 // and a push-to-talk needs the release as well as the press.
                 Services.Speech.DictationHotkeys.Attach(this, dictation, settingsService,
-                    () => vm.CurrentWorkspace?.ActiveTile,
+                    () => vm.ActiveTile,
                     // The settings dialog is an overlay in this window, so it never sees Escape while a
                     // recording is running — and dictating into a settings box is a feature, so the two
                     // are on screen together by design.

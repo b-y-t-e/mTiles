@@ -89,11 +89,64 @@ public partial class MainWindowViewModel : ObservableObject
     partial void OnCurrentWorkspaceChanged(WorkspaceViewModel? oldValue, WorkspaceViewModel? newValue)
     {
         if (oldValue is not null)
+        {
             oldValue.ActiveTileChanged -= RaiseActiveTileChanged;
+            oldValue.ActivationScope.ActiveTileChanged -= OnWorkspaceTileActivated;
+        }
         if (newValue is not null)
+        {
             newValue.ActiveTileChanged += RaiseActiveTileChanged;
+            newValue.ActivationScope.ActiveTileChanged += OnWorkspaceTileActivated;
+        }
 
+        // Choosing a workspace is choosing to work in it: the keyboard goes there, whatever had it before —
+        // and the outline with it, even into a workspace with no tile to activate yet.
+        _windowTileHasKeyboard = false;
+        WindowLayout?.ActivationScope.Deactivate();
         RaiseActiveTileChanged();
+    }
+
+    /// <summary>Whether the tile a window-level command acts on is one of the window's own rather than the
+    /// open workspace's.</summary>
+    /// <remarks>Whichever level a tile was last activated in. Two scopes each keep an active tile of their
+    /// own, and that is right — each comes back to the tile it left — but a shortcut, a dictated sentence
+    /// and a phone's keys go to one tile, and it has to be the one the user last touched.</remarks>
+    private bool _windowTileHasKeyboard;
+
+    /// <summary>The tile a window-level command acts on: the one last worked in, at whichever level.</summary>
+    /// <remarks>Null when that tile has left its tree, for the reason <c>WorkspaceViewModel.ActiveTile</c>
+    /// is: falling back to some other tile sends a dictated sentence — and with auto-Enter, a command — to
+    /// a tile nobody chose.</remarks>
+    public LeafTileNodeViewModel? ActiveTile =>
+        _windowTileHasKeyboard ? WindowLayout?.ActiveTile : CurrentWorkspace?.ActiveTile;
+
+    private void OnWorkspaceTileActivated(LeafTileNodeViewModel? tile)
+    {
+        if (tile is null) return;
+        TakeKeyboard(windowTile: false);
+    }
+
+    private void OnWindowTileActivated(LeafTileNodeViewModel? tile)
+    {
+        if (tile is null) return;
+        TakeKeyboard(windowTile: true);
+    }
+
+    /// <summary>Hands the keyboard to one level, and leaves the other with no tile marked active.</summary>
+    /// <remarks>Only the outline goes: each level still remembers the tile it left, so clicking back into
+    /// it resumes exactly there. The level's own <c>ActiveTileChanged</c> reports the activation itself;
+    /// this reports the switch, which no single level can see.</remarks>
+    private void TakeKeyboard(bool windowTile)
+    {
+        var moved = _windowTileHasKeyboard != windowTile;
+        _windowTileHasKeyboard = windowTile;
+
+        if (windowTile)
+            CurrentWorkspace?.ActivationScope.Deactivate();
+        else
+            WindowLayout?.ActivationScope.Deactivate();
+
+        if (moved) RaiseActiveTileChanged();
     }
 
     private void RaiseActiveTileChanged() => ActiveTileChanged?.Invoke();
@@ -172,6 +225,11 @@ public partial class MainWindowViewModel : ObservableObject
                 windowPersistence ?? new PersistenceService(directory), settingsService,
                 windowCatalog(() => _workspacesPanel), directory,
                 settingsService.Settings.WorkspacesPanelWidth, OpenSettingsOn);
+            WindowLayout.ActivationScope.ActiveTileChanged += OnWindowTileActivated;
+            WindowLayout.ActiveTileChanged += () =>
+            {
+                if (_windowTileHasKeyboard) RaiseActiveTileChanged();
+            };
         }
         _settings = new SettingsViewModel(settingsService, dbManager, dictation);
 

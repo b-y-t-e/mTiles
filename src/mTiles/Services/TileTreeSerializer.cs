@@ -61,7 +61,7 @@ public sealed class TileTreeSerializer
                 Kind = leaf.KindId,
                 TileId = leaf.TileId,
                 TileName = leaf.TileName,
-                IsActive = leaf.IsActive,
+                IsActive = ReferenceEquals(leaf, _activationScope.LastActivated),
                 Settings = SaveState(leaf)
             },
             SplitTileNodeViewModel split => new TileNode

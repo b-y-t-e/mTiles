@@ -558,7 +558,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
     public void RequestFocus() => FocusRequested?.Invoke();
 
-    private void OnActiveTileChanged(LeafTileNodeViewModel active) => IsActive = active == this;
+    private void OnActiveTileChanged(LeafTileNodeViewModel? active) => IsActive = ReferenceEquals(active, this);
 
     /// <summary>Does one of the things this tile's content offers, or says why it did not.</summary>
     /// <remarks>The single route in, so the header, a keyboard shortcut and a paired phone all reach a

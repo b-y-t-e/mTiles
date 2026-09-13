@@ -19,8 +19,6 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private TileNodeViewModel? _rootTile;
 
-    private LeafTileNodeViewModel? _lastActiveLeaf;
-
     /// <summary>Whether this workspace's file must be left exactly as it was found — see
     /// <see cref="ScheduleSave"/> and <c>docs/TILES.md</c> → the third migration rule.</summary>
     private readonly bool _savingWouldLoseATile;
@@ -67,7 +65,11 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// Raised for the tile the workspace <em>resolves</em> as active rather than for whichever leaf spoke,
     /// so a background tile ticking away costs nothing.
     /// </remarks>
-    public event Action? ActiveTileChanged;
+    public event Action? ActiveTileChanged
+    {
+        add => _activeTile.Changed += value;
+        remove => _activeTile.Changed -= value;
+    }
 
     partial void OnRootTileChanged(TileNodeViewModel? value)
     {
@@ -76,7 +78,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
         // A closed tile or a rebuilt tree can leave nothing active at all, and "nothing" is a state a
         // listener has to be told about — it is the difference between a stale set of buttons and none.
-        ActiveTileChanged?.Invoke();
+        _activeTile.RaiseChanged();
     }
 
     public string WorkspaceId { get; }
@@ -89,6 +91,8 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     public string Name { get; }
 
     private readonly TileActivationScope _activationScope = new();
+
+    private readonly ActiveTileTracker _activeTile;
 
     /// <summary>Which of this workspace's tiles has the whole of it, if any.</summary>
     /// <remarks>Per workspace like the activation scope beside it, and for the same reason: switching to
@@ -108,6 +112,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         Services.Speech.DictationService? dictation = null, Action<int>? openSettings = null,
         AgentFileSyncCoordinator? agentFileSync = null)
     {
+        _activeTile = new ActiveTileTracker(_activationScope, () => RootTile);
         WorkspaceId = workspace.Id;
         WorkingDirectory = workspace.DirectoryPath;
         Name = WorkspaceDisplayName.For(workspace.Name, workspace.DirectoryPath);
@@ -138,7 +143,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
             var load = _serializer.Deserialize(state.RootTile, OnLayoutChanged);
             RootTile = load.Root;
-            _lastActiveLeaf = load.ActiveLeaf;
+            _activationScope.Remember(load.ActiveLeaf);
 
             // Nothing is written for the rest of this workspace's life once a leaf names a kind this
             // build does not have: that tile is shown as empty, and an empty tile written over it is
@@ -251,7 +256,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// </summary>
     /// <remarks>
     /// <para>Only if it is still in the tree. After a tile is closed or the layout is rebuilt,
-    /// <c>_lastActiveLeaf</c> can point at a detached leaf whose content has been disposed — dictating
+    /// the last activated tile can be a detached leaf whose content has been disposed — dictating
     /// into that sends the words to a terminal nobody can see.</para>
     /// <para>And no falling back to "whatever tile is first". That is right for
     /// <see cref="FocusActiveTile"/>, where focus has to land somewhere, and wrong here: the first leaf
@@ -264,21 +269,17 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private LeafTileNodeViewModel? ResolveActiveTile(bool orAnyTile)
     {
-        var target = _lastActiveLeaf;
-        if (target != null && EnumerateLeaves(RootTile).Contains(target))
-            return target;
-
-        return orAnyTile ? EnumerateLeaves(RootTile).FirstOrDefault() : null;
+        return _activeTile.ActiveTile ?? (orAnyTile ? EnumerateLeaves(RootTile).FirstOrDefault() : null);
     }
 
     public void ActivateLastTile()
     {
-        _lastActiveLeaf?.Activate();
+        _activationScope.LastActivated?.Activate();
     }
 
     /// <summary>Puts the keyboard back in this workspace — any tile will do, and one has to.</summary>
     /// <remarks>Activated as well as focused, and the order matters. A workspace that has never been
-    /// opened has no <c>_lastActiveLeaf</c>, so nothing is active in it — and the view's own retry after
+    /// opened has no tile it last activated, so nothing is active in it — and the view's own retry after
     /// layout is guarded on <c>IsActive</c>, which is the retry a workspace created this instant depends
     /// on: its view is in the tree but not yet laid out, so the first <c>Focus()</c> finds nothing to
     /// focus. Without this the keyboard simply stayed where it was on the one gesture that most clearly
@@ -328,6 +329,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         };
         leaf.PropertyChanged -= OnLeafPropertyChanged;
         leaf.PropertyChanged += OnLeafPropertyChanged;
+        _activeTile.Watch(leaf);
         // A tile arriving is a change to the answer too — splitting anything but the root leaves
         // RootTile alone, so its own notification never fires.
         OnPropertyChanged(nameof(Activity));
@@ -336,28 +338,10 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     private void OnLeafPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(LeafTileNodeViewModel.Activity))
-        {
-            OnPropertyChanged(nameof(Activity));
-            OnPropertyChanged(nameof(IsBusy));
-            return;
-        }
+        if (e.PropertyName != nameof(LeafTileNodeViewModel.Activity)) return;
 
-        if (e.PropertyName == nameof(LeafTileNodeViewModel.IsActive)
-            && sender is LeafTileNodeViewModel leaf && leaf.IsActive)
-        {
-            _lastActiveLeaf = leaf;
-            ActiveTileChanged?.Invoke();
-            return;
-        }
-
-        // The active tile's own list, or the name it is offered under. The leaf republishes its Actions
-        // on any content change at all, deliberately, so this needs no list of the properties each kind
-        // computes its enabled flags from — and a tile nobody is aimed at raises nothing here.
-        if ((e.PropertyName == nameof(LeafTileNodeViewModel.Actions)
-                || e.PropertyName == nameof(LeafTileNodeViewModel.TileName))
-            && ReferenceEquals(sender, ActiveTile))
-            ActiveTileChanged?.Invoke();
+        OnPropertyChanged(nameof(Activity));
+        OnPropertyChanged(nameof(IsBusy));
     }
 
     private TileNodeViewModel ConfigureRoot(TileNodeViewModel node)
@@ -427,6 +411,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         if (node is LeafTileNodeViewModel leaf)
         {
             leaf.PropertyChanged -= OnLeafPropertyChanged;
+            _activeTile.Unwatch(leaf);
             // The tile itself, which takes its content with it: it is subscribed to services that
             // outlive this workspace, and those subscriptions are what would keep the whole tile alive.
             leaf.Dispose();

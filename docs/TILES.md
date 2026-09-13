@@ -407,6 +407,24 @@ panel*.
 keeps a splitter from squeezing a tile away; applied to a strip of tabs held at 40 px, it drew the strip
 50 tall and overruled the size the layout chose.
 
+**One tile in the window is active, at whichever level it was last touched**
+(`MainWindowViewModel.ActiveTile`). The window's layout and each workspace keep a
+`TileActivationScope` of their own, so each comes back to the tile it left — but activating a tile at one
+level now calls `Deactivate` on the other, so only one outline is on screen, and `ActiveTile` answers from
+the level that had the last activation. That is the tile the dictation shortcut and the phone bridge
+fall back to once no text control has the keyboard. Left per level, a note beside the workspaces could be
+where the user was typing while a terminal inside the workspace still wore the outline and still received
+the next dictated sentence — with auto-Enter on, a command in a terminal nobody was looking at. Choosing a
+workspace hands the keyboard back to it; a window tile closed while it had the keyboard leaves nothing
+active rather than falling back to a terminal, the rule `WorkspaceViewModel.ActiveTile` already follows.
+Dictating *into* a window note needs nothing of this: text goes to the focused editor first, and a note is
+not an `ITextInputTile`, so it has no microphone of its own.
+
+**What the window layout does not do, on purpose.** A tile does not move between levels — a workspace note
+is not dragged into the window or back — because the two keep their files in different places and a
+kind's fitness for a level is decided by what it needs. The workspace tile itself is never dragged: every
+arrangement is reachable by moving the others round it, and it has no header to take hold of.
+
 **Two pieces of `WorkspaceViewModel` became shared rather than copied**: `TileNameAllocator` (names are
 unique per tree) and `TileTreeEdits.LeavesOf`. The rest of the two view models differ for real — agent
 files, database skills and the instruction-file sync belong to a workspace alone.

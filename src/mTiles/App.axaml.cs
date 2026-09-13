@@ -76,7 +76,7 @@ public partial class App : Application
         // breaks the circle between the two without either of them holding a half-built reference.
         MainWindowViewModel? mainVmRef = null;
         _phoneBridge = new PhoneBridgeManager(_settingsService, _dictation, router,
-            () => mainVmRef?.CurrentWorkspace?.ActiveTile);
+            () => mainVmRef?.ActiveTile);
 
         var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
             BuildTileCatalog(_dbManager, _usage), _dbManager, _dictation, _phoneBridge,

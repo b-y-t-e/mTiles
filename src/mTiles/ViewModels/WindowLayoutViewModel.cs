@@ -49,6 +49,22 @@ public sealed partial class WindowLayoutViewModel : ObservableObject, IDisposabl
     [ObservableProperty]
     private TileNodeViewModel? _rootTile;
 
+    private readonly ActiveTileTracker _activeTile;
+
+    /// <summary>Raised when the window tile a window-level command acts on changes, or its own state does.
+    /// </summary>
+    /// <remarks>The workspace's event of the same name, one level up, for the same listeners.</remarks>
+    public event Action? ActiveTileChanged
+    {
+        add => _activeTile.Changed += value;
+        remove => _activeTile.Changed -= value;
+    }
+
+    /// <summary>The window tile the user last worked in, and nothing if it has left the tree.</summary>
+    public LeafTileNodeViewModel? ActiveTile => _activeTile.ActiveTile;
+
+    partial void OnRootTileChanged(TileNodeViewModel? value) => _activeTile.RaiseChanged();
+
     /// <param name="persistence">Where the layout is written — the window's own directory.</param>
     /// <param name="catalog">The kinds the window may hold, the two permanent ones among them.</param>
     /// <param name="directory">What the window's tiles use in place of a workspace directory.</param>
@@ -57,6 +73,7 @@ public sealed partial class WindowLayoutViewModel : ObservableObject, IDisposabl
     public WindowLayoutViewModel(PersistenceService persistence, SettingsService settings, TileCatalog catalog,
         string directory, double listWidth = WorkspacesTileKind.DefaultWidth, Action<int>? openSettings = null)
     {
+        _activeTile = new ActiveTileTracker(_activationScope, () => RootTile);
         _persistence = persistence;
         _catalog = catalog;
         _names = new TileNameAllocator(catalog);
@@ -199,6 +216,7 @@ public sealed partial class WindowLayoutViewModel : ObservableObject, IDisposabl
         leaf.LayoutChanged = OnLayoutChanged;
         leaf.MaximizeScope = _maximizeScope;
         leaf.ConfigureNewLeaf = ConfigureLeafCallbacks;
+        _activeTile.Watch(leaf);
         leaf.RootReplaced = newRoot => RootTile = ConfigureRoot(newRoot);
 
         // Nothing here can empty the tree — the two permanent tiles cannot be closed — so this is only
@@ -256,9 +274,12 @@ public sealed partial class WindowLayoutViewModel : ObservableObject, IDisposabl
 
     public void Dispose() => DisposeTree(RootTile);
 
-    private static void DisposeTree(TileNodeViewModel? node)
+    private void DisposeTree(TileNodeViewModel? node)
     {
         foreach (var leaf in TileTreeEdits.LeavesOf(node))
+        {
+            _activeTile.Unwatch(leaf);
             leaf.Dispose();
+        }
     }
 }
