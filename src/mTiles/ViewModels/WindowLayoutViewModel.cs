@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Layout;
 using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
@@ -144,6 +145,27 @@ public sealed partial class WindowLayoutViewModel : ObservableObject, IDisposabl
         return _listWidth;
     }
 
+    /// <summary>The size the window's layout is drawn at, which a new or dropped tile's room is decided by.
+    /// </summary>
+    /// <remarks>Told by the view whenever it changes. Nothing known yet is a size of nothing, which the
+    /// rule reads as too small for pixels — the answer that cannot take the whole window.</remarks>
+    public Size Size { get; set; }
+
+    /// <summary>The room a tile dropped on the window's layout is given, for the split it would be put into.
+    /// </summary>
+    /// <remarks>
+    /// <para>What the window's drop surface asks. The list has its fixed size on each axis
+    /// (<see cref="FixedExtentFor"/>); the workspace shares its room, since it is what everything else
+    /// makes room for; and every other window tile is narrow — pixels on a window with room for them twice
+    /// over, a share on one without (<see cref="WindowTileSize"/>).</para>
+    /// </remarks>
+    internal TileDropSize? DropSizeFor(LeafTileNodeViewModel tile, Orientation orientation) => tile.KindId switch
+    {
+        TileKindIds.Workspaces => FixedExtentFor(tile, orientation) is { } pixels ? TileDropSize.InPixels(pixels) : null,
+        TileKindIds.WorkspaceHost => null,
+        _ => WindowTileSize.For(orientation, Size)
+    };
+
     /// <summary>Puts a new tile of <paramref name="kindId"/> beside the whole layout, on its right.</summary>
     /// <remarks>The right rather than beside whichever tile is active, because the two tiles every
     /// window starts with have no header to split from and the workspace's own tiles belong to another
@@ -216,6 +238,9 @@ public sealed partial class WindowLayoutViewModel : ObservableObject, IDisposabl
         leaf.LayoutChanged = OnLayoutChanged;
         leaf.MaximizeScope = _maximizeScope;
         leaf.ConfigureNewLeaf = ConfigureLeafCallbacks;
+        // A tile split off one of the window's is an empty tile about to become a note or a list — narrow,
+        // by the rule a dropped one follows, rather than half of the tile it was split from.
+        leaf.SizeForNewTile = orientation => WindowTileSize.For(orientation, Size);
         _activeTile.Watch(leaf);
         leaf.RootReplaced = newRoot => RootTile = ConfigureRoot(newRoot);
 

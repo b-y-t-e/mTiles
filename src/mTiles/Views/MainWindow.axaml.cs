@@ -110,7 +110,14 @@ public partial class MainWindow : Window
             // The window's surface answers for the window's tree, and asks the layout what a dropped tile
             // is held at: the list is a column beside the layout and a strip along it.
             WindowSurface.ReadRoot = () => vm.WindowLayout?.RootTile;
-            WindowSurface.FixedExtentFor = (tile, orientation) => vm.WindowLayout?.FixedExtentFor(tile, orientation);
+            WindowSurface.SizeFor = (tile, orientation) => vm.WindowLayout?.DropSizeFor(tile, orientation);
+
+            // The one size the window's tiles are measured against: pixels while the window has room for
+            // them twice over, a share of the room once it has not (WindowTileSize).
+            WindowTree.SizeChanged += (_, e) =>
+            {
+                if (vm.WindowLayout is { } layout) layout.Size = e.NewSize;
+            };
 
             vm.PropertyChanged += (_, e) =>
             {

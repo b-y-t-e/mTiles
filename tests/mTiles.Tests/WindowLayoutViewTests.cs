@@ -76,7 +76,7 @@ public class WindowLayoutViewTests : IDisposable
             var list = TileTreeEdits.LeavesOf(layout.RootTile).Single(tile => tile.KindId == TileKindIds.Workspaces);
 
             TileTreeEdits.ExecuteRootEdge(list, () => layout.RootTile, DropZone.Top,
-                layout.FixedExtentFor(list, Orientation.Horizontal));
+                layout.DropSizeFor(list, Orientation.Horizontal));
             window.UpdateLayout();
 
             // The same list control, now a strip along the top: its card at the strip's height.

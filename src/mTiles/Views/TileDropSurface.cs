@@ -81,14 +81,14 @@ public class TileDropSurface : Border
     public Func<TileNodeViewModel?> ReadRoot { get; set; }
 
     /// <summary>
-    /// The pixels a dropped tile is held at along the split a drop creates, or null for the share it
-    /// has always been given.
+    /// The room a dropped tile is given along the split a drop creates — pixels or a share — or null for
+    /// the share each drop has always given.
     /// </summary>
     /// <remarks>Asked with the tile and the orientation of the split it would be put into, because
-    /// what a fixed size means depends on the axis — a list is as wide as a name when it stands beside
+    /// what a size means depends on the axis — a list is as wide as a name when it stands beside
     /// the layout and one row tall when it lies along it. Null by default, which is every workspace: its
     /// tiles share their room.</remarks>
-    public Func<LeafTileNodeViewModel, Orientation, double?> FixedExtentFor { get; set; } = static (_, _) => null;
+    internal Func<LeafTileNodeViewModel, Orientation, TileDropSize?> SizeFor { get; set; } = static (_, _) => null;
 
     /// <summary>The colour this surface's hints are painted in, bands and tiles alike.</summary>
     /// <remarks>The surface's to say because the surface is the level: a tile under the pointer is told
@@ -133,15 +133,15 @@ public class TileDropSurface : Border
         switch (target.Kind)
         {
             case TileDropKind.RootEdge:
-                TileTreeEdits.ExecuteRootEdge(source, ReadRoot, target.Zone, ExtentFor(source, target.Zone));
+                TileTreeEdits.ExecuteRootEdge(source, ReadRoot, target.Zone, SizeForZone(source, target.Zone));
                 break;
 
             case TileDropKind.Gutter when target.Split is { } split:
-                TileTreeEdits.ExecuteGutter(source, split);
+                TileTreeEdits.ExecuteGutter(source, split, SizeFor(source, split.Orientation));
                 break;
 
             case TileDropKind.Leaf when target.Target?.DropNode is { } leaf:
-                TileTreeEdits.Execute(source, leaf, target.Zone, ExtentFor(source, target.Zone));
+                TileTreeEdits.Execute(source, leaf, target.Zone, SizeForZone(source, target.Zone));
                 break;
 
             default:
@@ -276,11 +276,11 @@ public class TileDropSurface : Border
         Paint(band);
     }
 
-    /// <summary>The pixels <see cref="FixedExtentFor"/> answers for a drop into <paramref name="zone"/>.</summary>
-    private double? ExtentFor(LeafTileNodeViewModel source, DropZone zone) => zone switch
+    /// <summary>What <see cref="SizeFor"/> answers for a drop into <paramref name="zone"/>.</summary>
+    private TileDropSize? SizeForZone(LeafTileNodeViewModel source, DropZone zone) => zone switch
     {
-        DropZone.Left or DropZone.Right => FixedExtentFor(source, Orientation.Vertical),
-        DropZone.Top or DropZone.Bottom => FixedExtentFor(source, Orientation.Horizontal),
+        DropZone.Left or DropZone.Right => SizeFor(source, Orientation.Vertical),
+        DropZone.Top or DropZone.Bottom => SizeFor(source, Orientation.Horizontal),
         _ => null
     };
 
@@ -288,7 +288,7 @@ public class TileDropSurface : Border
     private Rect? EdgeBand(DropZone zone) =>
         TileDragSession.Source is { } source
             ? TileDropGeometry.EdgeBand(
-                _tree!.Bounds.Size, zone, ExtentFor(source, zone), TileNodeView.TileGap, MinimumAlong(ReadRoot(), zone))
+                _tree!.Bounds.Size, zone, SizeForZone(source, zone), TileNodeView.TileGap, MinimumAlong(ReadRoot(), zone))
             : null;
 
     /// <summary>The minimum, along the axis a drop into <paramref name="zone"/> divides, of <paramref name="node"/>.</summary>
@@ -297,18 +297,17 @@ public class TileDropSurface : Border
             ? TileMinimumSize.Width(node, TileNodeView.TileGap)
             : TileMinimumSize.Height(node, TileNodeView.TileGap);
 
-    /// <summary>The room a tile dropped on a tile's edge takes when it is held at a size in pixels.</summary>
+    /// <summary>The room a tile dropped on a tile's edge takes when it is given a size — pixels or a share.</summary>
     /// <remarks>Null when it is not, and the tile draws its own hint: the band is the same
     /// <see cref="TileDropGeometry.EdgeBand"/> the tree's edge draws, inside the tile the drop splits.</remarks>
     private Rect? LeafEdgeBand(DropTarget target)
     {
         if (TileDragSession.Source is not { } source) return null;
-        if (ExtentFor(source, target.Zone) is not { } extent || !SplitTileNodeViewModel.IsUsableExtent(extent))
-            return null;
+        if (SizeForZone(source, target.Zone) is not { IsUsable: true } size) return null;
         if (BoundsOf(target.Target as Visual) is not { } area) return null;
 
         return TileDropGeometry.EdgeBand(
-                area.Size, target.Zone, extent, TileNodeView.TileGap, MinimumAlong(target.Target?.DropNode, target.Zone))
+                area.Size, target.Zone, size, TileNodeView.TileGap, MinimumAlong(target.Target?.DropNode, target.Zone))
             .Translate(area.Position);
     }
 
@@ -324,7 +323,7 @@ public class TileDropSurface : Border
         if (BoundsOf(view) is not { } area) return null;
 
         var room = RoomAfterDetach(source, split, view, area);
-        return TileDropGeometry.GutterBand(room, split, TileNodeView.TileGap);
+        return TileDropGeometry.GutterBand(room, split, TileNodeView.TileGap, SizeFor(source, split.Orientation));
     }
 
     /// <summary>The bounds a split will have once the dragged tile has been taken out of the tree.</summary>

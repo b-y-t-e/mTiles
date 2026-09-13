@@ -119,22 +119,24 @@ internal static class TileDropGeometry
     /// <c>TileNodeView</c> puts on a fixed pane (<see cref="TileMinimumSize.FixedMaximum"/>), with the
     /// newcomer's own minimum on one side and <paramref name="besideMinimum"/> on the other. Without it a
     /// size wider than the room leaves draws a band the pane beside it is not giving up.</remarks>
-    /// <param name="fixedExtent">The pixels the tile will be held at, or null for a third of the room.</param>
+    /// <param name="size">The room the tile will be given — pixels or a share — or null for a third.</param>
     /// <param name="gap">The gutter the new split puts between the tile and what it lands beside.</param>
     /// <param name="besideMinimum">The minimum, along the drop's axis, of what the tile lands beside.</param>
-    public static Rect EdgeBand(Size area, DropZone zone, double? fixedExtent, double gap, double besideMinimum)
+    public static Rect EdgeBand(Size area, DropZone zone, TileDropSize? size, double gap, double besideMinimum)
     {
         var horizontal = zone is DropZone.Left or DropZone.Right;
         var along = horizontal ? area.Width : area.Height;
         var sourceFirst = zone is DropZone.Left or DropZone.Top;
 
-        var (start, size) = fixedExtent is { } extent && SplitTileNodeViewModel.IsUsableExtent(extent)
-            ? AtEdge(along, LaidOutEdgeExtent(extent, along, gap, besideMinimum), sourceFirst)
-            : Scale(TileDropRatio.EdgeBand(sourceFirst), along);
+        var (start, extent) = size?.UsablePixels is { } pixels
+            ? AtEdge(along, LaidOutEdgeExtent(pixels, along, gap, besideMinimum), sourceFirst)
+            : size?.UsableShare is { } share
+                ? Scale((sourceFirst ? 0 : 1 - share, share), along)
+                : Scale(TileDropRatio.EdgeBand(sourceFirst), along);
 
         return horizontal
-            ? new Rect(start, 0, size, area.Height)
-            : new Rect(0, start, area.Width, size);
+            ? new Rect(start, 0, extent, area.Height)
+            : new Rect(0, start, area.Width, extent);
     }
 
     /// <summary>The pixels a tile dropped on an edge will be laid out at, once the cap has had its say.</summary>
@@ -161,21 +163,65 @@ internal static class TileDropGeometry
     /// own pixels and the gutter between them, so a band spanning the whole split would promise room the
     /// fixed tile is not giving up.</remarks>
     /// <param name="gap">The gutter between the split's two panes.</param>
-    public static Rect GutterBand(Rect room, SplitTileNodeViewModel split, double gap)
+    /// <param name="size">The room the tile is given out of the side it goes into, or null for the thirds.
+    /// </param>
+    public static Rect GutterBand(Rect room, SplitTileNodeViewModel split, double gap, TileDropSize? size = null)
     {
         var vertical = split.Orientation == Orientation.Vertical;
         var along = vertical ? room.Width : room.Height;
 
-        var (start, size) = split.FixedSide switch
-        {
-            SplitFixedSide.First => BesideFixed(along, LaidOutExtent(split, along, gap), gap, fixedFirst: true),
-            SplitFixedSide.Second => BesideFixed(along, LaidOutExtent(split, along, gap), gap, fixedFirst: false),
-            _ => Scale(TileDropRatio.GutterBand(split.SplitRatio), along)
-        };
+        var (start, extent) = size is { IsUsable: true } given
+            ? Sized(split, along, gap, given)
+            : split.FixedSide switch
+            {
+                SplitFixedSide.First => BesideFixed(along, LaidOutExtent(split, along, gap), gap, fixedFirst: true),
+                SplitFixedSide.Second => BesideFixed(along, LaidOutExtent(split, along, gap), gap, fixedFirst: false),
+                _ => Scale(TileDropRatio.GutterBand(split.SplitRatio), along)
+            };
 
         return vertical
-            ? new Rect(room.X + start, room.Y, size, room.Height)
-            : new Rect(room.X, room.Y + start, room.Width, size);
+            ? new Rect(room.X + start, room.Y, extent, room.Height)
+            : new Rect(room.X, room.Y + start, room.Width, extent);
+    }
+
+    /// <summary>
+    /// The newcomer's band when a gutter drop is given a size: that size, against the gutter, in the side
+    /// it goes into — which is what <c>TileTreeEdits.InsertIntoGutter</c> does with one.
+    /// </summary>
+    /// <remarks>The side keeps the proportions it had, since a sized drop takes its room out of one side
+    /// only: the second one, or the first when the second is the fixed side. Pixels are drawn at the cap the
+    /// layout puts on the new split's fixed side, the same one an edge band is drawn at.</remarks>
+    private static (double Start, double Size) Sized(SplitTileNodeViewModel split, double along, double gap, TileDropSize size)
+    {
+        var intoFirst = split.FixedSide == SplitFixedSide.Second;
+        var kept = intoFirst ? split.First : split.Second;
+
+        var (paneStart, paneLength) = split.FixedSide switch
+        {
+            SplitFixedSide.First => Pane(LaidOutExtent(split, along, gap) + gap, along),
+            SplitFixedSide.Second => (0, Math.Max(0, along - LaidOutExtent(split, along, gap) - gap)),
+            _ => Pane(split.SplitRatio * along + gap, along)
+        };
+
+        var extent = size.UsablePixels is { } pixels
+            ? AtEdge(paneLength, LaidOutEdgeExtent(pixels, paneLength, gap, MinimumAlong(split, kept, gap)), true).Size
+            : (size.UsableShare ?? TileDropRatio.NewcomerShare) * paneLength;
+
+        // Against the gutter: at the start of the second side, or at the end of the first.
+        return (intoFirst ? paneStart + paneLength - extent : paneStart, extent);
+    }
+
+    /// <summary>The minimum of <paramref name="node"/> along <paramref name="split"/>'s axis.</summary>
+    private static double MinimumAlong(SplitTileNodeViewModel split, TileNodeViewModel? node, double gap) =>
+        split.Orientation == Orientation.Vertical
+            ? TileMinimumSize.Width(node, gap)
+            : TileMinimumSize.Height(node, gap);
+
+    /// <summary>The second pane: from <paramref name="start"/> to the end of the room.</summary>
+    private static (double Start, double Length) Pane(double start, double along)
+    {
+        var clamped = Math.Clamp(start, 0, Math.Max(0, along));
+        return (clamped, along - clamped);
     }
 
     /// <summary>The pixels the fixed side will actually be laid out at once the newcomer is in.</summary>

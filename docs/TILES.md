@@ -394,6 +394,18 @@ pixels along the split's own axis puts the new tile beside that pane (`TileTreeE
 the same place a drop on that edge puts one; the list is 240 px chosen for names, and a note squeezed
 into it is not what a split asked for.
 
+**A tile put beside the workspaces is narrow** (`WindowTileSize`, pure and table-tested). A note, a todo
+list or a usage dashboard sits beside the workspaces rather than in place of them, and the half of
+whatever it was dropped on that a workspace tile gets took half the window away from the workspace. So a
+window tile is given **320 px wide or 220 px tall while the window has room for that twice over, and 30%
+of the room when it has not** — pixels stay put when the window is resized, and the workspace takes the
+difference; on a small window the same pixels would be most of it, so it scales instead. It applies to
+every way such a tile arrives: a drop on the window's edge, on a tile's edge or on a gutter
+(`TileDropSurface.SizeFor`, answered by `WindowLayoutViewModel.DropSizeFor`), and a split from a window
+tile's header (`LeafTileNodeViewModel.SizeForNewTile`). What carries the answer is `TileDropSize` —
+pixels *or* a share — because the two behave differently afterwards; no answer is what a workspace gives,
+and there each edit keeps the share it always had. The hints draw the same room the edit will give.
+
 **The window's hints are magenta, a workspace's keep their blue** (`DropHintBrushes`, the surface's
 `HintBrushKey`). The two levels are drawn one inside the other and their hints are the same bands, so
 over the same part of the screen a drop can mean "beside these tiles" or "beside the whole workspace",

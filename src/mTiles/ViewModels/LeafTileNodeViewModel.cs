@@ -225,6 +225,13 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     public TileMaximizeScope? MaximizeScope { get; set; }
 
     /// <summary>
+    /// The room a tile split off this one is given, or null for the half a split has always given.
+    /// </summary>
+    /// <remarks>Set by the tree the tile is in, like the other callbacks here: the window's layout makes its
+    /// new tiles narrow, a workspace leaves this empty and splits in half.</remarks>
+    internal Func<Orientation, TileDropSize?>? SizeForNewTile { get; set; }
+
+    /// <summary>
     /// Gives this tile the whole workspace, or hands it back.
     /// </summary>
     /// <remarks>One command for both directions, because it is one button: the header shows which way
@@ -793,10 +800,11 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // layout — would be split inside its own pixels, and the new tile squeezed into a column chosen
         // for a list of names. It goes beside that pane instead, exactly where a drop on this edge puts a
         // dragged tile, which is also the same third of the room.
+        var size = SizeForNewTile?.Invoke(orientation);
         var edge = orientation == Orientation.Vertical ? DropZone.Right : DropZone.Bottom;
         if (TileTreeEdits.FixedSplitAcross(this, edge) is { } fixedSplit)
         {
-            TileTreeEdits.InsertIntoGutter(newLeaf, TileTreeEdits.GutterSplitFor(fixedSplit));
+            TileTreeEdits.InsertIntoGutter(newLeaf, TileTreeEdits.GutterSplitFor(fixedSplit), size);
             return newLeaf;
         }
 
@@ -804,9 +812,10 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
         var split = new SplitTileNodeViewModel(orientation, this, newLeaf)
         {
-            Parent = oldParent,
-            LayoutChanged = LayoutChanged
+            Parent = oldParent
         };
+        TileTreeEdits.ApplySize(split, sourceFirst: false, size, defaultShare: 0.5);
+        split.LayoutChanged = LayoutChanged;
 
         this.Parent = split;
         newLeaf.Parent = split;

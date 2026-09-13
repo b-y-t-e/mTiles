@@ -239,7 +239,7 @@ public class WindowLayoutTests : IDisposable
         root.FixedExtent = 300;
 
         TileTreeEdits.ExecuteRootEdge(list, () => layout.RootTile, DropZone.Top,
-            layout.FixedExtentFor(list, Orientation.Horizontal));
+            layout.DropSizeFor(list, Orientation.Horizontal));
 
         var top = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
         Assert.Equal(Orientation.Horizontal, top.Orientation);
@@ -247,7 +247,7 @@ public class WindowLayoutTests : IDisposable
         Assert.Equal(WorkspacesTileKind.StripHeight, top.FixedExtent);
 
         TileTreeEdits.ExecuteRootEdge(list, () => layout.RootTile, DropZone.Left,
-            layout.FixedExtentFor(list, Orientation.Vertical));
+            layout.DropSizeFor(list, Orientation.Vertical));
 
         var left = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
         Assert.Same(list, left.First);
