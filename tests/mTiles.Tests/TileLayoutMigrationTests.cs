@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using mTiles.Models;
 using mTiles.Services;
+using mTiles.Services.Shells;
 using mTiles.Services.Tiles;
 using mTiles.ViewModels;
 using Avalonia.Headless;
@@ -283,7 +284,18 @@ public sealed class TileLayoutMigrationTests : IDisposable
         // Which tile was active, which is what the shortcut and a phone aim at when the workspace opens.
         Assert.Same(terminal, workspace.ActiveTile);
         var terminalContent = Assert.IsType<TerminalTileViewModel>(terminal.Content);
-        Assert.Equal("PowerShell", terminalContent.Shell.DisplayName);
+
+        // The shell the layout named, in two halves, because only one of them is the same on every machine.
+        // The name itself is carried from the old field into the tile's state wherever this runs...
+        var savedTerminal = JsonSerializer.Deserialize<WorkspaceState>(GoldenLayout(), JsonDefaults.Options)!
+            .RootTile!.First!.First!;
+        Assert.Equal("PowerShell", savedTerminal.Settings?[TerminalTileKind.ShellNameKey]?.GetValue<string>());
+        // ...and it is resolved the way any saved terminal's is: to PowerShell where PowerShell is
+        // installed, and to the default shell where it is not. Asserting "PowerShell" outright made this a
+        // test of which operating system it ran on — on Linux the tile correctly came back as bash.
+        var expectedShell = ShellTerminalCatalog.Resolve(
+            "PowerShell", ShellTerminalCatalog.Detect(), settings.Service.Settings);
+        Assert.Equal(expectedShell.DisplayName, terminalContent.Shell.DisplayName);
         // Read through the tile it belongs to rather than copied into the content, which is what makes a
         // new session and a drag-and-drop swap need no re-stamping.
         Assert.Equal("tile-terminal", terminalContent.TileId);

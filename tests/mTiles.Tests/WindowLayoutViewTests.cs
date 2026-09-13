@@ -1,3 +1,5 @@
+using Avalonia;
+using Avalonia.Reactive;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Layout;
@@ -87,6 +89,53 @@ public class WindowLayoutViewTests : IDisposable
                 .Where(tile => TileTreeEdits.RootOf(tile) == layout.RootTile)
                 .ToList();
             Assert.Equal(TileKindIds.Note, Assert.Single(cards).KindId);
+        }
+        finally
+        {
+            window.Close();
+            vm.DisposeAll();
+        }
+    });
+
+    /// <summary>The list is never handed the tile that stands for it as its data context, not even for a
+    /// moment.</summary>
+    /// <remarks>Its bindings are compiled against <c>WorkspacesPanelViewModel</c>. Put into its frame before
+    /// being given one, it inherited the <c>LeafTileNodeViewModel</c> above it and its <c>FilterText</c>
+    /// binding threw <c>InvalidCastException</c> on start-up. Built the way <c>App</c> builds the window —
+    /// the data context in the initialiser, before <c>BindWindowState</c> — since that ordering is the one
+    /// that produced it.</remarks>
+    [Fact]
+    public void The_list_never_inherits_its_tile_as_a_data_context() => OnUiThread(() =>
+    {
+        using var appData = new TempAppData();
+        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
+
+        var vm = new MainWindowViewModel(workspaces, new PersistenceService(Path.Combine(_dir, "layouts")),
+            settings, TestTiles.Catalog(settings),
+            windowCatalog: panel => mTiles.App.BuildWindowTileCatalog(
+                new AiUsageService(settings, sources: _ => []), panel),
+            windowPersistence: new PersistenceService(Path.Combine(_dir, "window")));
+
+        var seen = new List<Type?>();
+        using var subscription = StyledElement.DataContextProperty.Changed.Subscribe(
+            new AnonymousObserver<AvaloniaPropertyChangedEventArgs<object?>>(e =>
+            {
+                if (e.Sender is WorkspacesPanelView) seen.Add(e.NewValue.GetValueOrDefault()?.GetType());
+            }));
+
+        var window = new MainWindow { DataContext = vm, Width = 1000, Height = 700 };
+        window.BindWindowState(settings);
+        window.Show();
+        window.UpdateLayout();
+
+        try
+        {
+            Assert.NotEmpty(seen);
+            Assert.All(seen, type => Assert.True(type is null || type == typeof(WorkspacesPanelViewModel),
+                $"The list was handed a {type?.Name} as its data context."));
+            Assert.Same(vm.WorkspacesPanel,
+                Assert.Single(window.GetVisualDescendants().OfType<WorkspacesPanelView>()).DataContext);
         }
         finally
         {

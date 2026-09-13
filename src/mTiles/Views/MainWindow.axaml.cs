@@ -116,7 +116,6 @@ public partial class MainWindow : Window
 
         if (DataContext is MainWindowViewModel vm)
         {
-            _panelView.DataContext = vm.WorkspacesPanel;
             _noWorkspace.Bind(IsVisibleProperty, new Binding(nameof(MainWindowViewModel.CurrentWorkspace))
             {
                 Source = vm,
@@ -551,13 +550,28 @@ public partial class MainWindow : Window
 
     /// <summary>The control a tile of the window's layout is drawn in.</summary>
     /// <remarks>The list and the workspace are frames round controls this window owns and keeps; every
-    /// other tile is an ordinary card, exactly as it would be in a workspace.</remarks>
-    private Control CreateWindowTileView(LeafTileNodeViewModel tile) => tile.KindId switch
+    /// other tile is an ordinary card, exactly as it would be in a workspace.
+    /// <para><b>The list is given its own view model before it is put in a frame, never after.</b>
+    /// Everything above it in the tree carries the tile as its data context, so a list attached first
+    /// inherits a <see cref="LeafTileNodeViewModel"/> for as long as it takes to be told otherwise — and its
+    /// compiled bindings, typed for the list, throw an <c>InvalidCastException</c> on the first one they
+    /// evaluate. The tree builds its frames the moment the window's own data context arrives, which is
+    /// before <see cref="BindWindowState"/> ever runs, which is why this is the list's only data context
+    /// writer.</para></remarks>
+    private Control CreateWindowTileView(LeafTileNodeViewModel tile)
     {
-        TileKindIds.Workspaces => new WindowTileFrame(tile, _panelView),
-        TileKindIds.WorkspaceHost => new WindowTileFrame(tile, _hostContent),
-        _ => new LeafTileView { DataContext = tile }
-    };
+        switch (tile.KindId)
+        {
+            case TileKindIds.Workspaces:
+                if (DataContext is MainWindowViewModel vm)
+                    _panelView.DataContext = vm.WorkspacesPanel;
+                return new WindowTileFrame(tile, _panelView);
+            case TileKindIds.WorkspaceHost:
+                return new WindowTileFrame(tile, _hostContent);
+            default:
+                return new LeafTileView { DataContext = tile };
+        }
+    }
 
     private LeafTileNodeViewModel? FindListTile() =>
         DataContext is MainWindowViewModel { WindowLayout: { } layout }
