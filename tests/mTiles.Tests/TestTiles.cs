@@ -21,4 +21,10 @@ internal static class TestTiles
     public static TileCatalog Catalog(mTiles.Services.SettingsService settings) =>
         mTiles.App.BuildTileCatalog(new DatabaseServiceManager(settings),
             new mTiles.Services.AiUsageService(settings, sources: _ => []));
+
+    /// <summary>The window's catalog, holding the list it is handed.</summary>
+    public static TileCatalog WindowCatalog(mTiles.Services.SettingsService settings,
+        mTiles.ViewModels.WorkspacesPanelViewModel panel) =>
+        mTiles.App.BuildWindowTileCatalog(
+            new mTiles.Services.AiUsageService(settings, sources: _ => []), () => panel);
 }

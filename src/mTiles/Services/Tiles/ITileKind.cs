@@ -32,6 +32,20 @@ public interface ITileKind
     /// a theme switch reaches it and the accents stay free to become derived later.</summary>
     string AccentKey { get; }
 
+    /// <summary>
+    /// Whether a tile of this kind is part of the layout itself rather than something put into it.
+    /// </summary>
+    /// <remarks>
+    /// <para>True for the tiles the window cannot do without — the list of workspaces and the place a
+    /// workspace is drawn. There is exactly one of each, so a permanent kind is never offered by an empty
+    /// tile's chooser or by Change type, a tile of one cannot be closed, and it cannot be turned into
+    /// anything else: each of those would be a window with no way back to its workspaces.</para>
+    /// <para>A property of the kind rather than of the layout that holds it, because every one of those
+    /// refusals is asked of a single tile, which knows its kind and nothing about which tree it is in.
+    /// </para>
+    /// </remarks>
+    bool IsPermanent { get; }
+
     /// <summary>The prefix a new tile of this kind is named after, as in <c>Git#1</c>.</summary>
     string NamePrefix { get; }
 

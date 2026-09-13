@@ -349,6 +349,43 @@ edge drop given pixels included, which the surface paints instead of the tile's 
 **Cross-workspace drops are still not possible**, and not because anything refuses them: only one
 workspace's view is visible at a time, so there is never a second workspace's tile under the pointer.
 
+### The window's own layout
+
+**The same tree a workspace has, one level up** (`WindowLayoutViewModel`). Nothing about the node types,
+the serializer, the fixed sides, the drag and drop or the full-screen scope had to learn there are two
+levels; what differs is the catalog and two tiles the tree must always hold.
+
+**The catalog is decided by what a kind needs** (`App.BuildWindowTileCatalog`): note, todo and usage,
+because a terminal, an agent, a git or database tile and a goal all need a repository and the window has
+none. It stands in for one where a tile asks — `AppPaths.GetWindowDirectory()` — so a note put beside
+the workspaces keeps its file under `window/.mtiles/notes/` by the same rule that keeps a workspace's
+notes in the workspace.
+
+**Two kinds are permanent** (`ITileKind.IsPermanent`): the list of workspaces (`workspaces`) and the
+place the open workspace is drawn (`workspace-host`). A property of the kind rather than of the layout,
+because every refusal it stands for is asked of one tile, which knows its kind and not its tree: a
+permanent kind is never offered by an empty tile's chooser or by Change type, a tile of one cannot be
+closed or converted, and `WindowLayoutViewModel.AddTile` refuses one. Their view models hold nothing of
+their own — the list and the cache of workspace views belong to the window and outlive any arrangement
+of them, so disposing either tile disposes nothing.
+
+**A file that does not hold each of them exactly once is replaced, not mended.** Mending it would mean
+guessing where a list nobody put anywhere should go; the default is the one layout certainly usable, and
+the notes such a file named stay on disk. **The default is never written down**: it is the window as it
+looked before it had a layout, so the first launch after the update writes nothing and a window nobody
+rearranges never gets a file. The unknown-kind rule is the workspace's: a tile of a kind this build does
+not have leaves the file alone for the session.
+
+**The list is the one tile with a fixed size, and the size depends on the axis**
+(`WindowLayoutViewModel.FixedExtentFor`, which the window's drop surface will ask): beside the layout it
+is as wide as it last stood — remembered, so a trip to the top and back does not reset it — and along the
+top or the bottom it is one strip of tabs (`WorkspacesTileKind.StripHeight`). Asked before the drop is
+carried out, so a list moved from one side to the other still reads its old split's width.
+
+**Two pieces of `WorkspaceViewModel` became shared rather than copied**: `TileNameAllocator` (names are
+unique per tree) and `TileTreeEdits.LeavesOf`. The rest of the two view models differ for real — agent
+files, database skills and the instruction-file sync belong to a workspace alone.
+
 ### Why `ITile` is this thin
 
 The thinness is the design, not a shortcut. Three things were considered for it and rejected, and the

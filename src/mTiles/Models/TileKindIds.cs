@@ -29,6 +29,15 @@ public static class TileKindIds
     /// pretending it is a terminal would open a shell nobody asked for.</remarks>
     public const string Usage = "usage";
 
+    /// <summary>The list of workspaces, as a tile of the window's own layout.</summary>
+    /// <remarks>Only ever in <c>window/layout.json</c>, which no build before the window had a layout
+    /// reads — so, unlike every id above, it needs no answer from <see cref="ToLegacy"/>.</remarks>
+    public const string Workspaces = "workspaces";
+
+    /// <summary>Where the open workspace's own tiles are drawn, as a tile of the window's layout.</summary>
+    /// <remarks>The same as <see cref="Workspaces"/>: window layout only, no legacy answer.</remarks>
+    public const string WorkspaceHost = "workspace-host";
+
     /// <summary>An AI agent in a tile, run from an <c>AiAgentInstance</c> rather than from a shell
     /// profile the user has to write.</summary>
     /// <remarks>Nothing is added to <see cref="TileContentType"/> for it — that enum is closed and is

@@ -119,6 +119,8 @@ internal static class TileTreeEdits
         // first would otherwise answer the second question wrongly.
         var aWasFirst = parentOfA.First == a;
         var bWasFirst = parentOfB.First == b;
+        var heldA = HeldExtentOf(a, parentOfA);
+        var heldB = HeldExtentOf(b, parentOfB);
 
         a.Parent = parentOfB;
         b.Parent = parentOfA;
@@ -126,8 +128,39 @@ internal static class TileTreeEdits
         if (aWasFirst) parentOfA.First = b; else parentOfA.Second = b;
         if (bWasFirst) parentOfB.First = a; else parentOfB.Second = a;
 
+        CarryHeldExtents(a, parentOfA, heldA, b, parentOfB, heldB);
+
         a.LayoutChanged?.Invoke();
     }
+
+    /// <summary>The pixels <paramref name="parent"/> holds <paramref name="child"/> at, or null when it
+    /// holds it at a share.</summary>
+    private static double? HeldExtentOf(TileNodeViewModel child, SplitTileNodeViewModel parent) =>
+        parent.IsFixed(child) ? parent.FixedExtent : null;
+
+    /// <summary>
+    /// Moves each swapped tile's size in pixels to the slot it now stands in.
+    /// </summary>
+    /// <remarks>A fixed size belongs to the tile, not to the place it stood: a list held at 240 px that
+    /// traded places with the workspace beside it would otherwise hand the workspace those 240 px and
+    /// stretch itself across the rest of the window. A parent first lets go of the side it held, and then
+    /// holds whichever of the two swapped tiles brought pixels with it — which, when both came from one
+    /// split, is just its fixed side changing ends.</remarks>
+    private static void CarryHeldExtents(
+        LeafTileNodeViewModel a, SplitTileNodeViewModel parentOfA, double? heldA,
+        LeafTileNodeViewModel b, SplitTileNodeViewModel parentOfB, double? heldB)
+    {
+        if (heldA is null && heldB is null) return;
+
+        if (heldA is not null) parentOfA.FixedSide = SplitFixedSide.None;
+        if (heldB is not null) parentOfB.FixedSide = SplitFixedSide.None;
+
+        if (heldA is { } extentOfA) HoldAt(parentOfB, a, extentOfA);
+        if (heldB is { } extentOfB) HoldAt(parentOfA, b, extentOfB);
+    }
+
+    private static void HoldAt(SplitTileNodeViewModel parent, TileNodeViewModel child, double extent) =>
+        parent.Fix(ReferenceEquals(parent.First, child) ? SplitFixedSide.First : SplitFixedSide.Second, extent);
 
     /// <summary>
     /// Drops a tile onto a split's gutter: it goes between the two tiles that split holds.
@@ -237,6 +270,21 @@ internal static class TileTreeEdits
         // it — the dropped tile included — so nothing here has to hand the source its callbacks back.
         source.RootReplaced?.Invoke(split);
         source.MaximizeScope?.ReviewLayout();
+    }
+
+    /// <summary>Every tile under <paramref name="node"/>, first to second.</summary>
+    public static IEnumerable<LeafTileNodeViewModel> LeavesOf(TileNodeViewModel? node)
+    {
+        switch (node)
+        {
+            case LeafTileNodeViewModel leaf:
+                yield return leaf;
+                break;
+            case SplitTileNodeViewModel split:
+                foreach (var l in LeavesOf(split.First)) yield return l;
+                foreach (var l in LeavesOf(split.Second)) yield return l;
+                break;
+        }
     }
 
     /// <summary>The root of the tree a node hangs in.</summary>

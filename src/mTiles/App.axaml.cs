@@ -157,6 +157,28 @@ public partial class App : Application
             .Register(new NoteTileKind(), tile => new NoteTileView { DataContext = tile })
             .Register(new TodoTileKind(), tile => new TodoTileView { DataContext = tile });
 
+    /// <summary>
+    /// Every kind of tile the window's own layout can hold: the list of workspaces and the place the open
+    /// workspace is drawn, and beside them the kinds that need no workspace to work in.
+    /// </summary>
+    /// <remarks>
+    /// <para>A catalog of its own rather than a filter over the workspace's, because what is allowed is
+    /// decided by what a kind needs, and a terminal, an agent, a git or database tile and a goal all need
+    /// a repository the window does not have. The kinds that are here are the same objects' classes as
+    /// the workspace's — nothing about a note had to learn there are two levels.</para>
+    /// <para>The workspace view is registered with an empty panel for now: the window does not lay itself
+    /// out through this catalog yet, and the control that will draw the open workspace is the window's to
+    /// build, since it owns the cache of workspace views.</para>
+    /// </remarks>
+    internal static TileCatalog BuildWindowTileCatalog(AiUsageService usage, Func<WorkspacesPanelViewModel> panel) =>
+        new TileCatalog()
+            .Register(new WorkspacesTileKind(panel),
+                tile => new WorkspacesPanelView { DataContext = ((WorkspacesTileViewModel)tile).Panel })
+            .Register(new WorkspaceHostTileKind(), _ => new Avalonia.Controls.Panel())
+            .Register(new NoteTileKind(), tile => new NoteTileView { DataContext = tile })
+            .Register(new TodoTileKind(), tile => new TodoTileView { DataContext = tile })
+            .Register(new UsageTileKind(usage), tile => new UsageTileView { DataContext = tile });
+
     /// <summary>Runs one shutdown step, so a failure in it cannot cost the others.</summary>
     private static void Shutdown(string what, Action step)
     {

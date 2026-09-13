@@ -214,6 +214,7 @@
                             </Button>
                             <Button Classes="tile-btn-close"
                                     Command="{Binding CloseCommand}"
+                                    IsVisible="{Binding CanClose}"
                                     ToolTip.Tip="Close tile">
                                 <mi:MaterialIcon Kind="Close" Width="14" Height="14" />
                             </Button>

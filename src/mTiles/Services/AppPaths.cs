@@ -127,6 +127,16 @@ public static class AppPaths
     public static string GetWorkspacesDirectory() =>
         Path.Combine(GetAppDataDirectory(), "workspaces");
 
+    /// <summary>
+    /// The window's own layout, and the files its tiles keep — a note or a todo list put beside the
+    /// workspaces rather than inside one.
+    /// </summary>
+    /// <remarks>It stands in for a workspace directory where a tile asks for one, so a window-level note
+    /// lands under <c>window/.mtiles/notes/</c> by the same rule that puts a workspace's notes under its
+    /// own <c>.mtiles/</c>. Nothing about those kinds had to learn that there is a second level.</remarks>
+    public static string GetWindowDirectory() =>
+        Path.Combine(GetAppDataDirectory(), "window");
+
     /// <summary>Where downloaded speech-to-text models live. Hundreds of megabytes each.</summary>
     public static string GetSpeechModelsDirectory() =>
         Path.Combine(GetAppDataDirectory(), "models");

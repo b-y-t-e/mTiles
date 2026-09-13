@@ -96,14 +96,8 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// left.</remarks>
     private readonly TileMaximizeScope _maximizeScope = new();
 
-    /// <summary>Every name this workspace has given a tile, by kind id.</summary>
-    /// <remarks>A dictionary rather than a field per kind: five fields meant five parameters on the
-    /// allocator and a five-armed <c>else if</c> reading them back out of a saved layout, and a seventh
-    /// kind meant finding all three places again. Names rather than counters, because what a kind makes
-    /// of them is the kind's own business — a number for most, an adjective and an animal for a
-    /// terminal.</remarks>
-    private readonly Dictionary<string, HashSet<string>> _namesPerKind =
-        new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Every name this workspace has given a tile.</summary>
+    private readonly TileNameAllocator _names;
 
     /// <param name="catalog">Every kind of tile this workspace can build.</param>
     /// <param name="openSettings">Opens the application's settings dialog on a tab. Handed down rather
@@ -121,20 +115,21 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         _settingsService = settingsService;
         _dictation = dictation;
         _catalog = catalog;
+        _names = new TileNameAllocator(catalog);
         _agentFileSync = agentFileSync;
         _tileContext = new TileContext(WorkingDirectory, settingsService, ScheduleSave, openSettings);
 
         _serializer = new TileTreeSerializer(
             _catalog,
             _tileContext,
-            AllocateTileName,
+            _names.Allocate,
             ConfigureLeafCallbacks,
             _activationScope);
 
         var state = persistenceService.LoadLayout(workspace.Id);
         if (state?.RootTile != null)
         {
-            RememberSavedNames(state.RootTile);
+            _names.RememberSaved(state.RootTile);
 
             // Before the tree is built, because it rewrites what a leaf *is*: an AI CLI that was a
             // shell profile becomes an agent tile. Without it this stage takes the profiles away and
@@ -241,7 +236,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private LeafTileNodeViewModel CreateEmptyLeaf()
     {
         var leaf = new LeafTileNodeViewModel(TileKindIds.None, null, WorkingDirectory,
-            _activationScope, _catalog, _tileContext, AllocateTileName);
+            _activationScope, _catalog, _tileContext, _names.Allocate);
         // Everything else a tile needs is decided in one place, including LayoutChanged. Setting it here
         // as well is the arrangement the whole fix was about removing: two lists to keep in step.
         ConfigureLeafCallbacks(leaf);
@@ -310,19 +305,8 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
         host?.OpenBeside(kindId, state).RequestFocus();
     }
 
-    private static IEnumerable<LeafTileNodeViewModel> EnumerateLeaves(TileNodeViewModel? node)
-    {
-        switch (node)
-        {
-            case LeafTileNodeViewModel leaf:
-                yield return leaf;
-                break;
-            case SplitTileNodeViewModel split:
-                foreach (var l in EnumerateLeaves(split.First)) yield return l;
-                foreach (var l in EnumerateLeaves(split.Second)) yield return l;
-                break;
-        }
-    }
+    private static IEnumerable<LeafTileNodeViewModel> EnumerateLeaves(TileNodeViewModel? node) =>
+        TileTreeEdits.LeavesOf(node);
 
     private void ConfigureLeafCallbacks(LeafTileNodeViewModel leaf)
     {
@@ -396,41 +380,6 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             if (split.First != null) PropagateCallbacks(split.First);
             if (split.Second != null) PropagateCallbacks(split.Second);
         }
-    }
-
-    /// <summary>What to call a tile of that kind, given what this workspace already holds.</summary>
-    /// <remarks>The kind decides; this only keeps the list of names it has already handed out and
-    /// remembers the answer. A tile of no kind has no name yet, and an id nothing is registered under
-    /// gets the same answer — there is nothing to ask.</remarks>
-    private string AllocateTileName(string kindId)
-    {
-        if (_catalog.Kind(kindId) is not { } kind) return "";
-
-        var used = UsedNames(kindId);
-        var name = kind.NameFor(used);
-        used.Add(name);
-        return name;
-    }
-
-    private HashSet<string> UsedNames(string kindId) =>
-        _namesPerKind.TryGetValue(kindId, out var names)
-            ? names
-            : _namesPerKind[kindId] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>Picks up the names the saved layout already uses, so a new tile is not called
-    /// <c>Git#1</c> beside one already called that.</summary>
-    private void RememberSavedNames(TileNode? node)
-    {
-        if (node == null) return;
-        if (!node.IsLeaf)
-        {
-            RememberSavedNames(node.First);
-            RememberSavedNames(node.Second);
-            return;
-        }
-
-        if (node.TileName is { Length: > 0 } tileName && node.Kind is { Length: > 0 } kindId)
-            UsedNames(kindId).Add(tileName);
     }
 
     /// <summary>The tree itself changed: republish what the agents here read, then write the layout.</summary>

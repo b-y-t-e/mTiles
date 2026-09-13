@@ -19,6 +19,9 @@ public abstract class TileKind<T> : ITileKind where T : ITile
     public abstract string IconId { get; }
     public abstract string AccentKey { get; }
 
+    /// <summary>False: every kind is something put into a layout, except the window's own two.</summary>
+    public virtual bool IsPermanent => false;
+
     /// <summary>Defaults to the display name, which is right for five of the six.</summary>
     public virtual string NamePrefix => DisplayName;
 

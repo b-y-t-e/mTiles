@@ -101,11 +101,12 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// costs about a tile that is holding nothing.</remarks>
     public void RefreshChangeKindOptions()
     {
-        ChangeKindOptions = _disposed || _catalog is null || KindId.Length == 0
+        ChangeKindOptions = _disposed || _catalog is null || KindId.Length == 0 || Kind?.IsPermanent == true
             ? []
             :
             [
                 .. _catalog.Entries.Select(entry => entry.Kind)
+                    .Where(kind => !kind.IsPermanent)
                     .Where(kind => !string.Equals(kind.Id, KindId, StringComparison.OrdinalIgnoreCase))
                     .Select(kind => new TileKindChoice(kind.DisplayName, kind.IconId, kind.AccentKey,
                         () => BeginChangeKindAsync(kind.Id)))
@@ -127,6 +128,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     {
         if (kindId is not { Length: > 0 } || kindId == KindId || KindId.Length == 0) return;
         if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
+        if (kind.IsPermanent || Kind?.IsPermanent == true) return;
 
         var options = kind.SetupOptions(context);
         if (options.Count == 0)
@@ -297,7 +299,11 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         OnPropertyChanged(nameof(CanRestart));
     }
 
-    partial void OnKindIdChanged(string value) => OnPropertyChanged(nameof(CanDictate));
+    partial void OnKindIdChanged(string value)
+    {
+        OnPropertyChanged(nameof(CanDictate));
+        OnPropertyChanged(nameof(CanClose));
+    }
     partial void OnTileNameChanged(string value) => NotifyLayoutChanged();
 
     private readonly TileActivationScope _activationScope;
@@ -320,8 +326,14 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     private string _pendingKindId = TileKindIds.None;
 
     /// <summary>Every kind a tile can be given, in the order the chooser offers them.</summary>
+    /// <remarks>Permanent kinds are left out: there is one of each already, and a second list of
+    /// workspaces is not something anybody chooses.</remarks>
     public IReadOnlyList<ITileKind> AvailableKinds =>
-        _catalog?.Entries.Select(e => e.Kind).ToList() ?? [];
+        _catalog?.Entries.Select(e => e.Kind).Where(kind => !kind.IsPermanent).ToList() ?? [];
+
+    /// <summary>Whether this tile may be closed — every tile but the ones the layout cannot do without.
+    /// </summary>
+    public bool CanClose => Kind?.IsPermanent != true;
 
     /// <summary>The kind this tile is, or null while it is empty — what the header draws its glyph
     /// from.</summary>
@@ -597,6 +609,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     {
         if (KindId != TileKindIds.None || kindId is not { Length: > 0 }) return;
         if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
+        if (kind.IsPermanent) return;
 
         var options = kind.SetupOptions(context);
         if (options.Count > 0)
@@ -806,6 +819,10 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     [RelayCommand]
     private async Task CloseAsync()
     {
+        // Refused before the question, not after it: asking whether to close something that will not
+        // close is a question with no answer.
+        if (!CanClose) return;
+
         if (ConfirmAction != null && !await ConfirmAction("Close tile?"))
             return;
 
