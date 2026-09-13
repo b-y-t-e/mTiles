@@ -14,8 +14,7 @@ namespace mTiles.Views;
 public partial class WorkspacesPanelView : UserControl
 {
     private WorkspacesPanelViewModel? _subscribedVm;
-    private bool _isCollapsed;
-    private const double CollapseThreshold = 80;
+    private WorkspacesPanelShape _shape = WorkspacesPanelShape.List;
 
     public WorkspacesPanelView()
     {
@@ -26,11 +25,28 @@ public partial class WorkspacesPanelView : UserControl
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        var collapsed = e.NewSize.Width < CollapseThreshold;
-        if (collapsed == _isCollapsed) return;
-        _isCollapsed = collapsed;
-        ExpandedPanel.IsVisible = !collapsed;
-        CollapsedPanel.IsVisible = collapsed;
+        var shape = WorkspacesPanelShapes.For(e.NewSize);
+        if (shape == _shape) return;
+        _shape = shape;
+
+        // The one writer of all three: each panel is shown by this and nothing else, so no two of them
+        // can be on screen at once however the size arrived.
+        ExpandedPanel.IsVisible = shape == WorkspacesPanelShape.List;
+        CollapsedPanel.IsVisible = shape == WorkspacesPanelShape.Strip;
+        TabsPanel.IsVisible = shape == WorkspacesPanelShape.Tabs;
+
+        // Whichever list is on screen now starts wherever it was scrolled, which is rarely where the open
+        // workspace is.
+        if (_subscribedVm?.SelectedWorkspace is { } selected)
+            RevealWorkspace(selected);
+    }
+
+    /// <summary>The tabs' filter field is in a flyout, and it is on screen only while that is open — so
+    /// being attached is being opened, and the field takes the keyboard the moment it is.</summary>
+    private void TabsFilterField_AttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is TextBox field)
+            Dispatcher.UIThread.Post(() => field.Focus(), DispatcherPriority.Loaded);
     }
 
     private void WorkspaceItem_PointerPressed(object? sender, PointerPressedEventArgs e) =>
@@ -178,7 +194,7 @@ public partial class WorkspacesPanelView : UserControl
         }
     }
 
-    /// <summary>Scrolls a row into view, in whichever of the two lists is on screen.</summary>
+    /// <summary>Scrolls a row into view, in whichever of the three lists is on screen.</summary>
     /// <remarks>Posted at <see cref="DispatcherPriority.Loaded"/> because the row is asked for in the
     /// same breath as it is added: the container does not exist until the layout pass that follows, and
     /// <c>ContainerFromItem</c> answers null until it does. The collapsed list is asked as well rather
@@ -195,7 +211,12 @@ public partial class WorkspacesPanelView : UserControl
     private void RevealWorkspace(WorkspaceItemViewModel item, int attempt) =>
         Dispatcher.UIThread.Post(() =>
         {
-            var list = _isCollapsed ? CollapsedWorkspaceList : (ItemsControl)WorkspaceList;
+            var list = _shape switch
+            {
+                WorkspacesPanelShape.Strip => CollapsedWorkspaceList,
+                WorkspacesPanelShape.Tabs => TabWorkspaceList,
+                _ => (ItemsControl)WorkspaceList
+            };
             var container = list.ContainerFromItem(item);
             if (container is not null)
             {

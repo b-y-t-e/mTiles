@@ -51,10 +51,10 @@ public partial class MainWindow : Window
 
         WindowTree.CreateLeafView = CreateWindowTileView;
 
-        // The list is dragged by its heading, or by the grip the collapsed strip has instead of one. Both
+        // The list is dragged by its heading, or by the grip its other two shapes have instead of one. All
         // start the same drag of the same tile, which is found when the drag starts rather than held: the
         // tile is rebuilt whenever the layout file is replaced, and the panel view never is.
-        foreach (var handle in new[] { "HeadingRow", "CollapsedHandle" })
+        foreach (var handle in new[] { "HeadingRow", "CollapsedHandle", "TabsHandle" })
         {
             if (_panelView.FindControl<Control>(handle) is not { } control) continue;
             _ = new TileDragHandle(control, _panelView,

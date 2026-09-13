@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             xmlns:m="using:mTiles.Models"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:views="using:mTiles.Views"
+             x:Class="mTiles.Views.WindowActionsBar"
+             x:DataType="vm:WorkspacesPanelViewModel">
+
+    <!-- The application's own actions, which every shape of the workspaces list carries on its far end:
+         one definition, so a new window tile kind or a changed command reaches all three shapes at once. -->
+    <UserControl.Styles>
+        <Style Selector="mi|MaterialIcon.window-action">
+            <Setter Property="Width" Value="{Binding $parent[views:WindowActionsBar].IconSize}" />
+            <Setter Property="Height" Value="{Binding $parent[views:WindowActionsBar].IconSize}" />
+        </Style>
+    </UserControl.Styles>
+
+    <StackPanel Orientation="{Binding $parent[views:WindowActionsBar].Orientation}" Spacing="2">
+        <!-- Adds a tile to the window's own layout, beside the workspaces rather than inside one. -->
+        <Button Classes="toolbar"
+                HorizontalAlignment="Center"
+                IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasWindowLayout}"
+                ToolTip.Tip="Add a tile to the window">
+            <mi:MaterialIcon Classes="window-action" Kind="ViewGridPlusOutline" />
+            <Button.Flyout>
+                <MenuFlyout>
+                    <MenuItem Header="Note"
+                              Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                              CommandParameter="{x:Static m:TileKindIds.Note}" />
+                    <MenuItem Header="Todo"
+                              Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                              CommandParameter="{x:Static m:TileKindIds.Todo}" />
+                    <MenuItem Header="Usage"
+                              Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
+                              CommandParameter="{x:Static m:TileKindIds.Usage}" />
+                </MenuFlyout>
+            </Button.Flyout>
+        </Button>
+        <Button Classes="toolbar"
+                HorizontalAlignment="Center"
+                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleSettingsCommand}"
+                ToolTip.Tip="Settings">
+            <mi:MaterialIcon Classes="window-action" Kind="CogOutline" />
+        </Button>
+        <Button Classes="toolbar"
+                HorizontalAlignment="Center"
+                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPhoneBridgeCommand}"
+                IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasPhoneBridge}"
+                ToolTip.Tip="Dictate from a phone">
+            <mi:MaterialIcon Classes="window-action" Kind="Qrcode" />
+        </Button>
+        <Button Classes="toolbar"
+                HorizontalAlignment="Center"
+                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApplyUpdateCommand}"
+                ToolTip.Tip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).UpdateVersion, StringFormat='Update to {0}'}"
+                IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsUpdateAvailable}"
+                Foreground="{DynamicResource AccentDefault}">
+            <mi:MaterialIcon Classes="window-action" Kind="ArrowUpBoldCircleOutline" />
+        </Button>
+    </StackPanel>
+</UserControl>

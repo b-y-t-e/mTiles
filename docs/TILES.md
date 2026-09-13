@@ -390,6 +390,11 @@ and no workspace's shells end because the layout changed. The list is dragged by
 grip the collapsed strip has instead of one. New tiles come from the add menu on the list's bottom row
 (`MainWindowViewModel.AddWindowTileCommand`), beside Settings, because that row is the application's.
 
+**The list becomes tabs by being short, not by being on top.** `WorkspacesPanelShapes.For` picks rows,
+a strip of initials or a row of tabs from the size its tile has, so the one decision a drop makes — the
+list's fixed size on that axis — is the whole of what changes its shape. See `CLAUDE.md` → *Workspace
+panel*.
+
 **A fixed pane's minimum never exceeds its own pixels** (`TileMinimumSize.ForFixedSide`). The minimum
 keeps a splitter from squeezing a tile away; applied to a strip of tabs held at 40 px, it drew the strip
 50 tall and overruled the size the layout chose.

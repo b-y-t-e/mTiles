@@ -382,6 +382,15 @@
         <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
     </Style>
 
+    <!-- A workspace as a tab, when the list lies along the top or the bottom of the window. Everything a
+         row says it says the same way — the ground when selected, the wash on hover, the name a shade back
+         when unloaded — and only the accent moves: from a row's leading edge to a tab's bottom edge, which
+         is the leading edge of something read left to right along a strip. -->
+    <Style Selector="Border.workspace-item.workspace-tab">
+        <Setter Property="BorderThickness" Value="0,0,0,2" />
+        <Setter Property="Padding" Value="10,0" />
+    </Style>
+
     <!-- Loaded and unloaded, told by the name's own shade. A workspace holds nothing until it is opened
          for the first time, and most rows in a long list never are — so this is true of nearly every row
          and a mark on nearly every row marks nothing. A shade says it without asking for a column, and

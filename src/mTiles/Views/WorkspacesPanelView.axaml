@@ -40,51 +40,8 @@
     <Panel>
         <!-- ═══ EXPANDED MODE ═══ -->
         <DockPanel x:Name="ExpandedPanel">
-            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="2" Margin="8,6,8,6">
-                <!-- Adds a tile to the window's own layout, beside the workspaces rather than inside one.
-                     On this row because the row is the application's rather than the list's: Settings and
-                     the phone are here for the same reason. -->
-                <Button Classes="toolbar"
-                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasWindowLayout}"
-                        ToolTip.Placement="Right"
-                        ToolTip.Tip="Add a tile to the window">
-                    <mi:MaterialIcon Kind="ViewGridPlusOutline" Width="18" Height="18" />
-                    <Button.Flyout>
-                        <MenuFlyout>
-                            <MenuItem Header="Note"
-                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                                      CommandParameter="{x:Static m:TileKindIds.Note}" />
-                            <MenuItem Header="Todo"
-                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                                      CommandParameter="{x:Static m:TileKindIds.Todo}" />
-                            <MenuItem Header="Usage"
-                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                                      CommandParameter="{x:Static m:TileKindIds.Usage}" />
-                        </MenuFlyout>
-                    </Button.Flyout>
-                </Button>
-                <Button Classes="toolbar"
-                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleSettingsCommand}"
-                        ToolTip.Placement="Right"
-                        ToolTip.Tip="Settings">
-                    <mi:MaterialIcon Kind="CogOutline" Width="18" Height="18" />
-                </Button>
-                <Button Classes="toolbar"
-                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPhoneBridgeCommand}"
-                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasPhoneBridge}"
-                        ToolTip.Placement="Right"
-                        ToolTip.Tip="Dictate from a phone">
-                    <mi:MaterialIcon Kind="Qrcode" Width="18" Height="18" />
-                </Button>
-                <Button Classes="toolbar"
-                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApplyUpdateCommand}"
-                        ToolTip.Placement="Right"
-                        ToolTip.Tip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).UpdateVersion, StringFormat='Update to {0}'}"
-                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsUpdateAvailable}"
-                        Foreground="{DynamicResource AccentDefault}">
-                    <mi:MaterialIcon Kind="ArrowUpBoldCircleOutline" Width="18" Height="18" />
-                </Button>
-            </StackPanel>
+            <!-- The application's rather than the list's, so a hairline separates it from the list. -->
+            <views:WindowActionsBar DockPanel.Dock="Bottom" IconSize="18" Margin="8,6,8,6" />
 
             <Border DockPanel.Dock="Bottom"
                     Height="1"
@@ -318,55 +275,7 @@
                                  HorizontalAlignment="Center"
                                  VerticalAlignment="Center" />
             </Border>
-            <StackPanel DockPanel.Dock="Bottom" Spacing="2" HorizontalAlignment="Center" Margin="0,4,0,6">
-                <!-- Adds a tile to the window's own layout, beside the workspaces rather than inside one.
-                     On this row because the row is the application's rather than the list's: Settings and
-                     the phone are here for the same reason. -->
-                <Button Classes="toolbar"
-                        HorizontalAlignment="Center"
-                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasWindowLayout}"
-                        ToolTip.Placement="Right"
-                        ToolTip.Tip="Add a tile to the window">
-                    <mi:MaterialIcon Kind="ViewGridPlusOutline" Width="16" Height="16" />
-                    <Button.Flyout>
-                        <MenuFlyout>
-                            <MenuItem Header="Note"
-                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                                      CommandParameter="{x:Static m:TileKindIds.Note}" />
-                            <MenuItem Header="Todo"
-                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                                      CommandParameter="{x:Static m:TileKindIds.Todo}" />
-                            <MenuItem Header="Usage"
-                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AddWindowTileCommand}"
-                                      CommandParameter="{x:Static m:TileKindIds.Usage}" />
-                        </MenuFlyout>
-                    </Button.Flyout>
-                </Button>
-                <Button Classes="toolbar"
-                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApplyUpdateCommand}"
-                        ToolTip.Placement="Right"
-                        ToolTip.Tip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).UpdateVersion, StringFormat='Update to {0}'}"
-                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsUpdateAvailable}"
-                        Foreground="{DynamicResource AccentDefault}"
-                        HorizontalAlignment="Center">
-                    <mi:MaterialIcon Kind="ArrowUpBoldCircleOutline" Width="16" Height="16" />
-                </Button>
-                <Button Classes="toolbar"
-                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleSettingsCommand}"
-                        HorizontalAlignment="Center"
-                        ToolTip.Placement="Right"
-                        ToolTip.Tip="Settings">
-                    <mi:MaterialIcon Kind="CogOutline" Width="16" Height="16" />
-                </Button>
-                <Button Classes="toolbar"
-                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPhoneBridgeCommand}"
-                        IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).HasPhoneBridge}"
-                        HorizontalAlignment="Center"
-                        ToolTip.Placement="Right"
-                        ToolTip.Tip="Dictate from a phone">
-                    <mi:MaterialIcon Kind="Qrcode" Width="16" Height="16" />
-                </Button>
-            </StackPanel>
+            <views:WindowActionsBar DockPanel.Dock="Bottom" Orientation="Vertical" HorizontalAlignment="Center" Margin="0,4,0,6" />
 
             <Button DockPanel.Dock="Bottom"
                     Classes="toolbar"
@@ -400,6 +309,120 @@
                                            FontSize="{DynamicResource FontSm}"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextMuted}" />
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+
+        <!-- ═══ TABS MODE ═══
+             The list laid along the top or the bottom of the window: one row, so a workspace is a name
+             to switch by rather than a row to read. The branch stays, a step back beside the name and
+             trimmed before it, because it is the second thing a workspace is chosen by; the path and the
+             memory reading go, since a row one line tall has room for neither and both are in the tooltip
+             and the list's other shapes. The application's own actions stand at the far end, where the
+             list's bottom row puts them in the other two shapes. -->
+        <DockPanel x:Name="TabsPanel" IsVisible="False">
+            <!-- The grip the list is dragged by in this shape, on its leading end where a heading would
+                 be: a row of tabs has no heading to take hold of. -->
+            <Border x:Name="TabsHandle"
+                    DockPanel.Dock="Left"
+                    Width="18"
+                    Background="Transparent"
+                    Cursor="SizeAll"
+                    ToolTip.Tip="Drag to move the list">
+                <mi:MaterialIcon Kind="DragVerticalVariant"
+                                 Width="14" Height="14"
+                                 Foreground="{DynamicResource TextFaint}"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center" />
+            </Border>
+
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" Margin="4,0,6,0"
+                        VerticalAlignment="Center">
+                <!-- The filter as a button that opens the field, because a text box standing in a row of
+                     tabs takes the width of four of them. Shown where the other shapes show the field. -->
+                <Button Classes="toolbar"
+                        IsVisible="{Binding ShowFilter}"
+                        ToolTip.Tip="Filter workspaces">
+                    <Panel>
+                        <mi:MaterialIcon Kind="Magnify" Width="16" Height="16"
+                                         IsVisible="{Binding !FilterText.Length}" />
+                        <mi:MaterialIcon Kind="FilterVariant" Width="16" Height="16"
+                                         Foreground="{DynamicResource AccentDefault}"
+                                         IsVisible="{Binding FilterText.Length}" />
+                    </Panel>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedRight">
+                            <TextBox Text="{Binding FilterText, Mode=TwoWay}"
+                                     PlaceholderText="Filter..."
+                                     Width="220"
+                                     Padding="9,6"
+                                     FontSize="{DynamicResource FontSm}"
+                                     AttachedToVisualTree="TabsFilterField_AttachedToVisualTree" />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <Button Classes="toolbar"
+                        Command="{Binding AddWorkspaceCommand}"
+                        ToolTip.Tip="Add Workspace">
+                    <mi:MaterialIcon Kind="Plus" Width="16" Height="16" />
+                </Button>
+                <views:WindowActionsBar />
+            </StackPanel>
+
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled">
+                <ItemsControl x:Name="TabWorkspaceList"
+                              ItemsSource="{Binding FilteredWorkspaces}"
+                              Margin="2,4">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="2" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:WorkspaceItemViewModel">
+                            <!-- The row's own classes, so a tab is selected, hovered and dimmed exactly as
+                                 a row is; workspace-tab only moves the accent from the leading edge to the
+                                 bottom one, which is where the leading edge of a tab is. -->
+                            <Border Classes="workspace-item workspace-tab"
+                                    Classes.workspace-item-selected="{Binding IsSelected}"
+                                    Classes.workspace-item-unloaded="{Binding !IsLoaded}"
+                                    CornerRadius="{DynamicResource RadiusRow}"
+                                    Cursor="Hand"
+                                    ToolTip.Tip="{Binding DirectoryPath}"
+                                    PointerPressed="WorkspaceItem_PointerPressed">
+                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <mi:MaterialIcon Kind="AlertCircleOutline"
+                                                     Classes="workspace-busy blocked"
+                                                     IsVisible="{Binding IsBlocked}"
+                                                     ToolTip.Tip="{Binding ActivityTip}" />
+                                    <mi:MaterialIcon Kind="Loading"
+                                                     Classes="workspace-busy"
+                                                     Classes.spinning="{Binding IsWorking}"
+                                                     IsVisible="{Binding IsWorking}"
+                                                     ToolTip.Tip="{Binding ActivityTip}" />
+                                    <mi:MaterialIcon Kind="Star"
+                                                     Width="11" Height="11"
+                                                     Foreground="{DynamicResource TextFaint}"
+                                                     VerticalAlignment="Center"
+                                                     IsVisible="{Binding IsFavorite}" />
+                                    <TextBlock Text="{Binding Name}"
+                                               Classes="workspace-name"
+                                               FontWeight="Medium"
+                                               MaxWidth="200"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding BranchName}"
+                                               IsVisible="{Binding BranchName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               FontSize="{DynamicResource FontXs}"
+                                               Foreground="{DynamicResource TextMuted}"
+                                               MaxWidth="140"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
