@@ -44,6 +44,10 @@
          both; these are only what the previewer and a lookup before the first theme is applied find. -->
     <SolidColorBrush x:Key="DropHintWorkspace"   Color="#3a6fa0" />
     <SolidColorBrush x:Key="DropHintWindow"      Color="#b05cb0" />
+    <!-- A window-level tile's card edge, idle and active: BorderSubtle and AccentOutline tinted toward
+         DropHintWindow. Derived by ThemeBridge; these are only the previewer's values. -->
+    <SolidColorBrush x:Key="BorderWindowTile"    Color="#43365f" />
+    <SolidColorBrush x:Key="AccentOutlineWindow" Color="#7a4f86" />
     <!-- What a label is written in when it sits *on* the accent. Not TextPrimary: that is the theme's
          foreground, chosen to be read on the terminal's background, and on a mid-blue button it comes
          out as grey on blue — which is what made the one filled button in the application the hardest

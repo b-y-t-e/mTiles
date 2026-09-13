@@ -104,7 +104,14 @@ public static class ThemeBridge
         // layout takes the theme's magenta, the ANSI colour furthest from that blue, with the light-theme
         // treatment the phase markers get so a band on a pale ground is still seen.
         Set(app, "DropHintWorkspace", brightBlue);
-        Set(app, "DropHintWindow", Marker(theme.Magenta, theme.IsDark, fg));
+        var windowHint = Marker(theme.Magenta, theme.IsDark, fg);
+        Set(app, "DropHintWindow", windowHint);
+
+        // The edge of a tile in the window's own layout: the same two roles as BorderSubtle and
+        // AccentOutline, tinted a little toward that level's colour. Only a little — a card edge that
+        // reads as a coloured frame competes with the active marker it has to stay quieter than.
+        Set(app, "BorderWindowTile", Lerp(borderSubtle, windowHint, 0.22));
+        Set(app, "AccentOutlineWindow", Lerp(windowHint, borderStrong, 0.55));
 
         Set(app, "DangerSubtle", dangerSubtle);
         Set(app, "DangerText", dangerText);

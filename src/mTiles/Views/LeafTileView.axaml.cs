@@ -190,6 +190,21 @@ public partial class LeafTileView : UserControl, ITileDropTarget
         }
     }
 
+    private bool _onWindowLevel;
+
+    /// <summary>Which level of tiles this card is drawn in, read off the nearest drop surface.</summary>
+    /// <remarks>Asked of the tree rather than stored on the view model, the rule the drop surfaces
+    /// already follow: a tile never knows which tree it is in, and a moved card is re-parented.</remarks>
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        var onWindowLevel = this.FindAncestorOfType<TileDropSurface>()?.HintBrushKey == DropHintBrushes.WindowKey;
+        if (onWindowLevel == _onWindowLevel) return;
+        _onWindowLevel = onWindowLevel;
+        if (DataContext is LeafTileNodeViewModel leaf)
+            UpdateActiveIndicator(leaf);
+    }
+
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
         if (_subscribedLeaf != null)
@@ -329,8 +344,13 @@ public partial class LeafTileView : UserControl, ITileDropTarget
     /// </remarks>
     private void UpdateActiveIndicator(LeafTileNodeViewModel leaf)
     {
-        TileCard.Bind(Border.BorderBrushProperty,
-            TileCard.GetResourceObservable(leaf.ShowsActiveOutline ? "AccentOutline" : "BorderSubtle"));
+        // A tile of the window's own layout wears the window level's tint on its edge — the same
+        // magenta its drop hints are painted in, pulled most of the way back to an ordinary border —
+        // so a note beside the workspaces does not read as one more tile inside the workspace.
+        var outline = _onWindowLevel
+            ? (leaf.ShowsActiveOutline ? "AccentOutlineWindow" : "BorderWindowTile")
+            : (leaf.ShowsActiveOutline ? "AccentOutline" : "BorderSubtle");
+        TileCard.Bind(Border.BorderBrushProperty, TileCard.GetResourceObservable(outline));
         TileToolbar.Bind(Border.BackgroundProperty,
             TileToolbar.GetResourceObservable(leaf.IsActive ? "BgElevated" : "BgSurface"));
 
