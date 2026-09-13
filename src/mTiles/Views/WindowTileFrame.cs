@@ -44,7 +44,8 @@ internal sealed class WindowTileFrame : Grid, ITileDropTarget
 
     public LeafTileNodeViewModel? DropNode { get; }
 
-    public void ShowDropOverlay(DropZone zone) => TileDropOverlay.Show(_overlay, zone, Bounds.Size, this);
+    public void ShowDropOverlay(DropZone zone, string brushKey) =>
+        TileDropOverlay.Show(_overlay, zone, Bounds.Size, this, brushKey);
 
     public void HideDropOverlay() => TileDropOverlay.Hide(_overlay);
 }

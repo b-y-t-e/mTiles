@@ -99,6 +99,13 @@ public static class ThemeBridge
         // where "always white on the accent" fails outright.
         Set(app, "AccentForeground", OnAccent(blue));
 
+        // The two levels of tiles a drag can be dropped into, told apart by colour alone because their
+        // hints are the same bands. A workspace keeps the accent its hints always had; the window's
+        // layout takes the theme's magenta, the ANSI colour furthest from that blue, with the light-theme
+        // treatment the phase markers get so a band on a pale ground is still seen.
+        Set(app, "DropHintWorkspace", brightBlue);
+        Set(app, "DropHintWindow", Marker(theme.Magenta, theme.IsDark, fg));
+
         Set(app, "DangerSubtle", dangerSubtle);
         Set(app, "DangerText", dangerText);
         Set(app, "TagColor", green);

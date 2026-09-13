@@ -51,7 +51,7 @@ public class TileDropSurfaceWiringTests
     private sealed class FakeTarget(LeafTileNodeViewModel leaf) : Border, ITileDropTarget
     {
         public LeafTileNodeViewModel? DropNode => leaf;
-        public void ShowDropOverlay(DropZone zone) { }
+        public void ShowDropOverlay(DropZone zone, string brushKey) { }
         public void HideDropOverlay() { }
     }
 

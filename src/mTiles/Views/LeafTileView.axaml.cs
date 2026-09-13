@@ -651,8 +651,8 @@ public partial class LeafTileView : UserControl, ITileDropTarget
     /// ranked them: two writers for one hint, which is the arrangement this application has already
     /// paid for once in the tile header. What stays here is the drawing, because the overlay belongs
     /// inside the card's own clip and nothing above it knows that radius.</remarks>
-    void ITileDropTarget.ShowDropOverlay(DropZone zone) =>
-        TileDropOverlay.Show(DropOverlay, zone, Bounds.Size, this);
+    void ITileDropTarget.ShowDropOverlay(DropZone zone, string brushKey) =>
+        TileDropOverlay.Show(DropOverlay, zone, Bounds.Size, this, brushKey);
 
     public void HideDropOverlay() => TileDropOverlay.Hide(DropOverlay);
 

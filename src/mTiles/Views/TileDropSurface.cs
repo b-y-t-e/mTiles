@@ -90,6 +90,12 @@ public class TileDropSurface : Border
     /// tiles share their room.</remarks>
     public Func<LeafTileNodeViewModel, Orientation, double?> FixedExtentFor { get; set; } = static (_, _) => null;
 
+    /// <summary>The colour this surface's hints are painted in, bands and tiles alike.</summary>
+    /// <remarks>The surface's to say because the surface is the level: a tile under the pointer is told
+    /// the colour rather than working it out, since the same tile control is drawn at both levels.
+    /// </remarks>
+    public string HintBrushKey { get; set; } = DropHintBrushes.WorkspaceKey;
+
     /// <summary>Everything this surface has drawn for a drag, put away.</summary>
     internal void ClearDropHints()
     {
@@ -250,7 +256,7 @@ public class TileDropSurface : Border
 
             _hint.IsVisible = false;
             _hintedTarget = leaf;
-            leaf.ShowDropOverlay(target.Zone);
+            leaf.ShowDropOverlay(target.Zone, HintBrushKey);
             return;
         }
 
@@ -353,7 +359,7 @@ public class TileDropSurface : Border
     /// <summary>Puts the band on screen, in the same brushes a tile's own hint uses.</summary>
     private void Paint(Rect band)
     {
-        var (fill, outline) = DropHintBrushes.For(this);
+        var (fill, outline) = DropHintBrushes.For(this, HintBrushKey);
 
         _hint.Background = fill;
         _hint.BorderBrush = outline;

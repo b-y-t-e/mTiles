@@ -15,7 +15,7 @@ internal static class TileDropOverlay
     /// <summary>How much of the tile the band for an edge drop leaves uncovered.</summary>
     private const double Uncovered = 0.70;
 
-    public static void Show(Border overlay, DropZone zone, Size bounds, Control brushHost)
+    public static void Show(Border overlay, DropZone zone, Size bounds, Control brushHost, string brushKey)
     {
         if (zone == DropZone.None)
         {
@@ -23,7 +23,7 @@ internal static class TileDropOverlay
             return;
         }
 
-        var (fill, outline) = DropHintBrushes.For(brushHost);
+        var (fill, outline) = DropHintBrushes.For(brushHost, brushKey);
 
         if (zone == DropZone.Center)
         {

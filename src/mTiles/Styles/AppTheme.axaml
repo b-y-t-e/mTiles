@@ -40,6 +40,10 @@
          borders the tile's own content already has. Muted far enough to sit in the same family as
          BorderSubtle while still being unmistakably not it. -->
     <SolidColorBrush x:Key="AccentOutline"       Color="#3f5f7d" />
+    <!-- What a drop hint is painted in, one per level of tiles: see DropHintBrushes. ThemeBridge derives
+         both; these are only what the previewer and a lookup before the first theme is applied find. -->
+    <SolidColorBrush x:Key="DropHintWorkspace"   Color="#3a6fa0" />
+    <SolidColorBrush x:Key="DropHintWindow"      Color="#b05cb0" />
     <!-- What a label is written in when it sits *on* the accent. Not TextPrimary: that is the theme's
          foreground, chosen to be read on the terminal's background, and on a mid-blue button it comes
          out as grey on blue — which is what made the one filled button in the application the hardest

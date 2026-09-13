@@ -29,6 +29,7 @@
              re-parents both rather than building either again. -->
         <views:TileDropSurface x:Name="WindowSurface"
                                Background="{DynamicResource BgCanvas}"
+                               HintBrushKey="DropHintWindow"
                                Padding="8">
             <views:TileNodeView x:Name="WindowTree"
                                 DataContext="{Binding WindowLayout.RootTile}" />

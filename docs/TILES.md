@@ -390,6 +390,14 @@ and no workspace's shells end because the layout changed. The list is dragged by
 grip the collapsed strip has instead of one. New tiles come from the add menu on the list's bottom row
 (`MainWindowViewModel.AddWindowTileCommand`), beside Settings, because that row is the application's.
 
+**The window's hints are magenta, a workspace's keep their blue** (`DropHintBrushes`, the surface's
+`HintBrushKey`). The two levels are drawn one inside the other and their hints are the same bands, so
+over the same part of the screen a drop can mean "beside these tiles" or "beside the whole workspace",
+and colour is the only thing left to say which. The surface says the colour and a tile under the pointer
+is told it (`ITileDropTarget.ShowDropOverlay`), because the same card is drawn at both levels. Both are
+derived in `ThemeBridge` — the window's from the theme's magenta with the phase markers' light-theme
+treatment — and a test holds every built-in theme to giving the two different colours.
+
 **The list becomes tabs by being short, not by being on top.** `WorkspacesPanelShapes.For` picks rows,
 a strip of initials or a row of tabs from the size its tile has, so the one decision a drop makes — the
 list's fixed size on that axis — is the whole of what changes its shape. See `CLAUDE.md` → *Workspace

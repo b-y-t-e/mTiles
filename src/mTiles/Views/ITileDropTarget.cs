@@ -18,7 +18,9 @@ internal interface ITileDropTarget
     LeafTileNodeViewModel? DropNode { get; }
 
     /// <summary>Draws the hint for a drop landing in <paramref name="zone"/> of this tile.</summary>
-    void ShowDropOverlay(DropZone zone);
+    /// <param name="brushKey">The colour of the surface asking — which says the level of tiles the drop
+    /// is in, and which the tile cannot work out for itself (<see cref="DropHintBrushes"/>).</param>
+    void ShowDropOverlay(DropZone zone, string brushKey);
 
     /// <summary>Puts the hint away.</summary>
     void HideDropOverlay();
