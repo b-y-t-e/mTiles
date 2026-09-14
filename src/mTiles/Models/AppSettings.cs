@@ -185,6 +185,13 @@ public sealed class AppSettings
     public bool AgentFileSyncEnabled { get; set; } = true;
 
     /// <summary>
+    /// Whether a tile stopping to wait for the user — a permission prompt, a question — shows a desktop
+    /// notification. Only while that tile is not already in front of the user; see
+    /// <c>BlockedNotificationPolicy</c>.
+    /// </summary>
+    public bool NotifyWhenTileBlocked { get; set; } = true;
+
+    /// <summary>
     /// The setting this replaced, read from existing files so an explicit "off" is honoured.
     /// <para>Without it, renaming the property means every user starts again at the default — and this
     /// default writes to their repository. Somebody who turned the old switch off had said, as clearly

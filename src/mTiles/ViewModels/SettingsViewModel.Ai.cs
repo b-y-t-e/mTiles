@@ -1668,6 +1668,7 @@ public partial class SettingsViewModel
         UiScalePercent = Math.Round(InterfaceScale.Normalise(s.UiScale) * 100);
         GitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
         AgentFileSyncEnabled = s.AgentFileSyncEnabled;
+        NotifyWhenTileBlocked = s.NotifyWhenTileBlocked;
         GitPath = s.GitPath;
         LoadDefaultShell();
         LoadAiInstances();

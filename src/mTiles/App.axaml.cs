@@ -115,6 +115,13 @@ public partial class App : Application
             mainWindow.BindWindowState(_settingsService);
             desktop.MainWindow = mainWindow;
 
+            // On screen means the window has the keyboard and is showing that tile's workspace; only the
+            // window knows the first half, which is why this is wired here and not in the view model.
+            var blockedNotifications = new BlockedTileNotifications(_settingsService,
+                Services.Notifications.DesktopNotifier.ForThisPlatform(),
+                workspace => mainWindow.IsActive && ReferenceEquals(mainVm.CurrentWorkspace, workspace));
+            mainVm.TileActivityChanged += blockedNotifications.Observe;
+
             // Both routes, because only one of them is guaranteed to run. Avalonia raises
             // ShutdownRequested for a shutdown it is *asked* about — the session ending, a programmatic
             // TryShutdown — and closing the last window is not that: it shuts the lifetime down

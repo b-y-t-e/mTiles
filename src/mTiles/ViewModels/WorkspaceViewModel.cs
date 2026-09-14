@@ -342,7 +342,15 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
         OnPropertyChanged(nameof(Activity));
         OnPropertyChanged(nameof(IsBusy));
+        if (sender is LeafTileNodeViewModel leaf)
+            TileActivityChanged?.Invoke(this, leaf);
     }
+
+    /// <summary>Raised when one of this workspace's tiles reports a change of activity.</summary>
+    /// <remarks>The tile rather than the aggregate: <see cref="Activity"/> is the strongest state of all
+    /// of them, so a second tile stopping on a question in a workspace that already has one waiting would
+    /// not move it — and that second tile is exactly what a notification is for.</remarks>
+    public event Action<WorkspaceViewModel, LeafTileNodeViewModel>? TileActivityChanged;
 
     private TileNodeViewModel ConfigureRoot(TileNodeViewModel node)
     {

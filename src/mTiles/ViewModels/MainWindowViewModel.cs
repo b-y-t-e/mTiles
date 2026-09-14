@@ -426,6 +426,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (!_workspaceCache.Remove(workspaceId, out var vm)) return;
 
         vm.PropertyChanged -= OnWorkspaceActivityChanged;
+        vm.TileActivityChanged -= RaiseTileActivityChanged;
         _agentFileSync?.Unload(vm.WorkingDirectory);
         vm.Dispose();
         ShowUnloadedInPanel(workspaceId);
@@ -529,7 +530,15 @@ public partial class MainWindowViewModel : ObservableObject
         // so, and a lambda cannot be taken off if it stops being true. Detached in
         // OnWorkspaceRemoved, which is the one place a workspace view model is let go of.
         workspace.PropertyChanged += OnWorkspaceActivityChanged;
+        workspace.TileActivityChanged += RaiseTileActivityChanged;
     }
+
+    /// <summary>Raised when a tile in any loaded workspace reports a change of activity — what desktop
+    /// notifications listen to, so they never learn how workspaces are loaded and let go of.</summary>
+    public event Action<WorkspaceViewModel, LeafTileNodeViewModel>? TileActivityChanged;
+
+    private void RaiseTileActivityChanged(WorkspaceViewModel workspace, LeafTileNodeViewModel leaf) =>
+        TileActivityChanged?.Invoke(workspace, leaf);
 
     /// <summary>Carries a workspace's "working" light to its row in the panel.</summary>
     /// <remarks>
