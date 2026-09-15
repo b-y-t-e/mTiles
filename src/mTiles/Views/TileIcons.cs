@@ -44,6 +44,8 @@ public static class TileIcons
         "workspaces" => MaterialIconKind.FolderMultipleOutline,
         "play" => MaterialIconKind.Play,
         "pause" => MaterialIconKind.Pause,
+        "agent-chat" => MaterialIconKind.MessageProcessingOutline,
+        "new-conversation" => MaterialIconKind.ChatPlusOutline,
         _ => Placeholder,
     };
 

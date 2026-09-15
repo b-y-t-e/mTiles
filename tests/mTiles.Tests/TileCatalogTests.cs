@@ -219,6 +219,19 @@ public sealed class TileCatalogTests
                             o => o.State?[TerminalTileKind.ShellNameKey]?.GetValue<string>()));
                 }
             }
+            else if (entry.Kind.Id == TileKindIds.AgentConversation)
+            {
+                // The same cards as a terminal agent's, narrowed to the agents that can be held as a
+                // conversation.
+                var conversational = settings.Service.Settings.AiAgentInstances
+                    .Where(instance => AiAgentCatalog.Find(instance.AgentId) is mTiles.Services.Agents.Sessions.IConversationalAgent
+                                       && AiAgentCatalog.IsAvailable(instance, settings.Service.Settings))
+                    .ToList();
+
+                if (conversational.Count <= 1) Assert.Empty(options);
+                else Assert.Equal(conversational.Select(i => i.Id),
+                    options.Select(o => o.State?[AgentTileKind.InstanceIdKey]?.GetValue<string>()));
+            }
             else if (entry.Kind.Id == TileKindIds.Agent)
             {
                 // One card per agent this machine has, and nothing to ask when it has at most one —

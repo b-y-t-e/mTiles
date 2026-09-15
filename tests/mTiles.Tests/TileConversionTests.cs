@@ -52,6 +52,7 @@ public sealed class TileConversionTests
     [Theory]
     [InlineData(TileKindIds.Terminal, true)]
     [InlineData(TileKindIds.Agent, true)]
+    [InlineData(TileKindIds.AgentConversation, false)]
     [InlineData(TileKindIds.Note, false)]
     [InlineData(TileKindIds.Todo, false)]
     [InlineData(TileKindIds.Goal, false)]

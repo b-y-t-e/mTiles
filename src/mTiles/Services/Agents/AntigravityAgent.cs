@@ -37,8 +37,14 @@ namespace mTiles.Services.Agents;
 /// an older agy could refuse, which fails <em>every</em> run rather than the long ones — so this is
 /// written down rather than worked around.</para>
 /// </remarks>
-public sealed class AntigravityAgent : AiAgent
+public sealed class AntigravityAgent : AiAgent, Sessions.IConversationalAgent
 {
+    /// <summary>A conversation through agy's kept-open stream-json print mode — see
+    /// <see cref="Sessions.Antigravity.AntigravityStreamSession"/>.</summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.Antigravity.AntigravityStreamSession(launch, this, sink);
+
     /// <summary>The flag whose value is the prompt, named once because two places depend on the pair
     /// staying together.</summary>
     private const string PrintFlag = "--print";

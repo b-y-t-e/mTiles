@@ -17,10 +17,16 @@ namespace mTiles.Services.Agents;
 /// <para><b>Sessions are the easy case</b>: <c>--session-id &lt;id&gt;</c> creates the session if it
 /// is missing, so the tile's own id is the whole of the bookkeeping.</para>
 /// </remarks>
-public sealed class PiAgent : AiAgent
+public sealed class PiAgent : AiAgent, Sessions.IConversationalAgent
 {
     public override string Id => "pi";
     public override string DisplayName => "Pi Agent";
+
+    /// <summary>A conversation through <c>pi --mode rpc</c> — see <see cref="Sessions.Pi.PiRpcSession"/>.
+    /// </summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.Pi.PiRpcSession(launch, this, sink);
 
     /// <inheritdoc cref="CodexAgent.SkillsDirectory"/>
     public override string? SkillsDirectory(string workspaceDir) =>

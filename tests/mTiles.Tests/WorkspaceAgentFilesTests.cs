@@ -87,7 +87,8 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void Withdrawing_a_skill_clears_every_directory_any_agent_reads()
     {
-        foreach (var agent in AiAgentCatalog.All)
+        var readers = AiAgentCatalog.All.Where(agent => agent.SkillsDirectory(_dir) is not null).ToList();
+        foreach (var agent in readers)
         {
             var directory = Path.Combine(agent.SkillsDirectory(_dir)!, Skill);
             Directory.CreateDirectory(directory);
@@ -96,7 +97,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
 
         new WorkspaceAgentFiles(_dir).RemoveSkill(Skill);
 
-        foreach (var agent in AiAgentCatalog.All)
+        foreach (var agent in readers)
             Assert.False(Directory.Exists(Path.Combine(agent.SkillsDirectory(_dir)!, Skill)));
     }
 

@@ -23,10 +23,16 @@ namespace mTiles.Services.Agents;
 /// <c>bypassPermissions</c>, <c>manual</c>, <c>dontAsk</c>, <c>plan</c>. This application knew three of
 /// them, which is how the plan and review phases had no read-only mode to run in.</para>
 /// </remarks>
-public sealed class ClaudeAgent : AiAgent
+public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
 {
     public override string Id => "claude";
     public override string DisplayName => "Claude Code";
+
+    /// <summary>A conversation over stream-json and the control channel — see
+    /// <see cref="Sessions.Claude.ClaudeStreamSession"/>.</summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.Claude.ClaudeStreamSession(launch, this, sink);
 
     /// <summary>Measured 2026-09-03: <c>.claude/skills</c> under the project.</summary>
     public override string? SkillsDirectory(string workspaceDir) =>
@@ -664,8 +670,7 @@ public sealed class ClaudeAgent : AiAgent
 
         var text = block.TryGetProperty("content", out var content) ? Flatten(content) : "";
 
-        return text.Contains("requested permissions", StringComparison.OrdinalIgnoreCase)
-               || text.Contains("permission to use", StringComparison.OrdinalIgnoreCase);
+        return Sessions.Claude.ClaudeTools.IsPermissionDenial(text);
     }
 
     /// <summary>A tool_result's content, which is a string in the simple case and a list of blocks in

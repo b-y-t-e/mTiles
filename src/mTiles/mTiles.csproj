@@ -27,8 +27,7 @@
          parts of the dictation feature are ports of their code; the Parakeet model is CC-BY-4.0. Both
          licences require the notice to reach whoever receives the software, which a file sitting in a
          git repository does not do. Settings → General opens it. -->
-    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\mtiles-icon.png" />
     <!-- The typeface the interface and the terminal default to, compiled into the executable rather
          than installed on the user's machine - see Services/AppFonts.cs. Only the faces: the collection
@@ -86,6 +85,10 @@
          Runtime; on a *self-contained* one it is weight in the publish and nothing else. This ships
          self-contained through Velopack, so the price paid is megabytes rather than a prerequisite. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\mTiles.AgentSessions\mTiles.AgentSessions.csproj" />
   </ItemGroup>
 
 </Project>

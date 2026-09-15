@@ -47,6 +47,14 @@ public static class TileKindIds
     /// where reading it as empty is the tile itself lost.</remarks>
     public const string Agent = "agent";
 
+    /// <summary>An AI agent held as a conversation — messages, tool calls, approvals and checkpoints drawn
+    /// by this application — rather than as its TUI in a terminal.</summary>
+    /// <remarks>A kind of its own rather than a mode of <see cref="Agent"/>, whose id is on people's
+    /// disks meaning "a terminal": the same leaf read as a conversation by one build and as a terminal by
+    /// another would be two different programs in one tile. No legacy name — a build that predates it
+    /// reads it as an empty tile, and the conversation itself is in the store, untouched.</remarks>
+    public const string AgentConversation = "agent-conversation";
+
     /// <summary>A tile that has not been given content yet.</summary>
     /// <remarks>
     /// <b>Empty is not a kind.</b> It is the absence of one, and it stays that way: the chooser and its

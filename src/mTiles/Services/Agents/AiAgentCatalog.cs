@@ -26,6 +26,7 @@ public static class AiAgentCatalog
         new CodexAgent(),
         new PiAgent(),
         new AntigravityAgent(),
+        new GrokAgent(),
     ];
 
     /// <summary>The agent a stored id refers to, or null — a tile naming an agent this build does not

@@ -165,6 +165,24 @@ public static class AppPaths
     public static string GetUsageDirectory() =>
         Path.Combine(GetAppDataDirectory(), "usage");
 
+    /// <summary>
+    /// The database every agent conversation is kept in — its events, and the id that resumes it.
+    /// </summary>
+    /// <remarks>What an agent was told and what it did: prompts, answers, commands, diffs of somebody's
+    /// code. The directory is created owner-only for the reason <see cref="GetGoalLogsDirectory"/> is
+    /// private, and a directory rather than the file is what is narrowed because SQLite writes a
+    /// <c>-wal</c> and a <c>-shm</c> beside it that no create mode set on the file itself would reach.
+    /// </remarks>
+    public static string GetAgentConversationsDatabasePath()
+    {
+        var directory = Path.Combine(GetAppDataDirectory(), "agent-conversations");
+        if (OperatingSystem.IsWindows())
+            Directory.CreateDirectory(directory);
+        else
+            Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return Path.Combine(directory, "conversations.db");
+    }
+
     public static string GetSettingsFilePath() =>
         Path.Combine(GetAppDataDirectory(), "settings.json");
 

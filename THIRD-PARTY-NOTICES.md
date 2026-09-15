@@ -198,6 +198,7 @@ Linked as NuGet packages; none of their source is copied here.
 | **Whisper.net**, **Whisper.net.Runtime** (bundles whisper.cpp) | MIT — Copyright (c) 2024 sandrohanea; whisper.cpp is MIT, Copyright (c) 2023-2024 The ggml authors |
 | **Microsoft.ML.OnnxRuntime** | MIT — Copyright (c) Microsoft Corporation |
 | **PortAudioSharp2** (bundles portaudio) | Apache-2.0; portaudio itself is under the PortAudio licence (MIT-style, with an additional clause asking that changes be contributed back) |
+| **Microsoft.Data.Sqlite** (with SQLitePCLRaw, which bundles SQLite) | MIT — Copyright (c) .NET Foundation; SQLitePCLRaw is Apache-2.0, Copyright (c) Eric Sink; SQLite itself is in the public domain |
 
-The three in bold carry native binaries into the published application, which is why they are called
+The four in bold carry native binaries into the published application, which is why they are called
 out: what ships is not only managed code.

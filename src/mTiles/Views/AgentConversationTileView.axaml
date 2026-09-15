@@ -1,0 +1,628 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ac="using:mTiles.ViewModels.AgentConversation"
+             xmlns:ev="using:mTiles.AgentSessions.Events"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:v="using:mTiles.Views"
+             x:Class="mTiles.Views.AgentConversationTileView"
+             x:DataType="ac:AgentConversationTileViewModel">
+
+    <!--
+        An agent as a conversation. Drawn in the Goal tile's language on purpose — the terminal's own face
+        and size, the gutter glyph that says who spoke, one hairline per edge — because both are an agent
+        talking in a column, and two dialects for that would be two applications in one window.
+
+        What is new is the work between messages: every tool call is a row, and the rows between two
+        messages are one group that folds to a single line once they have all finished (t3code's rule).
+        Approvals and questions are blocks at the end of the conversation, where the next thing always
+        arrives, and a turn that changed files ends on a line saying so, with its diff on request and a way
+        back.
+    -->
+    <UserControl.Styles>
+        <Style Selector="Border.row">
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+        <Style Selector="Border.row-user">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Margin" Value="4,10,4,4" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
+        </Style>
+        <Style Selector="TextBlock.gutter">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="TextBlock.gutter-user">
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        </Style>
+        <Style Selector="TextBlock.gutter-assistant">
+            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
+        </Style>
+        <Style Selector="SelectableTextBlock.msg">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineSpacing" Value="2" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
+        </Style>
+
+        <!-- ======== Work ======== -->
+        <Style Selector="Button.fold">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        </Style>
+        <Style Selector="Button.fold:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.fold:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+        <Style Selector="TextBlock.work">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.work-muted">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="TextBlock.work-failed">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="TextBlock.work-declined">
+            <Setter Property="Foreground" Value="{DynamicResource WarnText}" />
+        </Style>
+        <Style Selector="Border.detail">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Margin" Value="18,2,0,6" />
+        </Style>
+        <Style Selector="SelectableTextBlock.code">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
+        </Style>
+
+        <!-- ======== Diff ======== -->
+        <Style Selector="TextBlock.diff">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <Style Selector="TextBlock.diff-added">
+            <Setter Property="Foreground" Value="{DynamicResource StatusSuccessText}" />
+        </Style>
+        <Style Selector="TextBlock.diff-removed">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="TextBlock.diff-hunk">
+            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
+        </Style>
+        <Style Selector="TextBlock.diff-header">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+
+        <!-- ======== Blocks at the end: approvals, questions, plan, problem ======== -->
+        <Style Selector="Border.ask">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="ClipToBounds" Value="True" />
+            <Setter Property="Margin" Value="4,10,4,4" />
+        </Style>
+        <Style Selector="Border.ask-rail">
+            <Setter Property="Width" Value="2" />
+            <Setter Property="Background" Value="{DynamicResource AccentDefault}" />
+        </Style>
+        <Style Selector="Border.ask-rail.danger">
+            <Setter Property="Background" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="TextBlock.ask-title">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="TextBlock.ask-text">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.ask-why">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Button.action">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.action:pointerover">
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+        <Style Selector="Button.action.primary">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+        <Style Selector="Button.action.danger">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="ToggleButton.choice">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="ToggleButton.choice:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
+        </Style>
+        <Style Selector="TextBox.field">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="Background" Value="{DynamicResource BgBase}" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+
+        <!-- ======== Composer ======== -->
+        <Style Selector="TextBox.composer-input /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="TextBox.composer-input">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Padding" Value="0,2" />
+            <Setter Property="MaxHeight" Value="160" />
+        </Style>
+        <Style Selector="Border.composer">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="4,10,4,4" />
+        </Style>
+        <Style Selector="Border.composer:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        </Style>
+
+        <Style Selector="TextBlock.strip">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <Style Selector="Ellipse.think">
+            <Setter Property="Width" Value="7" />
+            <Setter Property="Height" Value="7" />
+            <Setter Property="Fill" Value="{DynamicResource AccentDefault}" />
+            <Setter Property="Opacity" Value="0.25" />
+        </Style>
+        <Style Selector="Ellipse.think.d1">
+            <Style.Animations>
+                <Animation Duration="0:0:1.2" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
+                    <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Ellipse.think.d2">
+            <Style.Animations>
+                <Animation Duration="0:0:1.2" Delay="0:0:0.15" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
+                    <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Ellipse.think.d3">
+            <Style.Animations>
+                <Animation Duration="0:0:1.2" Delay="0:0:0.3" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
+                    <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <!-- One line of a diff, wherever a diff is drawn: a tool's edit, an approval, a turn's checkpoint. -->
+        <DataTemplate x:Key="DiffLineTemplate" DataType="ac:DiffLine">
+            <TextBlock Classes="diff"
+                       Classes.diff-added="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Added}}"
+                       Classes.diff-removed="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Removed}}"
+                       Classes.diff-hunk="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Hunk}}"
+                       Classes.diff-header="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Header}}"
+                       Text="{Binding Text}" />
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <DockPanel Background="{DynamicResource BgBase}">
+
+        <!-- ======== Strip: what state the agent is in, what the context costs, and stop ======== -->
+        <Border DockPanel.Dock="Top"
+                Padding="8,3"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="{DynamicResource BorderBottom}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                    <Button Classes="tile-btn"
+                            Command="{Binding InterruptCommand}"
+                            IsVisible="{Binding IsWorking}"
+                            ToolTip.Tip="Stop the agent (Esc)">
+                        <mi:MaterialIcon Kind="Stop" Width="14" Height="14" />
+                    </Button>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Classes="strip" Text="{Binding StatusText}" />
+                    <TextBlock Classes="strip" Text="{Binding UsageText}"
+                               IsVisible="{Binding UsageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer x:Name="ChatScroll"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,4,0,10">
+
+                <TextBlock Classes="ask-why" Margin="14,12"
+                           IsVisible="{Binding IsEmpty}"
+                           Text="{Binding HeaderNote, StringFormat='Talk to {0}. Its tool calls, approvals and file changes appear here.'}" />
+
+                <ItemsControl ItemsSource="{Binding Timeline}">
+                    <ItemsControl.DataTemplates>
+
+                        <!-- ======== A message ======== -->
+                        <DataTemplate DataType="ac:MessageItemViewModel">
+                            <Border Classes="row" Classes.row-user="{Binding IsUser}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Classes="gutter"
+                                               Classes.gutter-user="{Binding IsUser}"
+                                               Classes.gutter-assistant="{Binding IsAssistant}"
+                                               Text="{Binding IsUser, Converter={x:Static v:AgentConversationGlyphs.Speaker}}" />
+                                    <Panel>
+                                        <SelectableTextBlock Classes="msg" Text="{Binding Text}" IsVisible="{Binding IsUser}" />
+                                        <v:GoalMarkdownView MarkdownText="{Binding Text}" IsVisible="{Binding IsAssistant}" />
+                                    </Panel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+
+                        <!-- ======== The work between two messages ======== -->
+                        <DataTemplate DataType="ac:WorkGroupItemViewModel">
+                            <StackPanel Margin="10,2,10,2">
+                                <Button Classes="fold" Command="{Binding ToggleCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <mi:MaterialIcon Width="12" Height="12"
+                                                         Kind="{Binding IsExpanded, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
+                                        <TextBlock Classes="work work-muted" Text="{Binding Summary}" />
+                                    </StackPanel>
+                                </Button>
+                                <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding IsExpanded}">
+                                    <ItemsControl.DataTemplates>
+                                        <DataTemplate DataType="ac:ToolCallItemViewModel">
+                                            <StackPanel>
+                                                <Button Classes="fold" Command="{Binding ToggleCommand}" Margin="18,0,0,0">
+                                                    <DockPanel>
+                                                        <mi:MaterialIcon DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,6,0"
+                                                                         Kind="{Binding Kind, Converter={x:Static v:AgentConversationGlyphs.Tool}}" />
+                                                        <TextBlock DockPanel.Dock="Right" Classes="work work-muted" Margin="8,0,0,0"
+                                                                   Text="{Binding State, Converter={x:Static v:AgentConversationGlyphs.ToolState}}" />
+                                                        <TextBlock Classes="work"
+                                                                   Classes.work-failed="{Binding IsFailed}"
+                                                                   Classes.work-declined="{Binding IsDeclined}"
+                                                                   Text="{Binding Title}"
+                                                                   ToolTip.Tip="{Binding Name}" />
+                                                    </DockPanel>
+                                                </Button>
+                                                <Border Classes="detail" IsVisible="{Binding IsExpanded}">
+                                                    <StackPanel Spacing="4">
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Command, StringFormat='$ {0}'}"
+                                                                             IsVisible="{Binding Command, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Paths}"
+                                                                             IsVisible="{Binding Paths, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Query}"
+                                                                             IsVisible="{Binding Query, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Input}"
+                                                                             IsVisible="{Binding Input, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                                                      IsVisible="{Binding HasDiff}">
+                                                            <ItemsControl ItemsSource="{Binding Diff}" ItemTemplate="{StaticResource DiffLineTemplate}" />
+                                                        </ScrollViewer>
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Output}" IsVisible="{Binding HasOutput}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="ac:ReasoningItemViewModel">
+                                            <StackPanel>
+                                                <Button Classes="fold" Command="{Binding ToggleCommand}" Margin="18,0,0,0">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <mi:MaterialIcon Kind="ThoughtBubbleOutline" Width="12" Height="12" />
+                                                        <TextBlock Classes="work work-muted" Text="{Binding FirstLine}" />
+                                                    </StackPanel>
+                                                </Button>
+                                                <Border Classes="detail" IsVisible="{Binding IsExpanded}">
+                                                    <SelectableTextBlock Classes="code" Text="{Binding Text}" />
+                                                </Border>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="ac:DecisionItemViewModel">
+                                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="18,2,0,2">
+                                                <mi:MaterialIcon Width="12" Height="12"
+                                                                 Kind="{Binding Allowed, Converter={x:Static v:AgentConversationGlyphs.Decision}}" />
+                                                <TextBlock Classes="work work-muted" Text="{Binding Text}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.DataTemplates>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+
+                        <!-- ======== A plan put forward for approval ======== -->
+                        <DataTemplate DataType="ac:PlanProposalItemViewModel">
+                            <Border Classes="ask">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                                    <StackPanel Margin="10,6,10,8" Spacing="4">
+                                        <TextBlock Classes="ask-title" Text="Proposed plan" />
+                                        <v:GoalMarkdownView MarkdownText="{Binding Markdown}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+
+                        <!-- ======== Questions, answered ======== -->
+                        <DataTemplate DataType="ac:QuestionsRecordItemViewModel">
+                            <ItemsControl ItemsSource="{Binding Answers}" Margin="10,4">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="ac:AnsweredQuestion">
+                                        <StackPanel Margin="0,0,0,6">
+                                            <TextBlock Classes="ask-why" Text="{Binding Question}" />
+                                            <TextBlock Classes="ask-text" Text="{Binding Answer, StringFormat='&#x276F; {0}'}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </DataTemplate>
+
+                        <!-- ======== What a turn changed ======== -->
+                        <DataTemplate DataType="ac:CheckpointItemViewModel">
+                            <StackPanel Margin="10,4,10,4">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Classes="action"
+                                            Command="{Binding RestoreCommand}"
+                                            IsVisible="{Binding !Restored}"
+                                            ToolTip.Tip="Put the files back to how they were before this turn">
+                                        <TextBlock Text="Undo changes" />
+                                    </Button>
+                                    <Button Classes="fold" Command="{Binding ToggleDiffCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <mi:MaterialIcon Kind="FileDocumentEditOutline" Width="12" Height="12" />
+                                            <TextBlock Classes="work" Text="{Binding Summary}" />
+                                            <TextBlock Classes="work work-muted" Text="(restored)" IsVisible="{Binding Restored}" />
+                                        </StackPanel>
+                                    </Button>
+                                </DockPanel>
+                                <ItemsControl ItemsSource="{Binding Files}" Margin="18,2,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="ac:ChangedFileViewModel">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="work work-muted" Text="{Binding Marker}" />
+                                                <TextBlock Classes="work" Text="{Binding Path}" />
+                                                <TextBlock Classes="work work-muted" Text="{Binding Counts}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border Classes="detail" IsVisible="{Binding IsExpanded}">
+                                    <Panel>
+                                        <TextBlock Classes="work work-muted" Text="Loading the diff…" IsVisible="{Binding IsLoadingDiff}" />
+                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                            <ItemsControl ItemsSource="{Binding Diff}" ItemTemplate="{StaticResource DiffLineTemplate}" />
+                                        </ScrollViewer>
+                                    </Panel>
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+
+                        <!-- ======== A notice ======== -->
+                        <DataTemplate DataType="ac:NoticeItemViewModel">
+                            <Border Classes="row" Padding="10,1,10,4">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Classes="gutter" Text="&#x2514;" />
+                                    <SelectableTextBlock Classes="msg"
+                                                         Foreground="{Binding Level, Converter={x:Static v:AgentConversationGlyphs.NoticeBrush}}"
+                                                         Text="{Binding Text}" />
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.DataTemplates>
+                </ItemsControl>
+
+                <!-- ======== The agent's own to-do list ======== -->
+                <Border Classes="ask" IsVisible="{Binding HasPlan}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                        <StackPanel Margin="10,6,10,8" Spacing="2">
+                            <TextBlock Classes="ask-title" Text="Plan" />
+                            <ItemsControl ItemsSource="{Binding PlanSteps}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="ev:PlanStep">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <mi:MaterialIcon Width="12" Height="12"
+                                                             Kind="{Binding Status, Converter={x:Static v:AgentConversationGlyphs.PlanStep}}" />
+                                            <TextBlock Classes="work" Text="{Binding Text}" TextTrimming="None" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- ======== Approvals ======== -->
+                <ItemsControl ItemsSource="{Binding PendingApprovals}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="ac:ApprovalRequestViewModel">
+                            <Border Classes="ask">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                                    <StackPanel Margin="10,6,10,8" Spacing="5">
+                                        <TextBlock Classes="ask-title" Text="{Binding KindLabel}" />
+                                        <TextBlock Classes="ask-text" Text="{Binding Title}" />
+                                        <SelectableTextBlock Classes="code" Text="{Binding Text}" IsVisible="{Binding HasText}" />
+                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                                      MaxHeight="260" IsVisible="{Binding HasDiff}">
+                                            <ItemsControl ItemsSource="{Binding Detail}" ItemTemplate="{StaticResource DiffLineTemplate}" />
+                                        </ScrollViewer>
+                                        <ItemsControl ItemsSource="{Binding Options}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="ac:ApprovalOptionViewModel">
+                                                    <Button Classes="action" Margin="0,2,6,0"
+                                                            Classes.primary="{Binding IsPrimary}"
+                                                            Classes.danger="{Binding IsDanger}"
+                                                            Command="{Binding ChooseCommand}">
+                                                        <TextBlock Text="{Binding Label}" />
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- ======== Questions ======== -->
+                <Border Classes="ask" IsVisible="{Binding PendingQuestions, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                        <StackPanel Margin="10,6,10,8" Spacing="8" DataContext="{Binding PendingQuestions}"
+                                    x:DataType="ac:QuestionRoundViewModel">
+                            <TextBlock Classes="ask-title" Text="The agent asks" />
+                            <ItemsControl ItemsSource="{Binding Questions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="ac:QuestionViewModel">
+                                        <StackPanel Spacing="4" Margin="0,0,0,10">
+                                            <TextBlock Classes="ask-why" Text="{Binding Header}" IsVisible="{Binding HasHeader}" />
+                                            <TextBlock Classes="ask-text" Text="{Binding Text}" />
+                                            <ItemsControl ItemsSource="{Binding Options}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="ac:QuestionChoiceViewModel">
+                                                        <ToggleButton Classes="choice" Margin="0,2,0,0" IsChecked="{Binding IsSelected}">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                                                                <TextBlock Classes="ask-why" Text="{Binding Description}"
+                                                                           IsVisible="{Binding HasDescription}" />
+                                                            </StackPanel>
+                                                        </ToggleButton>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <TextBox Classes="field" Text="{Binding CustomAnswer}"
+                                                     PlaceholderText="Your own answer…"
+                                                     IsVisible="{Binding AllowsCustomAnswer}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                <Button Classes="action" Command="{Binding DismissCommand}">
+                                    <TextBlock Text="Dismiss" />
+                                </Button>
+                                <Button Classes="action primary" Command="{Binding SubmitCommand}">
+                                    <TextBlock Text="Answer" />
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- ======== Why it did not start ======== -->
+                <Border Classes="ask" IsVisible="{Binding HasLaunchProblem}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Left" Classes="ask-rail danger" />
+                        <StackPanel Margin="10,6,10,8" Spacing="6">
+                            <TextBlock Classes="ask-title" Text="The agent did not start" />
+                            <SelectableTextBlock Classes="msg" Text="{Binding LaunchProblem}" />
+                            <Button Classes="action" HorizontalAlignment="Left" Command="{Binding RestartCommand}">
+                                <TextBlock Text="Try again" />
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <StackPanel Orientation="Horizontal" Spacing="5" Margin="16,10,0,0"
+                            IsVisible="{Binding IsWorking}">
+                    <Ellipse Classes="think d1" />
+                    <Ellipse Classes="think d2" />
+                    <Ellipse Classes="think d3" />
+                </StackPanel>
+
+                <!-- ======== Composer ======== -->
+                <Border Classes="composer">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Classes="tile-btn" VerticalAlignment="Bottom"
+                                Command="{Binding SendCommand}" ToolTip.Tip="Send (Enter)">
+                            <mi:MaterialIcon Kind="Send" Width="14" Height="14" />
+                        </Button>
+                        <TextBox x:Name="InputBox"
+                                 Classes="composer-input"
+                                 Text="{Binding Draft}"
+                                 PlaceholderText="Message the agent… (Shift+Enter for a new line)"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 KeyDown="InputBox_KeyDown" />
+                    </DockPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

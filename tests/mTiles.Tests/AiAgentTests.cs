@@ -440,7 +440,7 @@ public class AiAgentTests
     /// <summary>Three agents share one directory, which is what makes "delete the directory of the
     /// agent that left" wrong and <see cref="WorkspaceAgentFiles"/> necessary.</summary>
     [Fact]
-    public void The_five_agents_name_three_skill_directories()
+    public void The_six_agents_name_three_skill_directories()
     {
         var directories = AiAgentCatalog.All
             .Select(agent => agent.SkillsDirectory("/w"))
@@ -448,7 +448,10 @@ public class AiAgentTests
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        Assert.Equal(5, AiAgentCatalog.All.Count);
+        // Grok names none: where its project skills live has not been read off the CLI, and a guessed
+        // directory is a skill written somewhere nobody measured (IAiAgent.SkillsDirectory).
+        Assert.Equal(6, AiAgentCatalog.All.Count);
+        Assert.Null(AiAgentCatalog.Find("grok")!.SkillsDirectory("/w"));
         Assert.Equal(3, directories.Count);
     }
 

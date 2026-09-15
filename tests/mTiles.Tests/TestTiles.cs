@@ -20,7 +20,9 @@ internal static class TestTiles
     /// layout test asking three services on the network what a subscription has left.</param>
     public static TileCatalog Catalog(mTiles.Services.SettingsService settings) =>
         mTiles.App.BuildTileCatalog(new DatabaseServiceManager(settings),
-            new mTiles.Services.AiUsageService(settings, sources: _ => []));
+            new mTiles.Services.AiUsageService(settings, sources: _ => []),
+            new mTiles.AgentSessions.Storage.SqliteConversationStore(
+                Path.Combine(Path.GetTempPath(), $"mtiles-test-conversations-{Guid.NewGuid():N}.db")));
 
     /// <summary>The window's catalog, holding the list it is handed.</summary>
     public static TileCatalog WindowCatalog(mTiles.Services.SettingsService settings,

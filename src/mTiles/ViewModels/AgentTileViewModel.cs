@@ -22,7 +22,7 @@ namespace mTiles.ViewModels;
 /// same rule a shell profile already follows — and the reason a tile stores an id rather than a copy.
 /// </para>
 /// </remarks>
-public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
+public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile, IAgentTile
 {
     private readonly IAiAgent _agent;
     private readonly SettingsService _settings;
@@ -55,6 +55,9 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile
     /// <summary>Which agent it runs, so a tile whose instance has been deleted can still be shown for
     /// what it was.</summary>
     public string AgentId => _agent.Id;
+
+    /// <inheritdoc />
+    public IAiAgent Agent => _agent;
 
     /// <summary>What the layout asked for, when this tile could not be built as it — otherwise null.
     /// </summary>

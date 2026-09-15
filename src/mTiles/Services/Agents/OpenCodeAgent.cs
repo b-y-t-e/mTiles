@@ -24,10 +24,16 @@ namespace mTiles.Services.Agents;
 /// measured fact behind <see cref="AiUsage"/> being a parameter rather than a property: the honest
 /// answer to "what efforts does opencode support" is different in the two places.</para>
 /// </remarks>
-public sealed class OpenCodeAgent : AiAgent
+public sealed class OpenCodeAgent : AiAgent, Sessions.IConversationalAgent
 {
     public override string Id => "opencode";
     public override string DisplayName => "OpenCode";
+
+    /// <summary>A conversation through <c>opencode serve</c> — see
+    /// <see cref="Sessions.OpenCode.OpenCodeServerSession"/>.</summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.OpenCode.OpenCodeServerSession(launch, this, sink);
 
     /// <summary>Measured 2026-09-03: <c>.opencode/skills</c> under the project — configurable through
     /// its own <c>paths</c>, and this is the default.</summary>

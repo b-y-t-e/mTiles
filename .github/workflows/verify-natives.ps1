@@ -48,7 +48,10 @@ $required = @(
     @{ Name = 'ggml';       Why = 'whisper''s tensor library'; Windows = @('ggml-whisper.dll', 'ggml.dll');           Linux = @('libggml-whisper.so*', 'libggml.so*') },
     @{ Name = 'ggml-base';  Why = 'ggml''s base library';      Windows = @('ggml-base-whisper.dll', 'ggml-base.dll'); Linux = @('libggml-base-whisper.so*', 'libggml-base.so*') },
     @{ Name = 'ggml-cpu';   Why = 'ggml''s CPU backend';       Windows = @('ggml-cpu-whisper.dll', 'ggml-cpu.dll');   Linux = @('libggml-cpu-whisper.so*', 'libggml-cpu.so*') },
-    @{ Name = 'onnxruntime'; Why = 'the Parakeet engine (ONNX Runtime)'; Windows = @('onnxruntime.dll'); Linux = @('libonnxruntime.so*') }
+    @{ Name = 'onnxruntime'; Why = 'the Parakeet engine (ONNX Runtime)'; Windows = @('onnxruntime.dll'); Linux = @('libonnxruntime.so*') },
+    # Without it every agent conversation tile fails to open its store - the first SQLite call throws
+    # "Library e_sqlite3 not found" - while terminals and everything else start normally.
+    @{ Name = 'e_sqlite3'; Why = 'the agent conversation store (Microsoft.Data.Sqlite)'; Windows = @('e_sqlite3.dll'); Linux = @('libe_sqlite3.so*') }
 )
 
 if ($Rid -eq 'win-x64') {

@@ -31,13 +31,39 @@ namespace mTiles.Services.Agents;
 /// <see cref="ConsumesApiFlavors"/> names only <see cref="ApiFlavor.OpenAiResponses"/>: pairing codex
 /// with a local provider through configuration would be offered, and would not work.</para>
 /// </remarks>
-public sealed class CodexAgent : AiAgent
+public sealed class CodexAgent : AiAgent, Sessions.IConversationalAgent
 {
     /// <summary>The config key that carries effort, and the token to blame when it is refused.</summary>
     private const string EffortKey = "model_reasoning_effort";
 
     public override string Id => "codex";
     public override string DisplayName => "Codex";
+
+    /// <summary>A conversation through <c>codex app-server</c> — see
+    /// <see cref="Sessions.Codex.CodexAppServerSession"/>.</summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.Codex.CodexAppServerSession(launch, sink);
+
+    /// <summary>The effort levels a <c>turn/start</c> can carry — codex's scale.</summary>
+    internal static IReadOnlyList<AiEffort> AppServerEfforts => Efforts;
+
+    /// <summary>
+    /// The approval policy and the sandbox a conversation runs under, by the same table as
+    /// <see cref="BehaviourArgs"/> uses for the TUI.
+    /// </summary>
+    /// <remarks>The app server's spellings are the TUI's flags' values — <c>untrusted</c>,
+    /// <c>on-request</c>, <c>never</c>; <c>read-only</c>, <c>workspace-write</c>,
+    /// <c>danger-full-access</c> (codex 0.153.2's schema). Null for both is "pass nothing": the user's
+    /// own <c>config.toml</c> decides, which is what <see cref="AiBehaviour.ToolDefault"/> means.</remarks>
+    internal static (string? Approval, string? Sandbox) AppServerPermissions(AiBehaviour behaviour) => behaviour switch
+    {
+        AiBehaviour.Plan => ("on-request", "read-only"),
+        AiBehaviour.Ask => ("on-request", "workspace-write"),
+        AiBehaviour.Auto or AiBehaviour.AcceptEdits => ("never", "workspace-write"),
+        AiBehaviour.BypassPermissions => ("never", "danger-full-access"),
+        _ => (null, null),
+    };
 
     /// <summary>Measured 2026-09-03: <c>.agents/skills</c> — shared with pi and agy, which is what
     /// <see cref="WorkspaceAgentFiles"/> exists to keep three tiles from deleting from under one

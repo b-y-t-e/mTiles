@@ -41,7 +41,14 @@ public sealed class AgentTileKind : TileKind<AgentTileViewModel>
     public const string SessionIdKey = "sessionId";
 
     public override string Id => TileKindIds.Agent;
-    public override string DisplayName => "Agent";
+
+    /// <summary>"Terminal agent": the agent's own TUI in a terminal, beside the "Agent" tile that holds
+    /// the same agent as a conversation (<see cref="AgentConversationTileKind"/>).</summary>
+    public override string DisplayName => "Terminal agent";
+
+    /// <summary>"Agent", as tiles of this kind were always numbered — renaming the kind must not renumber
+    /// every tile already in a layout.</summary>
+    public override string NamePrefix => "Agent";
     public override string IconId => "robot";
     public override string AccentKey => "TileAccentAgent";
 

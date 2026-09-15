@@ -39,6 +39,10 @@ public static class TileConversion
     {
         TileKindIds.Terminal => null,
         TileKindIds.Agent => "The conversation stays with the agent; the tile will stop opening it.",
+        // Not a destroyed shell: the process is only the agent answering, and every word of the
+        // conversation is in the store under this tile's id. What is lost is a turn still in progress.
+        TileKindIds.AgentConversation =>
+            "A turn in progress will be stopped; the conversation stays stored and comes back if this tile becomes an Agent again.",
         TileKindIds.Note => Kept("notes"),
         TileKindIds.Todo => Kept("todos"),
         TileKindIds.Goal => "The run will be paused, and its record stays in .mtiles/goals/.",

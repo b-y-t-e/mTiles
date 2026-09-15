@@ -194,12 +194,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     private void EvaluateAgentFileSync()
     {
         if (_agentFileSync is not { } coordinator) return;
-        var agents = EnumerateLeaves(RootTile)
-            .Select(leaf => leaf.Content)
-            .OfType<AgentTileViewModel>()
-            .Select(tile => Services.Agents.AiAgentCatalog.Find(tile.AgentId))
-            .OfType<Services.Agents.IAiAgent>();
-        _ = coordinator.EvaluateWorkspaceAsync(WorkingDirectory, agents);
+        _ = coordinator.EvaluateWorkspaceAsync(WorkingDirectory, AgentsInHere());
     }
 
     /// <summary>
@@ -231,12 +226,17 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// directory. The set is recomputed whole every time, because three agents share
     /// <c>.agents/skills</c> and "delete the directory of the agent that left" would take it out from
     /// under the two still standing.</remarks>
-    private void SyncAgentFiles() =>
-        _tileContext.AgentFiles.Follow(EnumerateLeaves(RootTile)
+    private void SyncAgentFiles() => _tileContext.AgentFiles.Follow(AgentsInHere());
+
+    /// <summary>The agents this workspace holds right now, whichever way they are drawn.</summary>
+    /// <remarks>Asked through <see cref="IAgentTile"/> rather than of one view model type: a
+    /// conversation tile is as much an agent working in this project as a terminal one, and reading only
+    /// the terminal kind left it without the project's skills and without its instructions.</remarks>
+    private IEnumerable<Services.Agents.IAiAgent> AgentsInHere() =>
+        EnumerateLeaves(RootTile)
             .Select(leaf => leaf.Content)
-            .OfType<AgentTileViewModel>()
-            .Select(tile => Services.Agents.AiAgentCatalog.Find(tile.AgentId))
-            .OfType<Services.Agents.IAiAgent>());
+            .OfType<IAgentTile>()
+            .Select(tile => tile.Agent);
 
     private LeafTileNodeViewModel CreateEmptyLeaf()
     {

@@ -419,6 +419,11 @@ public partial class MainWindowViewModel : ObservableObject
         // thing here nobody else waits on: abandoned mid-write it leaves a .gitignore.mtiles-tmp in the
         // user's repository. Bounded — a shutdown is not held up for housekeeping.
         Services.GitIgnoreEditQueue.WaitForAll(TimeSpan.FromSeconds(2));
+        // A conversation closed mid-turn still has its closing checkpoint and its last events to write.
+        // This runs on the UI thread, so the dispatcher is given its pending work between slices of the
+        // wait: a window that stops painting for twenty-five seconds is one the user reads as hung.
+        Services.Agents.Sessions.ConversationClosings.WaitForAll(
+            TimeSpan.FromSeconds(25), () => Avalonia.Threading.Dispatcher.UIThread.RunJobs());
     }
 
     private void OnWorkspaceRemoved(string workspaceId)

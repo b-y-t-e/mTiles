@@ -20,6 +20,7 @@
        exposes PtyFactory so it can be driven without spawning a shell — that is what these use. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\mTiles\mTiles.csproj" />
+    <ProjectReference Include="..\..\src\mTiles.AgentSessions\mTiles.AgentSessions.csproj" />
   </ItemGroup>
 
 </Project>
