@@ -174,6 +174,15 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// have to learn about it.</remarks>
     public bool CanRestart => Actions.Any(a => a.Id == TileActionIds.Restart);
 
+    /// <summary>The header's <c>+</c>, when the content is a list something can be added to.</summary>
+    public TileAction? AddAction => Actions.FirstOrDefault(a => a.Id == TileActionIds.Add);
+
+    /// <summary>Whether the header's <c>+</c> has anything to do here.</summary>
+    public bool CanAdd => AddAction is not null;
+
+    [RelayCommand]
+    private Task AddAsync() => InvokeActionAsync(TileActionIds.Add);
+
     /// <summary>What this tile is doing — Unknown for content that has no notion of it, and Unknown
     /// once the tile has been disposed of.</summary>
     /// <remarks>A closed tile is doing nothing, whatever its content was doing a moment ago: closing one
@@ -304,6 +313,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     {
         OnPropertyChanged(nameof(Actions));
         OnPropertyChanged(nameof(CanRestart));
+        OnPropertyChanged(nameof(AddAction));
+        OnPropertyChanged(nameof(CanAdd));
     }
 
     partial void OnKindIdChanged(string value)

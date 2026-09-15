@@ -7,7 +7,7 @@ namespace mTiles.ViewModels;
 /// <remarks>A wrapper and nothing more: the list belongs to the window, which built it long before the
 /// window had a layout, and outlives any one arrangement of it. Disposing the tile therefore disposes
 /// nothing — a list torn down because its tile moved would take every workspace's row with it.</remarks>
-public sealed class WorkspacesTileViewModel(WorkspacesPanelViewModel panel) : ObservableObject, ITile
+public sealed class WorkspacesTileViewModel(WorkspacesPanelViewModel panel) : ObservableObject, ITileActions
 {
     public string KindId => TileKindIds.Workspaces;
 
@@ -20,6 +20,21 @@ public sealed class WorkspacesTileViewModel(WorkspacesPanelViewModel panel) : Ob
     /// is one: the view model layer must not name a control. A card is rebuilt whenever its tile moves,
     /// and a list built again would come back scrolled to the top.</remarks>
     public object? CachedView { get; set; }
+
+    /// <summary>Add Workspace, on the tile's header.</summary>
+    /// <remarks>It used to be a heading row inside the list saying "Workspaces" a second time under the
+    /// header that already says it; the header is where every other tile's actions are.</remarks>
+    public IReadOnlyList<TileAction> Actions { get; } =
+        [new(TileActionIds.Add, "Add Workspace", "plus", NeedsLocalScreen: true)];
+
+    public async Task<TileActionResult> InvokeAsync(string id)
+    {
+        if (id != TileActionIds.Add)
+            return TileActionResult.Refused($"This tile has no '{id}'.");
+
+        await Panel.AddWorkspaceCommand.ExecuteAsync(null);
+        return TileActionResult.Ok;
+    }
 
     public void Dispose() { }
 }

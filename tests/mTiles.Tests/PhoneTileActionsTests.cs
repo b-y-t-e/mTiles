@@ -36,6 +36,17 @@ public sealed class PhoneTileActionsTests
         Assert.Equal(["refresh", "commit"], offered.Select(a => a.Id));
     }
 
+    /// <summary>An action that opens a window on this machine is neither shown nor pressable: from a
+    /// phone it leaves a folder picker waiting on a desktop nobody is at.</summary>
+    [Fact]
+    public void An_action_needing_the_local_screen_is_not_offered_to_a_phone()
+    {
+        var add = new TileAction(TileActionIds.Add, "Add Workspace", "plus", NeedsLocalScreen: true);
+
+        Assert.Equal(["refresh"], PhoneTileActions.ForPhone([Refresh, add]).Select(a => a.Id));
+        Assert.False(PhoneTileActions.IsAllowed([Refresh, add], TileActionIds.Add));
+    }
+
     /// <summary>And it cannot be reached by naming it either, which is the half that matters: the
     /// filter on the way out is a courtesy, the filter on the way in is the rule.</summary>
     [Fact]

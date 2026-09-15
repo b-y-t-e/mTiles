@@ -22,7 +22,7 @@ internal static class PhoneTileActions
 {
     /// <summary>The actions of that tile a phone may be shown.</summary>
     public static IReadOnlyList<TileAction> ForPhone(IReadOnlyList<TileAction> actions) =>
-        [.. actions.Where(a => !a.IsDestructive)];
+        [.. actions.Where(a => !a.IsDestructive && !a.NeedsLocalScreen)];
 
     /// <summary>Whether a phone may press this one, given what the tile offers right now.</summary>
     /// <remarks>Asked again at the moment of the press rather than trusting the snapshot the phone acted

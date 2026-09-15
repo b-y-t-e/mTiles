@@ -73,6 +73,12 @@
                                  at the same priority, so with a binding here the last one to fire won —
                                  the width rule while the tile was resized, the binding the next time the
                                  tile's content changed, and neither reliably. -->
+                            <Button x:Name="AddButton"
+                                    Classes="tile-btn"
+                                    Command="{Binding AddCommand}"
+                                    ToolTip.Tip="{Binding AddAction.Label}">
+                                <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
+                            </Button>
                             <Button x:Name="RestartButton"
                                     Classes="tile-btn"
                                     Command="{Binding RestartTerminalCommand}"
@@ -92,6 +98,13 @@
                                 <Button.Flyout>
                                     <MenuFlyout Placement="BottomEdgeAlignedRight"
                                                 Opening="OnOverflowOpening">
+                                        <MenuItem Header="{Binding AddAction.Label}"
+                                                  Command="{Binding AddCommand}"
+                                                  IsVisible="{Binding CanAdd}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                        </MenuItem>
                                         <MenuItem Header="Restart shell"
                                                   InputGesture="Ctrl+Shift+R"
                                                   Command="{Binding RestartTerminalCommand}"

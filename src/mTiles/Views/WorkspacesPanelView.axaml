@@ -67,27 +67,9 @@
             <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto"
                           Margin="0,8,0,0">
+                <!-- No heading: the tile's header already says "Workspaces", and Add Workspace is one
+                     of that header's buttons (WorkspacesTileViewModel.Actions). -->
                 <StackPanel Margin="0">
-                    <!-- The section's own heading, with the add button on it. "Workspace" used to be a
-                         full-width row at the foot of the list, which put it below the last workspace
-                         and made a long list end in something that was not one. A heading also gives
-                         the list an edge to start at. -->
-                    <DockPanel Margin="19,0,10,4">
-                        <Button DockPanel.Dock="Right"
-                                Classes="ghost"
-                                Command="{Binding AddWorkspaceCommand}"
-                                Padding="3" MinWidth="18" MinHeight="18"
-                                Cursor="Hand"
-                                ToolTip.Placement="Right"
-                                ToolTip.Tip="Add Workspace">
-                            <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
-                        </Button>
-                        <TextBlock Text="Workspaces"
-                                   Classes="section"
-                                   Margin="0"
-                                   VerticalAlignment="Center" />
-                    </DockPanel>
-
                     <ItemsControl x:Name="WorkspaceList"
                                   ItemsSource="{Binding FilteredWorkspaces}"
                                   Margin="8,0,8,4">
@@ -324,11 +306,6 @@
                                      AttachedToVisualTree="TabsFilterField_AttachedToVisualTree" />
                         </Flyout>
                     </Button.Flyout>
-                </Button>
-                <Button Classes="toolbar"
-                        Command="{Binding AddWorkspaceCommand}"
-                        ToolTip.Tip="Add Workspace">
-                    <mi:MaterialIcon Kind="Plus" Width="16" Height="16" />
                 </Button>
                 <views:WindowActionsBar />
             </StackPanel>

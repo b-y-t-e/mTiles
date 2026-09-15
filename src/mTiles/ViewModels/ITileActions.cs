@@ -12,6 +12,10 @@ namespace mTiles.ViewModels;
 public static class TileActionIds
 {
     public const string Restart = "restart";
+
+    /// <summary>Adds an entry to whatever list the tile is — the header draws a <c>+</c> for it, with
+    /// the action's own label as the tooltip.</summary>
+    public const string Add = "add";
 }
 
 /// <summary>
@@ -25,12 +29,16 @@ public static class TileActionIds
 /// <param name="IsDestructive">Whether doing it can lose the user work. <b>A destructive action is
 /// never offered to a phone</b> — not "with a confirmation": confirming on a phone something you cannot
 /// see is theatre, and this codebase already holds that an unwired confirmation answers no.</param>
+/// <param name="NeedsLocalScreen">Whether doing it opens something on this machine's screen — a folder
+/// picker, a dialog. Not offered to a phone either: pressed from the sofa, it leaves a window waiting on
+/// a desktop nobody is sitting at.</param>
 public sealed record TileAction(
     string Id,
     string Label,
     string Icon,
     bool IsEnabled = true,
-    bool IsDestructive = false);
+    bool IsDestructive = false,
+    bool NeedsLocalScreen = false);
 
 /// <summary>Whether an action was carried out, and why not when it was not.</summary>
 /// <remarks>A refusal is worth a sentence because the phone is usually the only screen the user is
