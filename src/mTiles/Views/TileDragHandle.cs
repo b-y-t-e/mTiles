@@ -32,8 +32,16 @@ internal sealed class TileDragHandle
     private readonly Func<LeafTileNodeViewModel?> _source;
     private readonly Action<bool> _dragging;
 
+    private static readonly Cursor DragCursor = new(StandardCursorType.DragMove);
+
+    private readonly InputElement _handle;
+
     private Point? _start;
-    private PointerPressedEventArgs? _pressed;
+
+    /// <summary>The window a drag is in flight in, or null when there is none.</summary>
+    private TopLevel? _window;
+    private IPointer? _pointer;
+    private Cursor? _previousCursor;
 
     /// <param name="handle">What the user presses to drag.</param>
     /// <param name="measuredIn">What the pointer's travel is measured against — the tile's own view,
@@ -49,6 +57,7 @@ internal sealed class TileDragHandle
         Func<LeafTileNodeViewModel?> source,
         Action<bool> dragging)
     {
+        _handle = handle;
         _measuredIn = measuredIn;
         _mayArm = mayArm;
         _source = source;
@@ -57,6 +66,7 @@ internal sealed class TileDragHandle
         handle.AddHandler(InputElement.PointerPressedEvent, OnPressed, RoutingStrategies.Tunnel);
         handle.AddHandler(InputElement.PointerMovedEvent, OnMoved, RoutingStrategies.Tunnel);
         handle.AddHandler(InputElement.PointerReleasedEvent, OnReleased, RoutingStrategies.Tunnel);
+        handle.AddHandler(InputElement.PointerCaptureLostEvent, OnCaptureLost);
     }
 
     /// <summary>Forgets a press that has not become a drag yet.</summary>
@@ -66,7 +76,6 @@ internal sealed class TileDragHandle
     public void Disarm()
     {
         _start = null;
-        _pressed = null;
     }
 
     /// <remarks>The second click of a double-click never arms a drag. Avalonia raises
@@ -83,12 +92,24 @@ internal sealed class TileDragHandle
         if (!_mayArm(e)) return;
 
         _start = e.GetPosition(_measuredIn);
-        _pressed = e;
     }
 
-    private async void OnMoved(object? sender, PointerEventArgs e)
+    private void OnMoved(object? sender, PointerEventArgs e)
     {
-        if (_start is not { } start || _pressed is not { } pressed) return;
+        if (_window is { } window)
+        {
+            // The button came up without a release reaching us — see below. A drop nobody released is
+            // not a drop, so the drag is abandoned rather than completed.
+            if (!e.GetCurrentPoint(_measuredIn).Properties.IsLeftButtonPressed)
+                EndDrag(drop: null);
+            else
+                TileDragSession.Over(window, e.GetPosition(window));
+            e.Handled = true;
+            return;
+        }
+
+        if (_start is null) return;
+        var start = _start.Value;
 
         // A drag only ever begins while the button is still down, and this is the check rather than the
         // release handler below: a release is not guaranteed to arrive. On Wayland the pointer's focused
@@ -108,26 +129,83 @@ internal sealed class TileDragHandle
         Disarm();
 
         if (_source() is not { } leaf) return;
+        if (TopLevel.GetTopLevel(_handle) is not { } top) return;
 
+        BeginDrag(leaf, top, e);
+    }
+
+    /// <summary>Starts a drag of <paramref name="leaf"/>, carried by this handle's pointer capture.</summary>
+    /// <remarks>Ours rather than the platform's: <c>DragDrop.DoDragDropAsync</c> is an OLE modal loop on
+    /// Windows and lagged behind the pointer there, while a tile never leaves the window, so none of what
+    /// the platform's drag offers is used. Capturing the pointer is what keeps its moves and its release
+    /// arriving here wherever it goes.</remarks>
+    private void BeginDrag(LeafTileNodeViewModel leaf, TopLevel top, PointerEventArgs e)
+    {
         TileDragSession.Begin(leaf);
-        var data = new DataTransfer();
-        data.Add(DataTransferItem.CreateText(TileDragSession.DataFormat));
-
+        _window = top;
+        _pointer = e.Pointer;
+        _previousCursor = top.Cursor;
+        top.Cursor = DragCursor;
+        top.AddHandler(InputElement.KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
+        _pointer.Capture(_handle);
         _dragging(true);
+
+        TileDragSession.Over(top, e.GetPosition(top));
+        e.Handled = true;
+    }
+
+    /// <summary>Ends the drag in flight, dropping at <paramref name="drop"/> or abandoning it when null.</summary>
+    /// <remarks>Everything this handle changed is put back <em>before</em> the drop runs: a drop edits the
+    /// tree, which rebuilds views — this one's included — and releasing a capture afterwards would be
+    /// releasing it from a control that may no longer be in the window.</remarks>
+    private void EndDrag(Point? drop)
+    {
+        if (_window is not { } window) return;
+        _window = null;
+
+        window.RemoveHandler(InputElement.KeyDownEvent, OnWindowKeyDown);
+        window.Cursor = _previousCursor;
+        _previousCursor = null;
+
+        var pointer = _pointer;
+        _pointer = null;
+        pointer?.Capture(null);
+        _dragging(false);
+
         try
         {
-            await DragDrop.DoDragDropAsync(pressed, data, DragDropEffects.Move);
+            if (drop is { } point) TileDragSession.Drop(window, point);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceWarning("DragDrop failed: {0}", ex.Message);
+            System.Diagnostics.Trace.TraceWarning("Tile drop failed: {0}", ex);
         }
         finally
         {
-            _dragging(false);
             TileDragSession.End();
         }
     }
 
-    private void OnReleased(object? sender, PointerReleasedEventArgs e) => Disarm();
+    private void OnReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        Disarm();
+        if (_window is not { } window) return;
+
+        // Only the button carrying the drag drops it: a right or middle click made while it is held down
+        // is swallowed rather than taken as the release, or the tile would land wherever the pointer is.
+        if (e.InitialPressMouseButton == MouseButton.Left)
+            EndDrag(e.GetPosition(window));
+        e.Handled = true;
+    }
+
+    /// <summary>Anything that takes the capture away — another window, the control leaving the tree — ends
+    /// the drag without a drop.</summary>
+    private void OnCaptureLost(object? sender, PointerCaptureLostEventArgs e) => EndDrag(drop: null);
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape) return;
+        EndDrag(drop: null);
+        e.Handled = true;
+    }
 }

@@ -82,6 +82,9 @@ public static class Program
         if (useWayland)
             builder = builder.UseWaylandWithFallback();
 
+        if (OperatingSystem.IsWindows())
+            builder = builder.With(Win32Rendering.Options());
+
         return builder
             // Ours, and first: the interface and the terminal both default to it, so a machine with no
             // fonts installed still reads the way this application was designed. Inter stays as the

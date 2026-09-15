@@ -272,10 +272,17 @@ which handler ran last.
 | A tile's middle | The two tiles change places | unchanged |
 
 **The arbitration lives in `TileDropSurface` and nowhere else**, which is why that is the only control in
-a tree carrying `DragDrop.AllowDrop`. A tile deciding for itself would have to be overruled
+a tree a tile drag asks. A tile deciding for itself would have to be overruled
 afterwards by whatever ranked the three, and that is two writers for one hint — the arrangement
 `CLAUDE.md` records the tile header having already paid for. What a tile still draws is its *own* hint,
 because that overlay belongs inside the card's clip and nothing outside it knows that radius.
+
+**The drag is ours, not the platform's.** There is no `DragDrop.AllowDrop` anywhere in this gesture and
+no `DoDragDropAsync`: on Windows that call is an OLE modal loop delivering every move through COM, and
+it lagged visibly behind the pointer on a machine where the same build dragged smoothly under Linux. A
+tile never leaves the window, so nothing the platform's drag offers — another application, a file, a
+clipboard format — was ever used. `TileDragHandle` captures the pointer instead and
+`TileDragSession.Over`/`Drop` hit-test the window and ask the surfaces themselves.
 
 **The outer band has to overlap the outermost tiles, and that is forced rather than chosen.** A
 workspace has **no padding at all** — it is a tile of the window's layout, and the gutter round it is the
@@ -314,17 +321,20 @@ a second level of tiles — the window's own layout — without a copy:
   What it looks for under the pointer is `ITileDropTarget`, not a view type, so a tile drawn by another
   view can be a target by implementing it.
 - `TileDragHandle` and `TileDragSession` — the start of a drag (threshold, the double-click guard, the
-  release Wayland drops) and the drag in flight.
+  release Wayland drops) and the drag in flight: the pointer capture, the cursor, Escape, and the
+  hit-test that asks the surfaces where the pointer is.
 
 **Surfaces nest, and each answers only for its own tree.** Which tree a drag belongs to is *read*, never
 stored: `TileDragSession.IsFrom` walks the dragged tile up to its root and compares it with the surface's
-own. A surface refusing a drag leaves the event unhandled so it bubbles to the surface that owns it, and
-a gutter or a tile under the pointer from a tree nested inside is walked past rather than taken. Nothing
-has to be kept in step when a tile moves, because a tile that has moved already has a different root.
+own. `TileDragSession.Over` hit-tests the window and walks the surfaces **innermost first**, which is the
+bubbling the platform's drag events used to do for free; a surface that answers for no tile of its own
+says so and the walk carries on outward to the surface that owns the drag. A gutter or a tile under the
+pointer from a tree nested inside is walked past rather than taken. Nothing has to be kept in step when a
+tile moves, because a tile that has moved already has a different root.
 
-**The padding belongs to the surface, not to the view around it.** Only the control carrying
-`DragDrop.AllowDrop` is asked about a pointer over it, so the eight pixels round a workspace answer as
-its edge only because the surface draws them.
+**The padding belongs to the surface, not to the view around it.** The walk starts at whatever the hit
+test names and goes up the visual tree, so the eight pixels round a workspace answer as its edge only
+because the surface draws them and is therefore what is hit there.
 
 **A split can hold one side at a size in pixels** (`SplitFixedSide`, `SplitTileNodeViewModel.Fix`).
 A share is right for tiles that should grow with the window and wrong for a tile whose size is a fact

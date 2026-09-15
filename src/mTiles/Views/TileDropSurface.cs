@@ -13,7 +13,11 @@ namespace mTiles.Views;
 /// Where a tile tree's drops arrive, and the one thing that decides where a dragged tile would land.
 /// </summary>
 /// <remarks>
-/// <para><b>One per tree, and the only control in that tree carrying <c>DragDrop.AllowDrop</c>.</b>
+/// <para><b>One per tree, and the only control in that tree a tile drag asks.</b> The drag is ours, not
+/// the platform's (<see cref="TileDragSession.Over"/>): on Windows <c>DragDrop.DoDragDropAsync</c> is an
+/// OLE modal loop delivering every move through COM, which lagged visibly behind the pointer on a machine
+/// where the same build dragged smoothly under Linux — and a tile never leaves the window anyway.</para>
+/// <para>
 /// Three kinds of target sit under the pointer at different moments — the tree's own outer band, the
 /// gutter of a split, a tile — and they are <b>ranked, not weighed</b>: the outer band silences the
 /// gutter and the gutter silences the tile, the same shape as the activity sources, and for the same
@@ -28,7 +32,7 @@ namespace mTiles.Views;
 /// card's own clip. What this surface draws is the other two bands, in the coordinates of the tree it is
 /// laid over.</para>
 /// </remarks>
-public class TileDropSurface : Border
+public class TileDropSurface : Border, ITileDragSurface
 {
     private readonly Grid _layers = new();
     private readonly Border _hint = new()
@@ -49,14 +53,9 @@ public class TileDropSurface : Border
     public TileDropSurface()
     {
         ReadRoot = () => _tree?.DataContext as TileNodeViewModel;
-        DragDrop.SetAllowDrop(this, true);
         _hint.Bind(CornerRadiusProperty, _hint.GetResourceObservable("RadiusTile"));
         _layers.Children.Add(_hint);
         Child = _layers;
-
-        AddHandler(DragDrop.DragOverEvent, OnDragOver);
-        AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
-        AddHandler(DragDrop.DropEvent, OnDrop);
     }
 
     /// <summary>The view drawing the tree whose drops this surface answers.</summary>
@@ -104,31 +103,31 @@ public class TileDropSurface : Border
         _hint.IsVisible = false;
     }
 
-    private void OnDragOver(object? sender, DragEventArgs e)
+    /// <summary>The pointer of a tile drag is over this surface.</summary>
+    /// <returns>Whether this surface answered; false leaves the drag to the surface around it.</returns>
+    /// <param name="relativeTo">What <paramref name="point"/> is measured against.</param>
+    public bool DragOver(Visual relativeTo, Point point)
     {
-        var target = Resolve(e);
+        var target = Resolve(relativeTo, point);
         if (target.Kind == TileDropKind.None)
         {
-            // Not handled: a drag from another tree carries on bubbling to the surface that owns it, and
-            // that surface's answer is written after this one.
-            e.DragEffects = DragDropEffects.None;
+            // Not answered: a drag from another tree goes on to the surface that owns it.
             ClearDropHints();
-            return;
+            return false;
         }
 
         ShowHint(target);
-        e.DragEffects = DragDropEffects.Move;
-        e.Handled = true;
+        return true;
     }
 
-    private void OnDragLeave(object? sender, DragEventArgs e) => ClearDropHints();
-
-    private void OnDrop(object? sender, DragEventArgs e)
+    /// <summary>A tile drag was released over this surface.</summary>
+    /// <returns>Whether this surface took the drop.</returns>
+    public bool Drop(Visual relativeTo, Point point)
     {
-        var target = Resolve(e);
+        var target = Resolve(relativeTo, point);
         ClearDropHints();
 
-        if (TileDragSession.Source is not { } source) return;
+        if (TileDragSession.Source is not { } source) return false;
 
         switch (target.Kind)
         {
@@ -145,10 +144,10 @@ public class TileDropSurface : Border
                 break;
 
             default:
-                return;
+                return false;
         }
 
-        e.Handled = true;
+        return true;
     }
 
     /// <summary>Where the pointer is, in the terms the three targets are ranked by.</summary>
@@ -159,8 +158,10 @@ public class TileDropSurface : Border
         SplitTileNodeViewModel? Split = null,
         TileNodeView? SplitView = null);
 
-    private DropTarget Resolve(DragEventArgs e)
+    private DropTarget Resolve(Visual relativeTo, Point point)
     {
+        Point PositionIn(Visual visual) => relativeTo.TranslatePoint(point, visual) ?? default;
+
         if (_tree is not { } tree) return default;
         if (TileDragSession.Source is not { } source) return default;
 
@@ -169,7 +170,7 @@ public class TileDropSurface : Border
         var size = tree.Bounds.Size;
         if (size.Width <= 0 || size.Height <= 0) return default;
 
-        var pos = e.GetPosition(tree);
+        var pos = PositionIn(tree);
 
         // Ranked highest because it is the only one of the three with nowhere else to live: a surface's
         // padding can be zero on a side, so the band has to overlap the outermost tile and therefore has
@@ -181,7 +182,7 @@ public class TileDropSurface : Border
         if (tree.InputHitTest(pos) is not Visual hit) return default;
 
         return TargetUnder(hit, this, root, source,
-            control => TileDropGeometry.GetDropZone(e.GetPosition(control), control.Bounds.Size));
+            control => TileDropGeometry.GetDropZone(PositionIn(control), control.Bounds.Size));
     }
 
     /// <summary>The gutter or tile of <paramref name="root"/>'s tree nearest above <paramref name="hit"/>.</summary>

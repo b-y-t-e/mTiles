@@ -44,7 +44,6 @@ public class TileDropSurfaceWiringTests
         var layers = Assert.IsType<Grid>(surface.Child);
         Assert.Contains(tree, layers.Children);
         Assert.Equal(2, layers.Children.Count);
-        Assert.True(DragDrop.GetAllowDrop(surface));
     });
 
     /// <summary>A control standing for one tile, drawing nothing.</summary>

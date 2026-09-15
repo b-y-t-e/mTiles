@@ -1,3 +1,7 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.VisualTree;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
@@ -7,9 +11,8 @@ namespace mTiles.Views;
 /// it.
 /// </summary>
 /// <remarks>
-/// <para>Static because a drag is: the platform runs one at a time for the whole application, and the
-/// surface a pointer is over has no other way to find out what is being carried — the payload handed to
-/// the platform is only a marker, since a view model is not something a clipboard format can hold.</para>
+/// <para>Static because a drag is: there is one pointer dragging at a time for the whole application, and
+/// the surface under it has no other way to find out what is being carried.</para>
 /// <para><b>Which tree a drag belongs to is read, never stored.</b> <see cref="IsFrom"/> walks the
 /// dragged tile up to its root and compares, which is what lets the window's surface and a workspace's
 /// surface be nested one inside the other and each answer only for its own tiles — with nothing to keep
@@ -17,9 +20,6 @@ namespace mTiles.Views;
 /// </remarks>
 internal static class TileDragSession
 {
-    /// <summary>What the platform's drag carries, so a drop from another application is told apart.</summary>
-    public const string DataFormat = "application/x-mtiles-tile";
-
     /// <summary>The tile being dragged, or null when no tile drag is in flight.</summary>
     public static LeafTileNodeViewModel? Source { get; private set; }
 
@@ -39,9 +39,46 @@ internal static class TileDragSession
     /// to restart the application to be rid of.</remarks>
     public static void End()
     {
+        Source = null;
+        ClearHint();
+    }
+
+    /// <summary>The pointer is at <paramref name="point"/> in <paramref name="window"/>: the innermost
+    /// surface under it that answers shows its hint, and with none answering every hint is put away.</summary>
+    /// <remarks>Innermost first and outward, which is the bubbling the platform's drag events did: a
+    /// workspace's surface leaves a window-level tile to the window's surface around it.</remarks>
+    public static void Over(TopLevel window, Point point) => Over(HitIn(window, point), window, point);
+
+    /// <summary>The drag was released at <paramref name="point"/> in <paramref name="window"/>.</summary>
+    public static void Drop(TopLevel window, Point point) => Drop(HitIn(window, point), window, point);
+
+    /// <summary><see cref="Over(TopLevel, Point)"/> once the window has named what is under the pointer.</summary>
+    internal static void Over(Visual? hit, Visual relativeTo, Point point)
+    {
+        foreach (var surface in SurfacesAbove(hit))
+            if (surface.DragOver(relativeTo, point)) return;
+
+        ClearHint();
+    }
+
+    /// <summary><see cref="Drop(TopLevel, Point)"/> once the window has named what is under the pointer.</summary>
+    internal static void Drop(Visual? hit, Visual relativeTo, Point point)
+    {
+        foreach (var surface in SurfacesAbove(hit))
+            if (surface.Drop(relativeTo, point)) break;
+
+        ClearHint();
+    }
+
+    private static Visual? HitIn(TopLevel window, Point point) => window.InputHitTest(point) as Visual;
+
+    private static IEnumerable<ITileDragSurface> SurfacesAbove(Visual? hit) =>
+        hit?.GetSelfAndVisualAncestors().OfType<ITileDragSurface>() ?? [];
+
+    private static void ClearHint()
+    {
         var clear = _clearHint;
         _clearHint = null;
-        Source = null;
         clear?.Invoke();
     }
 
