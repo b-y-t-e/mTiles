@@ -122,6 +122,31 @@ created owner-only because SQLite writes `-wal` and `-shm` beside the file. Two 
 An event a build cannot read — written by a newer one — is skipped with a log line. Nothing is pruned yet:
 a closed tile's conversation stays, and comes back if a tile with that id is an Agent tile again.
 
+## Which agent holds the conversation
+
+**The tile asks nothing before it opens.** A terminal tile has to know its shell before anything can run; a
+conversation with nothing in it is bound to nobody, so the agent is picked in the strip beside the model.
+A new tile opens on the instance the last one was pointed at (`AppSettings.LastAgentInstanceId`), and on the
+first available one before there is such a thing.
+
+**Once the conversation has something in it, the agent is settled** (`IsBoundToItsAgent`) — t3code's rule
+(`ProviderCommandReactor` refuses `thread.turn.start` across drivers) and ours for the same reason: the
+resume token belongs to the CLI that issued it and the stored events are that agent's. Another agent is
+offered, dimmed and carrying the sentence saying to start a new conversation (dimmed rather than disabled —
+a disabled item is out of Avalonia's hit test, so the reason would never be read); another instance of the *same*
+agent — another account, another model — is taken, and restarts the session on the same conversation.
+"Something in it" is read from the store as well as from the screen: a restored tile is empty until its start
+has read the store, and another agent's stored conversation keeps that agent pickable and the picked one refused.
+A stored record alone binds nobody — a host writes one as its session starts — so it is a stored user message
+that counts, and a switch is refused before it is remembered as last used or saved into the layout.
+"Last used" is written whenever a message is sent, not only when the chooser moves.
+
+Carrying the work across that seam — a brief built from what this application recorded, handed to the new
+agent as its first message — is [`ROADMAP.md`](ROADMAP.md) §6, and is what turns the refusal into a choice.
+
+**Nothing is thrown away by a chooser.** Switching onto a tile that still holds another agent's stored
+conversation starts nothing and says so; "New conversation" is the one gesture that forgets.
+
 ## Switching model, mode and effort inside a conversation
 
 The strip above the conversation holds a model field (pick from what the session lists, or type a name and

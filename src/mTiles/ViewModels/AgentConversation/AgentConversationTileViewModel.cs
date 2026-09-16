@@ -47,6 +47,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private readonly Lock _drawGate = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SemaphoreSlim _startGate = new(1, 1);
+    private readonly SemaphoreSlim _switchGate = new(1, 1);
+    private readonly IAgentSessionStarter _sessionStarter;
+    private AiAgentInstance? _latestPick;
     private AgentConversationHost? _host;
     private ConversationState? _waitingToDraw;
     private bool _drawScheduled;
@@ -73,11 +76,14 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private bool _restartQueued;
     private SessionOptionsReported? _drawnOptions;
     private bool _drawingSettings;
+    private readonly ConversationAgentBinding _binding;
 
     public AgentConversationTileViewModel(string workingDirectory, SettingsService settings, IConversationStore store,
         AiAgentInstance instance, IAiAgent agent, Func<string> tileId, AgentSubstitution? substitution = null,
-        SessionOverrides? overrides = null, Action? requestSave = null, Action<Action>? post = null)
+        SessionOverrides? overrides = null, Action? requestSave = null, Action<Action>? post = null,
+        IAgentSessionStarter? sessionStarter = null)
     {
+        _sessionStarter = sessionStarter ?? AgentSessionStarter.Instance;
         _workingDirectory = workingDirectory;
         _settings = settings;
         _store = store;
@@ -90,6 +96,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _post = post ?? (action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background));
         FileMentions = new FileMentionsViewModel(new WorkspaceFileMentionSource(workingDirectory,
             settings.Settings.GitPath is { Length: > 0 } git ? git : "git"));
+        _binding = new ConversationAgentBinding(store);
+        Chooser = new AgentInstanceChooser(settings, () => Instance, IsRunning, () => ConversationAgentId, _post,
+            instance => _ = RunAsync(() => SwitchInstanceAsync(instance)));
     }
 
     /// <summary>The <c>@</c> file suggestions every box in this tile offers — the composer and an answer —
@@ -115,11 +124,23 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
     public string KindId => TileKindIds.AgentConversation;
 
-    public AiAgentInstance Instance { get; }
-    public IAiAgent Agent { get; }
+    public AiAgentInstance Instance { get; private set; }
+    public IAiAgent Agent { get; private set; }
 
     /// <summary>What the layout asked for, when it could not be honoured; saved in place of what runs.</summary>
-    public AgentSubstitution? Substitution { get; }
+    /// <remarks>Cleared the moment the user picks an instance themselves: what runs is then what was asked
+    /// for, and saving the old request would put the tile back on a ghost at the next launch.</remarks>
+    public AgentSubstitution? Substitution { get; private set; }
+
+    /// <summary>The agents this conversation can be pointed at, and which of them can be picked now.</summary>
+    public AgentInstanceChooser Chooser { get; }
+
+    /// <summary>Whether the agent is settled: a conversation belongs to the agent holding it.</summary>
+    public bool IsBoundToItsAgent => ConversationAgentId is not null;
+
+    /// <summary>The agent whose conversation this tile holds, or null while nothing has been said.</summary>
+    private string? ConversationAgentId =>
+        _binding.HeldAgentId(Agent.Id);
 
     /// <inheritdoc />
     /// <remarks>The CLI this tile started, so the workspace row's memory reading covers it: a
@@ -218,6 +239,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         {
             Draft = "";
             Attachments.Clear();
+            _binding.MessageSent();
+            LastUsedAgentInstance.Remember(_settings, Instance);
             OnPropertyChanged(nameof(HasAttachments));
         }
 
@@ -372,6 +395,115 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             _ = StartAsync(fresh: false);
         });
 
+    /// <summary>
+    /// Points this conversation at another configured instance: the same agent on another account or model
+    /// restarts the session and keeps everything, and another agent is only taken while nothing has been said.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The agent is locked once the conversation has something in it</b> — t3code's rule and ours for
+    /// the same reason: the resume token belongs to the CLI that issued it, and the stored conversation is
+    /// that agent's. Such a switch is refused here rather than hidden, and the chooser says why.</para>
+    /// <para>Switching agent onto a tile that already holds another agent's stored conversation starts nothing
+    /// and says so (<see cref="StartAsync"/>), so the history is never thrown away behind a chooser: "New
+    /// conversation" is the one gesture that forgets.</para>
+    /// </remarks>
+    public async Task SwitchInstanceAsync(AiAgentInstance instance)
+    {
+        _latestPick = instance;
+        await _switchGate.WaitAsync();
+        try
+        {
+            // Picked again before this one had its turn: the later pick is the one the user meant.
+            if (ReferenceEquals(_latestPick, instance)) await ApplySwitchAsync(instance);
+        }
+        finally
+        {
+            _switchGate.Release();
+        }
+    }
+
+    /// <summary>One switch, run alone: two overlapping ones would both pass the checks before either commits,
+    /// and whichever finished last would win rather than whichever was picked last.</summary>
+    private async Task ApplySwitchAsync(AiAgentInstance instance)
+    {
+        if (IsRunning(instance)) return;
+        if (AiAgentCatalog.Find(instance.AgentId) is not { } agent) return;
+
+        if (IsHeldByAnotherAgent(agent))
+        {
+            Chooser.RestoreSelection();
+            return;
+        }
+        // Asked before anything is committed, and for another instance of the same agent too: a tile substituted
+        // or still starting has not read the store yet, and a refused switch must not become the last-used
+        // instance or the layout's, or the next tile and this one's next launch would open on an agent that
+        // never ran here.
+        if (await _binding.StoredAgentAsync(_tileId()) is { } stored && stored != agent.Id)
+        {
+            HoldStoredConversationOf(stored);
+            Chooser.RestoreSelection();
+            return;
+        }
+        if (!await ConfirmInterruptingTurnAsync())
+        {
+            Chooser.RestoreSelection();
+            return;
+        }
+
+        await UnderStartGateAsync(() => CommitSwitchAsync(instance, agent));
+    }
+
+    /// <summary>Takes the switch and replaces the host, under the start gate and with no await between the last
+    /// check and the old host being let go.</summary>
+    /// <remarks>Asked again here: the composer stays live while the store is read, the dialog is open and an
+    /// earlier start holds the gate, and a message sent meanwhile binds the conversation to the agent it was sent
+    /// to. Committed before the old host is gone, a message could still reach it and leave the tile, the last-used
+    /// instance and the layout on an agent whose start then refuses that conversation.</remarks>
+    private Task CommitSwitchAsync(AiAgentInstance instance, IAiAgent agent)
+    {
+        if (IsHeldByAnotherAgent(agent))
+        {
+            Chooser.RestoreSelection();
+            return Task.CompletedTask;
+        }
+
+        var otherAgent = agent.Id != Agent.Id;
+        Instance = instance;
+        Agent = agent;
+        Substitution = null;
+        _overrides = OverridesSurvivingSwitch(otherAgent);
+
+        LastUsedAgentInstance.Remember(_settings, Instance);
+        _requestSave?.Invoke();
+
+        OnPropertyChanged(nameof(Instance));
+        OnPropertyChanged(nameof(Agent));
+        OnPropertyChanged(nameof(HeaderNote));
+        Chooser.Draw();
+        return ReplaceHostAsync(fresh: false);
+    }
+
+    /// <summary>What the chooser's overrides keep across a switch of instance.</summary>
+    /// <remarks>The model never survives it: it is spelled for the provider behind the old instance, and another
+    /// account does not serve it. Mode and effort are the application's own scale and stay with the same agent;
+    /// another agent has never heard of any of them.</remarks>
+    private SessionOverrides OverridesSurvivingSwitch(bool otherAgent) =>
+        otherAgent ? SessionOverrides.None : _overrides with { Model = null };
+
+    /// <summary>Whether something has been said in this conversation with an agent other than this one.</summary>
+    private bool IsHeldByAnotherAgent(IAiAgent agent) => ConversationAgentId is { } held && agent.Id != held;
+
+    /// <summary>Whether this instance is what actually runs here.</summary>
+    /// <remarks>Not merely the tile's instance: a substitute onto another agent starts nothing, so picking it is
+    /// how the user accepts it.</remarks>
+    private bool IsRunning(AiAgentInstance instance) => instance.Id == Instance.Id && !RunsAnotherAgent;
+
+    /// <summary>Whether a switch may end the turn in flight: restarting the session ends it, so it asks the way
+    /// Restart does. Nothing to interrupt is a yes; no dialog to ask in is a no.</summary>
+    private async Task<bool> ConfirmInterruptingTurnAsync() =>
+        !IsWorking || (ConfirmAction is not null && await ConfirmAction(
+            "Switch agent now? The agent is working, and restarting the session stops what it is doing."));
+
     [RelayCommand]
     private Task InterruptAsync() =>
         _host is null ? Task.CompletedTask : RunAsync(() => _host.ExecuteAsync(new InterruptTurn(), _lifetime.Token));
@@ -392,14 +524,16 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// One start at a time: two overlapping starts would each build a host, and the one overwritten
     /// would keep its agent process alive and write the same sequence numbers into the same conversation.
     /// </summary>
-    private async Task StartAsync(bool fresh)
+    private Task StartAsync(bool fresh) => UnderStartGateAsync(() => ReplaceHostAsync(fresh));
+
+    private async Task UnderStartGateAsync(Func<Task> start)
     {
         await _startGate.WaitAsync();
         try
         {
             // Every start from here on reads the overrides as they are now, so a queued restart is covered.
             _restartQueued = false;
-            await ReplaceHostAsync(fresh);
+            await start();
         }
         finally
         {
@@ -423,6 +557,10 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         }
 
         if (_disposed) return;
+        // Read once: a switch made while this start awaits queues a start of its own, and this one must go on
+        // opening, preparing and launching the agent it began with rather than whichever was picked since.
+        var agent = Agent;
+        var instance = _overrides.ApplyTo(Instance);
         if (RunsAnotherAgent)
         {
             LaunchProblem = Substitution!.Notice;
@@ -440,18 +578,21 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             await ConversationClosings.WhenClosedAsync(conversationId).WaitAsync(_lifetime.Token);
             if (_disposed) return;
             // Inside the try: a conversation store that cannot be opened is this tile's problem, said on it.
-            if (await Task.Run(() => _store.Find(conversationId)) is { } stored && stored.AgentId != Agent.Id)
+            if (await Task.Run(() => _store.Find(conversationId)) is { } stored && stored.AgentId != agent.Id)
             {
-                if (!fresh)
+                // A record with nothing said in it is only the previous agent's start: it holds nobody.
+                if (!fresh && await _binding.HasSomethingSaidAsync(conversationId))
                 {
+                    HoldStoredConversationOf(stored.AgentId);
                     LaunchProblem = AnotherAgentsConversationNotice(stored.AgentId);
                     return;
                 }
                 await ForgetConversationAsync(conversationId, stored.AgentId);
             }
+            HoldStoredConversationOf(null);
 
-            if (await OpenHostAsync(conversationId) is not { } host) return;
-            var (launch, problem) = await AgentSessionLauncher.PrepareAsync(_settings.Settings, Agent, _overrides.ApplyTo(Instance),
+            if (await OpenHostAsync(conversationId, agent) is not { } host) return;
+            var (launch, problem) = await _sessionStarter.PrepareAsync(_settings.Settings, agent, instance,
                 _workingDirectory, conversationId, host.ResumeToken, _lifetime.Token);
             // Closed while preparing: Dispose has already ended this host, and nothing may start on it.
             if (_disposed) return;
@@ -461,20 +602,29 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
                 return;
             }
 
-            await host.StartAsync(sink => AgentSessionLauncher.Create(Agent, launch, sink), _lifetime.Token);
+            await host.StartAsync(sink => _sessionStarter.Create(agent, launch, sink), _lifetime.Token);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"[AgentConversation] Starting {Agent.Id} failed: {ex}");
+            Trace.TraceError($"[AgentConversation] Starting {agent.Id} failed: {ex}");
             LaunchProblem = ex.Message;
         }
         finally
         {
             IsStarting = false;
         }
+    }
+
+    /// <summary>Records which other agent's stored conversation stopped this start, so the chooser offers that
+    /// agent back instead of refusing it against the one that was picked.</summary>
+    private void HoldStoredConversationOf(string? agentId)
+    {
+        _binding.HoldStoredConversationOf(agentId);
+        OnPropertyChanged(nameof(IsBoundToItsAgent));
+        Chooser.DrawIfBindingChanged();
     }
 
     private string AnotherAgentsConversationNotice(string storedAgentId) =>
@@ -497,9 +647,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <summary>Opens the conversation, or answers null when the tile was closed while it was being read.</summary>
     /// <remarks>Built off the UI thread: opening reads and replays every stored event, and a long conversation
     /// is megabytes of JSON — a workspace of such tiles would otherwise freeze the window as it opens.</remarks>
-    private async Task<AgentConversationHost?> OpenHostAsync(string conversationId)
+    private async Task<AgentConversationHost?> OpenHostAsync(string conversationId, IAiAgent agent)
     {
-        var host = await Task.Run(() => CreateHost(conversationId, Agent.Id));
+        var host = await Task.Run(() => CreateHost(conversationId, agent.Id));
         if (_disposed)
         {
             ConversationClosings.Close(host);
@@ -507,6 +657,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         }
 
         _host = host;
+        _binding.Opened(agent.Id);
         host.Changed += OnChanged;
         host.RestartRequested += OnRestartRequested;
         host.SettingsApplied += OnSettingsApplied;
@@ -581,6 +732,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     internal void Draw(ConversationState state)
     {
         TimelineSync.Sync(Timeline, state.Timeline, CreateItem);
+        _binding.Drawn(state);
         SyncApprovals(state);
 
         if (PendingQuestions?.Round != state.PendingQuestions.FirstOrDefault())
@@ -608,6 +760,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
                 : state.SessionState == AgentSessionState.Ready ? TileActivity.Idle : TileActivity.Unknown;
 
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(IsBoundToItsAgent));
+        Chooser.DrawIfBindingChanged();
         TimelineChanged?.Invoke();
     }
 
@@ -721,6 +875,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         if (_disposed) return;
         _disposed = true;
         _lifetime.Cancel();
+        Chooser.Dispose();
         FileMentions.Dispose();
         TurnClock.Dispose();
         if (_host is { } host)

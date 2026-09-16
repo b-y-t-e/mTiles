@@ -221,16 +221,9 @@ public sealed class TileCatalogTests
             }
             else if (entry.Kind.Id == TileKindIds.AgentConversation)
             {
-                // The same cards as a terminal agent's, narrowed to the agents that can be held as a
-                // conversation.
-                var conversational = settings.Service.Settings.AiAgentInstances
-                    .Where(instance => AiAgentCatalog.Find(instance.AgentId) is mTiles.Services.Agents.Sessions.IConversationalAgent
-                                       && AiAgentCatalog.IsAvailable(instance, settings.Service.Settings))
-                    .ToList();
-
-                if (conversational.Count <= 1) Assert.Empty(options);
-                else Assert.Equal(conversational.Select(i => i.Id),
-                    options.Select(o => o.State?[AgentStateKeys.InstanceIdKey]?.GetValue<string>()));
+                // Nothing: the Agent tile opens straight into its conversation and the agent is picked
+                // there, where it can also be changed while nothing has been said.
+                Assert.Empty(options);
             }
             else if (entry.Kind.Id == TileKindIds.TerminalAgent)
             {

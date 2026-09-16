@@ -89,6 +89,20 @@
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
 
+        <!-- An agent this conversation cannot be moved to: shown, dimmed, with the reason under it.
+             Deliberately not a disabled ComboBoxItem: Avalonia leaves a disabled item out of the hit test,
+             so the pointer never enters it and the very sentence explaining the refusal never renders. The
+             refusal itself is the chooser's (AgentInstanceChooser), which is where it can be stated. -->
+        <Style Selector="TextBlock.agent-choice-label.unpickable">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="TextBlock.agent-choice-reason">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontXs}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="MaxWidth" Value="260" />
+        </Style>
+
         <!-- The strip's model field: its own size and face, and no box heavier than the text beside it. -->
         <Style Selector="AutoCompleteBox.setting">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
@@ -143,6 +157,29 @@
                     <TextBlock Classes="strip" Margin="0,0,10,0" Text="{Binding StatusText}" />
                     <TextBlock Classes="strip" Margin="0,0,10,0" Text="{Binding UsageText}"
                                IsVisible="{Binding UsageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
+                         a conversation with nothing in it is bound to nobody yet. An agent it cannot be moved
+                         to is drawn dimmed with the reason beneath it, never left out of the list and never
+                         disabled - a disabled item is out of the hit test, and the reason would go with it. -->
+                    <ComboBox Classes="strip-choice agent-choice" VerticalAlignment="Center"
+                              Margin="0,0,6,0"
+                              ItemsSource="{Binding Chooser.Options}"
+                              SelectedItem="{Binding Chooser.Selected}"
+                              IsVisible="{Binding Chooser.HasOptions}"
+                              ToolTip.Tip="The agent this conversation is held with">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="ac:AgentInstanceOption">
+                                <StackPanel ToolTip.Tip="{Binding Reason}">
+                                    <TextBlock Classes="agent-choice-label"
+                                               Classes.unpickable="{Binding !IsPickable}"
+                                               Text="{Binding Label}" />
+                                    <TextBlock Classes="agent-choice-reason"
+                                               Text="{Binding Reason}"
+                                               IsVisible="{Binding Reason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     <AutoCompleteBox x:Name="ModelBox"
                                      Classes="setting"
                                      Width="220"

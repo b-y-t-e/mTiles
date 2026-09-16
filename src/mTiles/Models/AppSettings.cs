@@ -223,6 +223,12 @@ public sealed class AppSettings
     public string GitPath { get; set; } = "";
 
     public string? LastWorkspaceId { get; set; }
+
+    /// <summary>The agent instance the last Agent tile was pointed at, and what a new one opens on.</summary>
+    /// <remarks>An Agent tile asks nothing before it opens — the agent is picked in the conversation itself —
+    /// so this is what "the one you were using" means for the next tile. An id that names nothing any more
+    /// falls through to the first available instance, which is also what a first run gets.</remarks>
+    public string? LastAgentInstanceId { get; set; }
     public double WorkspacesPanelWidth { get; set; } = 240;
 
     public double WindowX { get; set; } = double.NaN;

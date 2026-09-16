@@ -474,3 +474,73 @@ newest K before-restore refs per repository.
 `AgentCommand` as JSON, `ConversationReducer`, the store, and `AgentConversationHost.ExecuteAsync` as the
 one entry point. **To settle it:** a server that streams a conversation's events over a WebSocket and
 accepts commands, and a page drawing the same state.
+
+### 6. Carrying the work across a change of agent
+
+**Now:** the agent is picked in the conversation and settles the moment something is said in it
+(*Which agent holds the conversation* in [`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md)). Moving from
+Claude Code to codex halfway through a piece of work therefore means a new conversation and typing the
+state of it again. Nothing carries: the resume token is the issuing CLI's, and the transcript in the store
+is that agent's.
+
+**What is wanted:** switching agent mid-task leaves the new one able to carry on — knowing what is being
+built, what has been decided, which files have moved and what is left — without pretending it is the same
+session. This will never be lossless, and saying where it loses is part of the design rather than an
+apology: the outgoing agent's own reasoning, its cached reads of the tree and its pending approvals do not
+exist outside it.
+
+**What travels, and why.** Everything below is already in `ConversationState` or in git, so a handover is a
+fold over what this application already owns rather than anything asked of a CLI:
+
+| Carried | From | Why it survives the move |
+|---|---|---|
+| What was asked for | every `MessageEntry` of the user, verbatim | intent is the one thing no summary may paraphrase |
+| What was decided | answered `QuestionsAsked` rounds, approved plans | the answers are the user's, not the agent's |
+| The plan as it stands | `PlanUpdated` steps with their status | it is already the agent's own account of what is left |
+| What has changed on disk | `CheckpointCaptured` files, `+`/`−` per path, and `git diff` of the turn range | the tree is the shared state; the new agent can read it |
+| Where it stopped | the last assistant message, and any notice that ended the turn | says whether the work is mid-edit or between tasks |
+| Not carried | tool call transcripts, reasoning, the other CLI's context window | verbose, model-specific, and re-derivable by reading the tree |
+
+**The shape of it.**
+
+1. **`ConversationHandover` — pure, in `mTiles.AgentSessions`.** `ConversationState` → a Markdown brief
+   with those sections, newest first, fitted to a budget the way `AiProcessRunner.PromptBudget` fits a
+   prompt: the goal and the open plan are kept whole, older turns are dropped before newer ones, and what
+   was dropped is said in the brief rather than silently missing. Pure, so it is argued in a table test
+   against a recorded conversation instead of against a running CLI.
+2. **A summary written by the agent that is leaving, when it can be asked.** One turn on the outgoing
+   session — "say what another assistant would need to carry this on" — is better than any fold we can
+   write, because it knows what it was in the middle of. It is an *addition* to the brief, never a
+   replacement: a refusal, a dead process or a switch made because the agent is stuck must still hand over
+   something. Asked with the user's consent, since it costs a turn and money.
+3. **Delivered as the new session's first message, and as a file.** The brief goes into
+   `.mtiles/handovers/<conversation>-<n>.md` (ignored through `GitIgnoreFile`'s marked block, like every
+   other file of ours in somebody's repository) and the first message names the file and carries the brief
+   inline while it is small. A file is what lets an agent re-read the handover later in the turn, which is
+   the point at which a long inline message has already scrolled out of its attention; agy is the one that
+   works in its own scratch directory without `--add-dir`, so it gets the inline copy and says so.
+4. **The seam is recorded, not hidden.** `HandoverRecorded(fromAgentId, toAgentId, brief)` in the event
+   contract, drawn in the timeline as a row saying the work moved and what was handed over, foldable to
+   read the brief. A conversation that lies about being continuous is worse than one that says where it
+   was cut.
+5. **One conversation, several segments.** Today `ConversationRecord.AgentId` binds the whole conversation
+   to one agent. It becomes the *current* segment's agent, with each segment carrying its own agent and
+   resume token, and the reducer folding every segment into one timeline: the transcript stays on screen
+   across the move, only the active segment's token is ever handed back to a CLI, and the checkpoints —
+   which are ours, not the agent's — carry on unbroken. This is the one change to the store's shape, and
+   it is what makes "switch and keep reading what happened" true rather than a second tile beside the
+   first.
+6. **What the chooser then says.** Another agent stops being refused and becomes *Switch agent and hand
+   over* — a confirmation naming what travels and what does not, with the summary turn offered in it. The
+   refusal stays for the case it was written for: a tile whose stored conversation belongs to an agent that
+   is not running here at all.
+
+**How good it can be, measured rather than hoped.** A live test that starts a task on one agent (edit a
+file, leave it half done), switches, and asks the second agent what it is working on — it passes when the
+answer names the file and the remaining step without being told again. Each agent is measured separately,
+because the failure is model-shaped: a brief that carries Claude Code across the seam may leave agy, whose
+input is text only and whose scratch directory is its own, with nothing it can read.
+
+**What this is not.** It is not a transfer of the other CLI's session, and no flag of theirs is guessed for
+one. Nothing here reaches into `~/.claude` or a rollout file to replay somebody else's transcript into
+another vendor's model: what is handed over is what this application recorded and what is on disk.

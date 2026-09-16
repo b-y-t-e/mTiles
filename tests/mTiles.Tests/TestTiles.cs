@@ -21,8 +21,11 @@ internal static class TestTiles
     public static TileCatalog Catalog(mTiles.Services.SettingsService settings) =>
         mTiles.App.BuildTileCatalog(new DatabaseServiceManager(settings),
             new mTiles.Services.AiUsageService(settings, sources: _ => []),
-            new mTiles.AgentSessions.Storage.SqliteConversationStore(
-                Path.Combine(Path.GetTempPath(), $"mtiles-test-conversations-{Guid.NewGuid():N}.db")));
+            ConversationStore());
+
+    /// <summary>A conversation store of its own, in a file no other test shares.</summary>
+    public static mTiles.AgentSessions.Storage.SqliteConversationStore ConversationStore() =>
+        new(Path.Combine(Path.GetTempPath(), $"mtiles-test-conversations-{Guid.NewGuid():N}.db"));
 
     /// <summary>The window's catalog, holding the list it is handed.</summary>
     public static TileCatalog WindowCatalog(mTiles.Services.SettingsService settings,

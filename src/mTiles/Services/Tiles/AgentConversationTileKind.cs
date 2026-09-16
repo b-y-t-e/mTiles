@@ -22,28 +22,22 @@ namespace mTiles.Services.Tiles;
 /// drops a conversation whose agent does not match rather than handing its token to a CLI that has never
 /// seen it (see <see cref="AgentSubstitution"/>).</para>
 /// </remarks>
-public sealed class AgentConversationTileKind(IConversationStore store) : TileKind<AgentConversationTileViewModel>
+public sealed class AgentConversationTileKind(IConversationStore store, IAgentSessionStarter? sessionStarter = null) : TileKind<AgentConversationTileViewModel>
 {
     public override string Id => TileKindIds.AgentConversation;
     public override string DisplayName => "Agent";
     public override string IconId => "agent-chat";
     public override string AccentKey => "TileAccentAgent";
 
-    public override IReadOnlyList<TileSetupOption> SetupOptions(TileContext context)
-    {
-        var available = Available(context).ToList();
-        if (available.Count <= 1) return [];
-
-        return
-        [
-            .. available.Select(instance => new TileSetupOption(instance.Name, IconId, AccentKey,
-                new JsonObject
-                {
-                    [AgentStateKeys.InstanceIdKey] = instance.Id,
-                    [AgentStateKeys.AgentIdKey] = instance.AgentId,
-                })),
-        ];
-    }
+    /// <summary>
+    /// Nothing: an Agent tile opens straight into its conversation, where the agent is picked.
+    /// </summary>
+    /// <remarks>It asked first, the way a terminal tile asks for a shell, and that is the wrong question for a
+    /// conversation: a shell has to be decided before anything can run, while a conversation with nothing in it
+    /// is bound to nobody yet. The chooser is in the strip beside the model, and it is locked once the
+    /// conversation has something in it — the rule t3code keeps, and ours for the same reason: a conversation
+    /// belongs to the agent that holds it, and its resume token is not another CLI's to take.</remarks>
+    public override IReadOnlyList<TileSetupOption> SetupOptions(TileContext context) => [];
 
     protected override AgentConversationTileViewModel Create(TileContext context, JsonObject? state)
     {
@@ -51,8 +45,11 @@ public sealed class AgentConversationTileKind(IConversationStore store) : TileKi
         var requestedInstance = state.String(AgentStateKeys.InstanceIdKey) ?? "";
         var requestedAgent = state.String(AgentStateKeys.AgentIdKey) ?? "";
 
+        // What the layout asked for, then the agent it was running, then the one the last Agent tile was
+        // pointed at — a new tile has no state at all, and "the one you were using" is what it opens on.
         var instance = settings.AiAgentInstances.FirstOrDefault(i => i.Id == requestedInstance && IsConversational(i))
                        ?? settings.AiAgentInstances.FirstOrDefault(i => i.AgentId == requestedAgent && IsConversational(i))
+                       ?? Available(context).FirstOrDefault(i => i.Id == settings.LastAgentInstanceId)
                        ?? Available(context).FirstOrDefault()
                        ?? settings.AiAgentInstances.FirstOrDefault(IsConversational)
                        ?? AiAgentCatalog.SeedInstanceFor(AiAgentCatalog.All[0]);
@@ -60,7 +57,7 @@ public sealed class AgentConversationTileKind(IConversationStore store) : TileKi
 
         return new AgentConversationTileViewModel(context.WorkingDirectory, context.Settings, store, instance, agent,
             context.TileId, SubstitutionFor(requestedInstance, requestedAgent, instance, agent),
-            OverridesFrom(state), context.RequestSave);
+            OverridesFrom(state), context.RequestSave, sessionStarter: sessionStarter);
     }
 
     /// <summary>The model, mode and effort chosen in this tile over its instance's.</summary>
