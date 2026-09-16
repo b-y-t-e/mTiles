@@ -553,10 +553,10 @@ public sealed class TileLayoutMigrationTests : IDisposable
     }
 
     /// <summary>
-    /// An agent tile degrades to a terminal rather than to nothing.
+    /// A terminal agent tile degrades to a terminal rather than to nothing.
     /// </summary>
     /// <remarks>The one kind that answers with a legacy name that is not its own, and deliberately: an
-    /// agent tile <em>is</em> a terminal running an agent, so a build Velopack has rolled back opens it
+    /// terminal agent tile <em>is</em> a terminal running an agent, so a build Velopack has rolled back opens it
     /// as a plain shell — on the shell it was running, which is the other half and the reason the state
     /// carries a <c>shellName</c> this build never reads. Read as an empty tile it would be the tile
     /// itself gone from the layout; degraded, what is lost is a conversation.</remarks>
@@ -565,7 +565,7 @@ public sealed class TileLayoutMigrationTests : IDisposable
     {
         var older = AsOlderBuildReadsIt(new TileNode
         {
-            IsLeaf = true, Kind = TileKindIds.Agent, TileId = "a", TileName = "Agent#1",
+            IsLeaf = true, Kind = TileKindIds.TerminalAgent, TileId = "a", TileName = "Agent#1",
             Settings = new JsonObject
             {
                 ["agentInstanceId"] = "an-instance",

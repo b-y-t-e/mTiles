@@ -158,7 +158,7 @@ public interface IDescribedTile : ITile
 **Beside the name, never instead of it.** The name is the user's — typed, or generated as `Agent#1` —
 and it is what they navigate by. This answers a different question the header could not answer at all:
 two tiles both called `Agent#N` may be Claude Code on a subscription and Codex on OpenRouter, and
-nothing on screen told them apart. `AgentTileViewModel` answers with its instance and the model the
+nothing on screen told them apart. `TerminalAgentTileViewModel` answers with its instance and the model the
 launch settled on (`Claude Code · glm-5.3-flash`); no other kind implements it yet, and a kind with
 nothing to add simply does not.
 
@@ -192,7 +192,7 @@ Who implements what:
 
 | Kind | `IBusyTile` | `IFileContent` | `ITileActions` | `ITextInputTile` | `ICustomBackgroundTile` | `IProcessTile` | `IDescribedTile` | `IMaximizableTile` |
 |---|---|---|---|---|---|---|---|---|
-| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ | ✔ Agent tiles only | ✔ |
+| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ | ✔ Terminal agent tiles only | ✔ |
 | Note | | ✔ | | | | | | ✔ |
 | Todo | | ✔ | | | | | | ✔ |
 | Git | | | ✔ Refresh, Commit, Push | | | | | |
@@ -207,7 +207,7 @@ need from it is the working light: a refresh reaches three services over the net
 seconds, and a dashboard that looks identical while it is asking is a dashboard nobody trusts. Its
 `Save` answers `null` for the same reason — there is nothing per tile worth writing down, and
 `TileKindIds.ToLegacy` finds no name for it, so a build Velopack has rolled back opens the leaf as an
-empty tile. That costs a click; degrading it to a terminal, the way an agent tile is degraded, would open
+empty tile. That costs a click; degrading it to a terminal, the way a terminal agent tile is degraded, would open
 a shell nobody asked for.
 
 `IProcessTile` is the root of a tree and not a process: a terminal knows the shell it spawned and nothing

@@ -137,9 +137,9 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
             _names.RememberSaved(state.RootTile);
 
             // Before the tree is built, because it rewrites what a leaf *is*: an AI CLI that was a
-            // shell profile becomes an agent tile. Without it this stage takes the profiles away and
+            // shell profile becomes a terminal agent tile. Without it this stage takes the profiles away and
             // every AI tile anybody has comes back as a bare shell.
-            var becameAgents = AgentTileMigration.Apply(state.RootTile, settingsService.Settings);
+            var becameAgents = TerminalAgentTileMigration.Apply(state.RootTile, settingsService.Settings);
 
             var load = _serializer.Deserialize(state.RootTile, OnLayoutChanged);
             RootTile = load.Root;
@@ -186,7 +186,7 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Asks the coordinator whether this workspace's CLAUDE.md/AGENTS.md sync needs a decision
-    /// right now — opening the workspace, and again on every layout change (a new agent tile can be the
+    /// right now — opening the workspace, and again on every layout change (a new terminal agent tile can be the
     /// first thing that needs the file the other one doesn't have).</summary>
     /// <remarks>Fire-and-forget: the coordinator does its own error handling, and a wizard is a dialog
     /// the caller here has no business awaiting — nothing downstream of construction depends on its

@@ -56,7 +56,7 @@ time" short of "New session" per tile. Herdr has `[session] resume_agents_on_res
 this.
 
 **What would settle it.** A Settings → AI toggle, **Resume agent sessions on startup**, default on; off
-sends every agent tile through a non-resuming launch for that run.
+sends every terminal agent tile through a non-resuming launch for that run.
 
 **Three of the five agents can do that for free, and two cannot.** `CapturedAfterStart` (codex, agy)
 already treats an empty session id as "start a plain session", and opencode's non-resuming command is a
@@ -76,7 +76,7 @@ claude/pi needs a throwaway session id — and then the conversation it starts i
 launch unless the id is stored, which is what "New session" already does by replacing the leaf's
 `TileId`.
 
-> **What was wrong here.** The first draft promised "off sends every agent tile through its non-resuming
+> **What was wrong here.** The first draft promised "off sends every terminal agent tile through its non-resuming
 > launch path for that run only (not a change to any tile's stored session id)". For claude and pi there
 > is no such path: not changing the stored id is exactly what makes the fresh session impossible or
 > unreachable.
@@ -84,7 +84,7 @@ launch unless the id is stored, which is what "New session" already does by repl
 ### 3. Two tiles restored holding the same captured session id
 
 **Where it hurts.** A copied or hand-edited layout file can carry the same codex session id on two leaves.
-`AgentTileViewModel`'s constructor claims a stored id (`AgentTileViewModel.cs:107`) with
+`TerminalAgentTileViewModel`'s constructor claims a stored id (`TerminalAgentTileViewModel.cs:107`) with
 `CapturedSessions.Claim`, which is `Held[sessionId] = holder` — last writer wins. Both tiles then resume
 the same conversation, both write it back on the next save, and nothing anywhere says so.
 
@@ -107,7 +107,7 @@ conversation than its layout asked for is the worse of the two.
 
 ### 4. Opt-in scrollback capture for plain terminal tiles
 
-**Where it hurts.** `SessionStrategy` covers agent tiles. A plain terminal tile has no equivalent at all:
+**Where it hurts.** `SessionStrategy` covers agent tiles of both kinds. A plain terminal tile has no equivalent at all:
 after a restart it is an empty shell in the saved cwd, with no trace of what was on screen — unlike
 Herdr's opt-in `pane_history`, which replays the ANSI scrollback into the new shell (presentation only,
 not a live process).

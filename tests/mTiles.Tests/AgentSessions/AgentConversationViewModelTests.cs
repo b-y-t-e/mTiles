@@ -66,7 +66,7 @@ public class AgentConversationViewModelTests
     {
         Assert.True(typeof(IAgentTile).IsAssignableFrom(typeof(AgentConversationTileViewModel)));
         Assert.True(typeof(IProcessTile).IsAssignableFrom(typeof(AgentConversationTileViewModel)));
-        Assert.True(typeof(IAgentTile).IsAssignableFrom(typeof(AgentTileViewModel)));
+        Assert.True(typeof(IAgentTile).IsAssignableFrom(typeof(TerminalAgentTileViewModel)));
     }
 
     [Fact]

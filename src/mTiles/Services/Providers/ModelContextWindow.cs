@@ -91,7 +91,7 @@ public static class ModelContextWindow
     /// The windows for the model this launch runs on, or null when there is nothing to ask.
     /// </summary>
     /// <remarks>
-    /// <para>Asked by both places that resolve a model — the agent tile and the Goal tile's run — so
+    /// <para>Asked by every place that resolves a model — both agent tiles and the Goal tile's run — so
     /// one launch cannot end up with the env vars and the other without them. Gates on the agent's own
     /// answer to <c>IAiAgent.UsesModelContextWindow</c>, so no provider is fetched for an agent that
     /// reads none of this.</para>

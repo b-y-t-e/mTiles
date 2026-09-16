@@ -17,7 +17,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
 {
     /// <inheritdoc />
     /// <remarks>Virtual for the one kind that is this tile with a different source of scripts — see
-    /// <see cref="AgentTileViewModel"/>. Everything a shell tile does, an agent tile does identically;
+    /// <see cref="TerminalAgentTileViewModel"/>. Everything a shell tile does, a terminal agent tile does identically;
     /// what differs is where its commands come from and what it calls itself in the layout.</remarks>
     public virtual string KindId => TileKindIds.Terminal;
 
@@ -47,7 +47,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
 
     /// <summary>What this tile was created to run.</summary>
     /// <remarks>Nothing but a bare interactive shell for a shell tile — the scripts that used to come
-    /// from a profile are an agent's own commands now, and an agent tile answers with them by overriding
+    /// from a profile are an agent's own commands now, and a terminal agent tile answers with them by overriding
     /// <see cref="ResolveCurrentScripts"/>. Kept as a constructor argument because a test drives the
     /// launch chain through it.</remarks>
     private readonly LaunchScripts _ownScripts;
@@ -95,7 +95,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// <remarks><b>Not a <see cref="LaunchProblem"/>: this one launches.</b> The difference is whether
     /// there is a way to carry on that is faithful to what the user asked for — a model that cannot be
     /// resolved has none, while an agent instance that has been deleted leaves a tile that can still run
-    /// its agent. Set once, when the tile is built (<c>AgentTileKind</c>), rather than at every launch:
+    /// its agent. Set once, when the tile is built (<c>TerminalAgentTileKind</c>), rather than at every launch:
     /// it is an answer about the layout, not about the session, and a line that came back on every
     /// restart would be a warning nobody could put down. Dismissible for the same reason — the tile
     /// underneath is running.</remarks>
@@ -119,7 +119,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// <summary>Whether the sources have been added yet. Done once, at the first
     /// <see cref="AttachControl"/> rather than in the constructor: <see cref="ConfigureActivity"/> is
     /// virtual, and a virtual call from a base constructor reaches an override whose own fields have
-    /// not been assigned — an agent tile would hand the title source a null agent.</summary>
+    /// not been assigned — a terminal agent tile would hand the title source a null agent.</summary>
     private bool _activityConfigured;
 
     /// <summary>What this tile is doing — what the workspace list draws its row from.</summary>
@@ -133,9 +133,9 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// </summary>
     /// <remarks>
     /// <para>The two that need to know nothing about what is running, which is exactly the case a shell
-    /// tile is: raw output, and the progress a child reports of its own accord. An agent tile adds the
-    /// ones that can read its CLI — see <c>AgentTileViewModel.ConfigureActivity</c>.</para>
-    /// <para><b>The progress source is here rather than on the agent tile</b>, and that is the point of
+    /// tile is: raw output, and the progress a child reports of its own accord. A terminal agent tile adds the
+    /// ones that can read its CLI — see <c>TerminalAgentTileViewModel.ConfigureActivity</c>.</para>
+    /// <para><b>The progress source is here rather than on the terminal agent tile</b>, and that is the point of
     /// it: <c>npm</c>, <c>cargo</c> and <c>winget</c> all report progress, so a plain shell tile gets a
     /// real answer about the build running in it — one that no amount of reading somebody's status bar
     /// could have given it.</para>
@@ -389,7 +389,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// The variables this tile's commands run with, where a <c>null</c> value <b>unsets</b> one.
     /// </summary>
     /// <remarks>Nothing for a shell — a tile the user opened runs in the environment they have — and
-    /// what an agent tile puts here is a provider's address and key. That route rather than the startup
+    /// what a terminal agent tile puts here is a provider's address and key. That route rather than the startup
     /// script, because a script is typed into a live prompt and lands in the scrollback and in the
     /// shell's history file.</remarks>
     public virtual IReadOnlyDictionary<string, string?>? LaunchEnvironment => null;

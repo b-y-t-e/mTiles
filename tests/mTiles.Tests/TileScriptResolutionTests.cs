@@ -24,7 +24,7 @@ public sealed class TileScriptResolutionTests : IDisposable
     /// <summary>A shell tile answers with what it was built with, and nothing looks anything up.
     /// </summary>
     /// <remarks>The profile lookup that used to be here went with the profiles: an AI CLI in a shell is
-    /// an agent tile now, and it is <c>AgentTileViewModel</c> that overrides this to ask its instance.
+    /// a terminal agent tile now, and it is <c>TerminalAgentTileViewModel</c> that overrides this to ask its instance.
     /// </remarks>
     [Fact]
     public void A_shell_tile_runs_the_scripts_it_was_made_with()

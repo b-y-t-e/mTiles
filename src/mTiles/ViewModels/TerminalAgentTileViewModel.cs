@@ -15,14 +15,14 @@ namespace mTiles.ViewModels;
 /// <remarks>
 /// <para>Derived rather than parallel, and that is the whole point of the split: everything a shell
 /// tile does — the theme, the activity light, the clipboard registration, the launch chain, the
-/// header's actions — an agent tile does identically. What differs is two answers, so two members are
+/// header's actions — a terminal agent tile does identically. What differs is two answers, so two members are
 /// overridden: where the commands come from, and what the layout calls this kind.</para>
 /// <para><b>The instance is read at every launch, not captured at construction.</b> An instance whose
 /// model or provider is changed in Settings takes effect on the next restart of the tile, which is the
 /// same rule a shell profile already follows — and the reason a tile stores an id rather than a copy.
 /// </para>
 /// </remarks>
-public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile, IAgentTile
+public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescribedTile, IAgentTile
 {
     private readonly IAiAgent _agent;
     private readonly SettingsService _settings;
@@ -42,7 +42,7 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile, 
     private CancellationTokenSource? _capturing;
 
     /// <inheritdoc />
-    public override string KindId => TileKindIds.Agent;
+    public override string KindId => TileKindIds.TerminalAgent;
 
     /// <summary>Which configured way of running an agent this tile is. Stored in the layout, looked up
     /// in settings at every launch.</summary>
@@ -61,7 +61,7 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile, 
 
     /// <summary>What the layout asked for, when this tile could not be built as it — otherwise null.
     /// </summary>
-    /// <remarks>Read by <c>AgentTileKind.Save</c>, which writes the requested ids rather than these
+    /// <remarks>Read by <c>TerminalAgentTileKind.Save</c>, which writes the requested ids rather than these
     /// ones: see <see cref="AgentSubstitution"/>. Cleared by <see cref="SwitchTo"/>, and only there: a
     /// user who points the tile at another instance has answered the question the notice was asking, and
     /// a substitution left standing would have <c>Save</c> write the old requested id over their
@@ -87,7 +87,7 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile, 
     /// and, handed to a different agent, would be an id it has never seen.</remarks>
     public bool NamesItsOwnSession => _agent.SessionStrategy == SessionStrategy.CapturedAfterStart;
 
-    public AgentTileViewModel(string workingDirectory, ShellInstallation? shell,
+    public TerminalAgentTileViewModel(string workingDirectory, ShellInstallation? shell,
         SettingsService settingsService, IAiAgent agent, string instanceId,
         string? sessionId = null, Func<string>? tileId = null, Action? requestSave = null,
         AgentSubstitution? substitution = null)
@@ -166,7 +166,7 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile, 
     /// writes down is one the next start of mTiles does not honour.</para>
     /// <para><b>Nothing else can be reached from here.</b> An id that is not an available instance of
     /// this agent is refused rather than resolved onto something near it, which is the difference
-    /// between this and the fallback chain in <c>AgentTileKind.Resolve</c>: that one is rescuing a tile
+    /// between this and the fallback chain in <c>TerminalAgentTileKind.Resolve</c>: that one is rescuing a tile
     /// nobody is choosing for, and this one is the user choosing.</para>
     /// </remarks>
     public void SwitchTo(string instanceId)
@@ -261,7 +261,7 @@ public sealed class AgentTileViewModel : TerminalTileViewModel, IDescribedTile, 
     /// the user configured and named, and its name is what the Settings row and the chooser both show;
     /// falling straight through to the CLI would name the program rather than the configuration, which
     /// is the distinction the whole instance model exists to make. Two tiles both called
-    /// <c>Agent#N</c> may be a subscription and an API key on the same binary.</para>
+    /// <c>Terminal agent#N</c> may be a subscription and an API key on the same binary.</para>
     /// <para><b>The model is shortened, and only for display.</b> Provider ids are namespaced
     /// (<c>z-ai/glm-5.3-flash</c>) and the header is the narrowest place in the application, so the
     /// vendor is dropped from a line that is already the second thing to give way — the full name is a

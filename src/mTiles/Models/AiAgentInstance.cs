@@ -12,7 +12,7 @@ namespace mTiles.Models;
 /// one instance, seeded on first run; further instances are how "Claude Code on GLM 5.3 via OpenRouter"
 /// exists at all, and the reason the two could never be one type.</para>
 /// <para><see cref="DefaultEffort"/> and <see cref="DefaultBehaviour"/> apply <b>wherever the instance
-/// is used</b> — the agent tile included, not only the Goal tile. Which is why the two "defaults" have
+/// is used</b> — the agent tiles included, not only the Goal tile. Which is why the two "defaults" have
 /// to be named apart on screen or they become a trap: a Goal tile's combo offers <em>from the
 /// agent</em>, meaning take the instance's setting, while the instance editor offers <em>tool
 /// default</em>, meaning pass no flag at all.</para>

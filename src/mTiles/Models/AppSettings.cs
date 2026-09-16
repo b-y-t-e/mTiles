@@ -69,8 +69,8 @@ public sealed class AppSettings
     /// The shell profiles this application used to have.
     /// </summary>
     /// <remarks><b>Read, never written to and never seeded.</b> Profiles are gone — an AI CLI in a shell
-    /// is an agent tile now — but the list is still what says which of somebody's existing terminal
-    /// tiles were one, so <c>AgentTileMigration</c> reads it once per workspace and the key stays in the
+    /// is a terminal agent tile now — but the list is still what says which of somebody's existing terminal
+    /// tiles were one, so <c>TerminalAgentTileMigration</c> reads it once per workspace and the key stays in the
     /// file until that migration is deleted a release from now. Removing it sooner would turn every AI
     /// tile anybody has into a bare shell.</remarks>
     public List<UserShellProfile> ShellProfiles

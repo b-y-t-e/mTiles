@@ -38,21 +38,24 @@ public static class TileKindIds
     /// <remarks>The same as <see cref="Workspaces"/>: window layout only, no legacy answer.</remarks>
     public const string WorkspaceHost = "workspace-host";
 
-    /// <summary>An AI agent in a tile, run from an <c>AiAgentInstance</c> rather than from a shell
-    /// profile the user has to write.</summary>
+    /// <summary>The <b>Terminal agent</b> tile: an AI agent's own TUI in a terminal, run from an
+    /// <c>AiAgentInstance</c> rather than from a shell profile the user has to write.</summary>
     /// <remarks>Nothing is added to <see cref="TileContentType"/> for it — that enum is closed and is
     /// the record of what is already on people's disks. What <see cref="ToLegacy"/> answers instead is
     /// <c>terminal</c>, so a build Velopack has rolled back opens the leaf as a plain shell rather than
-    /// as an empty tile: an agent tile <em>is</em> a terminal, and degrading it is a conversation lost
+    /// as an empty tile: a terminal agent tile <em>is</em> a terminal, and degrading it is a conversation lost
     /// where reading it as empty is the tile itself lost.</remarks>
-    public const string Agent = "agent";
+    public const string TerminalAgent = "agent";
 
-    /// <summary>An AI agent held as a conversation — messages, tool calls, approvals and checkpoints drawn
-    /// by this application — rather than as its TUI in a terminal.</summary>
-    /// <remarks>A kind of its own rather than a mode of <see cref="Agent"/>, whose id is on people's
+    /// <summary>The <b>Agent</b> tile: an AI agent held as a conversation — messages, tool calls,
+    /// approvals and checkpoints drawn by this application — rather than as its TUI in a terminal.</summary>
+    /// <remarks>The id reads <c>agent-conversation</c> while the tile is called Agent: the shorter id was
+    /// taken by the terminal one before this existed, and it is on people's disks — which is why the classes
+    /// carry the distinction instead (<c>AgentConversation*</c> against <c>TerminalAgent*</c>).
+    /// <para>A kind of its own rather than a mode of <see cref="TerminalAgent"/>, whose id is on people's
     /// disks meaning "a terminal": the same leaf read as a conversation by one build and as a terminal by
     /// another would be two different programs in one tile. No legacy name — a build that predates it
-    /// reads it as an empty tile, and the conversation itself is in the store, untouched.</remarks>
+    /// reads it as an empty tile, and the conversation itself is in the store, untouched.</para></remarks>
     public const string AgentConversation = "agent-conversation";
 
     /// <summary>A tile that has not been given content yet.</summary>
@@ -91,11 +94,11 @@ public static class TileKindIds
     /// have.</para>
     /// </remarks>
     public static TileContentType? ToLegacy(string? kind) =>
-        // The one kind that answers with a name that is not its own, and deliberately: an agent tile is
+        // The one kind that answers with a name that is not its own, and deliberately: a terminal agent tile is
         // a terminal running an agent, so a rolled-back build that reads it as a plain terminal on the
         // same shell degrades it rather than losing it. The alternative — no legacy name — is the leaf
         // read as empty, which is a conversation and a tile gone from the layout.
-        kind == Agent
+        kind == TerminalAgent
             ? TileContentType.Terminal
             : Enum.GetValues<TileContentType>()
                 .Where(type => type != TileContentType.Empty)

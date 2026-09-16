@@ -61,7 +61,7 @@ public sealed class OpenCodeAgent : AiAgent, Sessions.IConversationalAgent
     /// into <c>PtyOptions.Environment</c>, so every program the user then runs in that tile inherits
     /// them, and on Unix these two are where <em>any</em> XDG-aware tool keeps its configuration and
     /// data. It is not fixable from here — the agent is started by that shell — and it is bounded: the
-    /// tile is an agent tile the user opened for this instance, and the redirection is to a directory
+    /// tile is a terminal agent tile the user opened for this instance, and the redirection is to a directory
     /// this application made. Anything narrower would mean not launching the agent through a shell at
     /// all.</para>
     /// </remarks>

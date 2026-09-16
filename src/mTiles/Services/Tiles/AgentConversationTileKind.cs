@@ -39,8 +39,8 @@ public sealed class AgentConversationTileKind(IConversationStore store) : TileKi
             .. available.Select(instance => new TileSetupOption(instance.Name, IconId, AccentKey,
                 new JsonObject
                 {
-                    [AgentTileKind.InstanceIdKey] = instance.Id,
-                    [AgentTileKind.AgentIdKey] = instance.AgentId,
+                    [AgentStateKeys.InstanceIdKey] = instance.Id,
+                    [AgentStateKeys.AgentIdKey] = instance.AgentId,
                 })),
         ];
     }
@@ -48,8 +48,8 @@ public sealed class AgentConversationTileKind(IConversationStore store) : TileKi
     protected override AgentConversationTileViewModel Create(TileContext context, JsonObject? state)
     {
         var settings = context.Settings.Settings;
-        var requestedInstance = state.String(AgentTileKind.InstanceIdKey) ?? "";
-        var requestedAgent = state.String(AgentTileKind.AgentIdKey) ?? "";
+        var requestedInstance = state.String(AgentStateKeys.InstanceIdKey) ?? "";
+        var requestedAgent = state.String(AgentStateKeys.AgentIdKey) ?? "";
 
         var instance = settings.AiAgentInstances.FirstOrDefault(i => i.Id == requestedInstance && IsConversational(i))
                        ?? settings.AiAgentInstances.FirstOrDefault(i => i.AgentId == requestedAgent && IsConversational(i))
@@ -84,7 +84,7 @@ public sealed class AgentConversationTileKind(IConversationStore store) : TileKi
     /// A tile resolved onto a different instance than the one it was created with, or null.
     /// </summary>
     /// <remarks>
-    /// <para>Any other instance is a substitution, the rule <see cref="AgentTileKind"/> keeps: another instance
+    /// <para>Any other instance is a substitution, the rule <see cref="TerminalAgentTileKind"/> keeps: another instance
     /// of the same agent is another account or model, and <see cref="Save"/> writing its id would make that
     /// permanent at the next splitter drag, so restoring the instance in Settings would no longer bring it
     /// back. Such a tile still starts — the conversation is the same agent's.</para>
@@ -113,8 +113,8 @@ public sealed class AgentConversationTileKind(IConversationStore store) : TileKi
     {
         var state = new JsonObject
         {
-            [AgentTileKind.InstanceIdKey] = tile.Substitution?.RequestedInstanceId ?? tile.Instance.Id,
-            [AgentTileKind.AgentIdKey] = tile.Substitution?.RequestedAgentId ?? tile.Agent.Id,
+            [AgentStateKeys.InstanceIdKey] = tile.Substitution?.RequestedInstanceId ?? tile.Instance.Id,
+            [AgentStateKeys.AgentIdKey] = tile.Substitution?.RequestedAgentId ?? tile.Agent.Id,
         };
         var overrides = tile.Overrides;
         if (overrides.Model is { } model) state[ModelKey] = model;

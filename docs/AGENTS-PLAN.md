@@ -1,5 +1,12 @@
 # Agents, providers and shells — the plan
 
+> **Names have moved since this was written.** What this document calls `TileKindIds.Agent`,
+> `AgentTileKind`, `AgentTileViewModel` and `AgentTileMigration` are `TileKindIds.TerminalAgent`,
+> `TerminalAgentTileKind`, `TerminalAgentTileViewModel` and `TerminalAgentTileMigration` — the tile is
+> called **Terminal agent** on screen, and the bare word Agent now means the conversation tile
+> ([`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md)). The stored kind id is still `agent`: it is on
+> people's disks. The record below is left as it was.
+
 **Status:** stages 1–8 done, less a first-run wizard of its own (see the stage 8 note). Stage 1: `IShellTerminal`,
 `ShellTerminalCatalog`, `cmd` removed. Stage 2: `Terminal.Avalonia` 0.3.0, a `null` in
 `PtyOptions.Environment` unsets, proved against a real child in `ShellEnvironmentTests`. Stage 3:

@@ -18,7 +18,7 @@ public sealed class TileConversionTests
 {
     [Theory]
     [InlineData(TileKindIds.Terminal, "The shell and everything running in it will be ended.")]
-    [InlineData(TileKindIds.Agent, "The conversation stays with the agent; the tile will stop opening it.")]
+    [InlineData(TileKindIds.TerminalAgent, "The conversation stays with the agent; the tile will stop opening it.")]
     [InlineData(TileKindIds.Note, "The file stays in .mtiles/notes/; the tile will stop pointing at it.")]
     [InlineData(TileKindIds.Todo, "The file stays in .mtiles/todos/; the tile will stop pointing at it.")]
     [InlineData(TileKindIds.Goal, "The run will be paused, and its record stays in .mtiles/goals/.")]
@@ -42,7 +42,7 @@ public sealed class TileConversionTests
     [Fact]
     public void An_agent_loses_its_shell_as_well_as_the_tile_it_was_reached_through()
     {
-        var warning = TileConversion.Warning(TileKindIds.Agent, "Note");
+        var warning = TileConversion.Warning(TileKindIds.TerminalAgent, "Note");
 
         Assert.Contains("The shell and everything running in it will be ended.", warning);
         Assert.Contains("The conversation stays with the agent", warning);
@@ -51,7 +51,7 @@ public sealed class TileConversionTests
     /// <summary>The two kinds that end something that cannot be started again where it left off.</summary>
     [Theory]
     [InlineData(TileKindIds.Terminal, true)]
-    [InlineData(TileKindIds.Agent, true)]
+    [InlineData(TileKindIds.TerminalAgent, true)]
     [InlineData(TileKindIds.AgentConversation, false)]
     [InlineData(TileKindIds.Note, false)]
     [InlineData(TileKindIds.Todo, false)]

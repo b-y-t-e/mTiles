@@ -19,36 +19,20 @@ namespace mTiles.Services.Tiles;
 /// the agent's own seeded configuration, rather than an empty tile where a conversation used to be.
 /// </para>
 /// </remarks>
-public sealed class AgentTileKind : TileKind<AgentTileViewModel>
+public sealed class TerminalAgentTileKind : TileKind<TerminalAgentTileViewModel>
 {
-    /// <summary>The configured way of running an agent this tile was created from.</summary>
-    public const string InstanceIdKey = "agentInstanceId";
-
-    /// <summary>And which agent that was, as a fallback for when the instance has been deleted.</summary>
-    public const string AgentIdKey = "agentId";
-
-    /// <summary>
-    /// The shell the agent's commands run in, written for the rollback and nothing else.
-    /// </summary>
-    /// <remarks>An older build reads this leaf as a terminal (<c>TileKindIds.ToLegacy</c>), and a
-    /// terminal without a shell name opens on whatever that machine's default is. This build never
-    /// reads it: the shell an agent tile uses is the default one, decided at every launch.</remarks>
-    public const string ShellNameKey = "shellName";
-
-    /// <summary>The conversation to resume, for an agent that names its own — see
-    /// <see cref="SessionStrategy.CapturedAfterStart"/>. Absent for the other two strategies, where the
-    /// tile's own id is the session id and writing it down twice would let the two disagree.</summary>
-    public const string SessionIdKey = "sessionId";
-
-    public override string Id => TileKindIds.Agent;
+    public override string Id => TileKindIds.TerminalAgent;
 
     /// <summary>"Terminal agent": the agent's own TUI in a terminal, beside the "Agent" tile that holds
     /// the same agent as a conversation (<see cref="AgentConversationTileKind"/>).</summary>
     public override string DisplayName => "Terminal agent";
 
-    /// <summary>"Agent", as tiles of this kind were always numbered — renaming the kind must not renumber
-    /// every tile already in a layout.</summary>
-    public override string NamePrefix => "Agent";
+    /// <summary>The display name, as every other kind uses: a new tile is <c>Terminal agent#N</c>, which is
+    /// what the chooser called it.</summary>
+    /// <remarks>Tiles already in a layout keep the names they were given — <c>Agent#3</c> among them — and
+    /// nothing renumbers them: <see cref="TileKind{T}.NameFor"/> reads the highest number in use whatever
+    /// prefix carries it, so the next tile beside an <c>Agent#3</c> is <c>Terminal agent#4</c> rather than a
+    /// second thing called three.</remarks>
     public override string IconId => "robot";
     public override string AccentKey => "TileAccentAgent";
 
@@ -69,16 +53,16 @@ public sealed class AgentTileKind : TileKind<AgentTileViewModel>
         [
             .. available.Select(instance => new TileSetupOption(
                 instance.Name, IconId, AccentKey,
-                new JsonObject { [InstanceIdKey] = instance.Id, [AgentIdKey] = instance.AgentId }))
+                new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id, [AgentStateKeys.AgentIdKey] = instance.AgentId }))
         ];
     }
 
-    protected override AgentTileViewModel Create(TileContext context, JsonObject? state)
+    protected override TerminalAgentTileViewModel Create(TileContext context, JsonObject? state)
     {
         var settings = context.Settings.Settings;
         var (instance, agent, substitution) = Resolve(context, state);
 
-        return new AgentTileViewModel(context.WorkingDirectory,
+        return new TerminalAgentTileViewModel(context.WorkingDirectory,
             ShellTerminalCatalog.ResolveDefault(settings), context.Settings, agent, instance.Id,
             SessionIdFor(agent, state), context.TileId, context.RequestSave, substitution);
     }
@@ -101,8 +85,8 @@ public sealed class AgentTileKind : TileKind<AgentTileViewModel>
         TileContext context, JsonObject? state)
     {
         var settings = context.Settings.Settings;
-        var requestedInstanceId = state.String(InstanceIdKey) ?? "";
-        var requestedAgentId = state.String(AgentIdKey) ?? "";
+        var requestedInstanceId = state.String(AgentStateKeys.InstanceIdKey) ?? "";
+        var requestedAgentId = state.String(AgentStateKeys.AgentIdKey) ?? "";
 
         if (settings.AiAgentInstances.FirstOrDefault(i => i.Id == requestedInstanceId) is { } configured)
             return WithAgent(configured, requestedInstanceId, requestedAgentId, false);
@@ -179,7 +163,7 @@ public sealed class AgentTileKind : TileKind<AgentTileViewModel>
         return running + $" instead of {requested} — a different agent." + restore;
     }
 
-    protected override JsonObject? Save(AgentTileViewModel tile)
+    protected override JsonObject? Save(TerminalAgentTileViewModel tile)
     {
         // The choice, not what it had to be resolved to: a layout is saved for any reason at all — a
         // splitter dragged — so writing the substitute's ids would make a fallback permanent within
@@ -187,16 +171,16 @@ public sealed class AgentTileKind : TileKind<AgentTileViewModel>
         // back. See AgentSubstitution.
         var state = new JsonObject
         {
-            [InstanceIdKey] = tile.Substitution?.RequestedInstanceId ?? tile.InstanceId,
-            [AgentIdKey] = tile.Substitution?.RequestedAgentId ?? tile.AgentId,
-            [ShellNameKey] = tile.Shell.DisplayName,
+            [AgentStateKeys.InstanceIdKey] = tile.Substitution?.RequestedInstanceId ?? tile.InstanceId,
+            [AgentStateKeys.AgentIdKey] = tile.Substitution?.RequestedAgentId ?? tile.AgentId,
+            [AgentStateKeys.ShellNameKey] = tile.Shell.DisplayName,
         };
         // And not the conversation either, while the tile is substituted: the id belongs to the agent
         // standing in, while the ids above name the one the layout still asks for — the disagreement
         // SessionIdFor drops on the next load, and handed on it would be an id an agent has never seen.
         if (tile.Substitution is null && tile.NamesItsOwnSession
             && tile.SessionId is { Length: > 0 } session)
-            state[SessionIdKey] = session;
+            state[AgentStateKeys.SessionIdKey] = session;
         return state;
     }
 
@@ -210,11 +194,11 @@ public sealed class AgentTileKind : TileKind<AgentTileViewModel>
     private static string? SessionIdFor(IAiAgent agent, JsonObject? state)
     {
         if (agent.SessionStrategy != SessionStrategy.CapturedAfterStart) return null;
-        var storedAgent = state.String(AgentIdKey);
+        var storedAgent = state.String(AgentStateKeys.AgentIdKey);
         // A layout this build wrote always names the agent beside the id; nothing else is evidence of a
         // disagreement, so an absent name is read as "the one being resolved" rather than as a mismatch.
         return string.IsNullOrEmpty(storedAgent) || storedAgent == agent.Id
-            ? state.String(SessionIdKey)
+            ? state.String(AgentStateKeys.SessionIdKey)
             : null;
     }
 

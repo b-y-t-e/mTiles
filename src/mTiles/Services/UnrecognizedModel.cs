@@ -17,7 +17,7 @@ namespace mTiles.Services;
 /// The tag is printed on stderr whatever the output format — the stream reader drops the sentence but
 /// keeps the tag, and <c>AiProcessRunner</c> appends the stderr dump to every non-zero exit — so the
 /// tag covers both shapes and nothing else spells this refusal.</para>
-/// <para>Only the failed-run path asks this. The interactive session — the agent tile — runs no such
+/// <para>Only the failed-run path asks this. An interactive session — either agent tile — runs no such
 /// check, which is why the same instance works there and fails here; that asymmetry is the advice.</para>
 /// </remarks>
 internal static class UnrecognizedModel
@@ -35,7 +35,7 @@ internal static class UnrecognizedModel
         "This looks like Claude Code refusing to start a headless run on this model: it verifies the " +
         "model id against the provider's own catalogue before every -p run. This tile already asks the " +
         "provider for that catalogue on the run (the gateway discovery switch), so a refusal getting " +
-        "past it means the provider does not serve a model list this CLI can read. The interactive " +
-        "agent tile on this instance runs the same model without the check; a goal run starts once the " +
+        "past it means the provider does not serve a model list this CLI can read. A Terminal agent " +
+        "tile on this instance runs the same model without the check; a goal run starts once the " +
         "provider serves a readable catalogue or the CLI relaxes the check.";
 }

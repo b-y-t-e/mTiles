@@ -36,7 +36,7 @@ public interface IConversationStore
 }
 
 /// <summary>What a stored conversation is.</summary>
-/// <param name="Id">The tile's own id — one conversation per agent tile.</param>
+/// <param name="Id">The tile's own id — one conversation per Agent tile.</param>
 /// <param name="AgentId">Which agent it was held with; a token is only ever handed back to that agent.</param>
 /// <param name="ResumeToken">The agent's handle on the conversation, as last reported.</param>
 public sealed record ConversationRecord(

@@ -22,7 +22,7 @@ public static class TileConversion
     /// <see cref="Warning"/> puts to the user rather than a second table beside it — stated twice, a
     /// kind added to one of them would be promised something the other never checked.</remarks>
     public static bool DestroysWork(string? kindId) =>
-        kindId is TileKindIds.Terminal or TileKindIds.Agent;
+        kindId is TileKindIds.Terminal or TileKindIds.TerminalAgent;
 
     /// <summary>The question to put before a tile of <paramref name="currentKindId"/> becomes a
     /// <paramref name="targetDisplayName"/>.</summary>
@@ -38,7 +38,7 @@ public static class TileConversion
     private static string? WhatSurvives(string? kindId) => kindId switch
     {
         TileKindIds.Terminal => null,
-        TileKindIds.Agent => "The conversation stays with the agent; the tile will stop opening it.",
+        TileKindIds.TerminalAgent => "The conversation stays with the agent; the tile will stop opening it.",
         // Not a destroyed shell: the process is only the agent answering, and every word of the
         // conversation is in the store under this tile's id. What is lost is a turn still in progress.
         TileKindIds.AgentConversation =>

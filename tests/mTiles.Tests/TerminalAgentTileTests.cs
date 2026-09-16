@@ -17,8 +17,21 @@ namespace mTiles.Tests;
 /// bookkeeping, which is the part that decides whether a conversation survives a restart of mTiles. The
 /// launch itself is the terminal tile's, tested where that is.
 /// </remarks>
-public class AgentTileTests
+public class TerminalAgentTileTests
 {
+    /// <summary>A new tile is named after the kind the chooser offered, and an older name is never renumbered.</summary>
+    /// <remarks>The prefix was "Agent" while that was the kind's name on screen; it is the display name now,
+    /// and the numbering reads whatever prefix a name in the layout carries, so the two never collide.</remarks>
+    [Fact]
+    public void A_new_tile_is_named_Terminal_agent_and_counts_past_the_names_already_there()
+    {
+        using var settings = new TempSettings();
+        var kind = TestTiles.Catalog(settings.Service).Entries.Single(e => e.Kind.Id == TileKindIds.TerminalAgent).Kind;
+
+        Assert.Equal("Terminal agent#1", kind.NameFor(new HashSet<string>()));
+        Assert.Equal("Terminal agent#4", kind.NameFor(new HashSet<string> { "Agent#3", "Terminal#1" }));
+    }
+
     /// <summary>
     /// Every agent gets one instance, and a second pass adds nothing.
     /// </summary>
@@ -57,15 +70,15 @@ public class AgentTileTests
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == claude.Id);
 
         var tileId = Guid.NewGuid().ToString();
-        var kind = new AgentTileKind();
-        var tile = (AgentTileViewModel)((ITileKind)kind).Create(
+        var kind = new TerminalAgentTileKind();
+        var tile = (TerminalAgentTileViewModel)((ITileKind)kind).Create(
             Context(directory.Path, settings, tileId),
-            new JsonObject { [AgentTileKind.InstanceIdKey] = instance.Id });
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
 
         try
         {
             Assert.Equal(tileId, tile.SessionId);
-            Assert.Null(((ITileKind)kind).Save(tile)?[AgentTileKind.SessionIdKey]);
+            Assert.Null(((ITileKind)kind).Save(tile)?[AgentStateKeys.SessionIdKey]);
         }
         finally { tile.Dispose(); }
     }
@@ -88,21 +101,21 @@ public class AgentTileTests
         var tileId = Guid.NewGuid().ToString();
         var state = new JsonObject
         {
-            [AgentTileKind.InstanceIdKey] = instance.Id,
-            [AgentTileKind.SessionIdKey] = "kept-conversation",
+            [AgentStateKeys.InstanceIdKey] = instance.Id,
+            [AgentStateKeys.SessionIdKey] = "kept-conversation",
         };
 
         // The identity the tile loads under is the one the stored id was captured under — a layout only
         // ever carries the two together. Read through a function, as the leaf supplies it.
         var identity = tileId;
-        var kind = (ITileKind)new AgentTileKind();
-        var tile = (AgentTileViewModel)kind.Create(
+        var kind = (ITileKind)new TerminalAgentTileKind();
+        var tile = (TerminalAgentTileViewModel)kind.Create(
             Context(directory.Path, settings, reads: () => identity), state);
         try
         {
             Assert.Equal("kept-conversation", tile.SessionId);
             Assert.Equal("kept-conversation",
-                kind.Save(tile)?[AgentTileKind.SessionIdKey]?.GetValue<string>());
+                kind.Save(tile)?[AgentStateKeys.SessionIdKey]?.GetValue<string>());
 
             // "New session" replaces the leaf's id under the running tile and restarts it. The captured
             // conversation belonged to the identity that is now gone, so the tile starts a fresh one
@@ -110,7 +123,7 @@ public class AgentTileTests
             identity = Guid.NewGuid().ToString();
 
             Assert.Equal("", tile.SessionId);
-            Assert.Null(kind.Save(tile)?[AgentTileKind.SessionIdKey]);
+            Assert.Null(kind.Save(tile)?[AgentStateKeys.SessionIdKey]);
         }
         finally { tile.Dispose(); }
     }
@@ -134,12 +147,12 @@ public class AgentTileTests
 
         var abandoned = "conversation-" + Guid.NewGuid();
         var identity = Guid.NewGuid().ToString();
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, reads: () => identity),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = instance.Id,
-                [AgentTileKind.SessionIdKey] = abandoned,
+                [AgentStateKeys.InstanceIdKey] = instance.Id,
+                [AgentStateKeys.SessionIdKey] = abandoned,
             });
 
         try
@@ -173,12 +186,12 @@ public class AgentTileTests
         using var directory = new TempDirectory();
         var agent = AiAgentCatalog.All[1];
 
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = "an instance that is gone",
-                [AgentTileKind.AgentIdKey] = agent.Id,
+                [AgentStateKeys.InstanceIdKey] = "an instance that is gone",
+                [AgentStateKeys.AgentIdKey] = agent.Id,
             });
 
         try { Assert.Equal(agent.Id, tile.AgentId); }
@@ -201,9 +214,9 @@ public class AgentTileTests
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == opencode.Id);
 
         var tileId = Guid.NewGuid().ToString();
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, tileId),
-            new JsonObject { [AgentTileKind.InstanceIdKey] = instance.Id });
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
 
         try
         {
@@ -240,9 +253,9 @@ public class AgentTileTests
         instance.Model = AiModelChoice.FirstLoaded;
         instance.ApiAccountId = "";
 
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
-            new JsonObject { [AgentTileKind.InstanceIdKey] = instance.Id });
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
 
         try
         {
@@ -265,7 +278,7 @@ public class AgentTileTests
         var instance = new AiAgentInstance { AgentId = agent.Id, Model = "some/model" };
         settings.Service.Settings.AiAgentInstances.Add(instance);
 
-        var tile = new AgentTileViewModel(directory.Path, null, settings.Service, agent, instance.Id,
+        var tile = new TerminalAgentTileViewModel(directory.Path, null, settings.Service, agent, instance.Id,
             tileId: () => Guid.NewGuid().ToString());
 
         try
@@ -289,9 +302,9 @@ public class AgentTileTests
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == opencode.Id);
         instance.Model = "some/model";
 
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
-            new JsonObject { [AgentTileKind.InstanceIdKey] = instance.Id });
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
 
         try
         {
@@ -322,33 +335,33 @@ public class AgentTileTests
         var captured = AiAgentCatalog.All
             .First(a => a.SessionStrategy == SessionStrategy.CapturedAfterStart);
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == opencode.Id);
-        var kind = (ITileKind)new AgentTileKind();
+        var kind = (ITileKind)new TerminalAgentTileKind();
 
         // An id this tile derives from its own identity is not stored: it is recomputed at every launch,
         // and a copy could only ever disagree with it.
-        var self = (AgentTileViewModel)kind.Create(
+        var self = (TerminalAgentTileViewModel)kind.Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
-            new JsonObject { [AgentTileKind.InstanceIdKey] = instance.Id });
-        try { Assert.Null(kind.Save(self)?[AgentTileKind.SessionIdKey]); }
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
+        try { Assert.Null(kind.Save(self)?[AgentStateKeys.SessionIdKey]); }
         finally { self.Dispose(); }
 
         // The user repoints the instance at an agent that names its own sessions. The layout still
         // carries opencode's id, and the tile must start a fresh conversation instead of resuming it.
         instance.AgentId = captured.Id;
-        var tile = (AgentTileViewModel)kind.Create(
+        var tile = (TerminalAgentTileViewModel)kind.Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = instance.Id,
-                [AgentTileKind.AgentIdKey] = opencode.Id,
-                [AgentTileKind.SessionIdKey] = "ses_from-another-agent",
+                [AgentStateKeys.InstanceIdKey] = instance.Id,
+                [AgentStateKeys.AgentIdKey] = opencode.Id,
+                [AgentStateKeys.SessionIdKey] = "ses_from-another-agent",
             });
 
         try
         {
             Assert.Equal(captured.Id, tile.AgentId);
             Assert.Equal("", tile.SessionId);
-            Assert.Null(kind.Save(tile)?[AgentTileKind.SessionIdKey]);
+            Assert.Null(kind.Save(tile)?[AgentStateKeys.SessionIdKey]);
         }
         finally { tile.Dispose(); }
     }
@@ -367,7 +380,7 @@ public class AgentTileTests
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
-        var kind = (ITileKind)new AgentTileKind();
+        var kind = (ITileKind)new TerminalAgentTileKind();
 
         // The instance is gone and so is every other instance of its agent, which is what drops the tile
         // onto whatever else is configured.
@@ -376,12 +389,12 @@ public class AgentTileTests
                      .Where(i => i.AgentId == gone.Id).ToList())
             settings.Service.Settings.AiAgentInstances.Remove(instance);
 
-        var tile = (AgentTileViewModel)kind.Create(
+        var tile = (TerminalAgentTileViewModel)kind.Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = "an instance that is gone",
-                [AgentTileKind.AgentIdKey] = gone.Id,
+                [AgentStateKeys.InstanceIdKey] = "an instance that is gone",
+                [AgentStateKeys.AgentIdKey] = gone.Id,
             });
 
         try
@@ -391,8 +404,8 @@ public class AgentTileTests
 
             var saved = kind.Save(tile);
             Assert.Equal("an instance that is gone",
-                saved?[AgentTileKind.InstanceIdKey]?.GetValue<string>());
-            Assert.Equal(gone.Id, saved?[AgentTileKind.AgentIdKey]?.GetValue<string>());
+                saved?[AgentStateKeys.InstanceIdKey]?.GetValue<string>());
+            Assert.Equal(gone.Id, saved?[AgentStateKeys.AgentIdKey]?.GetValue<string>());
         }
         finally { tile.Dispose(); }
     }
@@ -411,17 +424,17 @@ public class AgentTileTests
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
-        var kind = (ITileKind)new AgentTileKind();
+        var kind = (ITileKind)new TerminalAgentTileKind();
 
         var fromANewerBuild = new AiAgentInstance { AgentId = "an-agent-from-later", Name = "Later" };
         settings.Service.Settings.AiAgentInstances.Add(fromANewerBuild);
 
-        var tile = (AgentTileViewModel)kind.Create(
+        var tile = (TerminalAgentTileViewModel)kind.Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = fromANewerBuild.Id,
-                [AgentTileKind.AgentIdKey] = fromANewerBuild.AgentId,
+                [AgentStateKeys.InstanceIdKey] = fromANewerBuild.Id,
+                [AgentStateKeys.AgentIdKey] = fromANewerBuild.AgentId,
             });
 
         try
@@ -430,8 +443,8 @@ public class AgentTileTests
             Assert.Contains(fromANewerBuild.AgentId, tile.LaunchNotice);
 
             var saved = kind.Save(tile);
-            Assert.Equal(fromANewerBuild.Id, saved?[AgentTileKind.InstanceIdKey]?.GetValue<string>());
-            Assert.Equal(fromANewerBuild.AgentId, saved?[AgentTileKind.AgentIdKey]?.GetValue<string>());
+            Assert.Equal(fromANewerBuild.Id, saved?[AgentStateKeys.InstanceIdKey]?.GetValue<string>());
+            Assert.Equal(fromANewerBuild.AgentId, saved?[AgentStateKeys.AgentIdKey]?.GetValue<string>());
         }
         finally { tile.Dispose(); }
     }
@@ -447,12 +460,12 @@ public class AgentTileTests
         using var directory = new TempDirectory();
         var instance = settings.Service.Settings.AiAgentInstances[0];
 
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = instance.Id,
-                [AgentTileKind.AgentIdKey] = instance.AgentId,
+                [AgentStateKeys.InstanceIdKey] = instance.Id,
+                [AgentStateKeys.AgentIdKey] = instance.AgentId,
             });
 
         try
@@ -476,14 +489,14 @@ public class AgentTileTests
         using var directory = new TempDirectory();
         var (chosen, other) = TwoInstancesOfOneAgent(settings);
 
-        var kind = (ITileKind)new AgentTileKind();
+        var kind = (ITileKind)new TerminalAgentTileKind();
         var saves = 0;
-        var tile = (AgentTileViewModel)kind.Create(
+        var tile = (TerminalAgentTileViewModel)kind.Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString(), saves: () => saves++),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = chosen.Id,
-                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+                [AgentStateKeys.InstanceIdKey] = chosen.Id,
+                [AgentStateKeys.AgentIdKey] = chosen.AgentId,
             });
 
         try
@@ -493,7 +506,7 @@ public class AgentTileTests
             Assert.Equal(other.Id, tile.InstanceId);
             Assert.Equal(1, saves);
             Assert.Equal(other.Id,
-                kind.Save(tile)?[AgentTileKind.InstanceIdKey]?.GetValue<string>());
+                kind.Save(tile)?[AgentStateKeys.InstanceIdKey]?.GetValue<string>());
         }
         finally { tile.Dispose(); }
     }
@@ -501,7 +514,7 @@ public class AgentTileTests
     /// <summary>
     /// Switching a substituted tile is the user overruling the substitution, so it is put down.
     /// </summary>
-    /// <remarks><c>AgentTileKind.Save</c> writes the <em>requested</em> id while a substitution stands,
+    /// <remarks><c>TerminalAgentTileKind.Save</c> writes the <em>requested</em> id while a substitution stands,
     /// which is right for a fallback nobody chose and wrong the moment somebody chooses: the new id
     /// would be gone at the next load, and the tile would come back on the instance that is not there.
     /// </remarks>
@@ -512,13 +525,13 @@ public class AgentTileTests
         using var directory = new TempDirectory();
         var (chosen, other) = TwoInstancesOfOneAgent(settings);
 
-        var kind = (ITileKind)new AgentTileKind();
-        var tile = (AgentTileViewModel)kind.Create(
+        var kind = (ITileKind)new TerminalAgentTileKind();
+        var tile = (TerminalAgentTileViewModel)kind.Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = "an instance that is gone",
-                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+                [AgentStateKeys.InstanceIdKey] = "an instance that is gone",
+                [AgentStateKeys.AgentIdKey] = chosen.AgentId,
             });
 
         try
@@ -531,7 +544,7 @@ public class AgentTileTests
             Assert.Null(tile.Substitution);
             Assert.False(tile.HasLaunchNotice);
             Assert.Equal(other.Id,
-                kind.Save(tile)?[AgentTileKind.InstanceIdKey]?.GetValue<string>());
+                kind.Save(tile)?[AgentStateKeys.InstanceIdKey]?.GetValue<string>());
         }
         finally { tile.Dispose(); }
     }
@@ -555,14 +568,14 @@ public class AgentTileTests
         other.SignInId = "another sign-in";
 
         var conversation = "conversation-" + Guid.NewGuid();
-        var kind = (ITileKind)new AgentTileKind();
-        var tile = (AgentTileViewModel)kind.Create(
+        var kind = (ITileKind)new TerminalAgentTileKind();
+        var tile = (TerminalAgentTileViewModel)kind.Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = chosen.Id,
-                [AgentTileKind.AgentIdKey] = chosen.AgentId,
-                [AgentTileKind.SessionIdKey] = conversation,
+                [AgentStateKeys.InstanceIdKey] = chosen.Id,
+                [AgentStateKeys.AgentIdKey] = chosen.AgentId,
+                [AgentStateKeys.SessionIdKey] = conversation,
             });
 
         try
@@ -572,7 +585,7 @@ public class AgentTileTests
             tile.SwitchTo(other.Id);
 
             Assert.Equal("", tile.SessionId);
-            Assert.Null(kind.Save(tile)?[AgentTileKind.SessionIdKey]);
+            Assert.Null(kind.Save(tile)?[AgentStateKeys.SessionIdKey]);
             Assert.True(CapturedSessions.TryClaim(conversation, "another tile"));
         }
         finally
@@ -599,13 +612,13 @@ public class AgentTileTests
         other.ApiAccountId = "another provider";
 
         var conversation = "conversation-" + Guid.NewGuid();
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = chosen.Id,
-                [AgentTileKind.AgentIdKey] = chosen.AgentId,
-                [AgentTileKind.SessionIdKey] = conversation,
+                [AgentStateKeys.InstanceIdKey] = chosen.Id,
+                [AgentStateKeys.AgentIdKey] = chosen.AgentId,
+                [AgentStateKeys.SessionIdKey] = conversation,
             });
 
         try
@@ -632,12 +645,12 @@ public class AgentTileTests
         using var directory = new TempDirectory();
         var (chosen, _) = TwoInstancesOfOneAgent(settings);
 
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = chosen.Id,
-                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+                [AgentStateKeys.InstanceIdKey] = chosen.Id,
+                [AgentStateKeys.AgentIdKey] = chosen.AgentId,
             });
 
         try
@@ -675,14 +688,14 @@ public class AgentTileTests
         using var directory = new TempDirectory();
         var (chosen, other) = TwoInstancesOfOneAgent(settings);
 
-        var tile = (AgentTileViewModel)((ITileKind)new AgentTileKind()).Create(
+        var tile = (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
             Context(directory.Path, settings, Guid.NewGuid().ToString()),
             new JsonObject
             {
-                [AgentTileKind.InstanceIdKey] = chosen.Id,
-                [AgentTileKind.AgentIdKey] = chosen.AgentId,
+                [AgentStateKeys.InstanceIdKey] = chosen.Id,
+                [AgentStateKeys.AgentIdKey] = chosen.AgentId,
             });
-        var leaf = new LeafTileNodeViewModel(TileKindIds.Agent, tile, directory.Path,
+        var leaf = new LeafTileNodeViewModel(TileKindIds.TerminalAgent, tile, directory.Path,
             new TileActivationScope());
 
         try

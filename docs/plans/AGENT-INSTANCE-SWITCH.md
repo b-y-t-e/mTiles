@@ -1,5 +1,10 @@
 # Switching an agent tile to another instance of the same agent
 
+> **Names have moved since this was written.** `AgentTileKind` and `AgentTileViewModel` are
+> `TerminalAgentTileKind` and `TerminalAgentTileViewModel`, and the state keys are on `AgentStateKeys`:
+> the tile is called **Terminal agent** on screen, and the bare word Agent now means the conversation
+> tile. The stored kind id and the key strings are unchanged — they are on people's disks.
+
 Status: implemented. Kept for the reasoning the code does not carry — the routes considered and turned
 down, and the one open question at the end.
 

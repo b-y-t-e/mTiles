@@ -282,7 +282,7 @@ public interface IAiAgent : IAgentActivityReader
     string? UsageAccountKeyFor(AiSignIn? signIn);
 
     /// <summary>
-    /// What an agent tile runs: the command that resumes <paramref name="sessionId"/>, and the one to
+    /// What a terminal agent tile runs: the command that resumes <paramref name="sessionId"/>, and the one to
     /// try when it does not work.
     /// </summary>
     /// <remarks><para>In code rather than in a user-editable field, which is the whole difference between an
@@ -292,7 +292,7 @@ public interface IAiAgent : IAgentActivityReader
     /// <para><b>The instance is not decoration.</b> Its
     /// <see cref="AiAgentInstance.DefaultBehaviour"/>, <see cref="AiAgentInstance.DefaultEffort"/> and
     /// <see cref="AiAgentInstance.ExtraArgs"/> reach both commands, fitted to what this agent supports
-    /// interactively — the instance's settings apply "wherever the instance is used", and an agent tile
+    /// interactively — the instance's settings apply "wherever the instance is used", and a terminal agent tile
     /// launched on the CLI's own defaults is that promise unkept.</para></remarks>
     /// <param name="shell">The shell the command is going to be typed into, which is the only thing
     /// that knows how to quote for itself: a <c>\"</c> escape means nothing to PowerShell, and inside
@@ -369,7 +369,7 @@ public interface IAiAgent : IAgentActivityReader
     /// <para><b>Because a getter is not a place to write files.</b> The one agent that needs this —
     /// opencode, whose only route to a local server is a generated provider document — used to write it
     /// from <c>Configure</c>, which is reached through <c>EnvFor</c>, which is reached through
-    /// <c>AgentTileViewModel.LaunchEnvironment</c>: a <em>property</em>. Reading it made a directory and
+    /// <c>TerminalAgentTileViewModel.LaunchEnvironment</c>: a <em>property</em>. Reading it made a directory and
     /// wrote a file, and the launch reads it twice, so the file was written twice per launch and any
     /// future reader — a debugger's watch window included — would write it again.</para>
     /// <para>Called on both launch paths, which is the reason this is on the agent rather than in

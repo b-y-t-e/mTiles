@@ -7,23 +7,23 @@ using mTiles.Services.Tiles;
 namespace mTiles.Services;
 
 /// <summary>
-/// Turns the terminal tiles that were only ever an AI CLI in a shell into agent tiles.
+/// Turns the terminal tiles that were only ever an AI CLI in a shell into terminal agent tiles.
 /// </summary>
 /// <remarks>
-/// <para>Without this an existing installation gets no agent tile at all. Every AI tile anybody has
+/// <para>Without this an existing installation gets no terminal agent tile at all. Every AI tile anybody has
 /// today is a terminal whose <c>userProfileId</c> names one of the four seeded profiles — Claude Code,
 /// OpenCode, Codex, Pi Agent — and the profiles are what this stage removes, so those leaves would come
 /// back on the next launch as plain shells with no startup script and no conversation to resume.</para>
 /// <para><b>Matched by the profile's required binary, not by its name.</b> The name is the user's to
 /// change and several have; the binary is what the profile was filtering on and it is the same string
 /// the agent answers with. A profile naming no binary, or one nothing here recognises, is left as a
-/// terminal — a shell tile losing a script the user wrote is a smaller loss than an agent tile started
+/// terminal — a shell tile losing a script the user wrote is a smaller loss than a terminal agent tile started
 /// on flags they never asked for.</para>
 /// <para><b>This code has an expiry date.</b> One release after the profiles are gone there is nothing
 /// left on anybody's disk for it to find; the copy it asks for (<c>{id}.pre-agents.json</c>) is what
 /// makes deleting it safe.</para>
 /// </remarks>
-public static class AgentTileMigration
+public static class TerminalAgentTileMigration
 {
     /// <summary>
     /// Rewrites every leaf that a seeded AI profile made, in place.
@@ -49,13 +49,13 @@ public static class AgentTileMigration
             // terminal on the shell it was running.
             var state = leaf.Settings!;
             state.Remove(TerminalTileKind.UserProfileIdKey);
-            state[AgentTileKind.InstanceIdKey] = instance.Id;
-            state[AgentTileKind.AgentIdKey] = agent.Id;
+            state[AgentStateKeys.InstanceIdKey] = instance.Id;
+            state[AgentStateKeys.AgentIdKey] = agent.Id;
 
-            leaf.Kind = TileKindIds.Agent;
+            leaf.Kind = TileKindIds.TerminalAgent;
 
             changed = true;
-            Trace.TraceInformation("Tile {0} was a {1} profile and is now an agent tile.",
+            Trace.TraceInformation("Tile {0} was a {1} profile and is now a terminal agent tile.",
                 leaf.TileId, agent.DisplayName);
         }
 

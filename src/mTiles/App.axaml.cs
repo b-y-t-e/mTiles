@@ -161,9 +161,9 @@ public partial class App : Application
         new TileCatalog()
             .Register(new AgentConversationTileKind(conversations),
                 tile => new AgentConversationTileView { DataContext = tile })
-            // The same view as a terminal, because an agent tile is a terminal: what differs is
+            // The same view as a terminal, because a terminal agent tile is a terminal: what differs is
             // where its commands come from, and that is the view model's answer to give.
-            .Register(new AgentTileKind(), tile => new TerminalTileView { DataContext = tile })
+            .Register(new TerminalAgentTileKind(), tile => new TerminalTileView { DataContext = tile })
             .Register(new TerminalTileKind(), tile => new TerminalTileView { DataContext = tile })
             .Register(new GoalTileKind(), tile => new GoalTileView { DataContext = tile })
             .Register(new DatabaseTileKind(databases), tile => new DatabaseTileView { DataContext = tile })

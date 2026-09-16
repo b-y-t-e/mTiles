@@ -8,10 +8,10 @@ using Xunit;
 namespace mTiles.Tests;
 
 /// <summary>
-/// The AI tiles somebody already has become agent tiles, and nothing else does.
+/// The AI tiles somebody already has become terminal agent tiles, and nothing else does.
 /// </summary>
 /// <remarks>
-/// Without this an existing installation gets no agent tile at all: every AI tile anybody has today is a
+/// Without this an existing installation gets no terminal agent tile at all: every AI tile anybody has today is a
 /// terminal whose <c>userProfileId</c> names one of the four seeded profiles, and the profiles are what
 /// this stage removes — so those leaves would come back as bare shells with no conversation to resume.
 /// The negative half matters just as much: a profile the user wrote themselves is not an agent, and
@@ -49,27 +49,27 @@ public class AgentTileMigrationTests
         },
     };
 
-    /// <summary>A leaf that was a seeded AI profile becomes an agent tile on the matching agent.</summary>
+    /// <summary>A leaf that was a seeded AI profile becomes a terminal agent tile on the matching agent.</summary>
     [Fact]
     public void A_tile_running_a_seeded_ai_profile_becomes_an_agent_tile()
     {
         var settings = SettingsWith(ClaudeProfile());
         var leaf = TerminalLeaf("profile-claude");
 
-        Assert.True(AgentTileMigration.Apply(leaf, settings));
+        Assert.True(TerminalAgentTileMigration.Apply(leaf, settings));
 
-        Assert.Equal(TileKindIds.Agent, leaf.Kind);
-        Assert.Equal("claude", leaf.Settings?[AgentTileKind.AgentIdKey]?.GetValue<string>());
+        Assert.Equal(TileKindIds.TerminalAgent, leaf.Kind);
+        Assert.Equal("claude", leaf.Settings?[AgentStateKeys.AgentIdKey]?.GetValue<string>());
         Assert.Equal(
             settings.AiAgentInstances.First(i => i.AgentId == "claude").Id,
-            leaf.Settings?[AgentTileKind.InstanceIdKey]?.GetValue<string>());
+            leaf.Settings?[AgentStateKeys.InstanceIdKey]?.GetValue<string>());
 
         // The profile is gone from the file, or the next reader has to keep explaining it away.
         Assert.Null(leaf.Settings?[TerminalTileKind.UserProfileIdKey]);
 
         // And the shell name stays: an older build reads an agent leaf as a terminal, and one without a
         // shell name opens on whatever that machine's default happens to be.
-        Assert.Equal("PowerShell", leaf.Settings?[AgentTileKind.ShellNameKey]?.GetValue<string>());
+        Assert.Equal("PowerShell", leaf.Settings?[AgentStateKeys.ShellNameKey]?.GetValue<string>());
         Assert.Equal(TileContentType.Terminal, leaf.ContentType);
     }
 
@@ -93,7 +93,7 @@ public class AgentTileMigrationTests
 
         var leaf = TerminalLeaf("profile-mine");
 
-        Assert.False(AgentTileMigration.Apply(leaf, settings));
+        Assert.False(TerminalAgentTileMigration.Apply(leaf, settings));
         Assert.Equal(TileKindIds.Terminal, leaf.Kind);
         Assert.Equal("profile-mine", leaf.Settings?[TerminalTileKind.UserProfileIdKey]?.GetValue<string>());
     }
@@ -116,9 +116,9 @@ public class AgentTileMigrationTests
             },
         };
 
-        Assert.True(AgentTileMigration.Apply(tree, settings));
+        Assert.True(TerminalAgentTileMigration.Apply(tree, settings));
 
-        Assert.Equal(TileKindIds.Agent, tree.First!.Kind);
+        Assert.Equal(TileKindIds.TerminalAgent, tree.First!.Kind);
         Assert.Equal(TileKindIds.Terminal, tree.Second!.First!.Kind);
         Assert.Equal(TileKindIds.Note, tree.Second.Second!.Kind);
     }
@@ -130,7 +130,7 @@ public class AgentTileMigrationTests
         var settings = SettingsWith(ClaudeProfile());
         var leaf = new TileNode { IsLeaf = true, Kind = TileKindIds.Terminal, TileId = "shell" };
 
-        Assert.False(AgentTileMigration.Apply(leaf, settings));
-        Assert.False(AgentTileMigration.Apply(null, settings));
+        Assert.False(TerminalAgentTileMigration.Apply(leaf, settings));
+        Assert.False(TerminalAgentTileMigration.Apply(null, settings));
     }
 }

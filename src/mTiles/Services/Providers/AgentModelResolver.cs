@@ -8,7 +8,7 @@ namespace mTiles.Services.Providers;
 /// Which model an instance actually runs on, or the sentence that says why it cannot run at all.
 /// </summary>
 /// <remarks>
-/// <para>One rule, asked by both places that start an agent — the agent tile and the Goal tile's run —
+/// <para>One rule, asked by every place that starts an agent — both agent tiles and the Goal tile's run —
 /// because it was written in the tile and the goal did not have it: a goal on an instance asking for
 /// <c>__first_loaded__</c> launched with no model at all while the environment still pointed at the
 /// local server, which is the silent substitution the sentinel exists to prevent. The same is true of a

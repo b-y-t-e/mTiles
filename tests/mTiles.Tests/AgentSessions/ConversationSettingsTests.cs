@@ -111,7 +111,7 @@ public class ConversationSettingsTests
         var context = new TileContext(Path.GetTempPath(), settings.Service);
         var state = new JsonObject
         {
-            [AgentTileKind.AgentIdKey] = "claude",
+            [AgentStateKeys.AgentIdKey] = "claude",
             [AgentConversationTileKind.ModelKey] = "opus",
             [AgentConversationTileKind.ModeKey] = "Plan",
             [AgentConversationTileKind.EffortKey] = "from-a-newer-build",

@@ -39,7 +39,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// and claim to have done something else. The one place left where this class knows what its content
     /// is, and it is about the tile's own identity rather than about anything the content can do.
     /// </remarks>
-    public bool HasSession => Content is AgentTileViewModel;
+    public bool HasSession => Content is TerminalAgentTileViewModel;
 
     /// <summary>The tile's content when it is an agent, for the two questions only an agent answers.
     /// </summary>
@@ -48,7 +48,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// asked of the content by capability would be the rule rather than the exception — and a whole
     /// interface for one implementer, which <c>docs/TILES.md</c> says has to be earned. Promote it if a
     /// second kind ever wants the same thing.</remarks>
-    private AgentTileViewModel? Agent => _disposed ? null : Content as AgentTileViewModel;
+    private TerminalAgentTileViewModel? Agent => _disposed ? null : Content as TerminalAgentTileViewModel;
 
     /// <summary>The instances the header's "Run as" submenu is offering right now.</summary>
     public IReadOnlyList<AgentInstanceChoice> AgentInstances { get; private set; } = [];
@@ -65,7 +65,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// Rebuilds the list of instances, which is what opening the menu is for.
     /// </summary>
     /// <remarks>Built when the menu opens rather than followed as a live collection: instances are
-    /// added, renamed and deleted in Settings while the tile lives, and a subscription per agent tile to
+    /// added, renamed and deleted in Settings while the tile lives, and a subscription per terminal agent tile to
     /// <c>SettingsChanged</c> buys nothing a menu about to be drawn does not get for free.</remarks>
     public void RefreshAgentInstances()
     {

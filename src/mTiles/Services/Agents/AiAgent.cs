@@ -92,7 +92,7 @@ public abstract class AiAgent : IAiAgent
     /// drop that without anything noticing — so what an agent overrides is <see cref="Prepare"/>, which
     /// only ever adds. This is also the moment that exists so a getter does not write files, which is
     /// why the directories are made here and not in <see cref="EnvFor"/>: that one is reached through
-    /// <c>AgentTileViewModel.LaunchEnvironment</c>, a property read twice a launch and again by any
+    /// <c>TerminalAgentTileViewModel.LaunchEnvironment</c>, a property read twice a launch and again by any
     /// debugger watching it.</remarks>
     public void PrepareToLaunch(AgentRuntime runtime)
     {

@@ -749,7 +749,7 @@ public class AgentProviderRoutingTests : IDisposable
     /// <summary>
     /// A tile running a stand-in agent is judged by the stand-in, not by the id it was configured with.
     /// </summary>
-    /// <remarks><b>Otherwise a Velopack rollback kills the tile.</b> <c>AgentTileKind.WithAgent</c>
+    /// <remarks><b>Otherwise a Velopack rollback kills the tile.</b> <c>TerminalAgentTileKind.WithAgent</c>
     /// substitutes an agent this build does have and says so through <c>AgentSubstitution</c> — a
     /// dismissible notice over a tile that is running. Asking availability by the instance's own id
     /// answered "this build does not have that agent", which became a launch problem and a dead tile

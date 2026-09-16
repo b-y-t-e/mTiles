@@ -287,8 +287,8 @@ public sealed class SettingsMigrationTests : IDisposable
     /// Nothing seeds, edits or removes a shell profile any more — the list is only read.
     /// </summary>
     /// <remarks>
-    /// It is still what <c>AgentTileMigration</c> matches a saved tile's <c>userProfileId</c> against, so
-    /// touching it here would take somebody's agent tiles with it a launch before the workspace holding
+    /// It is still what <c>TerminalAgentTileMigration</c> matches a saved tile's <c>userProfileId</c> against, so
+    /// touching it here would take somebody's terminal agent tiles with it a launch before the workspace holding
     /// them is even opened. Three migrations used to run over this list; the assertion that replaced
     /// them is that a settings file comes back with exactly the profiles it went in with — including a
     /// broken one, which is now nobody's to fix.
@@ -312,7 +312,7 @@ public sealed class SettingsMigrationTests : IDisposable
     }
 
     /// <summary>And a fresh installation gets none at all.</summary>
-    /// <remarks>An AI CLI in a shell is an agent tile now, so seeding four profiles would be offering a
+    /// <remarks>An AI CLI in a shell is a terminal agent tile now, so seeding four profiles would be offering a
     /// route that no longer leads anywhere — and one the empty tile's chooser could not show.</remarks>
     [Fact]
     public void A_new_installation_is_seeded_with_no_profiles_and_one_instance_per_agent()

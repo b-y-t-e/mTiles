@@ -160,7 +160,7 @@ internal static class ClipboardHelpers
         var until = wanted.Count == 1 ? "Until it is" : "Until one is";
 
         return $"AI tools read an image off the clipboard by running {names}, and {missing}. " +
-            $"{until}, pasting a screenshot into an agent tile does nothing and says nothing.";
+            $"{until}, pasting a screenshot into a terminal agent tile does nothing and says nothing.";
     }
 
     /// <summary>

@@ -33,7 +33,7 @@ public class AiAgentTests
 
     /// <summary>An instance with nothing configured around it: no provider, and the model exactly as
     /// it was written.</summary>
-    /// <remarks>What an agent tile hands <c>Interactive</c>, minus the provider lookup — the model is
+    /// <remarks>What a terminal agent tile hands <c>Interactive</c>, minus the provider lookup — the model is
     /// the only part of it these tests are about.</remarks>
     private static AgentRuntime Runtime(AiAgentInstance instance, string? model = null) =>
         AgentRuntime.For(new AppSettings(), instance, model);
@@ -73,7 +73,7 @@ public class AiAgentTests
     /// <summary>
     /// A seeded instance passes no permission flag at all.
     /// </summary>
-    /// <remarks>Nobody has been asked about a row that was seeded, and every agent tile made from
+    /// <remarks>Nobody has been asked about a row that was seeded, and every terminal agent tile made from
     /// one carries its behaviour to the CLI: anything above <see cref="AiBehaviour.ToolDefault"/>
     /// would turn the tool's own asking off on a fresh install, and the first symptom of that is an
     /// edit that already happened.</remarks>
@@ -607,8 +607,8 @@ public class AiAgentTests
     /// What an instance is configured with reaches the tile's own command line, on both commands.
     /// </summary>
     /// <remarks>The instance documents its two defaults as applying "wherever the instance is used —
-    /// the agent tile included". They did not: every implementation of <c>Interactive</c> ignored the
-    /// instance, so an agent tile ran on the CLI's factory settings whatever the row said. The fallback
+    /// the terminal agent tile included". They did not: every implementation of <c>Interactive</c> ignored the
+    /// instance, so a terminal agent tile ran on the CLI's factory settings whatever the row said. The fallback
     /// gets them too, because it is the same session by another route rather than a lesser one.
     /// </remarks>
     [Fact]
