@@ -44,6 +44,7 @@ public static class TileIcons
         "workspaces" => MaterialIconKind.FolderMultipleOutline,
         "play" => MaterialIconKind.Play,
         "pause" => MaterialIconKind.Pause,
+        "web" => MaterialIconKind.Web,
         _ => Placeholder,
     };
 

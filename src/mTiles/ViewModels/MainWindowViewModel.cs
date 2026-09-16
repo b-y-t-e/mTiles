@@ -189,7 +189,8 @@ public partial class MainWindowViewModel : ObservableObject
         IProcessMemoryProbe? memoryProbe = null,
         AgentFileSyncCoordinator? agentFileSync = null,
         Func<Func<WorkspacesPanelViewModel>, TileCatalog>? windowCatalog = null,
-        PersistenceService? windowPersistence = null)
+        PersistenceService? windowPersistence = null,
+        Services.Browser.BrowserRelay? browserRelay = null)
     {
         _memoryProbe = memoryProbe ?? new ProcessTreeMemory();
         _persistenceService = persistenceService;
@@ -220,7 +221,8 @@ public partial class MainWindowViewModel : ObservableObject
                 if (_windowTileHasKeyboard) RaiseActiveTileChanged();
             };
         }
-        _settings = new SettingsViewModel(settingsService, dbManager, dictation);
+        _settings = new SettingsViewModel(settingsService, dbManager, dictation, browserRelay);
+        Services.Browser.BrowserTiles.CloseAllHandler = CloseAllBrowserTiles;
 
         // An install command runs in a tile, and only this object knows which workspace is open. Null
         // when there is none, which the settings page answers by showing the command instead of
@@ -405,8 +407,28 @@ public partial class MainWindowViewModel : ObservableObject
 
     private void OnSettingsChanged() => OnPropertyChanged(nameof(HasPhoneBridge));
 
+    /// <summary>Closes every browser tile in every loaded workspace and in the window's own layout.</summary>
+    /// <remarks>The leaves are collected before any is closed, because closing one edits the tree
+    /// being walked.</remarks>
+    internal bool CloseAllBrowserTiles()
+    {
+        var roots = _workspaceCache.Values.Select(workspace => workspace.RootTile)
+            .Append(WindowLayout?.RootTile);
+        var browsers = roots
+            .SelectMany(TileTreeEdits.LeavesOf)
+            .Where(leaf => leaf.Content?.KindId == TileKindIds.Browser)
+            .ToList();
+
+        foreach (var leaf in browsers)
+            leaf.CloseCommand.Execute(null);
+
+        return browsers.Count > 0;
+    }
+
     public void DisposeAll()
     {
+        if (Services.Browser.BrowserTiles.CloseAllHandler == CloseAllBrowserTiles)
+            Services.Browser.BrowserTiles.CloseAllHandler = null;
         WindowLayout?.Dispose();
         _memoryTimer.Stop();
         _settingsService.SettingsChanged -= OnSettingsChanged;

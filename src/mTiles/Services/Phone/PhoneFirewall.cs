@@ -135,7 +135,7 @@ internal sealed class WindowsFirewallGuide : IFirewallGuide
             "Windows Firewall may be blocking the connection. If you dismissed the "
             + "“Allow access” prompt when this started, Windows recorded that as a block and "
             + "will not ask again. Repairing it asks for administrator rights, then replaces every "
-            + "existing inbound firewall rule for mTiles with a single one allowing it on private "
+            + "existing inbound firewall rule for mTiles (except the browser relay's) with a single one allowing it on private "
             + "and domain networks — so any inbound rule you added for mTiles yourself is removed.",
         ManualCommand: "");
 
@@ -379,7 +379,7 @@ internal sealed class WindowsFirewallGuide : IFirewallGuide
         $$"""
           $ErrorActionPreference = 'Continue'
           $program = '{{Escape(program)}}'
-          Get-NetFirewallApplicationFilter -Program $program -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.Direction -eq 'Inbound' } | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+          Get-NetFirewallApplicationFilter -Program $program -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.Direction -eq 'Inbound' -and $_.DisplayName -ne '{{Services.Browser.RelayFirewall.RuleName}}' } | Remove-NetFirewallRule -ErrorAction SilentlyContinue
           Remove-NetFirewallRule -DisplayName '{{RuleName}}' -ErrorAction SilentlyContinue
           New-NetFirewallRule -DisplayName '{{RuleName}}' -Direction Inbound -Action Allow -Program $program -Protocol TCP -Profile Domain,Private -ErrorAction Stop | Out-Null
           {{Verification}}
@@ -443,7 +443,7 @@ internal sealed class WindowsFirewallGuide : IFirewallGuide
     private static readonly string Verification =
         $$"""
           try {
-            $inbound = @(Get-NetFirewallApplicationFilter -Program $program -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction Stop | Where-Object { $_.Direction -eq 'Inbound' -and $_.Enabled -eq 'True' })
+            $inbound = @(Get-NetFirewallApplicationFilter -Program $program -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction Stop | Where-Object { $_.Direction -eq 'Inbound' -and $_.Enabled -eq 'True' -and $_.DisplayName -ne '{{Services.Browser.RelayFirewall.RuleName}}' })
             if (@($inbound | Where-Object { $_.Action -eq 'Block' }).Count -gt 0) { exit {{Blocked}} }
 
             $allowing = @($inbound | Where-Object { $_.Action -eq 'Allow' })

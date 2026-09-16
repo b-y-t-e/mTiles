@@ -25,6 +25,13 @@ public static class ModalScope
     /// <summary>Whether anything is being asked of the user right now.</summary>
     public static bool IsAnyOpen => Volatile.Read(ref _open) > 0;
 
+    /// <summary>Raised when <see cref="IsAnyOpen"/> changes, on the thread that opened or closed the
+    /// dialog — the UI thread in every case there is.</summary>
+    /// <remarks>For the browser tile, whose page is a native window drawn above everything Avalonia
+    /// draws: a dialog opened over it would be underneath it, so the page is hidden while one is open.
+    /// </remarks>
+    public static event Action? Changed;
+
     /// <summary>Whether an open dialog handles the dictation shortcut itself.</summary>
     /// <remarks>
     /// <para>The window-level handler is <em>tunnelling</em>, so it sees a key before anything inside
@@ -48,7 +55,8 @@ public static class ModalScope
     /// <param name="ownsDictationShortcut">See <see cref="ShortcutIsSpokenFor"/>.</param>
     public static IDisposable Enter(bool ownsDictationShortcut = false)
     {
-        Interlocked.Increment(ref _open);
+        if (Interlocked.Increment(ref _open) == 1)
+            Changed?.Invoke();
         if (ownsDictationShortcut)
             Interlocked.Increment(ref _shortcutOwners);
         return new Handle(ownsDictationShortcut);
@@ -65,7 +73,8 @@ public static class ModalScope
             if (Interlocked.Exchange(ref _released, 1) != 0)
                 return;
 
-            Interlocked.Decrement(ref _open);
+            if (Interlocked.Decrement(ref _open) == 0)
+                Changed?.Invoke();
             if (ownsDictationShortcut)
                 Interlocked.Decrement(ref _shortcutOwners);
         }

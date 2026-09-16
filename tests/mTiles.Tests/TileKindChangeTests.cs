@@ -59,6 +59,7 @@ public sealed class TileKindChangeTests : IDisposable
         public string IconId => "note";
         public string AccentKey => "TileAccentNote";
         public bool IsPermanent => false;
+        public bool ClosesWithoutAsking => false;
         public string NamePrefix => Id;
 
         public string NameFor(IReadOnlySet<string> used) => $"{Id}#1";

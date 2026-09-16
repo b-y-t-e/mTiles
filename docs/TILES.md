@@ -486,7 +486,7 @@ Something earns its own interface only when all three are true:
 3. **Somebody has to ask "can you do this?"** — that question is written `is` / `as`, which is what an
    interface is for.
 
-`IMaximizableTile` passes all three and carries nothing: it is optional (five kinds of eight), it varies
+`IMaximizableTile` passes all three and carries nothing: it is optional (six kinds of nine), it varies
 while the tile is alive (an empty tile becomes a terminal), and the question is asked with `is`. A
 capability may be a marker — what it must not be is a member half the implementations cannot honour.
 

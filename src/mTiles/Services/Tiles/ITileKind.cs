@@ -46,6 +46,12 @@ public interface ITileKind
     /// </remarks>
     bool IsPermanent { get; }
 
+    /// <summary>Whether closing a tile of this kind goes ahead without asking.</summary>
+    /// <remarks>Data about the kind rather than a capability, by the rule in <c>docs/TILES.md</c>: it
+    /// does not vary while a tile is alive. The browser is the one that says yes: it holds nothing a
+    /// question would protect.</remarks>
+    bool ClosesWithoutAsking { get; }
+
     /// <summary>The prefix a new tile of this kind is named after, as in <c>Git#1</c>.</summary>
     string NamePrefix { get; }
 

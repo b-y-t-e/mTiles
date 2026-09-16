@@ -204,7 +204,7 @@ public class WindowLayoutTests : IDisposable
             new HashSet<string>
             {
                 TileKindIds.Workspaces, TileKindIds.WorkspaceHost,
-                TileKindIds.Note, TileKindIds.Todo, TileKindIds.Usage
+                TileKindIds.Note, TileKindIds.Todo, TileKindIds.Usage, TileKindIds.Browser
             },
             ids);
     });
@@ -328,7 +328,7 @@ public class WindowLayoutTests : IDisposable
 
         // The empty tile offers what the window may hold, and nothing permanent.
         Assert.Equal(
-            new[] { TileKindIds.Note, TileKindIds.Todo, TileKindIds.Usage }.Order(),
+            new[] { TileKindIds.Note, TileKindIds.Todo, TileKindIds.Usage, TileKindIds.Browser }.Order(),
             newcomer.AvailableKinds.Select(kind => kind.Id).Order());
 
         list.SplitHorizontalCommand.Execute(null);

@@ -1,0 +1,123 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             x:Class="mTiles.Views.BrowserTileView"
+             x:DataType="vm:BrowserTileViewModel"
+             x:Name="Root"
+             Background="{DynamicResource BgBase}">
+
+    <UserControl.Styles>
+        <Style Selector="Border.browser-tab">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0,0,0,2" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="8,3,3,3" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Border.browser-tab:pointerover">
+            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        </Style>
+        <Style Selector="Border.browser-tab.selected">
+            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentHover}" />
+        </Style>
+        <Style Selector="Border.browser-tab TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <Style Selector="Border.browser-tab.selected TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+        <!-- The tabs. Scrolls sideways once there are more than fit; the + stays at the end of them. -->
+        <ScrollViewer DockPanel.Dock="Top" Margin="6,6,6,0"
+                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+                <ItemsControl ItemsSource="{Binding Tabs}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="2" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:BrowserTabViewModel">
+                            <Border Classes="browser-tab" Classes.selected="{Binding IsSelected}"
+                                    ToolTip.Tip="{Binding Address}"
+                                    PointerReleased="OnTabPointerReleased">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{Binding Label}" MaxWidth="160"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center"
+                                               FontSize="{DynamicResource FontXs}" />
+                                    <Button Classes="tile-btn" ToolTip.Tip="Close tab (Ctrl+W)"
+                                            Command="{Binding #Root.((vm:BrowserTileViewModel)DataContext).CloseTabCommand}"
+                                            CommandParameter="{Binding}">
+                                        <mi:MaterialIcon Kind="Close" Width="11" Height="11" />
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Classes="tile-btn" Command="{Binding NewTabCommand}" ToolTip.Tip="New tab (Ctrl+T)"
+                        VerticalAlignment="Center">
+                    <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
+                </Button>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- The address bar. The tile's own header above it already carries full-workspace and close;
+             these are the page's controls. -->
+        <DockPanel DockPanel.Dock="Top" Margin="6,4,6,4">
+            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="2" Margin="0,0,6,0">
+                <Button Classes="tile-btn" Command="{Binding BackCommand}"
+                        IsEnabled="{Binding SelectedTab.CanGoBack}" ToolTip.Tip="Back">
+                    <mi:MaterialIcon Kind="ArrowLeft" Width="14" Height="14" />
+                </Button>
+                <Button Classes="tile-btn" Command="{Binding ForwardCommand}"
+                        IsEnabled="{Binding SelectedTab.CanGoForward}" ToolTip.Tip="Forward">
+                    <mi:MaterialIcon Kind="ArrowRight" Width="14" Height="14" />
+                </Button>
+                <Button Classes="tile-btn" Command="{Binding ReloadCommand}" ToolTip.Tip="Reload">
+                    <mi:MaterialIcon Kind="Refresh" Width="14" Height="14" />
+                </Button>
+                <Button Classes="tile-btn" Command="{Binding GoHomeCommand}" ToolTip.Tip="Home">
+                    <mi:MaterialIcon Kind="HomeOutline" Width="14" Height="14" />
+                </Button>
+            </StackPanel>
+            <mi:MaterialIcon DockPanel.Dock="Right" Kind="ShieldLockOutline" Width="14" Height="14"
+                             Margin="6,0,0,0" Foreground="{DynamicResource AccentHover}"
+                             IsVisible="{Binding UsesProxy}"
+                             ToolTip.Tip="Going out through the proxy set in Settings → General → Browser" />
+            <TextBox x:Name="AddressBox" Classes="setting"
+                     Text="{Binding AddressText}"
+                     PlaceholderText="Address or search"
+                     FontSize="{DynamicResource FontSm}" />
+        </DockPanel>
+
+        <TextBlock DockPanel.Dock="Top" Margin="8,0,8,4" TextWrapping="Wrap"
+                   FontSize="{DynamicResource FontXs}"
+                   Foreground="{DynamicResource TextMuted}"
+                   IsVisible="{Binding ProxyChangePending}"
+                   Text="The proxy changed in Settings. It applies once every browser tile has been closed." />
+
+        <Panel>
+            <!-- What shows while the page is hidden: the page is a native window drawn over everything,
+                 so it stands down while a dialog is open rather than covering it. -->
+            <TextBlock x:Name="HiddenNote" Text="Page hidden while a dialog is open."
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontSize="{DynamicResource FontSm}"
+                       Foreground="{DynamicResource TextMuted}" IsVisible="False" />
+            <TextBlock Text="{Binding Problem}" TextWrapping="Wrap" Margin="16"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontSize="{DynamicResource FontSm}"
+                       Foreground="{DynamicResource DangerText}"
+                       IsVisible="{Binding Problem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <!-- One page per tab, stacked; only the selected one is visible. -->
+            <Panel x:Name="PageHost" />
+        </Panel>
+    </DockPanel>
+</UserControl>
