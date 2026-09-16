@@ -150,6 +150,10 @@ public sealed class OpenCodeAgent : AiAgent, Sessions.IConversationalAgent
     /// <remarks><c>opencode run --help</c>: "model to use in the format of provider/model".</remarks>
     public override string QualifiedModel(AgentRuntime runtime) => WithProviderPrefix(runtime);
 
+    /// <inheritdoc />
+    public override string InstanceModel(AgentRuntime runtime, string qualifiedModel) =>
+        WithoutProviderPrefix(runtime, qualifiedModel);
+
     /// <summary>
     /// opencode has its own slot for the small, frequent calls: <c>small_model</c> in its config.
     /// </summary>

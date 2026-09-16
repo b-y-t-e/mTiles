@@ -44,6 +44,12 @@ public sealed partial class MessageItemViewModel : TimelineItemViewModel
     public bool IsUser => Role == MessageRole.User;
     public bool IsAssistant => Role == MessageRole.Assistant;
 
+    /// <summary>The images sent with the message. They never change after it is sent.</summary>
+    public IReadOnlyList<ImageAttachment> Images { get; private set; } = [];
+
+    public bool HasImages => Images.Count > 0;
+    public bool HasText => Text.Length > 0;
+
     public override bool CanShow(object entry) => entry is MessageEntry message && message.Role == Role;
 
     public override void Update(object entry)
@@ -53,6 +59,16 @@ public sealed partial class MessageItemViewModel : TimelineItemViewModel
         Source = message;
         Text = message.Text;
         IsStreaming = message.IsStreaming;
+        // By reference, never by count: a row is reused for the message that now stands in its place, and
+        // one carrying as many images as the last would otherwise go on showing the old conversation's.
+        if (!ReferenceEquals(Images, message.Images))
+        {
+            Images = message.Images;
+            OnPropertyChanged(nameof(Images));
+            OnPropertyChanged(nameof(HasImages));
+        }
+
+        OnPropertyChanged(nameof(HasText));
     }
 }
 

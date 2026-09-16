@@ -118,6 +118,87 @@ public class LiveAgentConversationTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>A red square, sixteen pixels a side.</summary>
+    private const string RedSquarePng =
+        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGElEQVR4nGP4z8BAEiJN9aiGUQ0MQ0kDAJD5/wGaM2eTAAAAAElFTkSuQmCC";
+
+    /// <summary>
+    /// The session lists what it can switch to, takes a mode change while it runs (or asks for a restart),
+    /// and an image sent with a message reaches the model.
+    /// </summary>
+    /// <remarks><c>MTILES_LIVE_SWITCH_MODEL</c> names a model to switch to for an agent
+    /// (<c>claude=haiku;pi=openai-codex/gpt-5.5</c>); without it only the mode is switched.</remarks>
+    [Theory]
+    [InlineData("claude")]
+    [InlineData("codex")]
+    [InlineData("opencode")]
+    [InlineData("pi")]
+    [InlineData("agy")]
+    [InlineData("grok")]
+    public async Task Switching_settings_and_sending_an_image(string agentId)
+    {
+        var wanted = (Environment.GetEnvironmentVariable("MTILES_LIVE_AGENTS") ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (!wanted.Contains(agentId, StringComparer.OrdinalIgnoreCase))
+        {
+            output.WriteLine($"Skipped: MTILES_LIVE_AGENTS does not name {agentId}.");
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), $"mtiles-live-switch-{agentId}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var agent = AiAgentCatalog.Find(agentId)!;
+        var instance = AiAgentCatalog.SeedInstanceFor(agent);
+        instance.DefaultBehaviour = AiBehaviour.Auto;
+        instance.DefaultEffort = AiEffort.Low;
+        foreach (var pair in (Environment.GetEnvironmentVariable("MTILES_LIVE_MODELS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+            if (pair.Split('=', 2) is [var id, var model] && id.Equals(agentId, StringComparison.OrdinalIgnoreCase))
+                instance.Model = model;
+        var switchTo = (Environment.GetEnvironmentVariable("MTILES_LIVE_SWITCH_MODEL") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair => pair.Split('=', 2)).FirstOrDefault(pair => pair.Length == 2 && pair[0] == agentId)?[1];
+
+        var (launch, problem) = await AgentSessionLauncher.PrepareAsync(new AppSettings(), agent, instance, root,
+            Guid.NewGuid().ToString(), null, CancellationToken.None);
+        Assert.True(launch is not null, problem);
+        launch = launch! with { ExecutablePath = mTiles.Services.ExecutableFinder.Anywhere(agent.BinaryName)! };
+
+        await using var host = new AgentConversationHost(
+            new ConversationRecord(Guid.NewGuid().ToString(), agent.Id, root, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+            new SqliteConversationStore(Path.Combine(Path.GetTempPath(), $"{Path.GetFileName(root)}.db")), null);
+        var turnDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var restartAsked = false;
+        host.RestartRequested += _ => restartAsked = true;
+        host.Changed += (_, e) =>
+        {
+            output.WriteLine($"{e.GetType().Name}: {Describe(e)}");
+            if (e is TurnCompleted) turnDone.TrySetResult();
+        };
+
+        await host.StartAsync(sink => AgentSessionLauncher.Create(agent, launch, sink), CancellationToken.None);
+        var options = host.State.Options;
+        Assert.NotNull(options);
+        output.WriteLine($"models offered: {options!.Models.Count} ({string.Join(", ", options.Models.Take(5).Select(m => m.Id))})");
+        output.WriteLine($"modes offered: {string.Join(", ", options.Modes.Select(m => m.Id))}");
+
+        // Not Plan: a planning agent answers "what colour is this" with a remark about planning.
+        var otherMode = options.Modes.Select(m => m.Id)
+            .FirstOrDefault(id => id != host.State.Mode && id is not ("ToolDefault" or "Plan"));
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings(Model: switchTo, Mode: otherMode)), CancellationToken.None);
+        output.WriteLine($"after the change: model={host.State.Model} mode={host.State.Mode} restartAsked={restartAsked}");
+        if (!restartAsked && otherMode is not null) Assert.Equal(otherMode, host.State.Mode);
+
+        if (restartAsked) return; // The owner would start the session again; nothing more to see in this host.
+
+        await host.ExecuteAsync(new SendMessage("What colour is this image? Answer with one word.",
+            [new ImageAttachment("image/png", RedSquarePng, "red.png")]), CancellationToken.None);
+        await turnDone.Task.WaitAsync(TimeSpan.FromMinutes(4));
+
+        var reply = string.Join(" | ", host.State.Timeline.OfType<MessageEntry>()
+            .Where(m => m.Role == MessageRole.Assistant).Select(m => m.Text));
+        output.WriteLine($"reply: {reply}");
+        if (agentId != "agy") Assert.Matches(@"(?i)\bred\b", reply);
+    }
+
     private static string Describe(AgentEvent e) => e switch
     {
         AssistantTextDelta d => d.Delta.Replace("\n", "⏎"),

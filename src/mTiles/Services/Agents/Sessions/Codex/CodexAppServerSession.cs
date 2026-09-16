@@ -21,8 +21,14 @@ namespace mTiles.Services.Agents.Sessions.Codex;
 /// <para>A <c>turn/start</c> sent while a turn runs is queued by codex (t3code), so a second message is
 /// counted and becomes the next turn when the running one completes.</para>
 /// </remarks>
-public sealed class CodexAppServerSession(AgentSessionLaunch launch, IAgentEventSink sink) : IAgentSession, IProcessBackedSession
+public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent agent, IAgentEventSink sink)
+    : IAgentSession, IProcessBackedSession
 {
+    // What the next turn runs as. Codex takes all three on every turn/start, so a change is a new value here
+    // and nothing is restarted.
+    private string _model = launch.Model;
+    private AiBehaviour _behaviour = launch.Behaviour;
+    private AiEffort _effort = launch.Effort;
     private readonly PendingReplies<ApprovalDecision> _approvals = new();
     private readonly PendingReplies<IReadOnlyDictionary<string, IReadOnlyList<string>>?> _questions = new();
     private readonly Lock _turnGate = new();
@@ -67,8 +73,51 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, IAgentEvent
         }
 
         _threadId = started.Prop("thread").Str("id");
-        sink.Emit(new SessionConfigured(started.Str("model"), null, _threadId));
+        await ReportOptionsAsync(peer, ct);
+        sink.Emit(new SessionConfigured(started.Str("model"), SessionSettingOptions.ModeId(_behaviour), _threadId,
+            SessionSettingOptions.EffortId(_effort)));
         sink.Emit(new SessionStateChanged(AgentSessionState.Ready));
+    }
+
+    /// <summary>
+    /// codex's models from <c>model/list</c> (codex-cli 0.153.2's schema: <c>data[]</c> of <c>model</c>,
+    /// <c>displayName</c>, <c>description</c>, <c>hidden</c>), beside the modes and efforts this agent supports.
+    /// </summary>
+    /// <remarks>A list that cannot be read is an empty one: the model field still takes a name typed by hand.</remarks>
+    private async Task ReportOptionsAsync(JsonRpcPeer peer, CancellationToken ct)
+    {
+        List<SessionOption> models = [];
+        try
+        {
+            var listed = await peer.RequestAsync("model/list", new { }, ct, TimeSpan.FromSeconds(20));
+            models.AddRange(listed.Items("data")
+                .Where(m => m.Prop("hidden") is not { ValueKind: JsonValueKind.True })
+                .Select(m => m.Str("model") ?? m.Str("id"))
+                .OfType<string>()
+                .Distinct()
+                .Select(id => new SessionOption(id, id)));
+        }
+        catch (Exception ex) when (ex is JsonRpcException or TimeoutException)
+        {
+        }
+
+        var instance = launch.Runtime.Instance;
+        sink.Emit(new SessionOptionsReported(models, SessionSettingOptions.Modes(agent, instance),
+            SessionSettingOptions.Efforts(agent, instance)));
+    }
+
+    /// <summary>Taken by the next <c>turn/start</c>, which carries the model, the effort and the permissions.</summary>
+    public Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
+    {
+        lock (_turnGate)
+        {
+            if (settings.Model is { Length: > 0 } model) _model = model;
+            if (SessionSettingOptions.ParseMode(settings.Mode) is { } mode) _behaviour = mode;
+            if (SessionSettingOptions.ParseEffort(settings.Effort) is { } effort) _effort = effort;
+        }
+
+        sink.Emit(new SessionConfigured(settings.Model, settings.Mode, null, settings.Effort));
+        return Task.FromResult(SettingsChangeOutcome.Applied);
     }
 
     public async Task SendAsync(AgentTurnInput input, CancellationToken ct)
@@ -87,14 +136,19 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, IAgentEvent
         items.AddRange(input.Images.Select(image =>
             (object)new { type = "image", url = $"data:{image.MimeType};base64,{image.Base64Data}" }));
 
-        var (approval, sandbox) = CodexAgent.AppServerPermissions(launch.Behaviour);
+        string model;
+        AiBehaviour behaviour;
+        AiEffort currentEffort;
+        lock (_turnGate) (model, behaviour, currentEffort) = (_model, _behaviour, _effort);
+
+        var (approval, sandbox) = CodexAgent.AppServerPermissions(behaviour);
         var parameters = new Dictionary<string, object?>
         {
             ["threadId"] = _threadId,
             ["input"] = items,
         };
-        if (launch.Model.Length > 0) parameters["model"] = launch.Model;
-        if (AiEfforts.Name(AiEfforts.RoundToNearest(launch.Effort, CodexAgent.AppServerEfforts)) is { } effort)
+        if (model.Length > 0) parameters["model"] = model;
+        if (AiEfforts.Name(AiEfforts.RoundToNearest(currentEffort, CodexAgent.AppServerEfforts)) is { } effort)
             parameters["effort"] = effort;
         if (approval is not null) parameters["approvalPolicy"] = approval;
         if (sandbox is not null) parameters["sandboxPolicy"] = new { type = SandboxPolicyType(sandbox) };

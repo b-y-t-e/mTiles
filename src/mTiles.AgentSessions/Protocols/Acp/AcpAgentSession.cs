@@ -101,12 +101,61 @@ public abstract class AcpAgentSession : IAgentSession, IProcessBackedSession
         }
 
         await AfterSessionStartedAsync(session, ct);
+        Sink.Emit(new SessionOptionsReported(
+            [
+                .. session.Prop("models").Items("availableModels")
+                    .Where(m => m.Str("modelId") is not null)
+                    .Select(m => new SessionOption(m.Str("modelId")!, m.Str("name") ?? m.Str("modelId")!, m.Str("description"))),
+            ],
+            ModeOptions,
+            EffortOptions));
         Sink.Emit(new SessionConfigured(
-            session.Prop("models").Str("currentModelId"),
-            session.Prop("modes").Str("currentModeId"),
-            SessionId));
+            CurrentModel ?? session.Prop("models").Str("currentModelId"),
+            CurrentMode,
+            SessionId,
+            CurrentEffort));
         Sink.Emit(new SessionStateChanged(AgentSessionState.Ready));
     }
+
+    /// <summary>
+    /// Switches the model through <c>session/set_model</c>; a mode or an effort needs a restart, because
+    /// what they are is the vendor's command line or extension, which a subclass answers for.
+    /// </summary>
+    public virtual async Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
+    {
+        if (settings.Mode is not null || settings.Effort is not null) return SettingsChangeOutcome.NeedsRestart;
+        if (settings.Model is not { Length: > 0 } model) return SettingsChangeOutcome.Applied;
+        if (SessionId is null) return SettingsChangeOutcome.NeedsRestart;
+
+        try
+        {
+            await Peer.RequestAsync("session/set_model", new { sessionId = SessionId, modelId = model }, ct,
+                TimeSpan.FromSeconds(30));
+        }
+        catch (Exception ex) when (ex is JsonRpcException or TimeoutException)
+        {
+            Sink.Emit(new NoticeRaised(NoticeLevel.Warning, $"The agent did not switch to {model}: {ex.Message}"));
+            return SettingsChangeOutcome.Rejected;
+        }
+
+        Sink.Emit(new SessionConfigured(model, null, null) { TurnId = _turnId });
+        return SettingsChangeOutcome.Applied;
+    }
+
+    /// <summary>The permission modes this session offers, as ids a viewer sends back. None by default.</summary>
+    protected virtual IReadOnlyList<SessionOption> ModeOptions => [];
+
+    /// <summary>The efforts this session offers. None by default.</summary>
+    protected virtual IReadOnlyList<SessionOption> EffortOptions => [];
+
+    /// <summary>The model asked for at launch, where the subclass knows it better than the agent's answer.</summary>
+    protected virtual string? CurrentModel => null;
+
+    /// <summary>The mode this session runs in, as one of <see cref="ModeOptions"/>.</summary>
+    protected virtual string? CurrentMode => null;
+
+    /// <summary>The effort this session runs at, as one of <see cref="EffortOptions"/>.</summary>
+    protected virtual string? CurrentEffort => null;
 
     public async Task SendAsync(AgentTurnInput input, CancellationToken ct)
     {

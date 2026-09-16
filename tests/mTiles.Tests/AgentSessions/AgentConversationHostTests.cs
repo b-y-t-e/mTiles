@@ -1,4 +1,4 @@
-using mTiles.AgentSessions;
+﻿using mTiles.AgentSessions;
 using mTiles.AgentSessions.Checkpoints;
 using mTiles.AgentSessions.Commands;
 using mTiles.AgentSessions.Conversation;
@@ -23,6 +23,101 @@ public class AgentConversationHostTests : IDisposable
 
     private static ConversationRecord Record(string agent = "claude") =>
         new("tile-1", agent, "/w", null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+
+    [Fact]
+    public async Task A_change_the_session_takes_is_what_the_conversation_now_runs_as()
+    {
+        var session = new FakeSession();
+        await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
+        var restarts = 0;
+        host.RestartRequested += _ => restarts++;
+        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings("opus", "Plan")), CancellationToken.None);
+
+        Assert.Equal(("opus", "Plan"), (host.State.Model, host.State.Mode));
+        Assert.Equal(0, restarts);
+    }
+
+    [Fact]
+    public async Task A_change_the_session_cannot_take_asks_for_a_restart_but_never_under_a_working_agent()
+    {
+        var session = new FakeSession { SettingsOutcome = SettingsChangeOutcome.NeedsRestart };
+        await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
+        List<SessionSettings> restarts = [];
+        host.RestartRequested += restarts.Add;
+        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+
+        session.Say(new TurnStarted { TurnId = "t" });
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings(Effort: "Max")), CancellationToken.None);
+        Assert.Empty(restarts);
+        Assert.Contains(host.State.Timeline, e => e is NoticeEntry { Level: NoticeLevel.Warning });
+
+        session.Say(new TurnCompleted(TurnOutcome.Completed) { TurnId = "t" });
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings(Effort: "Max")), CancellationToken.None);
+        Assert.Equal("Max", Assert.Single(restarts).Effort);
+    }
+
+    [Fact]
+    public async Task A_change_the_agent_refuses_is_neither_kept_nor_restarted_for()
+    {
+        var session = new FakeSession { SettingsOutcome = SettingsChangeOutcome.Rejected };
+        await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
+        var reported = 0;
+        host.SettingsApplied += _ => reported++;
+        host.RestartRequested += _ => reported++;
+        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings("opsu")), CancellationToken.None);
+
+        Assert.Equal(0, reported);
+        Assert.NotEqual("opsu", host.State.Model);
+    }
+
+    [Fact]
+    public async Task A_change_taken_in_part_keeps_the_part_taken_and_restarts_only_for_the_rest()
+    {
+        var session = new FakeSession
+        {
+            OutcomeFor = change => change switch
+            {
+                { Model: not null } => SettingsChangeOutcome.Applied,
+                { Mode: not null } => SettingsChangeOutcome.Rejected,
+                _ => SettingsChangeOutcome.NeedsRestart,
+            },
+        };
+        await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
+        List<SessionSettings> applied = [];
+        List<SessionSettings> restarts = [];
+        host.SettingsApplied += applied.Add;
+        host.RestartRequested += restarts.Add;
+        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings("opus", "Plan", "Max")),
+            CancellationToken.None);
+
+        Assert.Equal(new SessionSettings(Model: "opus"), Assert.Single(applied));
+        Assert.Equal(new SessionSettings(Effort: "Max"), Assert.Single(restarts));
+        Assert.Equal("opus", host.State.Model);
+        Assert.NotEqual("Plan", host.State.Mode);
+    }
+
+    [Fact]
+    public async Task The_catalogue_a_session_reports_reaches_the_viewer_and_never_the_store()
+    {
+        var store = new SqliteConversationStore(_path);
+        var session = new FakeSession();
+        var host = new AgentConversationHost(Record(), store, null);
+        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+
+        session.Say(new SessionOptionsReported([new SessionOption("opus", "Opus")], [], []));
+        session.Say(new AssistantMessageCompleted("m", "done"));
+        await host.DisposeAsync();
+
+        Assert.Equal("opus", Assert.Single(host.State.Options!.Models).Id);
+        Assert.DoesNotContain(store.ReadEvents("tile-1"), e => e is SessionOptionsReported);
+        Assert.Contains(store.ReadEvents("tile-1"), e => e is AssistantMessageCompleted);
+    }
 
     [Fact]
     public async Task A_message_is_recorded_by_the_host_and_a_turn_is_bracketed_by_two_checkpoints()
@@ -421,6 +516,19 @@ public class AgentConversationHostTests : IDisposable
             }
             Sent.Add(input.Text);
             return Task.CompletedTask;
+        }
+
+        public SettingsChangeOutcome SettingsOutcome { get; init; } = SettingsChangeOutcome.Applied;
+
+        /// <summary>The outcome per change, where a test needs one setting taken and another not.</summary>
+        public Func<SessionSettings, SettingsChangeOutcome>? OutcomeFor { get; init; }
+
+        public Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
+        {
+            var outcome = OutcomeFor?.Invoke(settings) ?? SettingsOutcome;
+            if (outcome == SettingsChangeOutcome.Applied)
+                _sink?.Emit(new SessionConfigured(settings.Model, settings.Mode, null, settings.Effort));
+            return Task.FromResult(outcome);
         }
 
         public Task InterruptAsync(CancellationToken ct) => Task.CompletedTask;

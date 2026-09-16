@@ -25,6 +25,11 @@ public partial class GoalTileView : UserControl
     public GoalTileView()
     {
         InitializeComponent();
+
+        // The keys and gestures every conversation's composer answers to — see ComposerInput.
+        ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage);
+        ComposerInput.Attach(PlanBox, () => (DataContext as GoalTileViewModel)?.ApproveOrChangeCommand.Execute(null),
+            () => IsPickingAFile);
     }
 
 
@@ -265,22 +270,6 @@ public partial class GoalTileView : UserControl
     ];
 
     /// <summary>
-    /// Enter in the plan box sends, as it does in the composer and in an answer box.
-    /// </summary>
-    /// <remarks>
-    /// This box takes line breaks, so Shift+Enter is the one that adds one. An empty box approves —
-    /// the command decides that, not this, so Enter means the same thing the button says it does.
-    /// </remarks>
-    private void PlanBox_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None) return;
-        if (DataContext is not GoalTileViewModel vm || IsPickingAFile) return;
-
-        vm.ApproveOrChangeCommand.Execute(null);
-        e.Handled = true;
-    }
-
-    /// <summary>
     /// Puts the caret in the first answer box when the panel arrives.
     /// </summary>
     /// <remarks>
@@ -345,30 +334,6 @@ public partial class GoalTileView : UserControl
     }
 
     /// <summary>
-    /// The composer draws the field's border, so it has to show the field's focus as well.
-    /// </summary>
-    private void InputBox_FocusChanged(object? sender, RoutedEventArgs e)
-        => Composer.Classes.Set("focused", InputBox.IsFocused);
-
-    /// <summary>
-    /// The composer looks like one field with a prompt in it, so the whole of it has to behave like
-    /// one: clicking the padding, or the prompt glyph, puts the caret in the box. Clicks that land on
-    /// the field or the Send button are left alone — those already do the right thing.
-    /// </summary>
-    private void Composer_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (e.Source is Visual source &&
-            (source.FindAncestorOfType<TextBox>(includeSelf: true) != null ||
-             source.FindAncestorOfType<Button>(includeSelf: true) != null))
-        {
-            return;
-        }
-
-        InputBox.Focus();
-        InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
-    }
-
-    /// <summary>
     /// Enter in a question's answer box sends every answer, as Enter in the composer sends the message.
     /// </summary>
     /// <remarks>
@@ -387,83 +352,32 @@ public partial class GoalTileView : UserControl
         e.Handled = true;
     }
 
-    private void InputBox_KeyDown(object? sender, KeyEventArgs e)
+    /// <summary>Enter in the composer.</summary>
+    /// <remarks>
+    /// Only with something typed, and that is the whole rule: Enter is what sends what is in the box, and
+    /// on an empty box it has always been a no-op. Wired straight to the primary segment it stopped being
+    /// one — an empty box beside uncommitted changes reads as "Detect goal", so a stray Enter on a fresh
+    /// tile started a paid run (the tile has nothing to discard, so the confirmation lets it through in
+    /// silence) that nobody asked for. Detection is a click, not a keystroke; the primary command still
+    /// dispatches for both, so a typed goal goes the one way its label says.
+    /// </remarks>
+    private void SendFromComposer()
     {
-        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None && !IsPickingAFile)
-        {
-            // Only with something typed, and that is the whole rule: Enter is what sends what is in
-            // the box, and on an empty box it has always been a no-op. Wired straight to the primary
-            // segment it stopped being one — an empty box beside uncommitted changes reads as
-            // "Detect goal", so a stray Enter on a fresh tile started a paid run (the tile has nothing
-            // to discard, so the confirmation lets it through in silence) that nobody asked for.
-            // Detection is a click, not a keystroke; the primary command still dispatches for both, so
-            // a typed goal goes the one way its label says.
-            if (DataContext is GoalTileViewModel { HasTypedGoal: true } vm &&
-                vm.PrimaryActionCommand.CanExecute(null))
-            {
-                vm.PrimaryActionCommand.Execute(null);
-                e.Handled = true;
-            }
-        }
-
-        if (e.Key != Key.V) return;
-
-        // Alt+V is the image whatever else is on the clipboard, and nothing else wants the key — the
-        // box ignores it — so it is marked handled and taken outright. Ctrl+V is deliberately *not*
-        // marked: the box's own paste has to go on working, and whether there is an image to take
-        // instead cannot be known here, because reading a clipboard is asynchronous and the key has
-        // been dispatched long before the answer comes back. Letting both run is safe precisely
-        // because the two are exclusive — the image is taken only when there is no text, which is the
-        // case in which the box's paste does nothing at all.
-        if (e.KeyModifiers == KeyModifiers.Alt)
-        {
-            e.Handled = true;
-            _ = AttachClipboardImageAsync(evenWhenThereIsText: true);
-        }
-        else if (e.KeyModifiers == KeyModifiers.Control)
-        {
-            _ = AttachClipboardImageAsync(evenWhenThereIsText: false);
-        }
+        if (DataContext is GoalTileViewModel { HasTypedGoal: true } vm &&
+            vm.PrimaryActionCommand.CanExecute(null))
+            vm.PrimaryActionCommand.Execute(null);
     }
 
-    /// <summary>
-    /// Hands the clipboard's image to the tile, as PNG bytes.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>Text wins when the clipboard holds both</b>, which is the rule the terminal tile
-    /// already follows: a copy from a browser or a screenshot tool routinely puts text and an image on
-    /// the clipboard at once, and pasting the picture instead of the words the user selected is the
-    /// more surprising of the two mistakes. <b>Alt+V</b> is the way past it, as it is in a terminal
-    /// tile — and here it is the way past it <em>everywhere</em>, because the clipboard is read on this
-    /// side. In a terminal tile that gesture is only as good as the agent's own keymap, and Claude Code
-    /// binds it on Windows and WSL alone.</para>
-    /// <para>Encoded here rather than in the view model: what Avalonia hands back is a decoded bitmap,
+    /// <summary>Hands a pasted image to the tile, as PNG bytes.</summary>
+    /// <remarks>Encoded here rather than in the view model: what Avalonia hands back is a decoded bitmap,
     /// and turning one into bytes needs the imaging stack. The view model is given something it can be
-    /// handed by a test.</para>
-    /// </remarks>
-    private async Task AttachClipboardImageAsync(bool evenWhenThereIsText)
+    /// handed by a test.</remarks>
+    private void AttachImage(Avalonia.Media.Imaging.Bitmap bitmap)
     {
         if (DataContext is not GoalTileViewModel vm) return;
-        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
-
-        try
-        {
-            if (!evenWhenThereIsText && await clipboard.TryGetTextAsync() is { Length: > 0 }) return;
-            if (await clipboard.TryGetBitmapAsync() is not { } bitmap) return;
-
-            using (bitmap)
-            {
-                using var png = new MemoryStream();
-                bitmap.Save(png);
-                vm.AttachImageCommand.Execute(png.ToArray());
-            }
-        }
-        catch (Exception ex)
-        {
-            // A clipboard can be held by another application, and an image on it can be one this
-            // machine cannot decode. Neither is worth a dialog over a paste that can be tried again.
-            System.Diagnostics.Trace.TraceWarning($"Reading an image from the clipboard failed: {ex.Message}");
-        }
+        using var png = new MemoryStream();
+        bitmap.Save(png);
+        vm.AttachImageCommand.Execute(png.ToArray());
     }
 
     /// <summary>

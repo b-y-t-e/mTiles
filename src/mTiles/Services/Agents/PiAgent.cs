@@ -96,6 +96,10 @@ public sealed class PiAgent : AiAgent, Sessions.IConversationalAgent
     public override string QualifiedModel(AgentRuntime runtime) => WithProviderPrefix(runtime);
 
     /// <inheritdoc />
+    public override string InstanceModel(AgentRuntime runtime, string qualifiedModel) =>
+        WithoutProviderPrefix(runtime, qualifiedModel);
+
+    /// <inheritdoc />
     /// <remarks>The prefix is the only place this CLI hears which service to use.</remarks>
     public override bool NamesProviderInModel => true;
 

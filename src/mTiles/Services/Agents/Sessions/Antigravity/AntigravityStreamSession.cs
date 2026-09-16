@@ -39,18 +39,62 @@ public sealed class AntigravityStreamSession(AgentSessionLaunch launch, Antigrav
     private int _queuedTurns;
     private bool _stopping;
 
+    // What the next process is started with. agy reads all three from its command line only, and its process
+    // is already started again for each conversation it resumes, so a change between turns retires the idle
+    // process and the next message starts one with the new flags on the same conversation.
+    private string _model = launch.Model;
+    private AiBehaviour _behaviour = launch.Behaviour;
+    private AiEffort _effort = launch.Effort;
+
     /// <inheritdoc />
     public int? ChildProcessId => _process?.ProcessId;
 
     public Task StartAsync(CancellationToken ct)
     {
-        StartProcess();
+        lock (_gate) StartProcess();
+        var instance = launch.Runtime.Instance;
+        // No model list: agy prints its models for a person (`agy models`), not in a form worth parsing, so
+        // the field takes a name typed by hand.
+        sink.Emit(new SessionOptionsReported([], SessionSettingOptions.Modes(agent, instance),
+            SessionSettingOptions.Efforts(agent, instance)));
+        sink.Emit(new SessionConfigured(_model.Length > 0 ? _model : null, SessionSettingOptions.ModeId(_behaviour),
+            null, SessionSettingOptions.EffortId(_effort)));
         sink.Emit(new SessionStateChanged(AgentSessionState.Ready));
         return Task.CompletedTask;
     }
 
+    /// <summary>Taken by the next process — so only between turns; mid-turn it would end the turn.</summary>
+    public async Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
+    {
+        AgentProcess? retired;
+        lock (_gate)
+        {
+            if (_turnId is not null) return SettingsChangeOutcome.NeedsRestart;
+            if (settings.Model is { Length: > 0 } model) _model = model;
+            if (SessionSettingOptions.ParseMode(settings.Mode) is { } mode) _behaviour = mode;
+            if (SessionSettingOptions.ParseEffort(settings.Effort) is { } effort) _effort = effort;
+            retired = _process;
+            _process = null;
+            _stopping = retired is not null;
+        }
+
+        if (retired is not null) await retired.DisposeAsync();
+        lock (_gate) _stopping = false;
+
+        sink.Emit(new SessionConfigured(settings.Model, settings.Mode, null, settings.Effort));
+        return SettingsChangeOutcome.Applied;
+    }
+
     public async Task SendAsync(AgentTurnInput input, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(input.Text))
+        {
+            // Only images, which agy cannot take: sending an empty prompt would spend a turn on nothing.
+            sink.Emit(new NoticeRaised(NoticeLevel.Warning,
+                "agy's stream input takes text only; a message holding nothing but images was not sent."));
+            return;
+        }
+
         if (input.Images.Count > 0)
             sink.Emit(new NoticeRaised(NoticeLevel.Warning, "agy's stream input takes text only; the images were not sent."));
 
@@ -120,9 +164,9 @@ public sealed class AntigravityStreamSession(AgentSessionLaunch launch, Antigrav
     private AgentProcess StartProcess()
     {
         List<string> arguments = ["--input-format", "stream-json", "--output-format", "stream-json"];
-        arguments.AddRange(agent.BehaviourArgs(launch.Behaviour, AiUsage.Interactive));
-        arguments.AddRange(agent.EffortArgs(launch.Effort, AiUsage.Interactive));
-        arguments.AddRange(agent.ModelArgs(launch.Model, AiUsage.Interactive));
+        arguments.AddRange(agent.BehaviourArgs(_behaviour, AiUsage.Interactive));
+        arguments.AddRange(agent.EffortArgs(_effort, AiUsage.Interactive));
+        arguments.AddRange(agent.ModelArgs(_model, AiUsage.Interactive));
         arguments.AddRange(["--add-dir", launch.WorkingDirectory]);
         if (_conversationId is { Length: > 0 } conversation) arguments.AddRange(["--conversation", conversation]);
         arguments.AddRange(launch.ExtraArgs);

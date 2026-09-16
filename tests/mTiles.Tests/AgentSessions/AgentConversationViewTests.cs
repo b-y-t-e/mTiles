@@ -1,4 +1,6 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Threading;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.VisualTree;
@@ -20,6 +22,9 @@ namespace mTiles.Tests.AgentSessions;
 /// present at once.</remarks>
 public class AgentConversationViewTests
 {
+    internal const string OnePixelPng =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
     [Fact]
     public void Every_kind_of_entry_lays_out()
     {
@@ -35,7 +40,11 @@ public class AgentConversationViewTests
 
             var state = ConversationReducer.Replay(
             [
-                new UserMessageAdded("u", "Fix the build", []),
+                new UserMessageAdded("u", "Fix the build", [new ImageAttachment("image/png", OnePixelPng, "shot.png")]),
+                new SessionOptionsReported([new SessionOption("opus", "Opus")],
+                    [new SessionOption("Plan", "plan"), new SessionOption("Auto", "auto")],
+                    [new SessionOption("Low", "low"), new SessionOption("High", "high")]),
+                new SessionConfigured("opus", "Auto", "token", "High"),
                 new TurnStarted { TurnId = "t" },
                 new ReasoningDelta("r", "Let me look.\nThen fix."),
                 new ToolStarted("c", ToolKind.Command, "Bash", "dotnet build", new ToolDetail(Command: "dotnet build")),
@@ -96,12 +105,37 @@ public class AgentConversationViewTests
             Assert.Equal(mTiles.Models.TileActivity.Blocked, vm.Activity);
 
             var texts = view.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
+            Assert.Equal(("Auto", "High"), (vm.SelectedMode?.Id, vm.SelectedEffort?.Id));
+            Assert.Equal("opus", vm.ModelText);
+            var images = view.GetVisualDescendants().OfType<Avalonia.Controls.Image>().ToList();
+            Assert.Contains(images, image => image.Source is not null);
             Assert.True(texts.Contains("Edit b.cs"),
                 "Drawn: " + string.Join(" | ", texts.Where(t => !string.IsNullOrEmpty(t))) +
                 " || controls: " + string.Join(",", view.GetVisualDescendants().Select(v => v.GetType().Name).Distinct()));
             Assert.Contains("Proceed?", texts);
+
+            // The Goal tile's controls, not copies: the @ suggestions on the composer and on the answer box
+            // (which reaches the tile's mentions out of a question's template), and offered answers drawn as
+            // its full-width rows.
+            var boxes = view.GetVisualDescendants().OfType<TextBox>().ToList();
+            Assert.Same(vm.FileMentions, FileMentionBehavior.GetMentions(boxes.Single(b => b.Name == "InputBox")));
+            Assert.Same(vm.FileMentions, FileMentionBehavior.GetMentions(boxes.Single(b => b.Classes.Contains("ask-field"))));
+            Assert.Equal(2, view.GetVisualDescendants().OfType<ToggleButton>().Count(b => b.Classes.Contains("ask-option")));
             Assert.True(texts.Contains("1 file changed  +1 −1"),
                 "Drawn: " + string.Join(" | ", texts.Where(t => !string.IsNullOrEmpty(t))));
+
+            // The waiting row is a Border of its own, and a type selector matches the exact type: without
+            // `:is(Border).row` it loses the padding that lines it up with the messages it stands in for.
+            var waiting = view.GetVisualDescendants().OfType<WaitingRow>().Single();
+            Assert.Equal(new Avalonia.Thickness(10, 6), waiting.Padding);
+
+            // The copy button beside a question takes the answer as it stands, not the empty one the template
+            // was realised with.
+            var answer = boxes.Single(b => b.Classes.Contains("ask-field"));
+            answer.Text = "the third option";
+            Dispatcher.UIThread.RunJobs();
+            var copy = view.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("item-copy"));
+            Assert.Contains("the third option", CopyButton.GetText(copy));
             }
             finally
             {

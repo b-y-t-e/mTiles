@@ -48,8 +48,88 @@ public sealed class PiRpcSession(AgentSessionLaunch launch, PiAgent agent, IAgen
         if (await CommandAsync(new JsonObject { ["type"] = "get_state" }, ct, TimeSpan.FromSeconds(60))
             is not { } state) return;
         var data = state.Prop("data");
-        sink.Emit(new SessionConfigured(data.Prop("model").Str("id"), null, data.Str("sessionId") ?? sessionId));
+        await ReportOptionsAsync(ct);
+        sink.Emit(new SessionConfigured(ModelId(data.Prop("model")), null,
+            data.Str("sessionId") ?? sessionId, SessionSettingOptions.EffortId(launch.Effort)));
         sink.Emit(new SessionStateChanged(AgentSessionState.Ready));
+    }
+
+    /// <summary>pi's models from <c>get_available_models</c> (<c>data.models[]</c> of <c>provider</c>, <c>id</c>,
+    /// <c>name</c>, per its <c>docs/rpc.md</c>), spelled <c>provider/id</c> as <c>--model</c> takes them.</summary>
+    private async Task ReportOptionsAsync(CancellationToken ct)
+    {
+        List<SessionOption> models = [];
+        try
+        {
+            if (await CommandAsync(new JsonObject { ["type"] = "get_available_models" }, ct, TimeSpan.FromSeconds(20))
+                is { } listed)
+                models.AddRange(listed.Prop("data").Items("models")
+                    .Select(m => (Id: ModelId(m), Name: m.Str("name")))
+                    .Where(m => m.Id is not null)
+                    .Select(m => new SessionOption(m.Id!, m.Name ?? m.Id!)));
+        }
+        catch (TimeoutException)
+        {
+        }
+
+        // No modes: pi has no permission gate of its own, so a chooser would promise a change nothing makes.
+        sink.Emit(new SessionOptionsReported(SessionSettingOptions.ModelsOfProvider(models, launch.Runtime), [],
+            SessionSettingOptions.Efforts(agent, launch.Runtime.Instance)));
+    }
+
+    private static string? ModelId(JsonElement? model) =>
+        model.Str("id") is { } id ? model.Str("provider") is { } provider ? $"{provider}/{id}" : id : null;
+
+    /// <summary><c>set_model</c> and <c>set_thinking_level</c>, both commands of the running process. pi has no
+    /// permission mode to switch, so one is refused rather than reported as taken.</summary>
+    public async Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
+    {
+        if (settings.Mode is not null)
+        {
+            sink.Emit(new NoticeRaised(NoticeLevel.Warning, "pi has no permission mode to switch."));
+            return SettingsChangeOutcome.Rejected;
+        }
+
+        if (_process is null) return SettingsChangeOutcome.NeedsRestart;
+
+        // Tool default is the absence of a level of ours, and set_thinking_level has no way to say that: skipped,
+        // pi goes on thinking at the level it was started with, so nothing would change while the chooser said it
+        // had. The session is started again instead, without the flag.
+        var level = SessionSettingOptions.ParseEffort(settings.Effort) is { } chosen ? AiEfforts.Name(chosen) : null;
+        if (settings.Effort is not null && level is null) return SettingsChangeOutcome.NeedsRestart;
+
+        try
+        {
+            if (settings.Model is { Length: > 0 } model)
+            {
+                var slash = model.IndexOf('/');
+                var command = new JsonObject { ["type"] = "set_model", ["modelId"] = slash > 0 ? model[(slash + 1)..] : model };
+                if (slash > 0) command["provider"] = model[..slash];
+                if (!await TookAsync(command, $"pi did not switch to {model}", ct)) return SettingsChangeOutcome.Rejected;
+            }
+
+            if (level is not null
+                && !await TookAsync(new JsonObject { ["type"] = "set_thinking_level", ["level"] = level },
+                    $"pi did not switch to {level} thinking", ct))
+                return SettingsChangeOutcome.Rejected;
+        }
+        catch (TimeoutException)
+        {
+            sink.Emit(new NoticeRaised(NoticeLevel.Warning, "pi did not answer the change."));
+            return SettingsChangeOutcome.Rejected;
+        }
+
+        sink.Emit(new SessionConfigured(settings.Model, null, null, settings.Effort));
+        return SettingsChangeOutcome.Applied;
+    }
+
+    /// <summary>Sends a command and says whether pi took it; a refusal is reported with pi's own reason.</summary>
+    private async Task<bool> TookAsync(JsonObject command, string refusal, CancellationToken ct)
+    {
+        var answer = await CommandAsync(command, ct, TimeSpan.FromSeconds(20));
+        if (answer is { } taken && taken.Bool("success") != false) return true;
+        sink.Emit(new NoticeRaised(NoticeLevel.Warning, $"{refusal}: {answer?.Str("error") ?? "pi exited."}"));
+        return false;
     }
 
     public async Task SendAsync(AgentTurnInput input, CancellationToken ct)

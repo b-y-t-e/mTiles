@@ -160,4 +160,15 @@ public sealed class AiAgentInstance
         get;
         set => field = value ?? [];
     } = [];
+
+    /// <summary>A copy that shares nothing mutable with this one, the same id included.</summary>
+    /// <remarks>Member-wise, so a property added later is copied without anybody remembering to; only the
+    /// collections are copied by hand, because a shallow copy would share them.</remarks>
+    public AiAgentInstance Clone()
+    {
+        var copy = (AiAgentInstance)MemberwiseClone();
+        copy.ExtraEnv = new Dictionary<string, string?>(ExtraEnv);
+        copy.ExtraArgs = [.. ExtraArgs];
+        return copy;
+    }
 }

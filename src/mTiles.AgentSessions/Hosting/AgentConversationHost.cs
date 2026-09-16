@@ -173,10 +173,58 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
             case RestoreCheckpoint restore:
                 await RestoreAsync(restore.CheckpointId, ct);
                 break;
+            case ChangeSessionSettings change when session is not null:
+                await ChangeSettingsAsync(session, change.Settings, ct);
+                break;
             default:
                 Emit(new NoticeRaised(NoticeLevel.Warning, "The agent is not running."));
                 break;
         }
+    }
+
+    /// <summary>
+    /// Raised when a settings change needs the session started again — the one thing the host cannot do
+    /// itself, because the launch belongs to whoever started it.
+    /// </summary>
+    /// <remarks>Raised only between turns: restarting under a working agent would end its turn, so a change
+    /// that needs a restart while one runs is refused out loud instead.</remarks>
+    public event Action<SessionSettings>? RestartRequested;
+
+    /// <summary>Raised when the running session took a settings change — the moment it is worth keeping.</summary>
+    /// <remarks>Not raised for a change refused under a working agent, so a viewer that keeps only what this or
+    /// <see cref="RestartRequested"/> reports never keeps a change nothing is running under.</remarks>
+    public event Action<SessionSettings>? SettingsApplied;
+
+    /// <summary>
+    /// Hands the session one setting at a time, so a model it took is reported as taken even when the mode
+    /// beside it is refused or needs a restart — asked all at once, a partial success read as a refusal while
+    /// the agent already ran on the new model.
+    /// </summary>
+    private async Task ChangeSettingsAsync(IAgentSession session, SessionSettings settings, CancellationToken ct)
+    {
+        var applied = new SessionSettings();
+        var needsRestart = new SessionSettings();
+        foreach (var setting in settings.OneByOne())
+        {
+            var outcome = await session.ChangeSettingsAsync(setting, ct);
+            if (outcome == SettingsChangeOutcome.Applied) applied = applied.With(setting);
+            else if (outcome == SettingsChangeOutcome.NeedsRestart) needsRestart = needsRestart.With(setting);
+        }
+
+        if (!applied.IsEmpty) SettingsApplied?.Invoke(applied);
+        if (!needsRestart.IsEmpty) RequestRestart(needsRestart);
+    }
+
+    private void RequestRestart(SessionSettings settings)
+    {
+        if (State.IsWorking)
+        {
+            Emit(new NoticeRaised(NoticeLevel.Warning,
+                "This agent cannot switch while it works. Stop the turn, or change it again once the turn is over."));
+            return;
+        }
+
+        RestartRequested?.Invoke(settings);
     }
 
     /// <summary>The unified diff of one turn, for one file or all of them.</summary>
@@ -221,7 +269,9 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
             _state = ConversationReducer.Apply(_state, stamped);
             state = _state;
             // Queued and recorded in the order they were numbered; a viewer orders by LastSequence.
-            _pending.Writer.TryWrite(stamped);
+            // A transient event is not: it says what the session running now can do, which the next session
+            // says again at start, and storing it would grow the conversation by a model catalogue per launch.
+            if (!stamped.IsTransient) _pending.Writer.TryWrite(stamped);
             UpdateRecord(stamped);
             // Under the gate, so a drain reading _turnEndCapture afterwards cannot miss this turn's capture.
             if (stamped is TurnCompleted) CloseTurn();

@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Material.Icons;
 using mTiles.AgentSessions.Conversation;
 using mTiles.AgentSessions.Events;
@@ -57,6 +58,29 @@ public static class AgentConversationGlyphs
         NoticeLevel.Warning => "WarnText",
         _ => "TextMuted",
     }));
+
+    /// <summary>An attached image decoded at thumbnail width, once per image.</summary>
+    /// <remarks>Cached against the attachment itself, which never changes after it is made: the timeline
+    /// re-realises a message's template whenever it scrolls back into a rebuilt list, and decoding a
+    /// screenshot each time would be most of the cost of drawing the conversation.</remarks>
+    public static readonly FuncValueConverter<ImageAttachment?, Bitmap?> Thumbnail = new(image =>
+        image is null ? null : Thumbnails.GetValue(image, Decode));
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageAttachment, Bitmap?> Thumbnails = new();
+
+    private static Bitmap? Decode(ImageAttachment image)
+    {
+        try
+        {
+            using var stream = new MemoryStream(Convert.FromBase64String(image.Base64Data));
+            return Bitmap.DecodeToWidth(stream, 320);
+        }
+        catch (Exception ex) when (ex is FormatException or ArgumentException or InvalidOperationException
+                                       or NotSupportedException or IOException)
+        {
+            return null;
+        }
+    }
 
     private static IBrush? Brush(string key) =>
         Application.Current?.TryGetResource(key, Application.Current.ActualThemeVariant, out var value) == true

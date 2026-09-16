@@ -56,6 +56,9 @@ public abstract class AiAgent : IAiAgent
     public virtual string QualifiedModel(AgentRuntime runtime) => runtime.RequestedModel;
 
     /// <inheritdoc />
+    public virtual string InstanceModel(AgentRuntime runtime, string qualifiedModel) => qualifiedModel;
+
+    /// <inheritdoc />
     /// <remarks>True unless the agent says otherwise: every agent measured so far either takes a base
     /// URL from the environment or can be handed a configuration file, and an agent nothing is known
     /// about is better offered and seen to fail than hidden on a guess.</remarks>
@@ -126,6 +129,22 @@ public abstract class AiAgent : IAiAgent
         if (model.Length == 0 || runtime.Provider is not { } provider) return model;
 
         return $"{provider.CatalogueId}/{model}";
+    }
+
+    /// <summary>
+    /// The inverse of <see cref="WithProviderPrefix"/>: exactly one leading <c>provider/</c> of the instance's
+    /// own provider taken off, so <c>openrouter/openrouter/auto</c> comes back as <c>openrouter/auto</c>.
+    /// </summary>
+    /// <remarks>A model under another provider, or an instance with none, is left as it is — there is no
+    /// prefix of ours on it to take away.</remarks>
+    protected static string WithoutProviderPrefix(AgentRuntime runtime, string qualifiedModel)
+    {
+        if (runtime.Provider is not { } provider) return qualifiedModel;
+
+        var prefix = $"{provider.CatalogueId}/";
+        return qualifiedModel.StartsWith(prefix, StringComparison.Ordinal) && qualifiedModel.Length > prefix.Length
+            ? qualifiedModel[prefix.Length..]
+            : qualifiedModel;
     }
 
     /// <summary>

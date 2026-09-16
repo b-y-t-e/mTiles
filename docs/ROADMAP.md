@@ -420,3 +420,57 @@ token directory under `~/.ccs/cliproxy/auth/`, its own model spellings and windo
 shape already built blocks it — the provider stays one, the choice is an instance field — but each
 subscription is a measured integration of its own, and one that works should ship before a chooser
 promises five.
+
+---
+
+## Agent conversation tile — what comes next
+
+**Where this comes from.** The Agent tile (`agent-conversation`, commit `58be2f2`) shipped with the
+contract, the store, checkpoints and a session for every agent; these are the gaps left after it, in the
+order agreed on 2026-09-15. Background and measurements: [`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md).
+
+### 1. Images in the composer — done
+
+**Done 2026-09-15**: paste, drop and pick, thumbnails, sent by every session but agy (text only). See
+[`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md) → *Images*. What follows is what it was.
+
+
+**Now:** `SendMessage`, `AgentTurnInput` and every session already carry `ImageAttachment`s, and each
+session knows its agent's shape (Claude's base64 block, codex's data URL, opencode's file part, pi's
+`images`, ACP's `image` block; agy takes text only and says so). The composer has no way to add one.
+**To settle it:** paste (Alt+V, the Goal tile's gesture) and drop into the composer, thumbnails with a
+remove button, sent with the next message, drawn in the user's message in the timeline.
+
+### 2. Model and permission mode inside a running conversation — done
+
+**Done 2026-09-15**, with one limit left: opencode is offered only its TUI's modes. See
+[`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md) → *Switching model, mode and effort*. What follows is what it was.
+
+
+**Now:** the instance's model and mode are fixed at launch; changing them means editing the instance and
+restarting the agent. **To settle it:** a model and mode chooser in the strip, applied by each agent its
+own way — Claude `set_model` / `set_permission_mode` control requests, codex per `turn/start`, opencode per
+prompt, pi `set_model` / `set_thinking_level`, ACP `session/set_model`; where an agent cannot switch live
+(agy, Grok's permission mode) the change restarts the session on the same conversation, and the tile says
+so.
+
+### 3. Importing conversations started outside mTiles
+
+**Now:** only conversations held in the tile exist in the store. t3code reads Claude Code's
+`~/.claude/projects/**/*.jsonl` and codex's `rollout-*.jsonl`, matches the recorded cwd to the project and
+imports the text of the last 30 days, keeping the id so the conversation continues. **To settle it:** the
+same, per agent class (each CLI keeps its transcript differently), offered in the empty tile.
+
+### 4. Pruning
+
+**Now:** nothing removes a closed tile's conversation from `conversations.db`, nor
+`refs/mtiles/agent-sessions/*` of a forgotten tile, nor `refs/mtiles/before-restore/*` written by every
+Undo. **To settle it:** a bounded sweep — conversations whose tile id no layout holds after N days, the
+newest K before-restore refs per repository.
+
+### 5. The web view
+
+**Now:** the desktop tile is the only viewer. Everything a browser needs exists: `AgentEvent` and
+`AgentCommand` as JSON, `ConversationReducer`, the store, and `AgentConversationHost.ExecuteAsync` as the
+one entry point. **To settle it:** a server that streams a conversation's events over a WebSocket and
+accepts commands, and a page drawing the same state.

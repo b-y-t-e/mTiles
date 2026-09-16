@@ -153,6 +153,8 @@ public class FontScaleTests
     [Theory]
     [InlineData("Views/GoalTileView.axaml")]
     [InlineData("Styles/GoalFindings.axaml")]
+    [InlineData("Styles/Conversation.axaml")]
+    [InlineData("Views/AgentConversationTileView.axaml")]
     public void The_goal_tile_is_sized_by_the_terminal(string file)
     {
         var offenders = new List<string>();

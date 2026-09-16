@@ -16,6 +16,7 @@
          it was opened from. -->
 
     <UserControl.Styles>
+        <StyleInclude Source="avares://mTiles/Styles/Conversation.axaml" />
         <StyleInclude Source="avares://mTiles/Styles/GoalFindings.axaml" />
     </UserControl.Styles>
 

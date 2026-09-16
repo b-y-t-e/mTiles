@@ -89,7 +89,9 @@ public sealed class ClaudeStreamMapper
         {
             case "init":
                 SessionId = line.Str("session_id") ?? SessionId;
-                events.Add(new SessionConfigured(line.Str("model"), line.Str("permissionMode"), SessionId));
+                // Not permissionMode: that is Claude Code's word, and SessionConfigured.Mode is the canonical id,
+                // which the session reports itself.
+                events.Add(new SessionConfigured(line.Str("model"), null, SessionId));
                 break;
             case "compact_boundary":
                 events.Add(new NoticeRaised(NoticeLevel.Info, "The conversation was compacted to fit the context."));

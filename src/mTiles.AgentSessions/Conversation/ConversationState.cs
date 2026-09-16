@@ -41,6 +41,15 @@ public sealed record ConversationState
 
     public string? Model { get; init; }
 
+    /// <summary>The permission mode, as an id from <see cref="Options"/>.</summary>
+    public string? Mode { get; init; }
+
+    /// <summary>The reasoning effort, as an id from <see cref="Options"/>.</summary>
+    public string? Effort { get; init; }
+
+    /// <summary>What the session can be switched to, as it last reported — null before it has.</summary>
+    public SessionOptionsReported? Options { get; init; }
+
     /// <summary>The agent's own handle on this conversation, as it last reported it.</summary>
     public string? ResumeToken { get; init; }
 

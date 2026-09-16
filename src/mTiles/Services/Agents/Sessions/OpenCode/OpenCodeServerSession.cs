@@ -45,6 +45,11 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
     private bool _abortRequested;
     private bool _turnWasBusy;
 
+    // What the next prompt runs as: opencode takes the model and the plan agent on every prompt, and the
+    // permission rules are the session's, patched in place — nothing here needs a restart.
+    private string? _model;
+    private AiBehaviour _behaviour = launch.Behaviour;
+
     /// <inheritdoc />
     public int? ChildProcessId => _process?.ProcessId;
 
@@ -77,7 +82,9 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
         _mapper = new OpenCodeEventMapper(_sessionId);
         _ = ListenAsync(_lifetime.Token);
 
-        sink.Emit(new SessionConfigured(launch.Model.Length > 0 ? launch.Model : null, null, _sessionId));
+        await ReportOptionsAsync(ct);
+        sink.Emit(new SessionConfigured(launch.Model.Length > 0 ? launch.Model : null,
+            SessionSettingOptions.ModeId(_behaviour), _sessionId, SessionSettingOptions.EffortId(launch.Effort)));
         sink.Emit(new SessionStateChanged(AgentSessionState.Ready));
     }
 
@@ -106,7 +113,7 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
 
         var body = new Dictionary<string, object?> { ["parts"] = parts };
         if (ModelReference() is { } model) body["model"] = model;
-        if (launch.Behaviour == AiBehaviour.Plan) body["agent"] = "plan";
+        if (CurrentBehaviour == AiBehaviour.Plan) body["agent"] = "plan";
 
         HttpResponseMessage response;
         try
@@ -174,12 +181,127 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
+    /// <summary>The caller's token, also cancelled after <paramref name="limit"/>: the client itself waits for
+    /// ever, because the event stream shares it.</summary>
+    private static CancellationTokenSource Deadline(CancellationToken ct, TimeSpan limit)
+    {
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(limit);
+        return deadline;
+    }
+
     /// <summary><c>{providerID, modelID}</c> from the model spelled opencode's way, or null for its own.</summary>
     private object? ModelReference()
     {
-        var qualified = agent.QualifiedModel(launch.Runtime);
+        string? chosen;
+        lock (_turnGate) chosen = _model;
+        var qualified = chosen ?? agent.QualifiedModel(launch.Runtime);
         var slash = qualified.IndexOf('/');
         return slash <= 0 ? null : new { providerID = qualified[..slash], modelID = qualified[(slash + 1)..] };
+    }
+
+    private AiBehaviour CurrentBehaviour
+    {
+        get
+        {
+            lock (_turnGate) return _behaviour;
+        }
+    }
+
+    /// <summary>
+    /// Every provider's models from <c>GET /config/providers</c> (measured on 1.18.18: <c>providers[]</c> with
+    /// an <c>id</c> and a <c>models</c> object keyed by model id), spelled <c>provider/model</c> — the form
+    /// a prompt's <c>model</c> is built from.
+    /// </summary>
+    private async Task ReportOptionsAsync(CancellationToken ct)
+    {
+        List<SessionOption> models = [];
+        using var deadline = Deadline(ct, TimeSpan.FromSeconds(20));
+        try
+        {
+            using var response = await _http!.GetAsync("config/providers", deadline.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                using var document = await JsonDocument.ParseAsync(
+                    await response.Content.ReadAsStreamAsync(deadline.Token), cancellationToken: deadline.Token);
+                foreach (var provider in document.RootElement.Items("providers"))
+                {
+                    if (provider.Str("id") is not { } providerId
+                        || provider.Prop("models") is not { ValueKind: JsonValueKind.Object } catalogue) continue;
+                    foreach (var model in catalogue.EnumerateObject())
+                        models.Add(new SessionOption($"{providerId}/{model.Name}",
+                            $"{provider.Str("name") ?? providerId} · {model.Value.Str("name") ?? model.Name}"));
+                }
+            }
+        }
+        // A list that cannot be read in time is an empty one: the model field still takes a name typed by hand.
+        catch (Exception ex) when (ex is HttpRequestException or JsonException
+                                   || (ex is OperationCanceledException && !ct.IsCancellationRequested))
+        {
+        }
+
+        var instance = launch.Runtime.Instance;
+        sink.Emit(new SessionOptionsReported(SessionSettingOptions.ModelsOfProvider(models, launch.Runtime),
+            SessionSettingOptions.Modes(agent, instance),
+            SessionSettingOptions.Efforts(agent, instance)));
+    }
+
+    /// <summary>A model and the plan agent go with the next prompt; a mode patches the session's rules, except
+    /// for the tool's own default, which only a new session can go back to.</summary>
+    public async Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
+    {
+        string? qualifiedModel = null;
+        if (settings.Model is { Length: > 0 } typed && (qualifiedModel = QualifyTypedModel(typed)) is null)
+        {
+            sink.Emit(new NoticeRaised(NoticeLevel.Warning,
+                $"opencode takes a model as provider/model, and \"{typed}\" names no provider."));
+            return SettingsChangeOutcome.Rejected;
+        }
+
+        var mode = SessionSettingOptions.ParseMode(settings.Mode);
+        // Tool default is the absence of rules of ours, and a PATCH has no way to say that: an empty list is
+        // rules, and it overrides whatever the user's own opencode config says for the rest of the session. The
+        // session is started again instead, which opens it without the field and leaves that config in charge.
+        if (mode is { } wanted && PermissionRules(wanted) is null) return SettingsChangeOutcome.NeedsRestart;
+
+        if (mode is { } changed && _http is not null && _sessionId is not null)
+        {
+            using var deadline = Deadline(ct, TimeSpan.FromSeconds(15));
+            try
+            {
+                using var patched = await _http.PatchAsJsonAsync($"session/{_sessionId}",
+                    new { permission = PermissionRules(changed)! }, deadline.Token);
+                patched.EnsureSuccessStatusCode();
+            }
+            catch (Exception ex) when (ex is HttpRequestException
+                                       || (ex is OperationCanceledException && !ct.IsCancellationRequested))
+            {
+                var reason = ex is OperationCanceledException ? "it did not answer" : ex.Message;
+                sink.Emit(new NoticeRaised(NoticeLevel.Warning, $"opencode did not take the new permissions: {reason}"));
+                return SettingsChangeOutcome.Rejected;
+            }
+        }
+
+        lock (_turnGate)
+        {
+            if (qualifiedModel is not null) _model = qualifiedModel;
+            if (mode is { } chosen) _behaviour = chosen;
+        }
+
+        sink.Emit(new SessionConfigured(qualifiedModel, settings.Mode, null));
+        return SettingsChangeOutcome.Applied;
+    }
+
+    /// <summary>
+    /// A model picked or typed, spelled exactly as the next launch will spell it from the tile's override — so
+    /// the prompt runs now on what the layout keeps, under the instance's own provider. Null when that spelling
+    /// names no provider, which opencode would quietly answer with its own default model.
+    /// </summary>
+    private string? QualifyTypedModel(string typed)
+    {
+        var runtime = launch.Runtime with { Model = agent.InstanceModel(launch.Runtime, typed) };
+        var qualified = agent.QualifiedModel(runtime);
+        return qualified.IndexOf('/') > 0 ? qualified : null;
     }
 
     private async Task<string> OpenSessionAsync(CancellationToken ct)

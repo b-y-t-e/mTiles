@@ -16,7 +16,11 @@ namespace mTiles.AgentSessions.Commands;
 [JsonDerivedType(typeof(RespondToApproval), "approval.respond")]
 [JsonDerivedType(typeof(AnswerQuestions), "questions.answer")]
 [JsonDerivedType(typeof(RestoreCheckpoint), "checkpoint.restore")]
+[JsonDerivedType(typeof(ChangeSessionSettings), "session.settings")]
 public abstract record AgentCommand;
+
+/// <summary>Switch the running session's model, mode or effort. A null field is left as it is.</summary>
+public sealed record ChangeSessionSettings(SessionSettings Settings) : AgentCommand;
 
 /// <summary>Send a message.</summary>
 public sealed record SendMessage(string Text, IReadOnlyList<ImageAttachment>? Images = null) : AgentCommand;

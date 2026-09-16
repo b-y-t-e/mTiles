@@ -4002,52 +4002,11 @@ public partial class GoalTileViewModel
     public string RunStage => GoalStageDisplay.Short(CurrentPhase, _engine.IterationCount, _engine.MaxIter);
 
     /// <summary>How long the current run has been going, as the waiting row writes it.</summary>
-    /// <remarks>
-    /// Empty between runs, which is also when the row that shows it is hidden — one property saying one
-    /// thing, rather than a stale "4:07" kept alive underneath an invisible control waiting to be shown
-    /// again at the start of the next run.
-    /// </remarks>
-    [ObservableProperty] private string _elapsed = "";
+    public ElapsedClock RunClock { get; } = new();
 
-    /// <summary>
-    /// Ticks the elapsed label while a run is going, and only then.
-    /// </summary>
-    /// <remarks>
-    /// Built on first use rather than in a constructor because there are two constructors and a timer
-    /// created in one of them is a timer the other tile does not have. Kept afterwards: a tile runs many
-    /// times and a new timer per run is a subscription per run to get wrong.
-    /// <para><see cref="DispatcherPriority.Background"/> deliberately — this is a label, and a second's
-    /// lateness in it costs nothing, while a timer at input priority competes once a second with the
-    /// transcript that is being appended to.</para>
-    /// </remarks>
-    private DispatcherTimer? _elapsedTimer;
+    private void StartElapsed() => RunClock.Start();
 
-    /// <summary>
-    /// Measures the run. A <see cref="Stopwatch"/> and not two <see cref="DateTime"/>s: the wall clock
-    /// moves — daylight saving, an NTP correction, a laptop waking up — and a label that answers
-    /// "-1:00" or jumps an hour is worse than no label.
-    /// </summary>
-    private readonly Stopwatch _runClock = new();
-
-    private void StartElapsed()
-    {
-        _runClock.Restart();
-        Elapsed = ElapsedDisplay.Format(TimeSpan.Zero);
-
-        _elapsedTimer ??= new DispatcherTimer(
-            TimeSpan.FromSeconds(1),
-            DispatcherPriority.Background,
-            (_, _) => Elapsed = ElapsedDisplay.Format(_runClock.Elapsed));
-
-        _elapsedTimer.Start();
-    }
-
-    private void StopElapsed()
-    {
-        _runClock.Stop();
-        _elapsedTimer?.Stop();
-        Elapsed = "";
-    }
+    private void StopElapsed() => RunClock.Stop();
 
     /// <summary>
     /// Whether a pause is outstanding, asked at each hand-over between two AI calls.

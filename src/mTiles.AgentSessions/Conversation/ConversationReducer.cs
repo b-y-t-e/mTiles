@@ -38,8 +38,11 @@ public static class ConversationReducer
             SessionConfigured c => state with
             {
                 Model = c.Model ?? state.Model,
+                Mode = c.Mode ?? state.Mode,
+                Effort = c.Effort ?? state.Effort,
                 ResumeToken = c.ResumeToken ?? state.ResumeToken,
             },
+            SessionOptionsReported o => state with { Options = o },
             TurnStarted t => state with
             {
                 ActiveTurnId = t.TurnId ?? $"turn-{state.EntryCounter + 1}",

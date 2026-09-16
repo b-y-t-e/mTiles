@@ -31,7 +31,7 @@ public sealed class GrokAgent : AiAgent, Sessions.IConversationalAgent
     /// <summary>A conversation over ACP — see <see cref="Sessions.Grok.GrokAcpSession"/>.</summary>
     public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
         AgentSessions.IAgentEventSink sink) =>
-        new Sessions.Grok.GrokAcpSession(launch, sink);
+        new Sessions.Grok.GrokAcpSession(launch, this, sink);
 
     /// <summary>Nothing survives a terminal restart — see the remarks.</summary>
     public override SessionStrategy SessionStrategy => SessionStrategy.CapturedAfterStart;

@@ -62,7 +62,7 @@ public sealed partial class QuestionRoundViewModel : ObservableObject
     {
         Round = round;
         _answer = answer;
-        Questions = [.. round.Questions.Select(q => new QuestionViewModel(q))];
+        Questions = [.. round.Questions.Select((q, index) => new QuestionViewModel(q, index + 1))];
     }
 
     public QuestionsAsked Round { get; }
@@ -79,15 +79,35 @@ public sealed partial class QuestionRoundViewModel : ObservableObject
 /// <summary>One question, with its choices and a field for an answer of one's own.</summary>
 public sealed partial class QuestionViewModel : ObservableObject
 {
-    [ObservableProperty] private string _customAnswer = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CopyText))]
+    private string _customAnswer = "";
 
-    public QuestionViewModel(UserQuestion question)
+    public QuestionViewModel(UserQuestion question, int number = 1)
     {
         Question = question;
+        Number = number;
         Options = [.. question.Options.Select(o => new QuestionChoiceViewModel(o, this))];
     }
 
     public UserQuestion Question { get; }
+    public int Number { get; }
+
+    /// <summary>The question's place in its round, in its own column — the Goal tile's marker.</summary>
+    public string Marker => $"{Number}.";
+
+    /// <summary>What the copy button beside the question takes: the question, what it offers, and the answer
+    /// so far — a question is a thing taken next door to look something up with.</summary>
+    /// <remarks>Raised as the answer is typed or a choice is picked, because the button is bound to this
+    /// string: bound to the question itself, the converter ran once and the clipboard kept the empty
+    /// answer it was realised with.</remarks>
+    public string CopyText => string.Join(Environment.NewLine, new[]
+    {
+        Header, Text,
+        Options.Count > 0 ? string.Join(" / ", Options.Select(o => o.Label)) : null,
+        Answer() is { Count: > 0 } answer ? "> " + string.Join(", ", answer) : null,
+    }.Where(line => !string.IsNullOrWhiteSpace(line)));
+
     public string Text => Question.Text;
     public string? Header => Question.Header;
     public bool HasHeader => !string.IsNullOrWhiteSpace(Question.Header);
@@ -105,6 +125,7 @@ public sealed partial class QuestionViewModel : ObservableObject
     /// <summary>A single-choice question keeps one choice at a time.</summary>
     internal void Selected(QuestionChoiceViewModel choice)
     {
+        OnPropertyChanged(nameof(CopyText));
         if (Question.MultiSelect || !choice.IsSelected) return;
         foreach (var other in Options.Where(o => !ReferenceEquals(o, choice))) other.IsSelected = false;
     }

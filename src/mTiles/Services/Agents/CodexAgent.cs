@@ -43,7 +43,7 @@ public sealed class CodexAgent : AiAgent, Sessions.IConversationalAgent
     /// <see cref="Sessions.Codex.CodexAppServerSession"/>.</summary>
     public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
         AgentSessions.IAgentEventSink sink) =>
-        new Sessions.Codex.CodexAppServerSession(launch, sink);
+        new Sessions.Codex.CodexAppServerSession(launch, this, sink);
 
     /// <summary>The effort levels a <c>turn/start</c> can carry — codex's scale.</summary>
     internal static IReadOnlyList<AiEffort> AppServerEfforts => Efforts;

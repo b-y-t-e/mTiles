@@ -71,126 +71,13 @@
     </UserControl.Resources>
 
     <UserControl.Styles>
+        <!-- The conversation's own look - rows, the ask, the composer - shared with the Agent tile.
+             First, because Avalonia has no specificity and the later style wins: a finding's own rules
+             below refine these, and reversed they were overruled (a finding's copy button never showed). -->
+        <StyleInclude Source="avares://mTiles/Styles/Conversation.axaml" />
         <!-- A finding's own look, shared with the dialog a badge opens - see the file. -->
         <StyleInclude Source="avares://mTiles/Styles/GoalFindings.axaml" />
 
-        <!-- ======== Transcript rows ========
-             Read as turns, not as lines. Everything here is one decision: a message is a block with air
-             around it, and what separates two of them is space rather than a rule. Rules would be
-             cheaper and would turn a conversation into a table.
-
-             The one line that is drawn is above a message of yours, because that is where a turn
-             begins — the tool's answer belongs to the question above it, and the eye needs to know
-             where to go back to. -->
-        <Style Selector="Border.row">
-            <Setter Property="Padding" Value="10,6" />
-            <Setter Property="Margin" Value="0,0,0,2" />
-        </Style>
-
-        <!-- What you typed keeps the raised band it has in a terminal: it is the thing you scroll back
-             to look for, and it is still the only row with a background. Inset and rounded now, so it
-             reads as a block somebody wrote rather than a stripe across the tile, and with the hairline
-             above it that says a new turn starts here. -->
-        <Style Selector="Border.row-user">
-            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="Margin" Value="4,10,4,4" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
-        </Style>
-
-        <!-- ======== Copy ========
-             One per message, at the top right rather than under the text: it costs no vertical space in
-             a transcript where every line is read, and the first line of a message is where the eye
-             already is.
-
-             Hidden until the pointer is over the message. A button under every turn, always lit, is
-             three pieces of chrome per exchange in a panel whose whole argument is that the
-             conversation stays readable — and this is a convenience, not a thing anybody comes here to
-             do. It fades rather than appearing, so a pointer crossing the transcript on its way
-             somewhere else does not make the tile flicker. -->
-        <!-- The same button, one step in: a finding, or a question inside a round. It shares every
-             setter with the message-level one and differs only in what reveals it — its own block
-             rather than the whole message — because a row that lit up six buttons at once the moment
-             the pointer crossed it would be answering "which one of these do you want?" with all of
-             them. -->
-        <Style Selector="Border.row:pointerover Button.msg-copy">
-            <Setter Property="Opacity" Value="1" />
-        </Style>
-        <Style Selector="Grid.asked:pointerover Button.item-copy">
-            <Setter Property="Opacity" Value="1" />
-        </Style>
-        <Style Selector="Grid.asking:pointerover Button.item-copy">
-            <Setter Property="Opacity" Value="1" />
-        </Style>
-
-        <!-- The same copy button with a word on it, for the pair that takes a whole review's findings
-             at once. Quiet by default and permanently there: it names how many rows it would take, and
-             a count is worth reading without pressing anything. -->
-
-        <!-- A note from the tile itself: quieter, and closer to whatever it is a note about — it is a
-             footnote to the message above, not a turn of its own. -->
-        <Style Selector="Border.row-system">
-            <Setter Property="Padding" Value="10,1,10,4" />
-        </Style>
-
-        <Style Selector="TextBlock.gutter">
-            <Setter Property="Width" Value="16" />
-            <Setter Property="VerticalAlignment" Value="Top" />
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-        </Style>
-        <Style Selector="TextBlock.gutter.gutter-user">
-            <Setter Property="Text" Value="&#x276F;" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-        </Style>
-        <Style Selector="TextBlock.gutter.gutter-assistant">
-            <Setter Property="Text" Value="&#x25CF;" />
-            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
-        </Style>
-        <!-- No size of its own: the glyph takes the size of the text it sits beside, and that is now
-             the same size as every other line in the conversation. -->
-        <Style Selector="TextBlock.gutter.gutter-system">
-            <Setter Property="Text" Value="&#x2514;" />
-        </Style>
-
-        <!-- The line spacing is the whole of why this reads better. A wall of monospace set solid is
-             the hardest thing on this screen to scan, and two pixels a line is the difference between a
-             log and something written to be read. -->
-        <Style Selector="SelectableTextBlock.msg">
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="LineSpacing" Value="2" />
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
-        </Style>
-        <!-- Quieter by colour and by nothing else. It used to be set at four fifths as well, which is
-             a large enough step to read as a different kind of text rather than a quieter one — and it
-             landed a line of 10px directly above a 13px composer, which is where it was noticed. One
-             size down the conversation; what separates a note from a turn is the muted token and the
-             gutter glyph. -->
-        <Style Selector="SelectableTextBlock.msg.msg-system">
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-        </Style>
-        <!-- The one note that is not a footnote: the sentence a run ends on. It says whether the goal
-             was met and what stood in the way, and it is what the user comes back to the tile to read
-             — so it takes one step back up the same scale the notes are quieted on, rather than a
-             colour of its own. TextSecondary, not TextPrimary: still a line the tile wrote rather than
-             a turn of the conversation, and the gutter glyph still says so. After .msg-system, because
-             both match and the last one wins. -->
-        <Style Selector="SelectableTextBlock.msg.msg-summary">
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
-        </Style>
-
-        <!-- ======== Status strip ======== -->
-        <Style Selector="TextBlock.strip">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
 
         <!-- The phase's colour comes from the ANSI palette (ThemeBridge), so it stays legible on
              whatever background the terminal theme paints. Set as a class rather than as a brush
@@ -367,60 +254,8 @@
             <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextHover}" />
         </Style>
 
-        <!-- ======== A button with a word on it ========
-             The app-wide `outlined-sm`, restated here in the terminal face. Everything with text in
-             this tile is monospaced, and a UI-font button in the middle of it is the one element that
-             announces it came from somewhere else. -->
-        <Style Selector="Button.goal-action">
-            <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
-            <Setter Property="Padding" Value="8,3" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <!-- The conversation's size, not the strip's. These sit in the column with the messages and
-                 the composer, and at four fifths they read as a caption under the box rather than as
-                 the two things it is offering to do. -->
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button.goal-action:pointerover">
-            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
-        </Style>
-        <Style Selector="Button.goal-action:pressed">
-            <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
-        </Style>
-        <Style Selector="Button.goal-action.primary">
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-        </Style>
 
 
-        <!-- ======== The ask ========
-             When the tile needs something from you it says so in one place, and that place is the end
-             of the conversation — the next thing in it, where the next thing always is. It used to be a
-             bar pinned under the transcript, which put the question and the record of the question in
-             two different controls with two different shapes, and left the tile's most important
-             sentence in the one part of it that never scrolls.
-
-             It is marked by a two-pixel accent rail down its left edge — the same idiom the app uses
-             for the active tile, and the only saturated colour in this tile besides the phase dot.
-
-             It clips and draws no outline, which is the pair this application always uses together: a
-             Border that does both clips to the rounded-down bounds, so at 125% desktop scale the right
-             and bottom edges fall outside their own clip and the outline comes out as an L. Here the
-             clip is load-bearing rather than tidy — the rail is a square child against a rounded
-             corner, and without it two pixels of accent hang outside the block at each end. -->
-        <Style Selector="Border.ask">
-            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="ClipToBounds" Value="True" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Margin" Value="4,10,4,4" />
-        </Style>
 
         <!-- ======== A row of things to do next ========
              The finished-run actions and the two detect buttons. They are turns in the conversation as
@@ -461,129 +296,7 @@
             <Setter Property="Margin" Value="1,0,0,0" />
         </Style>
 
-        <!-- One question, being asked or already answered — the space that separates it from the next.
-             It is on every one of them, the last included, and that is deliberate rather than an
-             oversight: these sit in an ItemsControl, so each is the only child of its own container and
-             a :nth-last-child selector would match all of them or none. What follows the last question
-             carries no top margin of its own, which is where the difference would have gone. -->
-        <Style Selector="Grid.asked, Grid.asking">
-            <Setter Property="Margin" Value="0,0,0,14" />
-        </Style>
 
-        <!-- The answer's marker, and it is the transcript's own: the same angle bracket that stands
-             beside every other thing the user has said in this tile. A record of a round is a
-             conversation, and it is read with the glyphs the conversation around it is read with. -->
-        <Style Selector="TextBlock.ans-marker">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="VerticalAlignment" Value="Top" />
-            <Setter Property="Margin" Value="0,0,8,0" />
-        </Style>
-        <Style Selector="Border.ask-rail">
-            <Setter Property="Width" Value="2" />
-            <Setter Property="Background" Value="{DynamicResource AccentDefault}" />
-        </Style>
-        <Style Selector="TextBlock.ask-title">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-        </Style>
-
-        <!-- The number lives in its own column, so a question that wraps keeps its indent instead of
-             returning to column zero under its own marker. That is the whole reason these are controls
-             and not a paragraph: it is unreadable at three questions and this is why. -->
-        <Style Selector="TextBlock.ask-marker">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="VerticalAlignment" Value="Top" />
-            <Setter Property="Margin" Value="0,1,8,0" />
-        </Style>
-        <Style Selector="TextBlock.ask-question">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
-        <!-- The reason under a question, at the question's own size: it is a sentence about the same
-             thing, and setting it smaller made one thought look like two kinds of text. The colour is
-             the whole of the difference, and it is enough. -->
-        <Style Selector="TextBlock.ask-why">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="Margin" Value="0,2,0,0" />
-        </Style>
-
-        <!-- An offered answer.
-             Quieter than the question and louder than a caption. It began at the caption end of that
-             range — small type, muted — on the reasoning that a suggestion drawn like an action reads
-             as the choice you are meant to make. That reasoning holds for a chip saying "yes" and fails
-             for one saying a whole sentence, which is what a tool produces whenever the decision is
-             about behaviour: three lines of small grey text carrying the actual content of the
-             question, under a question set in full size. These are answers. They are set like answers,
-             and the border and the transparent ground are what keep them from reading as the default. -->
-        <Style Selector="Button.ask-option">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
-            <Setter Property="Padding" Value="8,3" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button.ask-option:pointerover">
-            <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
-        </Style>
-
-        <Style Selector="TextBox.ask-field">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Background" Value="{DynamicResource BgBase}" />
-            <Setter Property="Padding" Value="6,3" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="Margin" Value="0,5,0,0" />
-        </Style>
-
-        <!-- ======== Composer ======== -->
-        <!-- The prompt glyph belongs inside the field, as it does in a shell, so the border is drawn
-             by the surrounding Border and the TextBox gives up its own. -->
-        <Style Selector="TextBox.goal-input /template/ Border#PART_BorderElement">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-        </Style>
-        <Style Selector="TextBox.goal-input">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Padding" Value="0,2" />
-            <Setter Property="MaxHeight" Value="140" />
-        </Style>
-        <!-- Its own margin now that nothing is docked around it: the composer is the last block in
-             the conversation rather than a bar under one, so what separates it from the message above
-             is the space the messages are separated by. -->
-        <Style Selector="Border.composer">
-            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
-            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-            <Setter Property="Padding" Value="8,4" />
-            <Setter Property="Margin" Value="4,10,4,4" />
-        </Style>
-        <Style Selector="Border.composer:pointerover">
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
-        </Style>
-        <Style Selector="Border.composer.focused">
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentDefault}" />
-        </Style>
 
         <!-- ======== A review finding ========
              The transcript is a terminal and a review was a column of monospace: severity, place,
@@ -617,78 +330,7 @@
              weight the box used to carry. -->
 
 
-        <!-- ======== While the tool is working ========
-             The strip already says which phase and which file, in words, at the top of the tile. What
-             it cannot say is that anything is happening at all: a tool that spends four minutes
-             reading before it writes leaves a transcript that has not changed and a phase label that
-             has not moved. Three dots at the foot of the conversation, where the next message will
-             appear, and nothing else - a progress bar would be a claim about how far along it is,
-             which nothing here knows. -->
-        <Style Selector="Ellipse.think">
-            <Setter Property="Width" Value="7" />
-            <Setter Property="Height" Value="7" />
-            <Setter Property="Fill" Value="{DynamicResource AccentDefault}" />
-            <Setter Property="Opacity" Value="0.25" />
-        </Style>
-        <!-- The dots say something is happening; these two say what and for how long, which are the
-             only honest things left to say about a tool nothing has been heard from - nothing here
-             knows how far along it is.
 
-             Beside the dots rather than on the status strip: the strip carries the phase as a sentence
-             and the file the tool is in, which are facts about the run as a whole, while this belongs
-             to the wait being drawn and is read without leaving the conversation.
-
-             Muted, small, and in the transcript's own monospace so it reads as a note attached to the
-             dots rather than as a message. Monospace also stops the row twitching: the clock's digits
-             change every second, and in a proportional face "1:11" and "1:00" are different widths, so
-             the dots would shuffle sideways once a second beside a label added to reassure. -->
-        <Style Selector="TextBlock.waiting-note">
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-        </Style>
-
-        <!-- One animation per dot rather than one with three delays: two animations selecting the same
-             element take turns setting the same property, and the dots stop agreeing about where they
-             are in the cycle. The delay is what makes it read as a wave rather than a blink. -->
-        <Style Selector="Ellipse.think.d1">
-            <Style.Animations>
-                <Animation Duration="0:0:1.2" IterationCount="INFINITE">
-                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                    <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                </Animation>
-            </Style.Animations>
-        </Style>
-        <Style Selector="Ellipse.think.d2">
-            <Style.Animations>
-                <Animation Duration="0:0:1.2" Delay="0:0:0.15" IterationCount="INFINITE">
-                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                    <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                </Animation>
-            </Style.Animations>
-        </Style>
-        <Style Selector="Ellipse.think.d3">
-            <Style.Animations>
-                <Animation Duration="0:0:1.2" Delay="0:0:0.3" IterationCount="INFINITE">
-                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                    <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                </Animation>
-            </Style.Animations>
-        </Style>
-
-        <Style Selector="ComboBox.goal-tool">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="4,1" />
-            <Setter Property="MinHeight" Value="0" />
-        </Style>
     </UserControl.Styles>
 
     <Panel>
@@ -736,7 +378,7 @@
                          readable at a glance: which agent is writing into this repository. The
                          reviewer is a once-per-goal setting and lives in the panel below. -->
                     <ComboBox DockPanel.Dock="Left"
-                              Classes="goal-tool"
+                              Classes="strip-choice"
                               ItemsSource="{Binding AvailableAgents}"
                               SelectedValue="{Binding ExecutionAgentInstanceId}"
                               SelectedValueBinding="{Binding InstanceId}"
@@ -748,7 +390,7 @@
                          default there is to ask — which a headless run cannot do, so every edit was
                          refused and the tile reported that nothing had changed. -->
                     <ComboBox DockPanel.Dock="Left"
-                              Classes="goal-tool"
+                              Classes="strip-choice"
                               ItemsSource="{Binding AvailablePermissionModes}"
                               SelectedItem="{Binding PermissionModeLabel}"
                               ToolTip.Tip="What the AI tool may do without asking. auto gets on with the work and still stops at what it considers dangerous; accept edits waves through file changes only; bypass asks about nothing at all; tool default passes no flag and leaves it to the tool's own settings." />
@@ -757,7 +399,7 @@
                          watching — a goal run is left alone, and an attempt spent on a shallow answer
                          costs as much of the budget as a careful one. -->
                     <ComboBox DockPanel.Dock="Left"
-                              Classes="goal-tool"
+                              Classes="strip-choice"
                               ItemsSource="{Binding AvailableEfforts}"
                               SelectedItem="{Binding EffortLabel}"
                               ToolTip.Tip="How hard the AI tool is asked to think. Higher costs time and tokens and is usually worth it here, because the budget is in attempts and a shallow attempt spends one just the same. tool default passes no flag — pick it if your Claude Code is old enough not to know the option." />
@@ -834,7 +476,7 @@
                      agent by phase, so a reviewer is read-only unless the criteria oblige it to build
                      and test — see AiUsage. -->
                 <TextBlock Classes="crit-title" Text="reviewed by" />
-                <ComboBox Classes="goal-tool" Margin="0,0,0,6" MinWidth="160"
+                <ComboBox Classes="strip-choice" Margin="0,0,0,6" MinWidth="160"
                           ItemsSource="{Binding ReviewAgentChoices}"
                           SelectedValue="{Binding ReviewAgentInstanceId}"
                           SelectedValueBinding="{Binding InstanceId}"
@@ -1139,21 +781,9 @@
                  the tile already says, with the phase and the attempt number, in a bar that cannot be
                  scrolled away from. In the flow it can collide with nothing, it lands exactly where the
                  next message will, and the follow-to-the-bottom rule carries it for free. -->
-            <Border Classes="row" IsVisible="{Binding IsRunning}">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-system" />
-                    <StackPanel Orientation="Horizontal" Spacing="5"
-                                VerticalAlignment="Center"
-                                HorizontalAlignment="Left">
-                        <Ellipse Classes="think d1" />
-                        <Ellipse Classes="think d2" />
-                        <Ellipse Classes="think d3" />
-                        <TextBlock Classes="waiting-note" Text="{Binding RunStage}" Margin="7,0,0,0" />
-                        <TextBlock Classes="waiting-note" Text="&#183;" />
-                        <TextBlock Classes="waiting-note" Text="{Binding Elapsed}" />
-                    </StackPanel>
-                </DockPanel>
-            </Border>
+            <v:WaitingRow IsVisible="{Binding IsRunning}"
+                          Stage="{Binding RunStage}"
+                          Elapsed="{Binding RunClock.Text}" />
 
             <!-- ======== The ask: questions ========
                  The last block in the conversation while a round is being answered, and the only one
@@ -1247,7 +877,7 @@
 
                         <!-- No top margin: the question above it brings its own. -->
                         <Button HorizontalAlignment="Right"
-                                Classes="goal-action primary"
+                                Classes="chat-action primary"
                                 Command="{Binding SendAnswersCommand}"
                                 Content="Send answers"
                                 ToolTip.Tip="Send what you have written. A question left blank is skipped." />
@@ -1273,12 +903,11 @@
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  MaxHeight="120"
-                                 v:FileMentionBehavior.Mentions="{Binding FileMentions}"
-                                 KeyDown="PlanBox_KeyDown" />
+                                 v:FileMentionBehavior.Mentions="{Binding FileMentions}" />
 
                         <Button HorizontalAlignment="Right"
                                 Margin="0,6,0,0"
-                                Classes="goal-action primary"
+                                Classes="chat-action primary"
                                 Command="{Binding ApproveOrChangeCommand}"
                                 Content="{Binding ApprovalActionLabel}"
                                 ToolTip.Tip="An empty box approves the plan as it stands" />
@@ -1295,8 +924,7 @@
                  phase and the iteration number in it, so a line saying only that something is happening
                  was the same news told worse. -->
             <Border x:Name="Composer" Classes="composer"
-                    IsVisible="{Binding ShowComposer}"
-                    PointerPressed="Composer_PointerPressed">
+                    IsVisible="{Binding ShowComposer}">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Left"
                                Classes="gutter gutter-user"
@@ -1310,12 +938,12 @@
                     <StackPanel DockPanel.Dock="Right"
                                 Classes="run-split"
                                 VerticalAlignment="Bottom">
-                        <Button Classes="goal-action primary run-primary"
+                        <Button Classes="chat-action primary run-primary"
                                 Command="{Binding PrimaryActionCommand}"
                                 IsEnabled="{Binding !IsRunning}"
                                 Content="{Binding PrimaryActionLabel}"
                                 ToolTip.Tip="{Binding PrimaryActionHint}" />
-                        <Button Classes="goal-action run-more"
+                        <Button Classes="chat-action run-more"
                                 IsEnabled="{Binding !IsRunning}"
                                 ToolTip.Tip="Other ways to start">
                             <mi:MaterialIcon Kind="ChevronDown" Width="13" Height="13" />
@@ -1354,16 +982,13 @@
                         </Button>
                     </StackPanel>
                     <TextBox x:Name="InputBox"
-                             Classes="goal-input"
+                             Classes="composer-input"
                              Text="{Binding InputText}"
                              PlaceholderText="Describe the goal, or answer&#x2026;"
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
                              v:FileMentionBehavior.Mentions="{Binding FileMentions}"
-                             CaretIndex="{Binding InputCaretIndex, Mode=TwoWay}"
-                             GotFocus="InputBox_FocusChanged"
-                             LostFocus="InputBox_FocusChanged"
-                             KeyDown="InputBox_KeyDown" />
+                             CaretIndex="{Binding InputCaretIndex, Mode=TwoWay}" />
                 </DockPanel>
             </Border>
 
@@ -1389,7 +1014,7 @@
                      existed the only Resume on screen was a play glyph in the header's strip, which is
                      not where anything else this tile asks for is answered. That glyph is gone — this
                      is the whole of Resume now. -->
-                <Button Classes="goal-action primary"
+                <Button Classes="chat-action primary"
                         Command="{Binding ResumeCommand}"
                         IsVisible="{Binding ShowResume}"
                         IsEnabled="{Binding CanResume}"
@@ -1398,17 +1023,17 @@
                 <!-- Judge the tree again against the same goal. It does not re-derive the goal: the
                      reason to press this is that something has just been fixed by hand next door, and
                      working the goal out afresh from a changed tree answers a different question. -->
-                <Button Classes="goal-action"
+                <Button Classes="chat-action"
                         Command="{Binding ReReviewCommand}"
                         IsVisible="{Binding CanReReview}"
                         Content="Review · +1"
                         ToolTip.Tip="Judge the working tree against the same goal again, changing nothing" />
-                <Button Classes="goal-action"
+                <Button Classes="chat-action"
                         Command="{Binding CommitWorkCommand}"
                         IsVisible="{Binding CanCommit}"
                         Content="Commit"
                         ToolTip.Tip="Divide this run's own changes into commits and ask before making them" />
-                <Button Classes="goal-action primary"
+                <Button Classes="chat-action primary"
                         Command="{Binding ContinueRunCommand}"
                         IsVisible="{Binding CanContinue}"
                         Content="{Binding ContinueLabel}"

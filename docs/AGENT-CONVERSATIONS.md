@@ -122,10 +122,84 @@ created owner-only because SQLite writes `-wal` and `-shm` beside the file. Two 
 An event a build cannot read — written by a newer one — is skipped with a log line. Nothing is pruned yet:
 a closed tile's conversation stays, and comes back if a tile with that id is an Agent tile again.
 
+## Switching model, mode and effort inside a conversation
+
+The strip above the conversation holds a model field (pick from what the session lists, or type a name and
+press Enter) and choosers for the permission mode and the effort. What they offer is the session's answer
+(`SessionOptionsReported`); what they send is `ChangeSessionSettings`, handled by the host.
+
+- **Modes and efforts are the application's words**, never an agent's: an `AiBehaviour` or `AiEffort` name,
+  narrowed to what the agent supports (`SessionSettingOptions`). Each session translates it into its own
+  CLI's spelling. `SessionConfigured.Mode` and `.Effort` carry the same ids back.
+- **Each agent switches its own way** (`IAgentSession.ChangeSettingsAsync`), measured 2026-09-15 by
+  `LiveAgentConversationTests.Switching_settings_and_sending_an_image`:
+
+  | Agent | Models listed from | Model | Mode | Effort |
+  |---|---|---|---|---|
+  | Claude Code | `initialize` answer, `models[].value` | `set_model` control request | `set_permission_mode` | restart (`--effort` is a launch flag) |
+  | codex | `model/list` | next `turn/start` | next `turn/start` (approval policy + sandbox) | next `turn/start` |
+  | opencode | `GET /config/providers`, `provider/model` | next prompt | `PATCH /session` rules + plan agent | — |
+  | pi | `get_available_models`, `provider/id` | `set_model` | — (pi has none) | `set_thinking_level` |
+  | agy | none (field takes a typed name) | next process | next process | next process |
+  | Grok | ACP `session.models.availableModels` | `session/set_model` | restart | `set_model` with `_meta.reasoningEffort` |
+
+- **A change the agent cannot take while it runs asks for a restart** (`SettingsChangeOutcome.NeedsRestart`
+  → `AgentConversationHost.RestartRequested`); the tile starts the session again on the same conversation.
+  Never under a working agent: the host refuses out loud instead, because a restart would end the turn.
+- **"Tool default" always restarts**, whatever the table above says for that agent. It is the absence of a
+  flag of ours, and no live switch can say that: Claude Code's `set_permission_mode default` is a mode like
+  any other and would override the user's own `~/.claude/settings.json`, while opencode's rules, pi's
+  `set_thinking_level` and Grok's `_meta.reasoningEffort` left out simply leave the session as it was — the
+  chooser saying it had changed while nothing had. Started again without the flag, the CLI's own
+  configuration is back in charge, which is what the choice means.
+- **The choice is the tile's, not the instance's**: kept as `SessionOverrides` in the layout (`model`,
+  `mode`, `effort` keys) and laid over a copy of the instance at every launch, so switching one
+  conversation leaves every other tile on that instance alone.
+- **The catalogue is never stored** (`AgentEvent.IsTransient`): `SessionOptionsReported` carries every model
+  a session lists — hundreds of them on an opencode installation — and the reducer keeps only the last
+  report, so it is folded in and handed to the viewer but not appended. Kept, a tile started thirty times
+  would write megabytes of catalogue into one conversation and parse them back on every open; dropped, it
+  costs nothing, because the next session reports it again at start.
+- **Known limit**: the modes offered are the agent's *interactive* list, which for opencode is the TUI's
+  (bypass or its own default) although its server could also ask or plan per session.
+
+## Images
+
+Pasted (Ctrl+V when the clipboard holds no text, Alt+V always), dropped on the composer, or picked with the
+paperclip. Every image is re-encoded as PNG and scaled to at most 1568 px on its long edge
+(`ComposerImages`), refused over 5 MB and beyond ten per message, shown as a thumbnail with a remove button
+and, once sent, in the user's message. Every session already knew its agent's shape — verified live: Claude
+Code, codex, opencode and pi each answered "Red" for a red square. agy's stream input takes text only, and
+the message goes without the image and says so.
+
+## What is the Goal tile's
+
+Both tiles are an agent talking in a column, so the parts they share are one definition, not two copies:
+
+- **`Styles/Conversation.axaml`**: message rows and gutters, the ask block (`ask`, `ask-rail`, `ask-marker`,
+  `ask-question`, `ask-why`, `ask-option`, `ask-field`), copy buttons, the composer, `chat-action` buttons,
+  the thinking dots and `strip-choice`. Each tile keeps only what is its own: the Goal tile's criteria and
+  findings, the Agent tile's tool rows and diffs.
+- **`@` file mentions**: the same `FileMentionsViewModel` + `FileMentionBehavior` on the composer and on
+  every answer box, with Enter left to the suggestions while they are open.
+- **Questions** are drawn as the Goal tile's round: a number column, full-width answer rows, a copy button
+  per question, "Send answers". The one difference is on purpose: an agent takes its choices as choices (a
+  label, several where allowed), so a row is toggled rather than copied into the answer box.
+- **Pasting an image** is `ClipboardImage` for both: Alt+V always, Ctrl+V only when there is no text.
+- **The composer's keys and gestures** are `ComposerInput`: Enter sends, Shift+Enter breaks the line, the
+  frame shows the box's focus and a click on it puts the caret in the box. **Enter has to be caught in the
+  tunnel**: a multi-line `TextBox` handles Enter itself before a `KeyDown` wired in markup sees it, so both
+  keys used to break the line (`ComposerEnterTests` presses real keys through a window to pin it).
+- **Waiting**: `WaitingRow` (the thinking dots, a stage and a clock) fed by `ElapsedClock` — the Goal
+  tile's run, the Agent tile's turn.
+- **A copy button per message** (`msg-copy` + `CopyButton`), and following the end of the transcript by
+  `TranscriptFollow`'s rule.
+
+New UX for either tile goes into these shared pieces, not into one view.
+
 ## Not built yet
 
-- Images in the composer (the contract and every session carry them; the view has no paste yet).
-- Changing model or mode inside a running conversation (restart the agent after editing the instance).
 - Importing conversations started outside mTiles (t3code reads Claude's and codex's transcripts).
+- Pruning old conversations and checkpoint refs.
 - The web view. What it needs is already here: `AgentEvent`/`AgentCommand` as JSON, the reducer, the store,
   and `AgentConversationHost.ExecuteAsync` as the one entry point for commands.

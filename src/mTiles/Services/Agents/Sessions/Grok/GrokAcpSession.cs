@@ -37,11 +37,76 @@ public sealed class GrokAcpSession : AcpAgentSession
     private readonly ConcurrentDictionary<string, string> _promptTurns = new(StringComparer.Ordinal);
     private int _promptCounter;
 
-    public GrokAcpSession(AgentSessionLaunch launch, IAgentEventSink sink)
+    private readonly GrokAgent _agent;
+
+    // The model the agent runs now. session/set_model carries a model and an effort together, so an effort
+    // changed alone has to name the model already running rather than the one asked for at launch.
+    private string _model;
+
+    public GrokAcpSession(AgentSessionLaunch launch, GrokAgent agent, IAgentEventSink sink)
         : base(launch.StartInfo([.. GrokAgent.AcpArguments(launch.Behaviour), .. launch.ExtraArgs]),
             launch.WorkingDirectory, launch.ResumeToken, sink)
     {
         _launch = launch;
+        _agent = agent;
+        _model = launch.Model;
+    }
+
+    protected override IReadOnlyList<SessionOption> ModeOptions =>
+        SessionSettingOptions.Modes(_agent, _launch.Runtime.Instance);
+
+    protected override IReadOnlyList<SessionOption> EffortOptions =>
+        SessionSettingOptions.Efforts(_agent, _launch.Runtime.Instance);
+
+    protected override string? CurrentModel => _model.Length > 0 ? _model : null;
+
+    protected override string? CurrentMode => SessionSettingOptions.ModeId(_launch.Behaviour);
+
+    protected override string? CurrentEffort => SessionSettingOptions.EffortId(_launch.Effort);
+
+    /// <summary>
+    /// A model and an effort through <c>session/set_model</c> with <c>_meta.reasoningEffort</c>, as t3code
+    /// switches them; the permission mode is Grok's command line (<c>--permission-mode</c>) and needs a restart.
+    /// </summary>
+    public override async Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
+    {
+        if (settings.Mode is not null) return SettingsChangeOutcome.NeedsRestart;
+        if (SessionId is null) return SettingsChangeOutcome.NeedsRestart;
+
+        var model = settings.Model is { Length: > 0 } chosenModel ? chosenModel : _model;
+        if (model.Length == 0) return SettingsChangeOutcome.NeedsRestart;
+
+        string? effort = null;
+        // Tool default is the absence of a level of ours, and _meta.reasoningEffort has no way to say that:
+        // left out, the session goes on reasoning at the level it was started with, so nothing would change
+        // while the chooser said it had. The session is started again instead, without the flag.
+        if (settings.Effort is not null)
+        {
+            if (SessionSettingOptions.ParseEffort(settings.Effort) is not { } chosen
+                || AiEfforts.Name(chosen) is not { } level)
+                return SettingsChangeOutcome.NeedsRestart;
+
+            effort = level;
+        }
+
+        try
+        {
+            await Peer.RequestAsync("session/set_model", new
+            {
+                sessionId = SessionId,
+                modelId = model,
+                _meta = effort is null ? null : new { reasoningEffort = effort },
+            }, ct, TimeSpan.FromSeconds(30));
+        }
+        catch (Exception ex) when (ex is JsonRpcException or TimeoutException)
+        {
+            Sink.Emit(new NoticeRaised(NoticeLevel.Warning, $"Grok did not take the change: {ex.Message}"));
+            return SettingsChangeOutcome.Rejected;
+        }
+
+        _model = model;
+        Sink.Emit(new SessionConfigured(model, null, null, settings.Effort));
+        return SettingsChangeOutcome.Applied;
     }
 
     protected override string? AuthenticationMethod(JsonElement initializeResult)
@@ -60,6 +125,7 @@ public sealed class GrokAcpSession : AcpAgentSession
         var model = _launch.Model;
         var current = session.Prop("models").Str("currentModelId");
         var effort = AiEfforts.Name(_launch.Effort);
+        if (model.Length == 0) _model = current ?? "";
         if (model.Length == 0 && effort is null) return;
         if (SessionId is null) return;
 

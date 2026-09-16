@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace mTiles.AgentSessions.Events;
 
@@ -22,6 +22,7 @@ namespace mTiles.AgentSessions.Events;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(SessionStateChanged), "session.state")]
 [JsonDerivedType(typeof(SessionConfigured), "session.configured")]
+[JsonDerivedType(typeof(SessionOptionsReported), "session.options")]
 [JsonDerivedType(typeof(TurnStarted), "turn.started")]
 [JsonDerivedType(typeof(TurnCompleted), "turn.completed")]
 [JsonDerivedType(typeof(UserMessageAdded), "message.user")]
@@ -51,18 +52,52 @@ public abstract record AgentEvent
 
     /// <summary>The turn this belongs to, where it belongs to one.</summary>
     public string? TurnId { get; init; }
+
+    /// <summary>
+    /// Whether this event is worth keeping: false for one that only describes the session running now, which
+    /// a viewer is told and the store is not.
+    /// </summary>
+    /// <remarks>A transient event is numbered, folded into the state and handed to every viewer exactly as any
+    /// other; it is simply not appended. Replaying a conversation without it costs nothing, because the next
+    /// session reports it again at start, and keeping it costs a great deal: <see cref="SessionOptionsReported"/>
+    /// carries a whole model catalogue — hundreds of entries on an opencode installation — so a tile started
+    /// thirty times would write megabytes of it into one conversation and parse them back on every open.</remarks>
+    [JsonIgnore]
+    public virtual bool IsTransient => false;
 }
 
 /// <summary>The process behind the session came up, went busy, is waiting on the user, or ended.</summary>
 public sealed record SessionStateChanged(AgentSessionState State, string? Detail = null) : AgentEvent;
 
 /// <summary>
-/// What the agent says it is running as — and the id that resumes it.
+/// What the agent is running as — and the id that resumes it. A null field keeps what was last said.
 /// </summary>
+/// <param name="Model">The model, spelled the way the agent takes it.</param>
+/// <param name="Mode">The permission mode, as one of the ids <see cref="SessionOptionsReported.Modes"/>
+/// offers — never the agent's own word for it, so a viewer compares like with like.</param>
 /// <param name="ResumeToken">The agent's own handle on this conversation, opaque to everything but the
 /// agent class that wrote it: a Claude session id, a codex thread id, an ACP session id. The host keeps
 /// the latest one beside the conversation, because it is what the next launch is handed.</param>
-public sealed record SessionConfigured(string? Model, string? Mode, string? ResumeToken) : AgentEvent;
+/// <param name="Effort">The reasoning effort, as one of the ids <see cref="SessionOptionsReported.Efforts"/>
+/// offers.</param>
+public sealed record SessionConfigured(string? Model, string? Mode, string? ResumeToken, string? Effort = null)
+    : AgentEvent;
+
+/// <summary>
+/// What this session can be switched to while it runs: models, permission modes and efforts.
+/// </summary>
+/// <remarks>Reported by the session, because only the agent knows its catalogue — Claude Code lists its
+/// models in the answer to <c>initialize</c>, codex answers <c>model/list</c>, opencode names every
+/// provider's models, and an agent that lists nothing reports an empty list, where a viewer still accepts
+/// a model typed by hand. Every report replaces the last.</remarks>
+public sealed record SessionOptionsReported(
+    IReadOnlyList<SessionOption> Models,
+    IReadOnlyList<SessionOption> Modes,
+    IReadOnlyList<SessionOption> Efforts) : AgentEvent
+{
+    /// <summary>Never stored: it describes the session running now, and the next one says it again.</summary>
+    public override bool IsTransient => true;
+}
 
 /// <summary>A turn began — the agent took a message and started working on it.</summary>
 public sealed record TurnStarted : AgentEvent;

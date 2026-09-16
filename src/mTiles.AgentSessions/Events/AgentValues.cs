@@ -111,6 +111,44 @@ public enum FileChangeKind
     Renamed,
 }
 
+/// <summary>One thing a session can be switched to.</summary>
+/// <param name="Id">What is sent back to choose it.</param>
+/// <param name="Label">What a person reads.</param>
+public sealed record SessionOption(string Id, string Label, string? Description = null);
+
+/// <summary>A change to a running session's model, mode or effort; a null field is left as it is.</summary>
+public sealed record SessionSettings(string? Model = null, string? Mode = null, string? Effort = null)
+{
+    public bool IsEmpty => Model is null && Mode is null && Effort is null;
+
+    /// <summary>The change split into one setting each, so an agent can take one and refuse another.</summary>
+    public IEnumerable<SessionSettings> OneByOne()
+    {
+        if (Model is not null) yield return new SessionSettings(Model: Model);
+        if (Mode is not null) yield return new SessionSettings(Mode: Mode);
+        if (Effort is not null) yield return new SessionSettings(Effort: Effort);
+    }
+
+    /// <summary>This change with <paramref name="later"/> laid over it.</summary>
+    public SessionSettings With(SessionSettings later) =>
+        new(later.Model ?? Model, later.Mode ?? Mode, later.Effort ?? Effort);
+}
+
+/// <summary>What became of a settings change.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SettingsChangeOutcome>))]
+public enum SettingsChangeOutcome
+{
+    /// <summary>The running session took it; the next turn runs under it.</summary>
+    Applied,
+
+    /// <summary>The agent cannot switch while it runs; the session has to be started again, on the same
+    /// conversation, with the change.</summary>
+    NeedsRestart,
+
+    /// <summary>The agent refused the change or did not answer; the session has said why, and nothing changed.</summary>
+    Rejected,
+}
+
 /// <summary>An image sent with a message, as bytes — a browser and a CLI both want it that way.</summary>
 public sealed record ImageAttachment(string MimeType, string Base64Data, string? Name = null);
 

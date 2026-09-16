@@ -62,9 +62,8 @@ public sealed class AcpUpdateMapper
                         })),
                 ]));
                 break;
-            case "current_mode_update" when update.Str("currentModeId") is { } mode:
-                events.Add(new SessionConfigured(null, mode, null));
-                break;
+            // current_mode_update names the agent's own mode id, which is not one a viewer can offer back —
+            // SessionConfigured.Mode is the canonical id — so it is not reported.
             case "usage_update":
                 events.Add(new UsageUpdated(new TokenUsage(update.Long("used"), update.Long("size"),
                     CostUsd: update.Prop("cost") is { } cost && cost.Str("currency") is null or "USD"

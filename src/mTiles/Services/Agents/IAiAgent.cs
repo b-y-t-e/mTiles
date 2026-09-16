@@ -329,6 +329,13 @@ public interface IAiAgent : IAgentActivityReader
     string QualifiedModel(AgentRuntime runtime);
 
     /// <summary>
+    /// The inverse of <see cref="QualifiedModel"/>: a model spelled this CLI's way — as a running session
+    /// lists it — turned back into what an instance stores, so qualifying it again at the next launch gives
+    /// the same string rather than the provider twice.
+    /// </summary>
+    string InstanceModel(AgentRuntime runtime, string qualifiedModel);
+
+    /// <summary>
     /// Whether this CLI can be pointed at a service that is not in its own registry — a server on this
     /// machine or this network.
     /// </summary>

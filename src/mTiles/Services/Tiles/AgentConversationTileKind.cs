@@ -59,8 +59,26 @@ public sealed class AgentConversationTileKind(IConversationStore store) : TileKi
         var agent = AiAgentCatalog.Find(instance.AgentId) ?? AiAgentCatalog.All[0];
 
         return new AgentConversationTileViewModel(context.WorkingDirectory, context.Settings, store, instance, agent,
-            context.TileId, SubstitutionFor(requestedInstance, requestedAgent, instance, agent));
+            context.TileId, SubstitutionFor(requestedInstance, requestedAgent, instance, agent),
+            OverridesFrom(state), context.RequestSave);
     }
+
+    /// <summary>The model, mode and effort chosen in this tile over its instance's.</summary>
+    public const string ModelKey = "model";
+
+    /// <inheritdoc cref="ModelKey"/>
+    public const string ModeKey = "mode";
+
+    /// <inheritdoc cref="ModelKey"/>
+    public const string EffortKey = "effort";
+
+    /// <summary>What the layout says this tile runs differently from its instance.</summary>
+    /// <remarks>Read through the canonical ids, so a mode written by a newer build this one has no name for
+    /// is dropped — the instance's own applies — rather than failing the tile.</remarks>
+    private static SessionOverrides OverridesFrom(JsonObject? state) => new(
+        state.String(ModelKey) is { Length: > 0 } model ? model : null,
+        SessionSettingOptions.ParseMode(state.String(ModeKey)),
+        SessionSettingOptions.ParseEffort(state.String(EffortKey)));
 
     /// <summary>
     /// A tile resolved onto a different instance than the one it was created with, or null.
@@ -91,12 +109,19 @@ public sealed class AgentConversationTileKind(IConversationStore store) : TileKi
             $"{agent.DisplayName} — a different agent. Restore it in Settings and this tile goes back to it.");
     }
 
-    protected override JsonObject? Save(AgentConversationTileViewModel tile) =>
-        new()
+    protected override JsonObject? Save(AgentConversationTileViewModel tile)
+    {
+        var state = new JsonObject
         {
             [AgentTileKind.InstanceIdKey] = tile.Substitution?.RequestedInstanceId ?? tile.Instance.Id,
             [AgentTileKind.AgentIdKey] = tile.Substitution?.RequestedAgentId ?? tile.Agent.Id,
         };
+        var overrides = tile.Overrides;
+        if (overrides.Model is { } model) state[ModelKey] = model;
+        if (overrides.Behaviour is { } mode) state[ModeKey] = SessionSettingOptions.ModeId(mode);
+        if (overrides.Effort is { } effort) state[EffortKey] = SessionSettingOptions.EffortId(effort);
+        return state;
+    }
 
     private static bool IsConversational(AiAgentInstance instance) =>
         AiAgentCatalog.Find(instance.AgentId) is IConversationalAgent;

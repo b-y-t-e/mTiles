@@ -14,6 +14,7 @@ using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Agents;
 using mTiles.Services.Agents.Sessions;
+using mTiles.Services.Providers;
 
 namespace mTiles.ViewModels.AgentConversation;
 
@@ -62,10 +63,20 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [ObservableProperty] private QuestionRoundViewModel? _pendingQuestions;
     [ObservableProperty] private TileActivity _activity = TileActivity.Unknown;
     [ObservableProperty] private string _model = "";
+    [ObservableProperty] private string _modelText = "";
+    [ObservableProperty] private SessionOption? _selectedMode;
+    [ObservableProperty] private SessionOption? _selectedEffort;
+    [ObservableProperty] private string? _composerNotice;
+
+    private readonly Action? _requestSave;
+    private SessionOverrides _overrides;
+    private bool _restartQueued;
+    private SessionOptionsReported? _drawnOptions;
+    private bool _drawingSettings;
 
     public AgentConversationTileViewModel(string workingDirectory, SettingsService settings, IConversationStore store,
         AiAgentInstance instance, IAiAgent agent, Func<string> tileId, AgentSubstitution? substitution = null,
-        Action<Action>? post = null)
+        SessionOverrides? overrides = null, Action? requestSave = null, Action<Action>? post = null)
     {
         _workingDirectory = workingDirectory;
         _settings = settings;
@@ -74,8 +85,33 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         Instance = instance;
         Agent = agent;
         Substitution = substitution;
+        _overrides = overrides ?? SessionOverrides.None;
+        _requestSave = requestSave;
         _post = post ?? (action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background));
+        FileMentions = new FileMentionsViewModel(new WorkspaceFileMentionSource(workingDirectory,
+            settings.Settings.GitPath is { Length: > 0 } git ? git : "git"));
     }
+
+    /// <summary>The <c>@</c> file suggestions every box in this tile offers — the composer and an answer —
+    /// the Goal tile's own, so a path is found the same way in both.</summary>
+    public FileMentionsViewModel FileMentions { get; }
+
+    /// <summary>What this tile runs differently from its instance — kept in the layout.</summary>
+    public SessionOverrides Overrides => _overrides;
+
+    /// <summary>The models the session offers; the model field also takes a name typed by hand.</summary>
+    public ObservableCollection<string> ModelOptions { get; } = [];
+
+    public ObservableCollection<SessionOption> ModeOptions { get; } = [];
+    public ObservableCollection<SessionOption> EffortOptions { get; } = [];
+
+    public bool HasModeOptions => ModeOptions.Count > 1;
+    public bool HasEffortOptions => EffortOptions.Count > 1;
+
+    /// <summary>Images going with the next message.</summary>
+    public ObservableCollection<ImageAttachment> Attachments { get; } = [];
+
+    public bool HasAttachments => Attachments.Count > 0;
 
     public string KindId => TileKindIds.AgentConversation;
 
@@ -175,13 +211,166 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         var text = Draft;
         // Enter in the composer, a paired phone and dictation all call this without asking CanExecute.
-        if (!CanSend() || string.IsNullOrWhiteSpace(text) || _host is not { } host) return;
+        if (!CanSend() || (string.IsNullOrWhiteSpace(text) && Attachments.Count == 0) || _host is not { } host) return;
+        List<ImageAttachment> images = [.. Attachments];
         // A host with no live agent refuses the message out loud, and the draft stays for the restart.
-        if (host.HasSession) Draft = "";
-        await RunAsync(() => host.ExecuteAsync(new SendMessage(text), _lifetime.Token));
+        if (host.HasSession)
+        {
+            Draft = "";
+            Attachments.Clear();
+            OnPropertyChanged(nameof(HasAttachments));
+        }
+
+        await RunAsync(() => host.ExecuteAsync(new SendMessage(text, images), _lifetime.Token));
     }
 
     private bool CanSend() => !IsStarting && LaunchProblem is null;
+
+    /// <summary>The largest image handed to an agent, after the view has scaled it down.</summary>
+    /// <remarks>Claude's API refuses an image over 5 MB, and every image is also stored in the conversation;
+    /// the view scales a paste to at most 1568 pixels on its long edge first, so this is rarely reached.</remarks>
+    public const int MaxImageBytes = 5 * 1024 * 1024;
+
+    /// <summary>At most this many images go with one message.</summary>
+    public const int MaxImages = 10;
+
+    /// <summary>Adds an image to the next message.</summary>
+    [RelayCommand]
+    public void AttachImage(ImageAttachment image)
+    {
+        if (image.Base64Data.Length * 3L / 4 > MaxImageBytes)
+        {
+            ComposerNotice = "That image is larger than 5 MB and was not attached.";
+            return;
+        }
+
+        if (Attachments.Count >= MaxImages)
+        {
+            ComposerNotice = $"At most {MaxImages} images go with one message.";
+            return;
+        }
+
+        ComposerNotice = null;
+        Attachments.Add(image);
+        OnPropertyChanged(nameof(HasAttachments));
+    }
+
+    [RelayCommand]
+    private void RemoveAttachment(ImageAttachment image)
+    {
+        Attachments.Remove(image);
+        OnPropertyChanged(nameof(HasAttachments));
+    }
+
+    /// <summary>
+    /// Switches the model, mode or effort: kept as this tile's override, handed to the running session, and —
+    /// where the agent cannot switch while it runs — applied by starting the session again on the same
+    /// conversation (<see cref="AgentConversationHost.RestartRequested"/>).
+    /// </summary>
+    /// <remarks>The override is kept only once the change is taken — with no session running (the next launch
+    /// takes it), when the session applied it, or when it asks for a restart. A change the host refuses under a
+    /// working agent is not kept, or the next launch would quietly start with what the screen says did not
+    /// happen.</remarks>
+    public async Task ChangeSettingsAsync(SessionSettings change)
+    {
+        if (change.IsEmpty) return;
+        if (_host is not { } host || !host.HasSession)
+        {
+            KeepOverride(change);
+            if (IsStarting) RestartOnceStarted();
+            return;
+        }
+
+        await RunAsync(() => host.ExecuteAsync(new ChangeSessionSettings(change), _lifetime.Token));
+    }
+
+    /// <summary>
+    /// A change made while the session is starting: that start may already have read the overrides, so the
+    /// session is started again behind it, once, rather than coming up on what the chooser no longer says.
+    /// </summary>
+    private void RestartOnceStarted()
+    {
+        if (_restartQueued) return;
+        _restartQueued = true;
+        _ = StartAsync(fresh: false);
+    }
+
+    private void KeepOverride(SessionSettings change)
+    {
+        _overrides = _overrides.With(change with { Model = InstanceModel(change.Model) });
+        _requestSave?.Invoke();
+    }
+
+    /// <summary>A model as the session spells it, turned into what the instance stores — the next launch
+    /// qualifies it again, so a session's <c>provider/id</c> kept as it is would carry the provider twice.</summary>
+    private string? InstanceModel(string? sessionModel) =>
+        sessionModel is null
+            ? null
+            : Agent.InstanceModel(AgentRuntime.For(_settings.Settings, Instance, agent: Agent), sessionModel);
+
+    /// <summary>The running session took a change: keep it, on the UI thread, where the layout is saved from.</summary>
+    private void OnSettingsApplied(SessionSettings change) =>
+        _post(() =>
+        {
+            if (!_disposed) KeepOverride(change);
+        });
+
+    /// <summary>
+    /// Bypass asks first, as it does in Settings and on the Goal tile: it is the largest single grant, kept in
+    /// the layout and so surviving every restart. No dialog means no, and a refusal puts the chooser back.
+    /// </summary>
+    private async Task ConfirmBypassThenChangeAsync(SessionOption mode)
+    {
+        var agreed = ConfirmAction is not null && await ConfirmAction(
+            "Run this agent with no permission checks at all?\n\n" +
+            "It will edit, create and delete files and run commands in this workspace without asking. " +
+            "This applies to this tile, until you change it back.");
+
+        if (agreed) await ChangeSettingsAsync(new SessionSettings(Mode: mode.Id));
+        else if (_host is { } host) DrawSettings(host.State);
+    }
+
+    [RelayCommand]
+    private Task ApplyModelAsync()
+    {
+        var typed = ModelText.Trim();
+        return typed.Length == 0 || typed == Model ? Task.CompletedTask : ChangeSettingsAsync(new SessionSettings(Model: typed));
+    }
+
+    /// <summary>Puts back the model the session runs on, over a name typed and never confirmed.</summary>
+    /// <remarks>Leaving the field is not a choice: what was typed is often only a filter for the list.</remarks>
+    public void DiscardTypedModel() => ModelText = Model;
+
+    /// <summary>How long the current turn has been going, beside the thinking dots — the Goal tile's clock.</summary>
+    public ElapsedClock TurnClock { get; } = new();
+
+    partial void OnIsWorkingChanged(bool value)
+    {
+        if (value) TurnClock.Start();
+        else TurnClock.Stop();
+    }
+
+    partial void OnSelectedModeChanged(SessionOption? value)
+    {
+        if (_drawingSettings || value is null) return;
+        _ = SessionSettingOptions.ParseMode(value.Id) == AiBehaviour.BypassPermissions
+            ? RunAsync(() => ConfirmBypassThenChangeAsync(value))
+            : ChangeSettingsAsync(new SessionSettings(Mode: value.Id));
+    }
+
+    partial void OnSelectedEffortChanged(SessionOption? value)
+    {
+        if (!_drawingSettings && value is not null) _ = ChangeSettingsAsync(new SessionSettings(Effort: value.Id));
+    }
+
+    /// <summary>A change the running agent could not take: start it again, on the UI thread, with the override.</summary>
+    private void OnRestartRequested(SessionSettings change) =>
+        _post(() =>
+        {
+            if (_disposed) return;
+            KeepOverride(change);
+            _ = StartAsync(fresh: false);
+        });
 
     [RelayCommand]
     private Task InterruptAsync() =>
@@ -208,6 +397,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         await _startGate.WaitAsync();
         try
         {
+            // Every start from here on reads the overrides as they are now, so a queued restart is covered.
+            _restartQueued = false;
             await ReplaceHostAsync(fresh);
         }
         finally
@@ -223,6 +414,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         if (previous is not null)
         {
             previous.Changed -= OnChanged;
+            previous.RestartRequested -= OnRestartRequested;
+            previous.SettingsApplied -= OnSettingsApplied;
             if (fresh) await previous.ForgetAsync(CancellationToken.None);
             await previous.DisposeAsync();
             // The next host numbers its own events, so a state kept from this one must not outrank them.
@@ -258,7 +451,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             }
 
             if (await OpenHostAsync(conversationId) is not { } host) return;
-            var (launch, problem) = await AgentSessionLauncher.PrepareAsync(_settings.Settings, Agent, Instance,
+            var (launch, problem) = await AgentSessionLauncher.PrepareAsync(_settings.Settings, Agent, _overrides.ApplyTo(Instance),
                 _workingDirectory, conversationId, host.ResumeToken, _lifetime.Token);
             // Closed while preparing: Dispose has already ended this host, and nothing may start on it.
             if (_disposed) return;
@@ -315,6 +508,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
         _host = host;
         host.Changed += OnChanged;
+        host.RestartRequested += OnRestartRequested;
+        host.SettingsApplied += OnSettingsApplied;
         Draw(host.State);
         return host;
     }
@@ -403,6 +598,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
         IsWorking = state.IsWorking;
         Model = state.Model ?? "";
+        DrawSettings(state);
         UsageText = UsageDisplay(state.Usage);
         StatusText = StatusOf(state);
         Activity = state.IsWaitingForUser
@@ -415,7 +611,43 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         TimelineChanged?.Invoke();
     }
 
-    partial void OnModelChanged(string value) => OnPropertyChanged(nameof(HeaderNote));
+    partial void OnModelChanged(string value)
+    {
+        OnPropertyChanged(nameof(HeaderNote));
+        ModelText = value;
+    }
+
+    /// <summary>The choosers, in step with what the session offers and runs as — without that counting as a
+    /// choice somebody made.</summary>
+    private void DrawSettings(ConversationState state)
+    {
+        _drawingSettings = true;
+        try
+        {
+            if (!ReferenceEquals(_drawnOptions, state.Options) && state.Options is { } options)
+            {
+                _drawnOptions = options;
+                Replace(ModelOptions, options.Models.Select(m => m.Id));
+                Replace(ModeOptions, options.Modes);
+                Replace(EffortOptions, options.Efforts);
+                OnPropertyChanged(nameof(HasModeOptions));
+                OnPropertyChanged(nameof(HasEffortOptions));
+            }
+
+            SelectedMode = ModeOptions.FirstOrDefault(o => o.Id == state.Mode);
+            SelectedEffort = EffortOptions.FirstOrDefault(o => o.Id == state.Effort);
+        }
+        finally
+        {
+            _drawingSettings = false;
+        }
+    }
+
+    private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> items)
+    {
+        collection.Clear();
+        foreach (var item in items) collection.Add(item);
+    }
 
     partial void OnLaunchProblemChanged(string? value)
     {
@@ -489,9 +721,13 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         if (_disposed) return;
         _disposed = true;
         _lifetime.Cancel();
+        FileMentions.Dispose();
+        TurnClock.Dispose();
         if (_host is { } host)
         {
             host.Changed -= OnChanged;
+            host.RestartRequested -= OnRestartRequested;
+            host.SettingsApplied -= OnSettingsApplied;
             ConversationClosings.Close(host);
         }
     }

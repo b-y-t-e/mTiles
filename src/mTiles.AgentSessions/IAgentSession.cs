@@ -34,6 +34,14 @@ public interface IAgentSession : IAsyncDisposable
     /// <summary>Answers — or with null, dismisses — a round of questions the session raised.</summary>
     Task AnswerQuestionsAsync(string requestId, IReadOnlyDictionary<string, IReadOnlyList<string>>? answers,
         CancellationToken ct);
+
+    /// <summary>Switches the model, mode or effort of the running session, or says it cannot.</summary>
+    /// <remarks>On <see cref="SettingsChangeOutcome.Applied"/> the session emits a
+    /// <see cref="SessionConfigured"/> saying what it now runs as. <see cref="SettingsChangeOutcome.NeedsRestart"/>
+    /// changes nothing: whoever built the session starts a new one with the change, on the same
+    /// conversation, because only they hold the launch. The host asks for one setting per call, so an outcome
+    /// never has to describe a change that was half taken.</remarks>
+    Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct);
 }
 
 /// <summary>Where a session puts what it hears. Safe to call from any thread.</summary>

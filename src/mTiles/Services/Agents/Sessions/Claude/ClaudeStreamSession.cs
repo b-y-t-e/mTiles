@@ -164,8 +164,87 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
         if (finished != initialized || !initialized.IsCompletedSuccessfully) return false;
 
         _ = WatchExitAsync(process);
+        ReportOptions(initialized.Result);
         sink.Emit(new SessionStateChanged(AgentSessionState.Ready));
         return true;
+    }
+
+    /// <summary>
+    /// The models Claude Code offers, read from its answer to <c>initialize</c>, beside the modes and efforts
+    /// this agent supports.
+    /// </summary>
+    /// <remarks>Measured 2026-09-15 on 2.1.272: the answer carries <c>models[]</c> with <c>value</c> (what
+    /// <c>set_model</c> takes, <c>default</c> included), <c>displayName</c> and <c>description</c>.
+    /// That list is Anthropic's own aliases whatever the instance points at, so on a provider none is offered
+    /// and the field takes a name typed by hand — an alias the gateway does not serve would otherwise be picked,
+    /// kept in the layout and handed to every later launch as <c>ANTHROPIC_MODEL</c>.</remarks>
+    private void ReportOptions(JsonElement initialized)
+    {
+        var instance = launch.Runtime.Instance;
+        sink.Emit(new SessionOptionsReported(
+            OwnModels(initialized),
+            SessionSettingOptions.Modes(agent, instance),
+            SessionSettingOptions.Efforts(agent, instance)));
+        sink.Emit(new SessionConfigured(null, SessionSettingOptions.ModeId(launch.Behaviour), null,
+            SessionSettingOptions.EffortId(launch.Effort)));
+    }
+
+    /// <summary>Claude Code's own model list, or none when the instance runs through a provider.</summary>
+    private IReadOnlyList<SessionOption> OwnModels(JsonElement initialized) =>
+        launch.Runtime.Provider is not null
+            ? []
+            :
+            [
+                .. initialized.Items("models")
+                    .Where(m => m.Str("value") is not null)
+                    .Select(m => new SessionOption(m.Str("value")!, m.Str("displayName") ?? m.Str("value")!, m.Str("description"))),
+            ];
+
+    /// <summary>
+    /// A model through <c>set_model</c> and a mode through <c>set_permission_mode</c>, both control requests
+    /// of the running process (the SDK's own, <c>sdk.mjs</c> 0.3.272); an effort is a launch flag
+    /// (<c>--effort</c>) and needs a restart.
+    /// </summary>
+    public async Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
+    {
+        if (settings.Effort is not null) return SettingsChangeOutcome.NeedsRestart;
+        if (_process is null) return SettingsChangeOutcome.NeedsRestart;
+
+        var mode = SessionSettingOptions.ParseMode(settings.Mode);
+        // Tool default is the absence of a flag of ours, and set_permission_mode has no way to say that: its
+        // own "default" is a mode like any other, and it would override whatever the user's ~/.claude/settings.json
+        // says for the rest of the session. The session is started again instead, without the flag.
+        if (mode is { } wanted && PermissionMode(wanted) is null) return SettingsChangeOutcome.NeedsRestart;
+
+        try
+        {
+            if (settings.Model is { Length: > 0 } model)
+                await ControlAsync(new JsonObject { ["subtype"] = "set_model", ["model"] = model }, ct, TimeSpan.FromSeconds(15));
+
+            if (mode is { } chosen)
+                await ControlAsync(new JsonObject { ["subtype"] = "set_permission_mode", ["mode"] = PermissionMode(chosen)! },
+                    ct, TimeSpan.FromSeconds(15));
+        }
+        catch (Exception ex) when (ex is TimeoutException or InvalidOperationException)
+        {
+            sink.Emit(new NoticeRaised(NoticeLevel.Warning, $"Claude Code did not take the change: {ex.Message}"));
+            return SettingsChangeOutcome.Rejected;
+        }
+
+        string? turn;
+        lock (_turnGate) turn = _turnId;
+        sink.Emit(new SessionConfigured(settings.Model, settings.Mode, null) { TurnId = turn });
+        return SettingsChangeOutcome.Applied;
+    }
+
+    /// <summary>Claude Code's own name for a mode, read off the flag this agent passes for it at launch, so
+    /// the two routes cannot spell one mode two ways — null where it passes no flag at all.</summary>
+    private string? PermissionMode(mTiles.Models.AiBehaviour mode)
+    {
+        var args = agent.BehaviourArgs(mode, AiUsage.Interactive);
+        var flag = args.ToList().IndexOf("--permission-mode");
+        if (flag >= 0 && flag + 1 < args.Count) return args[flag + 1];
+        return args.Contains("--dangerously-skip-permissions") ? "bypassPermissions" : null;
     }
 
     private async Task DiscardFailedProcessAsync()
