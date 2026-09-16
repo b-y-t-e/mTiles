@@ -42,6 +42,7 @@ public static class TileConversion
         TileKindIds.Note => Kept("notes"),
         TileKindIds.Todo => Kept("todos"),
         TileKindIds.Goal => "The run will be paused, and its record stays in .mtiles/goals/.",
+        TileKindIds.Browser => "The pages will close; their addresses are not kept.",
         TileKindIds.Git or TileKindIds.Database or TileKindIds.Usage =>
             "Nothing from this tile will be lost.",
         _ => "Whatever this tile is holding will be replaced.",

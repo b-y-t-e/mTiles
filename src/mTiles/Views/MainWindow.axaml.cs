@@ -51,6 +51,7 @@ public partial class MainWindow : Window
         // Tunneled, like the clipboard coordinator: a terminal consumes F11 as an escape sequence for
         // the child, so a bubbling handler never sees it while the focus sits in a terminal.
         AddHandler(InputElement.KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        AddHandler(InputElement.PointerPressedEvent, OnTunnelPointerPressed, RoutingStrategies.Tunnel);
     }
 
     /// <summary>Draws the whole window at the scale the user asked for.</summary>
@@ -383,6 +384,16 @@ public partial class MainWindow : Window
     /// route (the taskbar, a window manager gesture) leaves it stale, and a stale answer is the state
     /// the toggle would come back to.</remarks>
     private WindowState _windowStateBeforeFullScreen = WindowState.Normal;
+
+    private void OnTunnelPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.ClickCount != 2
+            || e.GetCurrentPoint(this).Properties.PointerUpdateKind != PointerUpdateKind.MiddleButtonPressed)
+            return;
+
+        if (Services.Browser.BrowserTiles.CloseAll())
+            e.Handled = true;
+    }
 
     private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
     {

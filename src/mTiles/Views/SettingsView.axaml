@@ -3,6 +3,7 @@
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
              xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:sb="using:mTiles.Services.Browser"
              x:Class="mTiles.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
 
@@ -161,6 +162,135 @@
                                 <NumericUpDown Classes="setting"
                                                Value="{Binding TerminalFontSize}" Minimum="8" Maximum="48" Increment="1" />
                             </DockPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Browser -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="BROWSER" Classes="section" Margin="0" />
+                    <Border Classes="settings-group">
+                        <StackPanel Spacing="10">
+                            <DockPanel>
+                                <TextBlock Text="Home Page" Classes="label"
+                                           VerticalAlignment="Center" Width="90" />
+                                <TextBox Classes="setting"
+                                         Text="{Binding BrowserHomePage}"
+                                         PlaceholderText="https://…" />
+                            </DockPanel>
+                            <StackPanel Spacing="4" IsVisible="{Binding BrowserProxyIsSupported}">
+                                <CheckBox IsChecked="{Binding BrowserSecureDns}"
+                                          Content="Secure DNS (resolve names over an encrypted connection)" />
+                                <TextBlock Margin="26,0,0,0" TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           Text="Uses Cloudflare (1.1.1.1) so a network that blocks sites by refusing or faking DNS answers cannot - e.g. YouTube's forced Restricted Mode. Applies once every browser tile has been closed. It does not hide which sites you open." />
+                            </StackPanel>
+                            <StackPanel Spacing="4" IsVisible="{Binding BrowserProxyIsSupported}">
+                                <DockPanel>
+                                    <TextBlock Text="Proxy" Classes="label"
+                                               VerticalAlignment="Center" Width="90" />
+                                    <Button DockPanel.Dock="Right" Classes="outlined-sm" Content="Test"
+                                            Margin="6,0,0,0"
+                                            IsEnabled="{Binding !IsTestingBrowserProxy}"
+                                            Command="{Binding TestBrowserProxyCommand}" />
+                                    <TextBox Classes="setting"
+                                             Text="{Binding BrowserProxy}"
+                                             PlaceholderText="Direct connection" />
+                                </DockPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="90,0,0,0"
+                                            IsVisible="{Binding BrowserProxyTestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                    <mi:MaterialIcon Kind="CheckCircleOutline" Width="14" Height="14"
+                                                     VerticalAlignment="Top"
+                                                     Foreground="{DynamicResource StatusSuccess}"
+                                                     IsVisible="{Binding BrowserProxyTestPassed}" />
+                                    <mi:MaterialIcon Kind="AlertCircleOutline" Width="14" Height="14"
+                                                     VerticalAlignment="Top"
+                                                     Foreground="{DynamicResource DangerText}"
+                                                     IsVisible="{Binding BrowserProxyTestFailed}" />
+                                    <TextBlock TextWrapping="Wrap" MaxWidth="480"
+                                               FontSize="{DynamicResource FontXs}"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               Text="{Binding BrowserProxyTestResult}" />
+                                </StackPanel>
+                                <TextBlock Margin="90,0,0,0" TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource DangerText}"
+                                           Text="{Binding BrowserProxyProblem}"
+                                           IsVisible="{Binding BrowserProxyProblem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <TextBlock Margin="90,0,0,0" TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           Text="Another machine's relay, e.g. http://100.x.y.z:18093 - browser tiles then go out through that machine. Applies once every browser tile has been closed." />
+                            </StackPanel>
+
+                            <CheckBox IsChecked="{Binding BrowserRelayEnabled}"
+                                      Content="Let browser tiles on my other Tailscale machines go out through this one" />
+                            <StackPanel Spacing="6" Margin="26,0,0,0" IsVisible="{Binding BrowserRelayEnabled}">
+                                <DockPanel>
+                                    <TextBlock Text="Port" Classes="label"
+                                               VerticalAlignment="Center" Width="64" />
+                                    <NumericUpDown Classes="setting" Width="140" HorizontalAlignment="Left"
+                                                   Value="{Binding BrowserRelayPort}" Minimum="1" Maximum="65535"
+                                                   Increment="1" FormatString="0" />
+                                </DockPanel>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Classes="outlined-sm" Content="Retry"
+                                            Command="{Binding RetryBrowserRelayCommand}" />
+                                    <TextBlock Text="{Binding BrowserRelayStatus}" TextWrapping="Wrap"
+                                               VerticalAlignment="Center"
+                                               FontSize="{DynamicResource FontXs}"
+                                               Foreground="{DynamicResource TextSecondary}" />
+                                </DockPanel>
+                                <SelectableTextBlock Text="{Binding BrowserRelayAddresses}"
+                                                     IsVisible="{Binding HasBrowserRelayAddresses}"
+                                                     FontSize="{DynamicResource FontSm}"
+                                                     Foreground="{DynamicResource TextPrimary}" />
+                                <TextBlock TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           Text="Type one of these into Proxy on the other machine, then press Test there." />
+
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Classes="outlined-sm" Content="Check"
+                                            IsEnabled="{Binding !IsCheckingBrowserRelay}"
+                                            Command="{Binding CheckBrowserRelayCommand}" />
+                                    <Button Classes="outlined-sm" Content="Allow in firewall…"
+                                            IsVisible="{Binding CanChangeFirewall}"
+                                            ToolTip.Tip="Asks for administrator rights, then lets only your Tailscale machines reach this port"
+                                            Command="{Binding AllowBrowserRelayInFirewallCommand}" />
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding BrowserRelayCheck}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="sb:ConnectivityLine">
+                                            <DockPanel Margin="0,1">
+                                                <Panel DockPanel.Dock="Left" Width="20">
+                                                    <mi:MaterialIcon Kind="CheckCircleOutline" Width="14" Height="14"
+                                                                     HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                     Foreground="{DynamicResource StatusSuccess}"
+                                                                     IsVisible="{Binding Ok}" />
+                                                    <mi:MaterialIcon Kind="AlertCircleOutline" Width="14" Height="14"
+                                                                     HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                                     Foreground="{DynamicResource DangerText}"
+                                                                     IsVisible="{Binding !Ok}" />
+                                                </Panel>
+                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
+                                                           FontSize="{DynamicResource FontXs}"
+                                                           Foreground="{DynamicResource TextSecondary}" />
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           Text="{Binding BrowserFirewallResult}"
+                                           IsVisible="{Binding BrowserFirewallResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <TextBlock TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           Text="Safety: only machines signed in to your own Tailscale account are answered, the firewall rule accepts nobody else, and the relay only reaches public internet sites - never this machine or its home network. Pages go through it encrypted (HTTPS), so it never sees what you watch; the sites see this machine's address. Anyone you share your tailnet with can use it too." />
+                            </StackPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>

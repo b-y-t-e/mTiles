@@ -64,6 +64,10 @@ depends=('glibc' 'gcc-libs' 'zlib' 'icu' 'openssl' 'krb5'
          'libjack.so' 'hicolor-icon-theme'
          'wl-clipboard' 'xclip')
 
+# The browser tile draws with the system's own WebKitGTK, opened with dlopen like everything above.
+# Optional because nothing else needs it: without it that one tile says so and the rest is unaffected.
+optdepends=('webkit2gtk-4.1: the browser tile')
+
 # A self-contained .NET publish carries prebuilt native libraries that are not ours to strip:
 # stripping libcoreclr/libSkiaSharp/libonnxruntime is at best pointless and at worst breaks the
 # load. There is no debug package for a binary release either.

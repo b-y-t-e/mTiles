@@ -1678,6 +1678,7 @@ public partial class SettingsViewModel
         InitializeSpeech(Dictation);
         SelectSpeechModelFromSettings();
         InitializePhone();
+        InitializeBrowser(null);
 
         // With a null name, for the reason the speech wizard gives: listing the properties by hand means
         // a list that has to be kept in step with three methods that assign two dozen of them between

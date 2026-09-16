@@ -399,12 +399,14 @@ public partial class SettingsViewModel : ObservableObject
     private ManualDatabaseConnection? _editingConnection;
 
     public SettingsViewModel(SettingsService settingsService, DatabaseServiceManager? dbManager = null,
-        Services.Speech.DictationService? dictation = null)
+        Services.Speech.DictationService? dictation = null,
+        Services.Browser.BrowserRelay? browserRelay = null)
     {
         _settingsService = settingsService;
         _dbManager = dbManager;
         InitializeSpeech(dictation);
         InitializePhone();
+        InitializeBrowser(browserRelay);
         var s = settingsService.Settings;
         _colorThemeName = s.ColorThemeName;
         _terminalFontFamily = s.TerminalFontFamily;

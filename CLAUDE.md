@@ -18,12 +18,12 @@ release. Never a manual `git push` or a hand-written version bump.
 
 - `src/mTiles/` — the application
 - `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
-- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, SplitFixedSide (which side of a split, if either, is held at a size in pixels rather than a share — never written for a split that has none, so a workspace layout saves byte for byte as before), TileKindIds, TileContentType (closed — see Tiles below), AppSettings, AppDefaults, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, GoalTileState, GoalCommit, GoalFinding, GoalReviewResult, GoalClarifyResult, IGoalParsedBlock (the two members the JSON re-send round reads, so a clarification and a review get one round rather than a copy each), GoalCompletionCriteria, GoalStopReason, GoalImageAttachment, SolidPrinciples, AiBehaviour, AiEffort, AiUsage, AiAgentInstance, AiProviderInstance, AiSignIn, AiModelInfo, ProviderCheck, SessionStrategy, ApiFlavor, InstallPlan, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, WorkspaceAgentFileSyncConfig, SpeechSettings, PhoneSettings)
+- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, SplitFixedSide (which side of a split, if either, is held at a size in pixels rather than a share — never written for a split that has none, so a workspace layout saves byte for byte as before), TileKindIds, TileContentType (closed — see Tiles below), AppSettings, AppDefaults, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, GoalTileState, GoalCommit, GoalFinding, GoalReviewResult, GoalClarifyResult, IGoalParsedBlock (the two members the JSON re-send round reads, so a clarification and a review get one round rather than a copy each), GoalCompletionCriteria, GoalStopReason, GoalImageAttachment, SolidPrinciples, AiBehaviour, AiEffort, AiUsage, AiAgentInstance, AiProviderInstance, AiSignIn, AiModelInfo, ProviderCheck, SessionStrategy, ApiFlavor, InstallPlan, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, WorkspaceAgentFileSyncConfig, SpeechSettings, PhoneSettings, BrowserSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`. `BgCanvas` is the odd one out: it is what the tiles are laid on and the only colour here not meant to be looked at (see Split tiles architecture)
 - `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), AgentTileMigration (the terminal tiles that were an AI CLI in a shell, turned into agent tiles once), GoalAgents/GoalAgentChoice (which agents a Goal tile may offer, and what a stored id means), InstallCommand (the line an install or a sign-in actually types into a tile — `InstallPlan.CommandLine` is for reading and never what runs), ExecutableFinder (a program on `PATH`, for the callers a GUI process cannot rely on its own resolution for), ClipboardHelpers (whether an AI CLI in a tile can take an image off this machine's clipboard at all — Linux only, where every one of them shells out to `wl-paste` or `xclip`, and where the absence of the one this session can use is silent in every direction), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/WorkspaceGitWatcher (one watch over a workspace's tree, shared by the git and Goal tiles through `TileContext.GitWatcher`, started with its first subscriber and stopped with its last; it keeps its own noise floor — the ignored directories are asked for through `IIgnoredDirectorySource` rather than waiting for a git tile to supply them — and polls until the workspace becomes a repository, since nothing else retries)/GitIgnoreFile/GitIgnoreEditQueue (the one chain every `.gitignore` edit is queued on — ordered, so a line written and withdrawn a moment later does not survive, and waited on briefly at shutdown so none is abandoned mid-write), DiffFormatter, ProcessTreeMemory/MemoryDisplay (what a workspace's tiles are holding, and how that reads on its row), FileHelper, ProtectedStringConverter, TolerantEnumConverter, TileTreeSerializer, TileNameGenerator, TileMinimumSize, TileDropRatio (how much room a tile dropped between others takes, and how the tiles already there give it up — a third, out of both in proportion, so a pair that was 80/20 is still 80/20 of what is left to it), WindowTileSize (how much room a tile put beside the workspaces is given — fixed pixels while the window has room for them twice over, a share otherwise), SpecialDirectories, SafePathComponent (the one rule for turning an id into a directory or file name — an allow-list plus the Windows reserved names, because both the sign-in directories and the generated opencode files are named after ids that reach `settings.json` by hand), DefaultWorkspace, the Goal tile's engine (AiProcessRunner, AiBehaviours, AiEfforts, GoalWorkflowEngine, GoalPromptBuilder, GoalStatePersistence, GoalLoopPolicy, GoalTilePolicy, GoalCompletionPolicy, GoalBaseline, GoalCommitter, GoalCommitPlan, GoalDiffContext, CommandDisplay, CommandLineLength, ElapsedDisplay, GoalStageDisplay, RejectedFlag, UnrecognizedModel (Claude Code refusing to start a headless run on a model it cannot verify against the gateway — the one recognisable failure that names itself and the route that still works), GoalResponseParser (with JsonRepair, the one pure rule that mends a block a model wrote by hand — an unescaped quote or a raw newline inside a string value — tried only after the parser has refused it and kept only if it then parses), GoalScopeFilter (the composer typed beside Detect/Review as a scope: its words a narrowing block in the prompt, its `@` paths a hard filter on the working-tree block), GoalStateStore, GoalTranscript, GoalImageStore, GoalImageMarker, SolidPrincipleCatalog, WorktreeReader, and its `@` file mentions — IFileMentionSource/WorkspaceFileMentionSource, FileSuggestionIgnore, FileMentionToken, FileMentionMatcher, FileMentionCorpus), AgentFileSyncPolicy/AgentFileSyncEngine/AgentFileSyncCoordinator/AgentFileSyncConfigStore/WorkspaceWorkGate (opt-in per-workspace CLAUDE.md ↔ AGENTS.md content sync — see *CLAUDE.md ↔ AGENTS.md sync* below), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
-- `Services/Tiles/` — the tile registry (see *Tiles* below and [`docs/TILES.md`](docs/TILES.md)): ITileKind, TileKind<T>, TileCatalog/TileCatalogEntry, TileContext, TileState, and one class per kind (TerminalTileKind, AgentTileKind, NoteTileKind, TodoTileKind, GitTileKind, DatabaseTileKind, GoalTileKind, UsageTileKind, and the window's two permanent ones, WorkspacesTileKind and WorkspaceHostTileKind)
+- `Services/Tiles/` — the tile registry (see *Tiles* below and [`docs/TILES.md`](docs/TILES.md)): ITileKind, TileKind<T>, TileCatalog/TileCatalogEntry, TileContext, TileState, and one class per kind (TerminalTileKind, AgentTileKind, NoteTileKind, TodoTileKind, GitTileKind, DatabaseTileKind, GoalTileKind, UsageTileKind, BrowserTileKind, and the window's two permanent ones, WorkspacesTileKind and WorkspaceHostTileKind)
 - `Services/Activity/` — what a tile is doing and how it is found out (see *Tile activity* below): IActivitySource with OutputActivitySource/TerminalTitleSource/TerminalProgressSource/RecentOutputSource, IAgentActivityReader (the one layering boundary — the agent says what its signal means, this says nothing about agents), ActivityPolicy (pure: rank, freshness, the asymmetric debounce), TileActivityMonitor, ActivityMarkers, AnsiText
 - `Services/Database/` — DatabaseServiceManager, DbHttpServer, DiscoveryService, DbRegistry, DbLogger, QueryHandler, SqlGuard, SqlGuardProfile, SqlServerProvider, PostgreSqlProvider, SubnetScanner, IDbProvider, DatabaseSkillWriter
 - `Services/ShellStarter.cs` — one call that replaces whatever session a `TerminalControl` holds and hands the shell its startup script (`${tileId}` substituted, one line per `\r`). The control owns the rest: killing the old session, waiting for it, and gating the script on `ShellReady` for *that* session
@@ -366,8 +366,8 @@ whole session, on every save, not just the one a migration asks for — to write
 this build does not know. The dual write is a bridge with an end: when no supported build reads the old
 fields, the getters go.
 
-**A tile can take the whole workspace, and five kinds may** (`IMaximizableTile` — terminal, agent, note,
-todo, goal). The gesture is a header button that changes shape (`Fullscreen` → `FullscreenExit`, lit while it
+**A tile can take the whole workspace, and six kinds may** (`IMaximizableTile` — terminal, agent, note,
+todo, goal, browser). The gesture is a header button that changes shape (`Fullscreen` → `FullscreenExit`, lit while it
 is on), Ctrl+Shift+F, an overflow entry, and a **double-click in the empty part of the header** — the
 one every window manager already uses for it, guarded so that a button's second press and the name
 label's own rename gesture are not it. It is drawn by `TileMaximizeScope` — one per workspace, like
@@ -1518,6 +1518,51 @@ carries the reasoning.
 - **Database** — tile with database management (SQL Server, PostgreSQL), HTTP bridge, query logs, kind id `database`
 - **Usage** — a read-only dashboard of what every account this machine can actually ask has left, kind
   id `usage`. See *Usage tile* below
+- **Browser** — a web page, kind id `browser` (`BrowserTileKind`, `BrowserTileViewModel`,
+  `Views/BrowserTileView`), drawn by `Avalonia.Controls.WebView`: the platform's own engine (WebView2 on
+  Windows, WebKitGTK on Linux), so nothing like Chromium ships in the package. Things worth knowing
+  before touching it:
+  - **The page is a native window.** Nothing Avalonia draws can cover it, so it hides itself while
+    `ModalScope.IsAnyOpen` (`ModalScope.Changed`); and input inside it never reaches the window, so a
+    small script injected after every load (`BrowserTileView.PageScript`) passes the tile's own
+    gestures back through `invokeCSharpAction`.
+  - **The view is kept on the tile** (`BrowserTileViewModel.CachedView`, handed back by
+    `App.BrowserView`), exactly as the list of workspaces is, because a card rebuilt around a moved tile
+    would otherwise load the page again. Maximizing and moving survive because `NativeControlHost`
+    destroys a detached native control only if it is still detached a moment later.
+  - **One browser process, one set of arguments** (`BrowserEngine`): WebView2 refuses a view whose
+    arguments differ from the running process's, so the proxy is fixed by the first tile and a change
+    applies once the last one closes. Its profile lives under `%APPDATA%/mTiles/browser`, not beside the
+    executable Velopack replaces, and the options go through the environment *options*, never the
+    `WEBVIEW2_*` variables every terminal's child would inherit.
+  - **Proxy and relay** (Settings → General → Browser): `BrowserSettings.ProxyServer` is checked by
+    `BrowserProxy` before it reaches a command line (Windows only); `BrowserRelay` is an opt-in HTTP
+    CONNECT proxy that listens on this machine's Tailscale addresses only, answers tailnet peers only and
+    connects to public addresses only (`RelayRules`, table-tested — the loopback refusal is what keeps
+    the database bridge off the tailnet). Measured 2026-09-16: HTTPS and HTTP through it answer 200,
+    `127.0.0.1` through it answers 502.
+  - **It closes without asking** (`ITileKind.ClosesWithoutAsking`): it holds nothing a question would
+    protect.
+  - **Secure DNS** (`SecureDnsResolver`, `BrowserSettings.SecureDns`): for a network that filters by
+    refusing or faking DNS answers — measured 2026-09-16, an office resolver handing back YouTube's
+    Restricted-Mode address for `www.youtube.com` while leaving `*.googlevideo.com` alone. WebView2's own
+    `--dns-over-https-mode=secure` is ignored (measured), so instead the poisoned front-door hosts are
+    resolved over DoH (Cloudflare) at browser-process start and handed in as `--host-resolver-rules`,
+    which does take effect. The value **must be quoted** — each `MAP host addr` carries spaces and
+    WebView2 cuts an unquoted value at the first one. The video/image CDNs are deliberately not mapped
+    (many hosts a session, and not the ones tampered with). It does not hide which sites are opened and
+    does nothing against a block by address or TLS SNI — that is the proxy's job.
+  - **Tabs** (`BrowserTabViewModel`): one `NativeWebView` per tab, stacked in one panel with only the
+    selected one visible — a background tab keeps playing, as in any browser. There is always a tab
+    (closing the last opens the home page), a link asking for a new window opens a tab, and Ctrl+T/W/Tab
+    work inside a page through the same injected script. The layout saves `tabs` and `selectedTab`
+    beside the old `address`, which stays written so an older build opens the page on screen.
+  - **Checks** (`BrowserConnectivity`): Test beside Proxy connects to the relay first and fetches a
+    204 through it second, because the two failures have different fixes; Check beside the relay reports
+    Tailscale, listening, a request through itself and the firewall. `RelayFirewall` adds one rule named
+    for the relay — its port, `100.64.0.0/10` and Tailscale's IPv6 prefix only, every profile — and the
+    phone bridge's repair and check leave that rule out by name, since its repair otherwise deletes every
+    inbound rule for the executable.
 - No DI container — manual injection in `App.axaml.cs`, where `BuildTileCatalog` is also the one place a kind of tile is registered
 - **ConfirmAction pattern** — destructive actions (discard, remove workspace, undo commit) use `Func<string, Task<bool>>? ConfirmAction` in ViewModel, wired from View as `MessageBox.Avalonia` dialog (YesNo). **An unwired dialog normally lets the action through** — except in Settings, where it does not. `SettingsView.ConfirmAction` answers **no** when there is no window to ask in, and that covers *every* confirmation on that dialog: deleting a manual database connection, a downloaded speech model. An unanswered question is not a yes, and nothing on that dialog is cheap to undo — a speech model is hundreds of megabytes and, on a slow connection, hours. The speech model's own chain says no at all three links (the row, the tab that wires it, the view), and all three had to change together: a `?? Task.FromResult(true)` in the middle made the row's own refusal unreachable
 - **PromptInput pattern** — `Func<string, string, IEnumerable<string>?, Task<string?>>? PromptInput` in ViewModel, wired from View as `InputDialog` (title + text input + suggestions list). Used e.g. when creating a tag.

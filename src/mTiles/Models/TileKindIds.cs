@@ -29,6 +29,11 @@ public static class TileKindIds
     /// pretending it is a terminal would open a shell nobody asked for.</remarks>
     public const string Usage = "usage";
 
+    /// <summary>A web page.</summary>
+    /// <remarks>No legacy name either, for the reason <see cref="Usage"/> has none: the tile keeps only
+    /// an address, and a rolled-back build reading it as an empty tile loses a click, not work.</remarks>
+    public const string Browser = "browser";
+
     /// <summary>The list of workspaces, as a tile of the window's own layout.</summary>
     /// <remarks>Only ever in <c>window/layout.json</c>, which no build before the window had a layout
     /// reads — so, unlike every id above, it needs no answer from <see cref="ToLegacy"/>.</remarks>

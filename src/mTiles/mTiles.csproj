@@ -46,6 +46,9 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.1.*" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.*" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.*" />
+    <!-- The browser tile. The platform's own engine (WebView2 on Windows, WebKitGTK on Linux), so
+         nothing like Chromium ships inside this application; MIT, and no native binaries of its own. -->
+    <PackageReference Include="Avalonia.Controls.WebView" Version="12.1.*" />
     <!-- The compositor's own protocol on Linux, so a HiDPI display reports its scale — see
          Program.BuildAvaloniaApp. Exists only from Avalonia 12.1, which is what that bump bought. -->
     <PackageReference Include="Avalonia.Wayland" Version="12.1.*" />

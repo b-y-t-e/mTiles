@@ -253,7 +253,10 @@ public class PhoneFirewallScriptTests
         // DisplayName reported "no rule allowing mTiles in" on a machine where the user had answered
         // that prompt correctly, and offered a repair that deletes every inbound rule for the
         // executable — destructive advice about a configuration that already worked.
-        Assert.DoesNotContain("DisplayName", check);
+        // The one name it does mention is the browser relay's, and only to leave that rule out: it is
+        // open on every profile and would otherwise answer this question on the bridge's behalf.
+        Assert.DoesNotContain("DisplayName -eq", check);
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Count(check, "DisplayName"));
         Assert.Contains("Get-NetFirewallApplicationFilter -Program $program", check);
     }
 

@@ -854,7 +854,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // close is a question with no answer.
         if (!CanClose) return;
 
-        if (ConfirmAction != null && !await ConfirmAction("Close tile?"))
+        if (Kind?.ClosesWithoutAsking != true
+            && ConfirmAction != null && !await ConfirmAction("Close tile?"))
             return;
 
         Dispose();          // the content goes with it

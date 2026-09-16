@@ -144,6 +144,13 @@ public sealed class AppSettings
     }
     private PhoneSettings _phone = new();
 
+    public BrowserSettings Browser
+    {
+        get => _browser;
+        set => _browser = value ?? new();
+    }
+    private BrowserSettings _browser = new();
+
     /// <summary>
     /// How much the Goal tile's AI runs may do without asking — see <see cref="AiBehaviour"/>.
     /// <para>Here rather than in the goal file so that it cannot travel with a branch, and one setting

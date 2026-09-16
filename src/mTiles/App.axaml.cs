@@ -24,6 +24,7 @@ public partial class App : Application
     private AiUsageService? _usage;
     private AgentFileSyncCoordinator? _agentFileSync;
     private DesktopTextScale? _textScale;
+    private Services.Browser.BrowserRelay? _browserRelay;
 
     public override void Initialize()
     {
@@ -72,6 +73,9 @@ public partial class App : Application
         // workspace currently loaded and reacts to the global switch in Settings.
         _agentFileSync = new AgentFileSyncCoordinator(_settingsService);
 
+        // Off unless Settings says otherwise; it follows the settings from here on by itself.
+        _browserRelay = new Services.Browser.BrowserRelay(_settingsService);
+
         // Captured before the view model exists, and read only when a phone actually streams — which
         // breaks the circle between the two without either of them holding a half-built reference.
         MainWindowViewModel? mainVmRef = null;
@@ -81,7 +85,8 @@ public partial class App : Application
         var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
             BuildTileCatalog(_dbManager, _usage), _dbManager, _dictation, _phoneBridge,
             agentFileSync: _agentFileSync,
-            windowCatalog: panel => BuildWindowTileCatalog(_usage, panel));
+            windowCatalog: panel => BuildWindowTileCatalog(_usage, panel),
+            browserRelay: _browserRelay);
         mainVmRef = mainVm;
 
         // The other half of the Func above: it says what the active tile is, this says when to look
@@ -162,8 +167,25 @@ public partial class App : Application
             .Register(new DatabaseTileKind(databases), tile => new DatabaseTileView { DataContext = tile })
             .Register(new GitTileKind(), tile => new GitTileView { DataContext = tile })
             .Register(new UsageTileKind(usage), tile => new UsageTileView { DataContext = tile })
+            .Register(new BrowserTileKind(), BrowserView)
             .Register(new NoteTileKind(), tile => new NoteTileView { DataContext = tile })
             .Register(new TodoTileKind(), tile => new TodoTileView { DataContext = tile });
+
+    /// <summary>The browser tile's view, kept on the tile so a card rebuilt around a moved tile takes the
+    /// same page along rather than loading it again.</summary>
+    private static Avalonia.Controls.Control BrowserView(ITile tile)
+    {
+        var browser = (BrowserTileViewModel)tile;
+        if (browser.CachedView is BrowserTileView kept)
+        {
+            ControlHelper.DetachFromParent(kept);
+            return kept;
+        }
+
+        var view = new BrowserTileView { DataContext = browser };
+        browser.CachedView = view;
+        return view;
+    }
 
     /// <summary>
     /// Every kind of tile the window's own layout can hold: the list of workspaces and the place the open
@@ -198,7 +220,8 @@ public partial class App : Application
             .Register(new WorkspaceHostTileKind(), _ => new Avalonia.Controls.Panel())
             .Register(new NoteTileKind(), tile => new NoteTileView { DataContext = tile })
             .Register(new TodoTileKind(), tile => new TodoTileView { DataContext = tile })
-            .Register(new UsageTileKind(usage), tile => new UsageTileView { DataContext = tile });
+            .Register(new UsageTileKind(usage), tile => new UsageTileView { DataContext = tile })
+            .Register(new BrowserTileKind(), BrowserView);
 
     /// <summary>Runs one shutdown step, so a failure in it cannot cost the others.</summary>
     private static void Shutdown(string what, Action step)
@@ -246,6 +269,7 @@ public partial class App : Application
         Shutdown("usage service", () => _usage?.Dispose());
         Shutdown("agent file sync", () => _agentFileSync?.Dispose());
         Shutdown("text scale watcher", () => _textScale?.Dispose());
+        Shutdown("browser relay", () => _browserRelay?.Dispose());
     }
 
     private void ApplyFontResources()
