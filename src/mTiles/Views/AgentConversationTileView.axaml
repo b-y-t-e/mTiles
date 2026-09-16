@@ -96,6 +96,10 @@
         <Style Selector="TextBlock.agent-choice-label.unpickable">
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
+        <!-- The one row in the conversation list that is an action rather than a place. -->
+        <Style Selector="TextBlock.agent-choice-label.new-conversation">
+            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
+        </Style>
         <Style Selector="TextBlock.agent-choice-reason">
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
             <Setter Property="FontSize" Value="{DynamicResource TermFontXs}" />
@@ -149,6 +153,14 @@
                             ToolTip.Tip="Stop the agent (Esc)">
                         <mi:MaterialIcon Kind="Stop" Width="14" Height="14" />
                     </Button>
+                    <!-- Forgetting is a button of its own and not a row in the list beside it: that list is
+                         clicked to *open* things, and a destructive entry in it is one misclick from a
+                         conversation and its checkpoints being gone. It asks before it takes anything. -->
+                    <Button Classes="tile-btn"
+                            Command="{Binding DeleteConversationCommand}"
+                            ToolTip.Tip="Delete this conversation">
+                        <mi:MaterialIcon Kind="DeleteOutline" Width="14" Height="14" />
+                    </Button>
                 </StackPanel>
                 <!-- What the agent runs as, switchable in place: a model typed or picked from what the session
                      lists, and the mode and effort the agent supports. Wraps rather than truncating, so a
@@ -157,6 +169,34 @@
                     <TextBlock Classes="strip" Margin="0,0,10,0" Text="{Binding StatusText}" />
                     <TextBlock Classes="strip" Margin="0,0,10,0" Text="{Binding UsageText}"
                                IsVisible="{Binding UsageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <!-- Which conversation this tile is showing. Every conversation ever held in this workspace
+                         is in the store, and until this list existed there was no way back to any of them: a
+                         conversation was the tile's own id, so a new one could only be started over the old.
+                         Read when the list is opened rather than kept in step, because the answer changes only
+                         when something is said and the tile redraws every frame while an agent replies. -->
+                    <ComboBox x:Name="ConversationBox"
+                              Classes="strip-choice agent-choice" VerticalAlignment="Center"
+                              Margin="0,0,6,0"
+                              MaxWidth="240"
+                              ItemsSource="{Binding Conversations.Options}"
+                              SelectedItem="{Binding Conversations.Selected}"
+                              DropDownOpened="ConversationBox_DropDownOpened"
+                              ToolTip.Tip="The conversation this tile is showing">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="ac:ConversationOption">
+                                <StackPanel ToolTip.Tip="{Binding Reason}">
+                                    <TextBlock Classes="agent-choice-label"
+                                               Classes.unpickable="{Binding !IsPickable}"
+                                               Classes.new-conversation="{Binding IsNew}"
+                                               Text="{Binding Title}" />
+                                    <TextBlock Classes="agent-choice-reason" Text="{Binding Note}" />
+                                    <TextBlock Classes="agent-choice-reason"
+                                               Text="{Binding Reason}"
+                                               IsVisible="{Binding Reason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
                          a conversation with nothing in it is bound to nobody yet. An agent it cannot be moved
                          to is drawn dimmed with the reason beneath it, never left out of the list and never

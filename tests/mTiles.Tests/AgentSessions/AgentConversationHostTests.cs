@@ -462,6 +462,7 @@ public class AgentConversationHostTests : IDisposable
         public TaskCompletionSource Refused { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public ConversationRecord? Find(string conversationId) => inner.Find(conversationId);
+        public IReadOnlyList<ConversationSummary> List(string workingDirectory) => inner.List(workingDirectory);
         public void Save(ConversationRecord record) => inner.Save(record);
         public IReadOnlyList<AgentEvent> ReadEvents(string conversationId) => inner.ReadEvents(conversationId);
         public long LastSequence(string conversationId) => inner.LastSequence(conversationId);

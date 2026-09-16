@@ -454,12 +454,44 @@ prompt, pi `set_model` / `set_thinking_level`, ACP `session/set_model`; where an
 (agy, Grok's permission mode) the change restarts the session on the same conversation, and the tile says
 so.
 
-### 3. Importing conversations started outside mTiles
+### 3. Importing conversations started outside mTiles — a second source for the picker
 
-**Now:** only conversations held in the tile exist in the store. t3code reads Claude Code's
-`~/.claude/projects/**/*.jsonl` and codex's `rollout-*.jsonl`, matches the recorded cwd to the project and
-imports the text of the last 30 days, keeping the id so the conversation continues. **To settle it:** the
-same, per agent class (each CLI keeps its transcript differently), offered in the empty tile.
+**Now:** an Agent tile can be pointed at any conversation **it** has held in this workspace
+(`IConversationStore.List`, the chooser in the strip, `conversationId` in the layout). What is missing is
+everything held anywhere else: a conversation started in a Terminal agent tile, or in the CLI's own
+terminal, is in *its* history and not in ours, so `/resume` in Claude Code reaches conversations this list
+does not. t3code reads Claude Code's `~/.claude/projects/**/*.jsonl` and codex's `rollout-*.jsonl`, matches
+the recorded cwd to the project and imports the text of the last 30 days, keeping the id so the conversation
+continues.
+
+**To settle it:** the same, per agent class — each CLI keeps its transcript differently — offered as a
+**second source of the list that already exists** rather than as a screen of its own.
+
+**The two sources overlap, and that is the part worth designing first.** A conversation held in an Agent
+tile is in both stores: ours, because we recorded it, and the CLI's, because the CLI wrote its own
+transcript at the same time. Listed naively it appears twice. What says they are the same is the **resume
+token** — `ConversationRecord.ResumeToken` is precisely the CLI's own id for it — so the merge is a
+deduplication on that, and **ours wins** wherever both exist, because ours carries the checkpoints, the diff
+and the Undo that theirs cannot.
+
+**What an imported row is honestly worth**, and the picker should say so rather than let it be found out:
+
+| | Held here | Imported |
+|---|---|---|
+| Transcript | ours, drawn as it always was | mapped out of their format, one reader per agent |
+| Checkpoints, **Undo changes** | from the first turn | **none** before the import — we never took them |
+| Continuing it | works | works: their id *is* the resume token |
+
+**Per agent, what is actually there** (unmeasured except where the session code already says so): Claude
+Code and codex keep a file per conversation and are the two t3code reads. opencode keeps its own sessions
+and is asked over its server rather than read off disk — which is already how `OpenCodeServerSession`
+resumes one. pi's session id is **ours**, a GUID this application makes, so there is nothing of pi's to
+import that we did not name. agy and Grok were not measured. **An agent with nothing to read should offer
+nothing** rather than an empty list that reads as a fault.
+
+**One rule this must not break.** An imported conversation is still that agent's: it is listed for the
+agent that holds it, picking it moves the tile onto an instance of that agent, and a machine with no such
+instance is told why — which is what the picker already does for our own rows.
 
 ### 4. Pruning
 
@@ -468,12 +500,139 @@ same, per agent class (each CLI keeps its transcript differently), offered in th
 Undo. **To settle it:** a bounded sweep — conversations whose tile id no layout holds after N days, the
 newest K before-restore refs per repository.
 
-### 5. The web view
+### 5. A second viewer: a browser, and another mTiles
 
-**Now:** the desktop tile is the only viewer. Everything a browser needs exists: `AgentEvent` and
-`AgentCommand` as JSON, `ConversationReducer`, the store, and `AgentConversationHost.ExecuteAsync` as the
-one entry point. **To settle it:** a server that streams a conversation's events over a WebSocket and
-accepts commands, and a page drawing the same state.
+**Now:** the desktop tile is the only viewer, and the machine it runs on is the only place the work is.
+Everything a second viewer needs already exists: `AgentEvent` and `AgentCommand` as JSON with their own
+discriminators, `AgentSessionJson.Options` (camelCase, written for exactly this), the pure
+`ConversationReducer`, a store whose events carry **sequence numbers**, and
+`AgentConversationHost.ExecuteAsync` as the one entry point with `Changed` as the one way out.
+
+**What is wanted, and it is two things that are one thing.** A browser drawing a conversation running on
+this machine; and **another mTiles** drawing a conversation running on a machine somewhere else — the
+laptop at home, reached from the desk at work — so that the workspaces list holds this machine's
+workspaces and the other machine's, and opening one of theirs opens their tiles. Both are the same
+feature seen twice: *a client that is not the process the work is running in*. Building the browser view
+against a contract and then bolting a peer link onto the side of it would produce two protocols and one
+of them would rot. **One contract, two transports.**
+
+**What it is not, and this is the line from *What not to chase* above.** The other mTiles is a **viewer**,
+not a second runtime: no process moves, no PTY is handed over, nothing detaches and re-attaches, and
+neither side becomes a server the other's tiles live in. The work runs where it always ran — the
+repository, the agent CLI, the subscription and the checkpoints are all on the host machine — and what
+crosses is what the host already recorded plus the commands the user types. That is why this is
+affordable while item 5 of the Herdr section is not.
+
+#### What can travel, and what it costs
+
+| Kind | What a viewer needs | Cost |
+|---|---|---|
+| **Agent conversation** | the event stream and `ExecuteAsync` | already built; this is the whole argument for the event contract |
+| **Usage** | `AiUsageReport`s, read-only, refreshed on a timer | a serialization and nothing else |
+| **Note**, **Todo** | the text, and edits back | cheap, but needs a rule for two editors — last write wins is a lost paragraph |
+| **Goal** | `GoalTileState` as a snapshot plus a transcript | its state is a snapshot, not an event log, so this is a read model written for the purpose |
+| **Git** | request/response: status, diff of a path, and the destructive actions | plausible; a diff is text. Commit/discard **from a viewer** is a grant of its own |
+| **Terminal** | a live byte stream both ways, resize, and scrollback on attach | its own decision, below |
+| **Database** | nothing | **refused.** The bridge is bound to localhost by design and checks the `Host` header against it; a peer querying this machine's databases is a new grant with a new threat model, and it is not this feature's |
+
+**The terminal is the one worth refusing first and revisiting later.** `Tailcat.Link.OpenChannelAsync`
+is exactly the shape a PTY wants — a live, unresumed stream — so the transport is not the problem. What
+is: the viewer's terminal is a second `TerminalControl` with its own cell grid, so resize is a
+negotiation rather than a message; scrollback has to be replayed on attach or the tile opens blank on a
+session that has been running for hours; and latency that is invisible in a conversation is unusable at a
+shell prompt. A conversation tolerates a second of delay because it is a conversation. Ship the
+conversation first and let the terminal be judged on a link that already works.
+
+#### The shape of it
+
+1. **`mTiles.Link` — a third project, no Avalonia, the same rule `mTiles.AgentSessions` follows.** It
+   holds the wire contract (a versioned handshake, a directory of what is shared, and per-subscription
+   snapshot + tail), an `ILinkTransport` seam, and the two halves: a **host** that serves what this
+   machine shares, and a **client** that holds a read model of somebody else's. `Tailcat.Link` is then a
+   dependency of one adapter rather than of the application, which is also what lets the WebSocket
+   transport serve the browser through the same contract and `Tailcat.TestSupport`'s in-memory relay
+   drive the tests without a network. **The browser half costs no new dependency and little new ground**:
+   `mTiles.csproj` already carries `<FrameworkReference Include="Microsoft.AspNetCore.App" />` for the
+   phone bridge, and `PhoneBridgeServer` is the worked precedent for every part of it — a Kestrel host
+   with one delegate and `UseWebSockets`, a single-use token redeemed for a session, a `Host` allow-list,
+   SNI certificate selection — with `PhoneBridgeManager`'s `ShouldKeepRunning`/`StartAsync`/`StopAsync`/
+   `DisposeAsync` as the lifecycle shape `App.ReleaseBackgroundServices` already knows how to shut down.
+2. **Subscribe by sequence number.** `IConversationStore.LastSequence` and the numbering on every event
+   already make this free: a client says "I have up to N", the host answers with the tail and then the
+   stream. A link drops every time a laptop lid closes, so *resume* is the normal case and not the
+   failure case — the same reason `Tailcat.Link` resumes a half-sent file.
+3. **What produces the state is a seam; what draws it is not.** `AgentConversationTileViewModel.Draw` is
+   already a pure function of `ConversationState` — it syncs collections and scalars and knows nothing
+   about where the state came from, and even its one Avalonia coupling, the `post` callback, is a
+   constructor parameter. What ties it to this machine is **six call sites**: `CreateHost` (which builds
+   the `AgentConversationHost` and its `GitTurnCheckpoints`), `host.Changed`, `host.ExecuteAsync`,
+   `host.DiffAsync`, `host.ChildProcessId` and `_sessionStarter`. Those are the interface, with a local
+   implementation over the host and a remote one over a subscription. **Not** the same tile pointed at a
+   different service: `TileContext` is a `WorkingDirectory` on this disk and this machine's
+   `SettingsService`, and a remote tile has neither — so the link service is handed to the kind from
+   `App.BuildTileCatalog`, the way `IConversationStore` already is, rather than added to `TileContext`.
+   A remote conversation's chooser lists the *remote* machine's agent instances, which is the point — the
+   subscription, the accounts and the repository are all over there.
+4. **Two of the six do not travel, they proxy.** `ITurnCheckpoints` is `git` against a working directory
+   and two ref namespaces on the host's disk (`refs/mtiles/agent-sessions/`, `refs/mtiles/before-restore/`),
+   and `ChildProcessId` is a pid in the host's process table. So a remote tile's diff and its **Undo
+   changes** are requests that run `git` over there and answer with text — which is the right answer
+   anyway, because the checkpoints are ours rather than the agent's and undoing a turn must happen where
+   the files are. It is also the point at which *see* stops being enough and a grant is needed.
+5. **The workspaces list grows a machine it belongs to.** Local workspaces first, then a section per
+   connected peer, each row carrying the peer's name; the "switch everything to remote" gesture is a
+   filter over that grouping rather than a mode, because a mode hides half of somebody's work and the
+   panel already has pinning, sorting and a filter box to do it with. `Workspace` gains an origin; a
+   remote row shows no local path, because it has none.
+6. **Activity travels first, because it is nearly free and worth the most.** `WorkspaceViewModel.Activity`
+   already folds every tile's `TileActivity` into one answer per workspace. Sent over the link, a remote
+   row wears the same still `AlertCircleOutline` a local one does — *an agent at home has stopped to ask
+   something, and it is visible from the desk at work*. That is the feature people will describe this
+   whole entry as.
+7. **Nothing of the peer's is written to this disk.** The client's state lives in memory for as long as
+   the link does; `conversations.db` stays the host's. A conversation carries prompts, diffs and somebody's
+   source, and the machine viewing it is often the one the user controls least — a work laptop accruing a
+   local copy of home's repository is the failure this rule exists to prevent. An explicit per-peer
+   opt-in could change it later; the default must not.
+8. **Pairing is not permission.** A `Tailcat.Link` invitation code proves *which machine*, and nothing
+   more. What a peer may do is a grant per peer per workspace, stored beside the sign-ins: **see** (the
+   timeline, the activity), **send** (type into a conversation), **approve** (answer an agent's permission
+   request). The third is the largest single grant in this application — it is a remote machine allowing
+   an edit in this one's repository, which is `bypass` reached by a different road — so it asks the way
+   `bypass` asks, and a workspace is shared with nobody until somebody shares it.
+9. **A handshake with a version, and an unknown event is drawn rather than dropped.** Two linked mTiles
+   will be different builds — Velopack updates one of them on a Tuesday — so the contract is versioned and
+   an event type this build does not know is drawn as *something happened here that this version cannot
+   show*, never silently skipped. That is the rule `TileNode` already follows for a tile kind it does not
+   recognise, and for the same reason: the newer side must not lose what the older one cannot render.
+
+#### What to weigh before starting
+
+- **The link lives only while the application does.** Close mTiles at home and there is nothing at home
+  to connect to — the same property the phone bridge has. Everything above is honest about that; a
+  headless or tray host that keeps the link up without a window is a separate decision, and it is the one
+  thing here that starts to look like the long-lived process this project has twice declined to build.
+- **`Tailcat.Link` is one person's port and says so.** Its relays are Tailscale's public DERP servers,
+  shared and rate-limited; the direct path needs QUIC (Windows 11+, macOS, or `libmsquic` on Linux) and
+  falls back to relay when hole punching fails; and its README states plainly that the security design
+  has not been externally reviewed. That is acceptable for *my two machines* and is not acceptable as the
+  basis for sharing a repository with a colleague — which is why the first version is one person's
+  machines, and multi-user is out of scope rather than merely unbuilt.
+- **The browser client is the cheaper half and should go first**, because it exercises the contract with
+  no NAT, no pairing and no second machine, and because a page that draws a conversation is also the proof
+  that the state is genuinely serializable — a remote mTiles could accidentally pass by sharing types.
+- **One open question worth settling before the first line: events or state on the wire.**
+  `ConversationState` is itself fully serializable (`TimelineEntry` and `WorkItem` carry their own `kind`
+  discriminators), so a host could send folded state and spare the client a reducer. Events are the
+  cheaper stream, resume by sequence number is free with them, and the client keeps the same
+  `ConversationReducer` — but that makes the *client's* build of the reducer authoritative over what the
+  host recorded, which is exactly what stage 9 is guarding against. The likely answer is both: events
+  while the versions agree, a folded state as the fallback and as the snapshot a fresh subscription opens
+  with. It should be decided once, in `mTiles.Link`, rather than per call.
+- **A message typed on the viewer is still the user's own.** `MessageEntry` records the user; nothing in
+  the events says *which machine* it was typed on, and the first version does not need it to, because both
+  machines are one person's. It stops being true the moment a second person is paired, which is the
+  cheapest reason to keep multi-user out of scope until the grants above have been lived with.
 
 ### 6. Carrying the work across a change of agent
 

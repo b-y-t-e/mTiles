@@ -27,7 +27,10 @@ namespace mTiles.AgentSessions.Storage;
 /// </remarks>
 public sealed class SqliteConversationStore : IConversationStore
 {
-    private const int SchemaVersion = 1;
+    /// <summary>2 added the index a conversation list is read through. Nothing reads this number yet: every
+    /// statement in <see cref="EnsureSchema"/> is <c>IF NOT EXISTS</c>, so an older file is brought up to date
+    /// by opening it, and an older build opening a newer file simply does not use what it does not know.</summary>
+    private const int SchemaVersion = 2;
     private const int BusyTimeoutSeconds = 30;
 
     private readonly string _connectionString;
@@ -65,6 +68,60 @@ public sealed class SqliteConversationStore : IConversationStore
             reader.IsDBNull(3) ? null : reader.GetString(3),
             ParseTime(reader.GetString(4)),
             ParseTime(reader.GetString(5)));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>One statement rather than a query per row: the opening comes from a correlated subquery over
+    /// <c>events</c>, whose primary key is <c>(conversation_id, sequence)</c>, so each one walks that
+    /// conversation's own rows in order and stops at the first that is a user message. A conversation nobody
+    /// spoke in is the one that costs a scan of all of its rows, and it is also the one thrown away here.</para>
+    /// <para><b>Ordering by the timestamp as text</b> is safe only because every writer formats UTC with the
+    /// round-trip specifier, so each one ends <c>+00:00</c> and sorts the same as the instant. An event carrying
+    /// a local-time <c>At</c> would sort into the wrong place rather than fail.</para>
+    /// <para>A payload this build cannot read as JSON costs the row its title, not its place in the list;
+    /// anything else is left to the caller, as in <see cref="ReadEvents"/>.</para>
+    /// </remarks>
+    public IReadOnlyList<ConversationSummary> List(string workingDirectory)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT id, agent_id, updated_at, opening FROM (" +
+            " SELECT c.id AS id, c.agent_id AS agent_id, c.updated_at AS updated_at, " +
+            " (SELECT e.payload FROM events e WHERE e.conversation_id = c.id AND e.type = $opening " +
+            "  ORDER BY e.sequence LIMIT 1) AS opening " +
+            " FROM conversations c WHERE c.working_directory = $cwd) " +
+            "WHERE opening IS NOT NULL ORDER BY updated_at DESC";
+        command.Parameters.AddWithValue("$cwd", workingDirectory);
+        command.Parameters.AddWithValue("$opening", nameof(UserMessageAdded));
+
+        var conversations = new List<ConversationSummary>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            conversations.Add(new ConversationSummary(
+                reader.GetString(0),
+                reader.GetString(1),
+                ParseTime(reader.GetString(2)),
+                OpeningOf(reader.GetString(3))));
+        }
+
+        return conversations;
+    }
+
+    private static string? OpeningOf(string payload)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AgentEvent>(payload, AgentSessionJson.Options) is UserMessageAdded m
+                ? m.Text
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     public void Save(ConversationRecord record)
@@ -199,6 +256,8 @@ public sealed class SqliteConversationStore : IConversationStore
                     at TEXT NOT NULL,
                     payload TEXT NOT NULL,
                     PRIMARY KEY (conversation_id, sequence)) WITHOUT ROWID;
+                CREATE INDEX IF NOT EXISTS conversations_by_directory
+                    ON conversations (working_directory, updated_at DESC);
                 PRAGMA user_version = {SchemaVersion};
                 """;
             command.ExecuteNonQuery();

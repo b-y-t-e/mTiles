@@ -38,6 +38,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     IBusyTile, IMaximizableTile, ITextInputTile, IDescribedTile, ITileActions, IAgentTile, IProcessTile
 {
     public const string NewConversationActionId = "new-conversation";
+    public const string DeleteConversationActionId = "delete-conversation";
 
     private readonly string _workingDirectory;
     private readonly SettingsService _settings;
@@ -50,6 +51,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private readonly SemaphoreSlim _switchGate = new(1, 1);
     private readonly IAgentSessionStarter _sessionStarter;
     private AiAgentInstance? _latestPick;
+    private ConversationSummary? _latestConversationPick;
+    private string? _conversationId;
     private AgentConversationHost? _host;
     private ConversationState? _waitingToDraw;
     private bool _drawScheduled;
@@ -81,9 +84,10 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     public AgentConversationTileViewModel(string workingDirectory, SettingsService settings, IConversationStore store,
         AiAgentInstance instance, IAiAgent agent, Func<string> tileId, AgentSubstitution? substitution = null,
         SessionOverrides? overrides = null, Action? requestSave = null, Action<Action>? post = null,
-        IAgentSessionStarter? sessionStarter = null)
+        IAgentSessionStarter? sessionStarter = null, string? conversationId = null)
     {
         _sessionStarter = sessionStarter ?? AgentSessionStarter.Instance;
+        _conversationId = conversationId is { Length: > 0 } ? conversationId : null;
         _workingDirectory = workingDirectory;
         _settings = settings;
         _store = store;
@@ -99,6 +103,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _binding = new ConversationAgentBinding(store);
         Chooser = new AgentInstanceChooser(settings, () => Instance, IsRunning, () => ConversationAgentId, _post,
             instance => _ = RunAsync(() => SwitchInstanceAsync(instance)));
+        Conversations = new ConversationChooser(store, workingDirectory, () => ConversationId, () => Agent.Id,
+            RefusalFor, _post, summary => _ = RunAsync(() => SwitchConversationAsync(summary)),
+            () => _ = RunAsync(NewConversationAsync));
     }
 
     /// <summary>The <c>@</c> file suggestions every box in this tile offers — the composer and an answer —
@@ -135,6 +142,28 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <summary>The agents this conversation can be pointed at, and which of them can be picked now.</summary>
     public AgentInstanceChooser Chooser { get; }
 
+    /// <summary>The conversations held in this workspace, and which of them this tile can be pointed at.</summary>
+    public ConversationChooser Conversations { get; }
+
+    /// <summary>
+    /// The stored conversation this tile is showing.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The tile's own id unless one was chosen</b>, which is what every conversation was before a
+    /// list of them existed — so a tile nobody has pointed elsewhere opens exactly the conversation it always
+    /// did, and its layout gains no field.</para>
+    /// <para><b>Nothing is cached here.</b> The tile's id is read every time, because the id is installed on
+    /// the leaf before the kind builds its content and a value taken any earlier would be the constructor's
+    /// default — the trap <c>TileTreeSerializer</c> already spells out for <c>${tileId}</c>. A tile with no
+    /// leaf behind it takes an id of its own when it starts (<see cref="ReplaceHostAsync"/>) and keeps it,
+    /// rather than opening a throwaway conversation per launch.</para>
+    /// </remarks>
+    public string ConversationId => _conversationId ?? _tileId();
+
+    /// <summary>The conversation to write into the layout, or null when it is the tile's own id and writing it
+    /// would only say the same thing twice.</summary>
+    public string? StoredConversationId => _conversationId is { } chosen && chosen != _tileId() ? chosen : null;
+
     /// <summary>Whether the agent is settled: a conversation belongs to the agent holding it.</summary>
     public bool IsBoundToItsAgent => ConversationAgentId is not null;
 
@@ -170,7 +199,11 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     public IReadOnlyList<TileAction> Actions =>
     [
         new(TileActionIds.Restart, "Restart agent", "restart", IsDestructive: true),
-        new(NewConversationActionId, "New conversation", "new-conversation", IsDestructive: true, NeedsLocalScreen: true),
+        // Not destructive any more, and that is the point of the list: a new conversation is started beside the
+        // old one rather than over it, and the old one is a row in the chooser rather than something forgotten.
+        new(NewConversationActionId, "New conversation", "new-conversation", NeedsLocalScreen: true),
+        new(DeleteConversationActionId, "Delete this conversation", "delete", IsDestructive: true,
+            NeedsLocalScreen: true),
     ];
 
     /// <summary>Opens the stored conversation and starts the agent, once.</summary>
@@ -183,7 +216,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         if (_startRequested || _disposed) return;
         _startRequested = true;
-        _ = StartAsync(fresh: false);
+        _ = StartAsync();
     }
 
     public async Task<TileActionResult> InvokeAsync(string id)
@@ -191,10 +224,13 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         switch (id)
         {
             case TileActionIds.Restart:
-                await StartAsync(fresh: false);
+                await StartAsync();
                 return TileActionResult.Ok;
             case NewConversationActionId:
                 await NewConversationAsync();
+                return TileActionResult.Ok;
+            case DeleteConversationActionId:
+                await DeleteConversationAsync();
                 return TileActionResult.Ok;
             default:
                 return TileActionResult.Refused($"This tile has no '{id}'.");
@@ -315,7 +351,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         if (_restartQueued) return;
         _restartQueued = true;
-        _ = StartAsync(fresh: false);
+        _ = StartAsync();
     }
 
     private void KeepOverride(SessionSettings change)
@@ -392,7 +428,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         {
             if (_disposed) return;
             KeepOverride(change);
-            _ = StartAsync(fresh: false);
+            _ = StartAsync();
         });
 
     /// <summary>
@@ -404,8 +440,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// the same reason: the resume token belongs to the CLI that issued it, and the stored conversation is
     /// that agent's. Such a switch is refused here rather than hidden, and the chooser says why.</para>
     /// <para>Switching agent onto a tile that already holds another agent's stored conversation starts nothing
-    /// and says so (<see cref="StartAsync"/>), so the history is never thrown away behind a chooser: "New
-    /// conversation" is the one gesture that forgets.</para>
+    /// and says so (<see cref="StartAsync"/>), so the history is never thrown away behind a chooser: "Delete
+    /// this conversation" is the one gesture that forgets.</para>
     /// </remarks>
     public async Task SwitchInstanceAsync(AiAgentInstance instance)
     {
@@ -438,13 +474,14 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         // or still starting has not read the store yet, and a refused switch must not become the last-used
         // instance or the layout's, or the next tile and this one's next launch would open on an agent that
         // never ran here.
-        if (await _binding.StoredAgentAsync(_tileId()) is { } stored && stored != agent.Id)
+        if (await _binding.StoredAgentAsync(ConversationId) is { } stored && stored != agent.Id)
         {
             HoldStoredConversationOf(stored);
             Chooser.RestoreSelection();
             return;
         }
-        if (!await ConfirmInterruptingTurnAsync())
+        if (!await ConfirmInterruptingTurnAsync(
+                "Switch agent now? The agent is working, and restarting the session stops what it is doing."))
         {
             Chooser.RestoreSelection();
             return;
@@ -467,7 +504,14 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             return Task.CompletedTask;
         }
 
-        var otherAgent = agent.Id != Agent.Id;
+        TakeInstance(instance, agent, agent.Id != Agent.Id);
+        return ReplaceHostAsync();
+    }
+
+    /// <summary>Moves the tile onto an instance: what a picked agent and a picked conversation both do, so the
+    /// two cannot come to disagree about what a switch leaves behind.</summary>
+    private void TakeInstance(AiAgentInstance instance, IAiAgent agent, bool otherAgent)
+    {
         Instance = instance;
         Agent = agent;
         Substitution = null;
@@ -480,7 +524,6 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         OnPropertyChanged(nameof(Agent));
         OnPropertyChanged(nameof(HeaderNote));
         Chooser.Draw();
-        return ReplaceHostAsync(fresh: false);
     }
 
     /// <summary>What the chooser's overrides keep across a switch of instance.</summary>
@@ -498,33 +541,187 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// how the user accepts it.</remarks>
     private bool IsRunning(AiAgentInstance instance) => instance.Id == Instance.Id && !RunsAnotherAgent;
 
-    /// <summary>Whether a switch may end the turn in flight: restarting the session ends it, so it asks the way
-    /// Restart does. Nothing to interrupt is a yes; no dialog to ask in is a no.</summary>
-    private async Task<bool> ConfirmInterruptingTurnAsync() =>
-        !IsWorking || (ConfirmAction is not null && await ConfirmAction(
-            "Switch agent now? The agent is working, and restarting the session stops what it is doing."));
+    /// <summary>Whether something that replaces the session may end the turn in flight: restarting it ends the
+    /// turn, so it asks the way Restart does. Nothing to interrupt is a yes; no dialog to ask in is a no.</summary>
+    private async Task<bool> ConfirmInterruptingTurnAsync(string question) =>
+        !IsWorking || (ConfirmAction is not null && await ConfirmAction(question));
 
     [RelayCommand]
     private Task InterruptAsync() =>
         _host is null ? Task.CompletedTask : RunAsync(() => _host.ExecuteAsync(new InterruptTurn(), _lifetime.Token));
 
     [RelayCommand]
-    private Task RestartAsync() => StartAsync(fresh: false);
+    private Task RestartAsync() => StartAsync();
 
-    private async Task NewConversationAsync()
+    /// <summary>Opens a new conversation beside this one, leaving it in the store.</summary>
+    /// <remarks><b>It used to forget the old one</b>, and had to: a conversation was the tile's id, so the only
+    /// way to have a new one in the same tile was to write over what was there. With a list to pick from, the old
+    /// conversation is a row rather than a loss, so this asks nothing and destroys nothing — and forgetting is
+    /// <see cref="DeleteConversationAsync"/>, which says out loud what it takes.</remarks>
+    private Task NewConversationAsync() => UnderSwitchGateAsync(async () =>
     {
-        if (ConfirmAction is null
-            || !await ConfirmAction("Start a new conversation? This one and its checkpoints will be forgotten."))
+        if (!await ConfirmInterruptingTurnAsync(
+                "Start a new conversation? The agent is working, and this stops what it is doing."))
             return;
 
-        await StartAsync(fresh: true);
+        await MoveToConversationAsync(Guid.NewGuid().ToString());
+    });
+
+    /// <summary>Forgets this conversation and its checkpoints, and opens a new one.</summary>
+    /// <remarks>
+    /// <para><b>What is deleted is read before the question is asked</b>, and under the same gate a pick takes.
+    /// A dialog is open for as long as somebody takes to answer it, and a conversation picked in that window
+    /// becomes the open one — so a <c>ConversationId</c> read afterwards names the conversation the user has
+    /// just asked to <i>open</i>, and that is what would be destroyed.</para>
+    /// <para>The agent is the <b>stored</b> conversation's, not the one running: a tile refusing to start
+    /// because it holds another agent's conversation is exactly the tile somebody deletes, and a host built on
+    /// the wrong agent throws rather than forgetting anything.</para>
+    /// </remarks>
+    [RelayCommand]
+    private Task DeleteConversationAsync() => UnderSwitchGateAsync(async () =>
+    {
+        var forgotten = ConversationId;
+        if (IsShownByAnotherTile(forgotten)) return;
+        var agentId = (await Task.Run(() => _store.Find(forgotten)))?.AgentId ?? Agent.Id;
+        if (ConfirmAction is null || !await ConfirmAction(
+                "Delete this conversation? It and its checkpoints will be forgotten, and this cannot be undone."))
+            return;
+        if (forgotten != ConversationId || IsShownByAnotherTile(forgotten)) return;
+
+        // Held throughout: released on the move, it would be offered to another tile in the window where it is
+        // still in the store, and its events and checkpoints would then be deleted under that tile's live host.
+        await MoveToConversationAsync(Guid.NewGuid().ToString(), keepHolding: forgotten);
+        // And forgotten only once the tile is off it, so nothing of ours is reading the events being deleted.
+        await RunAsync(() => ForgetConversationAsync(forgotten, agentId));
+        OpenConversations.Release(forgotten, _tileId());
+        await Conversations.RefreshAsync();
+    });
+
+    /// <summary>Whether another tile holds this conversation — a tile refused it at start still names it, and
+    /// deleting it from there would take the events and checkpoints out from under that tile's live host.</summary>
+    /// <remarks>Asked again after the question, because the dialog is open long enough for another tile to
+    /// take a conversation this one never held.</remarks>
+    private bool IsShownByAnotherTile(string conversationId)
+    {
+        if (!OpenConversations.IsHeldByAnother(conversationId, _tileId())) return false;
+        LaunchProblem = "Another tile is showing this conversation, so it cannot be deleted from here. " +
+                        "Delete it from that tile, or close that tile first.";
+        return true;
+    }
+
+    /// <summary>
+    /// Points this tile at a conversation the user chose, switching agent with it where they differ.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The agent comes with the conversation, not the other way round.</b> A conversation belongs to
+    /// the agent that holds it — its resume token is that CLI's and its stored events are that agent's — so
+    /// picking one held by another agent moves the tile onto an instance of that agent. A machine with no such
+    /// instance refuses the pick rather than opening the transcript on a CLI that has never seen it, which is
+    /// the same rule <see cref="ConversationAgentBinding"/> keeps from the other side.</para>
+    /// <para>Serialized on the same gate as an agent switch: both replace the host, and two of them at once
+    /// would leave whichever finished last in charge rather than whichever was picked last.</para>
+    /// </remarks>
+    public async Task SwitchConversationAsync(ConversationSummary summary)
+    {
+        if (summary.Id == ConversationId) return;
+        // Picked again before this one had its turn: the later pick is the one the user meant, and without this
+        // the one in between still has its agent spawned and torn down. The rule SwitchInstanceAsync keeps.
+        _latestConversationPick = summary;
+        await UnderSwitchGateAsync(async () =>
+        {
+            if (!ReferenceEquals(_latestConversationPick, summary)) return;
+            if (RefusalFor(summary) is not null)
+            {
+                // Refused since the list was drawn — another tile took it, or its agent's instance went — so the
+                // list is read again, which is what puts the row back dimmed with the sentence saying why.
+                await Conversations.RefreshAsync();
+                return;
+            }
+
+            if (!await ConfirmInterruptingTurnAsync(
+                    "Open another conversation? The agent is working, and this stops what it is doing."))
+            {
+                Conversations.RestoreSelection();
+                return;
+            }
+
+            if (summary.AgentId != Agent.Id)
+            {
+                if (InstanceOf(summary.AgentId) is not { } instance)
+                {
+                    Conversations.RestoreSelection();
+                    return;
+                }
+
+                TakeInstance(instance, AiAgentCatalog.Find(summary.AgentId)!, otherAgent: true);
+            }
+
+            await MoveToConversationAsync(summary.Id);
+        });
+    }
+
+    /// <summary>One thing that moves the tile off its conversation at a time.</summary>
+    /// <remarks>Shared by picking a conversation, starting one and deleting one, because all three read
+    /// <see cref="ConversationId"/> and then act on it across an await — a dialog, the store, the start gate —
+    /// and two of them interleaved would each act on what the other had already moved.</remarks>
+    private async Task UnderSwitchGateAsync(Func<Task> change)
+    {
+        await _switchGate.WaitAsync();
+        try
+        {
+            await change();
+        }
+        finally
+        {
+            _switchGate.Release();
+        }
+    }
+
+    /// <summary>Why a stored conversation cannot be opened here, or null.</summary>
+    private string? RefusalFor(ConversationSummary summary)
+    {
+        if (summary.Id == ConversationId) return null;
+        if (OpenConversations.IsHeldByAnother(summary.Id, _tileId()))
+            return "Another tile is already showing this conversation.";
+        if (summary.AgentId == Agent.Id || InstanceOf(summary.AgentId) is not null) return null;
+
+        var name = AiAgentCatalog.Find(summary.AgentId)?.DisplayName ?? summary.AgentId;
+        return $"This conversation is held with {name}, and there is no {name} instance available here. " +
+               "A conversation is only ever continued by the agent that holds it.";
+    }
+
+    /// <summary>An instance of that agent this machine can actually run — the tile's own first, so a pick does
+    /// not move a conversation onto a different account for no reason.</summary>
+    private AiAgentInstance? InstanceOf(string agentId)
+    {
+        if (Instance.AgentId == agentId) return Instance;
+        return _settings.Settings.AiAgentInstances.FirstOrDefault(instance =>
+            instance.AgentId == agentId && AiAgentCatalog.IsAvailable(instance, _settings.Settings));
+    }
+
+    /// <summary>Takes the conversation and restarts on it, writing it into the layout so it comes back.</summary>
+    private Task MoveToConversationAsync(string conversationId, string? keepHolding = null)
+    {
+        _conversationId = conversationId;
+        _requestSave?.Invoke();
+        OnPropertyChanged(nameof(ConversationId));
+        return UnderStartGateAsync(async () =>
+        {
+            // Released only once the host of the old conversation has closed: released earlier, another tile could
+            // open that conversation while this host is still writing to it. Released at all, because a tile going
+            // on refusing a conversation it has left would make it unreachable for the rest of the session.
+            await DisposeHostAsync();
+            OpenConversations.ReleaseAllOf(_tileId(), keepHolding);
+            await ReplaceHostAsync();
+            await Conversations.RefreshAsync();
+        });
     }
 
     /// <summary>
     /// One start at a time: two overlapping starts would each build a host, and the one overwritten
     /// would keep its agent process alive and write the same sequence numbers into the same conversation.
     /// </summary>
-    private Task StartAsync(bool fresh) => UnderStartGateAsync(() => ReplaceHostAsync(fresh));
+    private Task StartAsync() => UnderStartGateAsync(ReplaceHostAsync);
 
     private async Task UnderStartGateAsync(Func<Task> start)
     {
@@ -541,7 +738,13 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         }
     }
 
-    private async Task ReplaceHostAsync(bool fresh)
+    private async Task ReplaceHostAsync()
+    {
+        await DisposeHostAsync();
+        await OpenAndStartHostAsync();
+    }
+
+    private async Task DisposeHostAsync()
     {
         var previous = _host;
         _host = null;
@@ -550,12 +753,14 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             previous.Changed -= OnChanged;
             previous.RestartRequested -= OnRestartRequested;
             previous.SettingsApplied -= OnSettingsApplied;
-            if (fresh) await previous.ForgetAsync(CancellationToken.None);
             await previous.DisposeAsync();
             // The next host numbers its own events, so a state kept from this one must not outrank them.
             lock (_drawGate) _waitingToDraw = null;
         }
+    }
 
+    private async Task OpenAndStartHostAsync()
+    {
         if (_disposed) return;
         // Read once: a switch made while this start awaits queues a start of its own, and this one must go on
         // opening, preparing and launching the agent it began with rather than whichever was picked since.
@@ -567,8 +772,19 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             return;
         }
 
-        var conversationId = _tileId();
-        if (conversationId.Length == 0) conversationId = Guid.NewGuid().ToString();
+        // A tile with no leaf behind it has no id to be named after; it takes one and keeps it, so its
+        // conversation survives a restart of the agent rather than being thrown away with each start.
+        if (ConversationId.Length == 0) _conversationId = Guid.NewGuid().ToString();
+        var conversationId = ConversationId;
+        var holder = _tileId();
+        // A conversation is one tile's at a time: two hosts of it number their events from what the store held
+        // when each was built, so both write the same sequence numbers and the store keeps whichever landed last.
+        if (holder.Length > 0 && !OpenConversations.TryHold(conversationId, holder))
+        {
+            LaunchProblem = "Another tile is already showing this conversation. " +
+                            "Open a different one here, or close the tile that has it.";
+            return;
+        }
 
         IsStarting = true;
         LaunchProblem = null;
@@ -581,7 +797,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             if (await Task.Run(() => _store.Find(conversationId)) is { } stored && stored.AgentId != agent.Id)
             {
                 // A record with nothing said in it is only the previous agent's start: it holds nobody.
-                if (!fresh && await _binding.HasSomethingSaidAsync(conversationId))
+                if (await _binding.HasSomethingSaidAsync(conversationId))
                 {
                     HoldStoredConversationOf(stored.AgentId);
                     LaunchProblem = AnotherAgentsConversationNotice(stored.AgentId);
@@ -629,7 +845,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
     private string AnotherAgentsConversationNotice(string storedAgentId) =>
         $"This tile holds a conversation with {AiAgentCatalog.Find(storedAgentId)?.DisplayName ?? storedAgentId}. " +
-        "Switch the tile back to that agent to continue it, or start a new conversation to forget it.";
+        "Switch the tile back to that agent to continue it, open another conversation, or delete this one.";
 
     /// <summary>Forgets a stored conversation — events and checkpoints — through a host of its own agent.</summary>
     private async Task ForgetConversationAsync(string conversationId, string agentId)
@@ -662,6 +878,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         host.RestartRequested += OnRestartRequested;
         host.SettingsApplied += OnSettingsApplied;
         Draw(host.State);
+        // So the strip names the conversation rather than calling it empty until somebody opens the list: the
+        // chooser is built before anything has been read, and what it holds until then is a placeholder row.
+        _ = Conversations.RefreshAsync();
         return host;
     }
 
@@ -875,6 +1094,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         if (_disposed) return;
         _disposed = true;
         _lifetime.Cancel();
+        OpenConversations.ReleaseAllOf(_tileId());
         Chooser.Dispose();
         FileMentions.Dispose();
         TurnClock.Dispose();

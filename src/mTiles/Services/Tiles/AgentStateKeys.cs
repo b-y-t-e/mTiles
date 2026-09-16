@@ -29,6 +29,19 @@ public static class AgentStateKeys
     /// it: the shell a terminal agent tile uses is the default one, decided at every launch.</remarks>
     public const string ShellNameKey = "shellName";
 
+    /// <summary>
+    /// Which stored conversation an <b>Agent</b> tile is showing, when it is not the one named after the tile.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Absent means the tile's own id</b>, which is what every conversation was before one could be
+    /// chosen from a list — so a layout written before this existed opens on exactly the conversation it
+    /// always did, and a tile that has never been pointed elsewhere writes nothing new.</para>
+    /// <para><b>A field rather than a change of <c>TileId</c>.</b> Rotating the tile's id would express the
+    /// same thing and cost two guarantees: the id is the tile's identity to the layout, and two tiles showing
+    /// one conversation would be two leaves saved under one id.</para>
+    /// </remarks>
+    public const string ConversationIdKey = "conversationId";
+
     /// <summary>The conversation to resume, for an agent that names its own — see
     /// <see cref="mTiles.Models.SessionStrategy.CapturedAfterStart"/>. Absent for the other two strategies,
     /// where the tile's own id is the session id and writing it down twice would let the two disagree.</summary>

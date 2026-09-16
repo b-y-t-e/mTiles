@@ -26,6 +26,15 @@ public partial class AgentConversationTileView : UserControl
             bitmap => _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(bitmap, "pasted image")));
     }
 
+    /// <summary>Reads the conversations as the list is opened.</summary>
+    /// <remarks>Here rather than on a timer or on every change: the answer moves only when something is said,
+    /// and the tile redraws every frame while an agent replies — a list rebuilt in that loop would flicker and
+    /// lose the highlight, which is what <c>AgentInstanceChooser.DrawIfBindingChanged</c> exists to avoid one
+    /// control along. Nothing awaits it: the list already holds what was last read, and the newer answer
+    /// replaces it when it arrives.</remarks>
+    private void ConversationBox_DropDownOpened(object? sender, EventArgs e) =>
+        _ = _subscribed?.Conversations.RefreshAsync();
+
     private void ModelBox_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter || _subscribed is null) return;

@@ -45,6 +45,10 @@ public class AgentConversationViewModelTests
         public int Opened => _opened;
 
         public mTiles.AgentSessions.Storage.ConversationRecord? Find(string conversationId) => inner.Find(conversationId);
+
+        public IReadOnlyList<mTiles.AgentSessions.Storage.ConversationSummary> List(string workingDirectory) =>
+            inner.List(workingDirectory);
+
         public void Save(mTiles.AgentSessions.Storage.ConversationRecord record) => inner.Save(record);
 
         public IReadOnlyList<AgentEvent> ReadEvents(string conversationId)

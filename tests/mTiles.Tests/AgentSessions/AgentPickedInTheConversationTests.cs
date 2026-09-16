@@ -240,9 +240,12 @@ public class AgentPickedInTheConversationTests
         // Availability moved without Settings saying so, the way an install finishing does.
         settings.Service.Settings.AiSignIns.Add(new AiSignIn { Id = "added-later", AgentId = "claude", Name = "Later" });
         tile.Chooser.Selected = refused;
-        await WaitUntil(() => tile.Instance.Id == later.Id);
 
-        Assert.True(tile.Chooser.Options.Single(o => o.Instance.Id == later.Id).IsPickable);
+        // Waited on the redraw rather than on the instance, because the switch reads the store — which is
+        // an await — and so finishes on a thread pool thread: the instance is taken a line before the list
+        // is rebuilt, and asserting on the list the moment the instance moves reads the list from before it.
+        await WaitUntil(() => tile.Chooser.Options.Single(o => o.Instance.Id == later.Id).IsPickable);
+        Assert.Equal(later.Id, tile.Instance.Id);
     }
 
     private static async Task WaitUntil(Func<bool> condition)

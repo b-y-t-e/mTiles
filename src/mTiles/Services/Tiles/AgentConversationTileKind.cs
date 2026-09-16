@@ -14,9 +14,11 @@ namespace mTiles.Services.Tiles;
 /// <remarks>
 /// <para>Chosen the way a terminal agent tile is — one card per configured instance this machine can run —
 /// narrowed to the agents that implement <see cref="IConversationalAgent"/>.</para>
-/// <para><b>The layout stores which instance and which agent, and nothing about the conversation.</b> The
-/// conversation is the tile's id in the conversation store, so a layout file stays a layout file and the
-/// history lives where a later web view can read it too.</para>
+/// <para><b>The layout stores which instance and which agent, and of the conversation only its name.</b> The
+/// history itself lives in the conversation store, where a later web view can read it too. The name is written
+/// <see cref="AgentStateKeys.ConversationIdKey">only once one has been chosen</see> — absent means the tile's
+/// own id, which is what every conversation was before a list of them existed — so a layout from before that
+/// opens exactly the conversation it always did.</para>
 /// <para>An instance deleted in Settings falls back to another instance of the same agent, and then to the
 /// first conversational one — and a tile that lands on a different agent does not start, because the host
 /// drops a conversation whose agent does not match rather than handing its token to a CLI that has never
@@ -57,7 +59,8 @@ public sealed class AgentConversationTileKind(IConversationStore store, IAgentSe
 
         return new AgentConversationTileViewModel(context.WorkingDirectory, context.Settings, store, instance, agent,
             context.TileId, SubstitutionFor(requestedInstance, requestedAgent, instance, agent),
-            OverridesFrom(state), context.RequestSave, sessionStarter: sessionStarter);
+            OverridesFrom(state), context.RequestSave, sessionStarter: sessionStarter,
+            conversationId: state.String(AgentStateKeys.ConversationIdKey));
     }
 
     /// <summary>The model, mode and effort chosen in this tile over its instance's.</summary>
@@ -113,6 +116,9 @@ public sealed class AgentConversationTileKind(IConversationStore store, IAgentSe
             [AgentStateKeys.InstanceIdKey] = tile.Substitution?.RequestedInstanceId ?? tile.Instance.Id,
             [AgentStateKeys.AgentIdKey] = tile.Substitution?.RequestedAgentId ?? tile.Agent.Id,
         };
+        // Only once one has been chosen: absent means the tile's own id, so a tile nobody has pointed elsewhere
+        // saves exactly the bytes it always did.
+        if (tile.StoredConversationId is { } conversation) state[AgentStateKeys.ConversationIdKey] = conversation;
         var overrides = tile.Overrides;
         if (overrides.Model is { } model) state[ModelKey] = model;
         if (overrides.Behaviour is { } mode) state[ModeKey] = SessionSettingOptions.ModeId(mode);

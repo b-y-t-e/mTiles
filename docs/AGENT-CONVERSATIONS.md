@@ -120,7 +120,56 @@ runs one real turn per agent through launcher, session, host and checkpoint.
 created owner-only because SQLite writes `-wal` and `-shm` beside the file. Two tables: `conversations`
 (id = tile id, agent, directory, resume token) and `events` (conversation, sequence, type, JSON payload).
 An event a build cannot read — written by a newer one — is skipped with a log line. Nothing is pruned yet:
-a closed tile's conversation stays, and comes back if a tile with that id is an Agent tile again.
+a closed tile's conversation stays — and is now reachable rather than orphaned, because a tile can be
+pointed at it (below).
+
+## Which conversation a tile is showing
+
+**Every conversation ever held in this workspace is in the list** (`IConversationStore.List(directory)`,
+the chooser at the left of the strip). Until it existed there was no way back to any of them: the
+conversation *was* the tile's id, so the only way to start a new one in a tile was to write over the old.
+
+- **The tile keeps a `conversationId` in its layout, and only once one has been chosen.** Absent means the
+  tile's own id, so a layout written before this existed opens exactly the conversation it always did and a
+  tile nobody has pointed elsewhere saves the same bytes as before. A field rather than a change of `TileId`
+  because the id is the tile's identity to the layout, and two tiles showing one conversation would
+  otherwise be two leaves saved under one id.
+- **"New conversation" no longer forgets.** It opens a new one beside the old, which stays in the list.
+  Forgetting is **Delete this conversation**, which says what it takes and asks first.
+- **A conversation is one tile's at a time** (`OpenConversations`). Two hosts of one conversation each
+  number their events from what the store held when they were built, so both write the same sequence
+  numbers and the store keeps whichever landed last — one of the two is lost, silently. The second tile is
+  refused with the reason.
+- **The agent comes with the conversation.** Picking one held by another agent moves the tile onto an
+  instance of that agent; a machine with no such instance is told so rather than shown the transcript on a
+  CLI that has never seen it. The same rule as *Which agent holds the conversation* below, from the other
+  side.
+- **The title is the user's own first words**, cut to a line (`ConversationTitle`, pure, so a browser
+  listing the same conversations calls them the same things). Nothing derived is stored for it: the opening
+  is read back out of the first `UserMessageAdded`, which is cheap because `events` is keyed by
+  `(conversation_id, sequence)`. The list is read when it is opened, never on a timer — the answer moves
+  only when something is said, and the tile redraws every frame while an agent replies.
+
+**What the picker cannot promise, per agent.** The transcript is always drawn in full, because it is *our*
+record — but whether the **agent** remembers it is the CLI's answer, and three of the six are quiet about
+failing:
+
+| | How it resumes cold | If it refuses |
+|---|---|---|
+| Claude Code | `--resume <token>` | kills the process, starts fresh, **says so** in a notice |
+| codex | `thread/resume` | falls back to `thread/start`, **says so** |
+| opencode | its own server's stored session | **says so** ("could not be found in opencode") |
+| pi | `--session-id <token>` — and the token is **ours**, a GUID this application made | creates an empty session under that id and **says nothing**: our transcript shows history the agent has not got |
+| agy | `--conversation <id>` | no fallback of any kind |
+| Grok | ACP `session/load`, **only if the CLI advertises `loadSession`** | discards the token silently and starts a new session |
+
+Picking an old conversation makes that gap routine rather than rare, which is why *A visible sign that a
+resume actually happened* ([`ROADMAP.md`](ROADMAP.md), the Herdr section, item 1) is now part of this
+feature rather than beside it — and why pi's and Grok's silences are worth closing first.
+
+Conversations held **outside** an Agent tile — in a Terminal agent tile, or in the CLI's own window — are
+not in this list, because they are in the CLI's history and not in ours. Adding them as a second source of
+the same list, deduplicated by resume token, is [`ROADMAP.md`](ROADMAP.md) §3.
 
 ## Which agent holds the conversation
 
@@ -145,7 +194,8 @@ Carrying the work across that seam — a brief built from what this application 
 agent as its first message — is [`ROADMAP.md`](ROADMAP.md) §6, and is what turns the refusal into a choice.
 
 **Nothing is thrown away by a chooser.** Switching onto a tile that still holds another agent's stored
-conversation starts nothing and says so; "New conversation" is the one gesture that forgets.
+conversation starts nothing and says so; the way past it is to pick or start another conversation, and
+**Delete this conversation** is the one gesture that forgets.
 
 ## Switching model, mode and effort inside a conversation
 
@@ -224,7 +274,13 @@ New UX for either tile goes into these shared pieces, not into one view.
 
 ## Not built yet
 
-- Importing conversations started outside mTiles (t3code reads Claude's and codex's transcripts).
-- Pruning old conversations and checkpoint refs.
-- The web view. What it needs is already here: `AgentEvent`/`AgentCommand` as JSON, the reducer, the store,
-  and `AgentConversationHost.ExecuteAsync` as the one entry point for commands.
+- Importing conversations started outside mTiles, as a second source of the tile's own conversation list
+  (t3code reads Claude's and codex's transcripts) — [`ROADMAP.md`](ROADMAP.md) §3.
+- Pruning old conversations and checkpoint refs. It matters more now that a closed tile's conversation is
+  reachable rather than orphaned: what the list holds is what the sweep would take.
+- A second viewer — a browser, and another mTiles reached over a link, so that a conversation running on
+  the machine at home can be read and answered from the one at work. What either needs is already here:
+  `AgentEvent`/`AgentCommand` as JSON, the reducer, the store's sequence numbers, and
+  `AgentConversationHost.ExecuteAsync` as the one entry point for commands. Both are one contract with two
+  transports, and what travels, what proxies back to the host and what a paired peer is allowed to do are
+  [`ROADMAP.md`](ROADMAP.md) §5.

@@ -16,6 +16,8 @@ public sealed class LazyConversationStore(Func<IConversationStore> open) : IConv
 
     public ConversationRecord? Find(string conversationId) => _store.Value.Find(conversationId);
 
+    public IReadOnlyList<ConversationSummary> List(string workingDirectory) => _store.Value.List(workingDirectory);
+
     public void Save(ConversationRecord record) => _store.Value.Save(record);
 
     public IReadOnlyList<AgentEvent> ReadEvents(string conversationId) => _store.Value.ReadEvents(conversationId);

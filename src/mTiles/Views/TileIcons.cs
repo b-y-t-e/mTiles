@@ -46,6 +46,7 @@ public static class TileIcons
         "pause" => MaterialIconKind.Pause,
         "agent-chat" => MaterialIconKind.MessageProcessingOutline,
         "new-conversation" => MaterialIconKind.ChatPlusOutline,
+        "delete" => MaterialIconKind.DeleteOutline,
         _ => Placeholder,
     };
 
