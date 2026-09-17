@@ -31,8 +31,16 @@ public class GoalEffortTests
             AiEfforts.All.Select(AiEfforts.Name).Where(f => f != null));
 
         // One level passes no flag at all, which is the way out on a Claude Code older than the option.
+        // It reads as "default" and not "tool default": on a list that now carries a sentence per level,
+        // the sentence is where "the tool's own settings decide" belongs, and the label's job is to be the
+        // shortest true word for it.
         Assert.Null(AiEfforts.Name(AiEffort.ToolDefault));
-        Assert.Equal("tool default", AiEfforts.Label(AiEffort.ToolDefault));
+        Assert.Equal("default", AiEfforts.Label(AiEffort.ToolDefault));
+
+        // Every level says what it costs. The one that passes no flag says so rather than claiming a speed.
+        Assert.All(AiEfforts.All, effort => Assert.False(string.IsNullOrWhiteSpace(AiEfforts.Description(effort))));
+        Assert.Equal(AiEfforts.Description(AiEffort.Max), AiEfforts.DescriptionOf("Max"));
+        Assert.Null(AiEfforts.DescriptionOf("not-a-level"));
 
         // A label round-trips, and an unrecognised one is the default rather than an exception while a
         // tile is being built.

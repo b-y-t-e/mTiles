@@ -223,7 +223,7 @@ public static class AiProcessRunner
         // and dropped on this line, so ConfigureProcess took its own default of High: every run went
         // out with `--effort high` whatever the strip said, the combo box was decoration, and — worse —
         // a Claude Code from before that flag existed rejected it on every goal with no way for the
-        // user to turn it off, because choosing "tool default" changed nothing that got this far.
+        // user to turn it off, because choosing "default" changed nothing that got this far.
         // The model too, by the same argument as the effort: an instance configured to run a
         // provider's model had that setting reach nothing at all on four agents out of five, so the run
         // went out on the CLI's own default — to an address that usually does not serve it.

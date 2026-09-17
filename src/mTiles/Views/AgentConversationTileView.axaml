@@ -1,8 +1,9 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ac="using:mTiles.ViewModels.AgentConversation"
              xmlns:ev="using:mTiles.AgentSessions.Events"
              xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:p="using:mTiles.Controls"
              xmlns:v="using:mTiles.Views"
              x:Class="mTiles.Views.AgentConversationTileView"
              x:DataType="ac:AgentConversationTileViewModel">
@@ -89,30 +90,30 @@
             <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
 
-        <!-- An agent this conversation cannot be moved to: shown, dimmed, with the reason under it.
-             Deliberately not a disabled ComboBoxItem: Avalonia leaves a disabled item out of the hit test,
-             so the pointer never enters it and the very sentence explaining the refusal never renders. The
-             refusal itself is the chooser's (AgentInstanceChooser), which is where it can be stated. -->
-        <Style Selector="TextBlock.agent-choice-label.unpickable">
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-        </Style>
-        <!-- The one row in the conversation list that is an action rather than a place. -->
-        <Style Selector="TextBlock.agent-choice-label.new-conversation">
-            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
-        </Style>
-        <Style Selector="TextBlock.agent-choice-reason">
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontXs}" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="MaxWidth" Value="260" />
+        <!-- The three styles that drew a refused row - dimmed, with its reason under it - are gone with the
+             combo boxes they were written for. That rule did not go with them: it is the picker's own
+             `refused` state now (mTiles.Controls), stated once for every list in the application rather
+             than once per view that happens to draw one. -->
+
+        <!-- What separates the settings from the state, in a strip one line tall. A rule and not a gap:
+             a gap wide enough to read as a division is wider than the gutter between the controls, and
+             then the row has two rhythms in it. -->
+        <!-- The foot of the tile. A hairline above it and nothing else: it is the quietest thing here on
+             purpose, and a ground of its own would make a third band across a tile that already has a
+             strip at the top and a composer above this. -->
+        <Style Selector="Border.context-bar">
+            <!-- The composer's own side margin, so the bar starts and ends where the box above it does. -->
+            <Setter Property="Padding" Value="12,4,12,5" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
         </Style>
 
-        <!-- The strip's model field: its own size and face, and no box heavier than the text beside it. -->
-        <Style Selector="AutoCompleteBox.setting">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
-            <Setter Property="MinHeight" Value="0" />
+        <Style Selector="Border.strip-divider">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Height" Value="12" />
+            <Setter Property="Margin" Value="4,0,8,0" />
             <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
         </Style>
     </UserControl.Styles>
 
@@ -153,111 +154,234 @@
                             ToolTip.Tip="Stop the agent (Esc)">
                         <mi:MaterialIcon Kind="Stop" Width="14" Height="14" />
                     </Button>
-                    <!-- Forgetting is a button of its own and not a row in the list beside it: that list is
-                         clicked to *open* things, and a destructive entry in it is one misclick from a
-                         conversation and its checkpoints being gone. It asks before it takes anything. -->
-                    <Button Classes="tile-btn"
-                            Command="{Binding DeleteConversationCommand}"
-                            ToolTip.Tip="Delete this conversation">
-                        <mi:MaterialIcon Kind="DeleteOutline" Width="14" Height="14" />
-                    </Button>
+                    <!-- Deleting a conversation is *not* drawn here. It was the one destructive thing
+                         standing permanently beside four settings, a misclick from a conversation and its
+                         checkpoints. It is declared in ITileActions.Actions, and the tile header's overflow
+                         lists it under Actions. -->
                 </StackPanel>
-                <!-- What the agent runs as, switchable in place: a model typed or picked from what the session
-                     lists, and the mode and effort the agent supports. Wraps rather than truncating, so a
-                     narrow tile keeps every control reachable. -->
-                <WrapPanel Orientation="Horizontal">
-                    <TextBlock Classes="strip" Margin="0,0,10,0" Text="{Binding StatusText}" />
-                    <TextBlock Classes="strip" Margin="0,0,10,0" Text="{Binding UsageText}"
-                               IsVisible="{Binding UsageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                    <!-- Which conversation this tile is showing. Every conversation ever held in this workspace
-                         is in the store, and until this list existed there was no way back to any of them: a
-                         conversation was the tile's own id, so a new one could only be started over the old.
-                         Read when the list is opened rather than kept in step, because the answer changes only
-                         when something is said and the tile redraws every frame while an agent replies. -->
-                    <ComboBox x:Name="ConversationBox"
-                              Classes="strip-choice agent-choice" VerticalAlignment="Center"
-                              Margin="0,0,6,0"
-                              MaxWidth="240"
-                              ItemsSource="{Binding Conversations.Options}"
-                              SelectedItem="{Binding Conversations.Selected}"
-                              DropDownOpened="ConversationBox_DropDownOpened"
-                              ToolTip.Tip="The conversation this tile is showing">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate DataType="ac:ConversationOption">
-                                <StackPanel ToolTip.Tip="{Binding Reason}">
-                                    <TextBlock Classes="agent-choice-label"
-                                               Classes.unpickable="{Binding !IsPickable}"
-                                               Classes.new-conversation="{Binding IsNew}"
-                                               Text="{Binding Title}" />
-                                    <TextBlock Classes="agent-choice-reason" Text="{Binding Note}" />
-                                    <TextBlock Classes="agent-choice-reason"
-                                               Text="{Binding Reason}"
-                                               IsVisible="{Binding Reason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
+                <!-- What the agent runs as, switchable in place, and then what it is doing.
+                     **Settings first, state after the rule** - the Goal tile's order, which this one had
+                     backwards. The five controls read as one cascade: which conversation, held by whom, on
+                     what model, with what freedom, thinking how hard. Putting the status sentence in front
+                     of them broke the cascade with a line of prose that changes while you read it, and on a
+                     narrow tile it was the prose that stayed on the first row and the controls that wrapped.
+                     Wraps rather than truncating, so a narrow tile keeps every control reachable; one
+                     Spacing rather than a margin per control, so the row has one rhythm. -->
+                <WrapPanel Orientation="Horizontal" ItemSpacing="2" LineSpacing="2">
+                    <!-- Which conversation this tile is showing. Every conversation ever held in this
+                         workspace is in the store, and until this list existed there was no way back to any
+                         of them: a conversation was the tile's own id, so a new one could only be started
+                         over the old. Read when the list is opened rather than kept in step, because the
+                         answer changes only when something is said and the tile redraws every frame while
+                         an agent replies.
+
+                         Searchable, unlike the agent beside it: this list grows for as long as the
+                         workspace is used, and a month in it is the one list on this tile that nobody can
+                         read down. -->
+                    <p:Picker x:Name="ConversationPicker"
+                              Classes="strip-picker"
+                              Options="{Binding Conversations.Options}"
+                              SelectedId="{Binding Conversations.SelectedKey}"
+                              Text="{Binding Conversations.SelectedTitle}"
+                              IsSearchEnabled="True"
+                              SearchPlaceholder="Search conversations…"
+                              EmptyText="No conversation here matches that."
+                              DropDownWidth="340"
+                              MaxWidth="260"
+                              ToolTip.Tip="The conversation this tile is showing" />
                     <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
                          a conversation with nothing in it is bound to nobody yet. An agent it cannot be moved
                          to is drawn dimmed with the reason beneath it, never left out of the list and never
                          disabled - a disabled item is out of the hit test, and the reason would go with it. -->
-                    <ComboBox Classes="strip-choice agent-choice" VerticalAlignment="Center"
-                              Margin="0,0,6,0"
-                              ItemsSource="{Binding Chooser.Options}"
-                              SelectedItem="{Binding Chooser.Selected}"
+                    <p:Picker x:Name="AgentPicker"
+                              Classes="strip-picker"
+                              Options="{Binding Chooser.Options}"
+                              SelectedId="{Binding Chooser.SelectedKey}"
+                              Text="{Binding Chooser.SelectedLabel}"
                               IsVisible="{Binding Chooser.HasOptions}"
-                              ToolTip.Tip="The agent this conversation is held with">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate DataType="ac:AgentInstanceOption">
-                                <StackPanel ToolTip.Tip="{Binding Reason}">
-                                    <TextBlock Classes="agent-choice-label"
-                                               Classes.unpickable="{Binding !IsPickable}"
-                                               Text="{Binding Label}" />
-                                    <TextBlock Classes="agent-choice-reason"
-                                               Text="{Binding Reason}"
-                                               IsVisible="{Binding Reason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <AutoCompleteBox x:Name="ModelBox"
-                                     Classes="setting"
-                                     Width="220"
-                                     Margin="0,0,6,0"
-                                     Text="{Binding ModelText}"
-                                     ItemsSource="{Binding ModelOptions}"
-                                     FilterMode="Custom"
-                                     MinimumPrefixLength="0"
-                                     PlaceholderText="model"
-                                     ToolTip.Tip="Model — pick one, or type a name and press Enter"
-                                     KeyDown="ModelBox_KeyDown"
-                                     DropDownClosed="ModelBox_DropDownClosed"
-                                     LostFocus="ModelBox_LostFocus" />
-                    <ComboBox Classes="strip-choice" VerticalAlignment="Center"
-                              Margin="0,0,6,0"
-                              ItemsSource="{Binding ModeOptions}"
-                              SelectedItem="{Binding SelectedMode}"
-                              IsVisible="{Binding HasModeOptions}"
-                              ToolTip.Tip="Permission mode">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate DataType="ev:SessionOption">
-                                <TextBlock Text="{Binding Label}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <ComboBox Classes="strip-choice" VerticalAlignment="Center"
-                              ItemsSource="{Binding EffortOptions}"
-                              SelectedItem="{Binding SelectedEffort}"
-                              IsVisible="{Binding HasEffortOptions}"
-                              ToolTip.Tip="Reasoning effort">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate DataType="ev:SessionOption">
-                                <TextBlock Text="{Binding Label}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
+                              DropDownWidth="320"
+                              MaxWidth="240"
+                              ToolTip.Tip="The agent this conversation is held with" />
+                    <!-- The model, the mode and the effort are *not* on this strip any more: they moved
+                         into the composer, beside the box whose message they qualify - t3code's
+                         arrangement, and it is right for the reason the Goal tile's own strip is wrong to
+                         copy here. What is left is what this tile is *showing*: which conversation, held
+                         by whom, and then the state after the rule. -->
+                    <Border Classes="strip-divider" />
+                    <TextBlock Classes="strip" Text="{Binding StatusText}" />
+                    <!-- The context figures used to stand here. They are at the foot of the tile now,
+                         with a bar behind them: a number that moves with every turn does not belong in
+                         the one row that says where you are. -->
                 </WrapPanel>
             </DockPanel>
+        </Border>
+
+        <!-- ======== What the context costs ========
+             At the very foot of the tile, under the composer, and quiet: it is a thing to glance at
+             while writing rather than a thing to read. It was words on the top strip, beside the
+             agent's state - which put a figure that moves with every turn in the one row that says
+             where you are, and said nothing at all about how close the window is to full until you had
+             divided one number by the other yourself.
+
+             The Usage tile's own bar, not a second drawing of the same idea: cells of a fixed size, so
+             two bars anywhere in this application are compared by counting rather than by measuring,
+             and any spending at all lights the first cell. No tick on it - that mark is where the
+             *clock* is, and a context window does not refill with time. -->
+        <Border DockPanel.Dock="Bottom" Classes="context-bar"
+                IsVisible="{Binding UsageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Classes="strip" Margin="8,0,0,0"
+                           Text="{Binding UsageText}" />
+                <v:UsageBar Height="6" VerticalAlignment="Center"
+                            UsedPercent="{Binding ContextPercent}"
+                            IsVisible="{Binding ContextPercent, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            TrackBrush="{DynamicResource BgElevated}"
+                            FillBrush="{DynamicResource AccentHover}"
+                            OverBrush="{DynamicResource DangerText}"
+                            ToolTip.Tip="How much of the model's context window this conversation has used" />
+            </DockPanel>
+        </Border>
+
+        <!-- ======== Composer ========
+             Docked to the bottom of the tile rather than being the last block of the conversation.
+             It was in the scroller with everything else, on the argument that the composer is the next
+             thing in a conversation and belongs where the next thing goes - which is right about a
+             *reading* order and wrong about a control: scroll back to find what the agent said two turns
+             ago and the box you want to answer in has gone off the bottom of the tile. The one place
+             where you type is the one place that must not move.
+
+             Everything that is part of the conversation stays in the scroller above it, the waiting row
+             included: what a docked bar must hold is what you act with, not what you read.
+
+             Images go in by pasting (Ctrl+V when the clipboard holds no text, Alt+V always), by dropping
+             files on the box, or through the paperclip; each waits above the text with a button that
+             takes it out again. -->
+        <Border x:Name="Composer" DockPanel.Dock="Bottom" Classes="composer" DragDrop.AllowDrop="True">
+            <StackPanel Spacing="4">
+                <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="ev:ImageAttachment">
+                            <Panel Margin="0,0,6,0">
+                                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ImageThumbnailTemplate}" />
+                                <Button Classes="tile-btn" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        Command="{Binding $parent[UserControl].((ac:AgentConversationTileViewModel)DataContext).RemoveAttachmentCommand}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip.Tip="Remove this image">
+                                    <mi:MaterialIcon Kind="Close" Width="12" Height="12" />
+                                </Button>
+                            </Panel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="ask-why" Text="{Binding ComposerNotice}"
+                           IsVisible="{Binding ComposerNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <!-- The box takes the whole width. The buttons that used to stand beside it are on
+                     the row below, which is what buys the message the room it needs at a tile's
+                     width and is how t3code's composer is laid out.
+
+                     The placeholder is short enough for one line at a tile's width. It was four
+                     hints long, which wrapped to two lines in a column and made an empty composer
+                     look full; the other three are in the tooltip, where a hint nobody needs twice
+                     belongs. -->
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-user" Margin="0,2,0,0" />
+                    <TextBox x:Name="InputBox"
+                             Classes="composer-input"
+                             Text="{Binding Draft}"
+                             PlaceholderText="Ask anything, or @ a file"
+                             ToolTip.Tip="Enter sends · Shift+Enter starts a new line · @ mentions a file · Alt+V pastes an image · Esc stops the agent"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             v:FileMentionBehavior.Mentions="{Binding FileMentions}"
+                             KeyDown="InputBox_KeyDown" />
+                </DockPanel>
+
+                <!-- What this message will be sent *as*, under the box it will be sent from.
+                     Model, effort and permission were on the tile's top strip, three tile-widths
+                     away from the text they qualify and mixed in with what the agent is doing. A
+                     setting belongs beside the thing it changes. -->
+                <DockPanel Margin="0,4,0,0">
+                    <!-- Send is the one accent-filled control in this tile. Round, because it is
+                         the only thing here that is a single act rather than a setting.
+
+                         While the agent is working it *becomes* Stop, in the same place. Escape
+                         already did this and nothing on screen said so, which left the one thing
+                         somebody urgently wants — make it stop — as a keystroke you had to know
+                         about, with the pointer already resting on a button that could not be
+                         pressed. One slot rather than two buttons side by side, because the two
+                         are never both available: sending is what you do between turns and
+                         stopping is what you do during one. -->
+                    <Button DockPanel.Dock="Right"
+                            Classes="composer-send"
+                            IsVisible="{Binding !IsWorking}"
+                            Command="{Binding SendCommand}"
+                            ToolTip.Tip="Send (Enter)">
+                        <mi:MaterialIcon Kind="ArrowUp" Width="15" Height="15" />
+                    </Button>
+                    <Button DockPanel.Dock="Right"
+                            Classes="composer-send composer-stop"
+                            IsVisible="{Binding IsWorking}"
+                            Command="{Binding InterruptCommand}"
+                            ToolTip.Tip="Stop the agent (Esc)">
+                        <mi:MaterialIcon Kind="Stop" Width="15" Height="15" />
+                    </Button>
+                    <Button DockPanel.Dock="Right" Classes="tile-btn" VerticalAlignment="Center"
+                            Margin="0,0,4,0"
+                            Click="AttachButton_Click" ToolTip.Tip="Attach images">
+                        <mi:MaterialIcon Kind="Paperclip" Width="14" Height="14" />
+                    </Button>
+
+                    <WrapPanel Orientation="Horizontal" ItemSpacing="2" LineSpacing="2"
+                               VerticalAlignment="Center">
+                        <!-- The model. Search on, because a provider's catalogue runs to hundreds
+                             and this is the one list here that does. -->
+                        <p:Picker x:Name="ModelPicker"
+                                  Classes="composer-picker"
+                                  Options="{Binding ModelOptions}"
+                                  SelectedId="{Binding Model}"
+                                  Text="{Binding ModelLabel}"
+                                  IsSearchEnabled="True"
+                                  SearchPlaceholder="Search models…"
+                                  EmptyText="Type a model's name to use it."
+                                  TypedEntryFormat="{}Use &#x201C;{0}&#x201D;"
+                                  DropDownWidth="340"
+                                  MaxWidth="230"
+                                  ToolTip.Tip="Which model this conversation runs on">
+                            <p:Picker.Icon>
+                                <mi:MaterialIcon Kind="AutoAwesome" Width="13" Height="13" />
+                            </p:Picker.Icon>
+                        </p:Picker>
+                        <p:Picker x:Name="EffortPicker"
+                                  Classes="composer-picker"
+                                  Options="{Binding EffortOptions}"
+                                  SelectedId="{Binding SelectedEffort.Id, Mode=OneWay}"
+                                  Text="{Binding EffortLabel}"
+                                  IsVisible="{Binding HasEffortOptions}"
+                                  ToolTip.Tip="How hard the agent is asked to think">
+                            <p:Picker.Icon>
+                                <mi:MaterialIcon Kind="Brain" Width="13" Height="13" />
+                            </p:Picker.Icon>
+                        </p:Picker>
+                        <p:Picker x:Name="ModePicker"
+                                  Classes="composer-picker"
+                                  Options="{Binding ModeOptions}"
+                                  SelectedId="{Binding SelectedMode.Id, Mode=OneWay}"
+                                  Text="{Binding ModeLabel}"
+                                  IsVisible="{Binding HasModeOptions}"
+                                  DropDownWidth="330"
+                                  ToolTip.Tip="What the agent may do without asking">
+                            <p:Picker.Icon>
+                                <mi:MaterialIcon Kind="LockOutline" Width="13" Height="13" />
+                            </p:Picker.Icon>
+                        </p:Picker>
+                    </WrapPanel>
+                </DockPanel>
+            </StackPanel>
         </Border>
 
         <ScrollViewer x:Name="ChatScroll"
@@ -274,10 +398,18 @@
 
                         <!-- ======== A message ======== -->
                         <DataTemplate DataType="ac:MessageItemViewModel">
-                            <Border Classes="row" Classes.row-user="{Binding IsUser}">
+                            <!-- Yours to the right, at most three quarters of the width; everything else
+                                 from the left across both columns. See Views/BubbleLayout.cs. -->
+                            <Grid ColumnDefinitions="1*,3*">
+                            <Border Classes="row" Classes.row-user="{Binding IsUser}"
+                                    Grid.Column="{Binding IsUser, Converter={x:Static v:BubbleLayout.Column}}"
+                                    Grid.ColumnSpan="{Binding IsUser, Converter={x:Static v:BubbleLayout.Span}}">
                                 <DockPanel>
+                                    <!-- No glyph on your own messages: the side of the column already
+                                         says who wrote them, and a gutter that says it again costs
+                                         sixteen pixels of a bubble's width to repeat itself. -->
                                     <TextBlock DockPanel.Dock="Left" Classes="gutter"
-                                               Classes.gutter-user="{Binding IsUser}"
+                                               IsVisible="{Binding !IsUser}"
                                                Classes.gutter-assistant="{Binding IsAssistant}"
                                                Text="{Binding IsUser, Converter={x:Static v:AgentConversationGlyphs.Speaker}}" />
                                     <!-- The Goal tile's copy button, revealed by the row it sits in. Bound to the
@@ -313,6 +445,7 @@
                                     </StackPanel>
                                 </DockPanel>
                             </Border>
+                            </Grid>
                         </DataTemplate>
 
                         <!-- ======== The work between two messages ======== -->
@@ -620,58 +753,14 @@
                     </DockPanel>
                 </Border>
 
-                <v:WaitingRow IsVisible="{Binding IsWorking}" Elapsed="{Binding TurnClock.Text}" />
-
-                <!-- ======== Composer ======== -->
-                <!-- Images go in by pasting (Ctrl+V when the clipboard holds no text, Alt+V always), by
-                     dropping files on the box, or through the paperclip; each waits above the text with a
-                     button that takes it out again. -->
-                <Border x:Name="Composer" Classes="composer" DragDrop.AllowDrop="True">
-                    <StackPanel Spacing="4">
-                        <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate DataType="ev:ImageAttachment">
-                                    <Panel Margin="0,0,6,0">
-                                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ImageThumbnailTemplate}" />
-                                        <Button Classes="tile-btn" HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                Command="{Binding $parent[UserControl].((ac:AgentConversationTileViewModel)DataContext).RemoveAttachmentCommand}"
-                                                CommandParameter="{Binding}"
-                                                ToolTip.Tip="Remove this image">
-                                            <mi:MaterialIcon Kind="Close" Width="12" Height="12" />
-                                        </Button>
-                                    </Panel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <TextBlock Classes="ask-why" Text="{Binding ComposerNotice}"
-                                   IsVisible="{Binding ComposerNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right" Classes="tile-btn" VerticalAlignment="Bottom"
-                                    Command="{Binding SendCommand}" ToolTip.Tip="Send (Enter)">
-                                <mi:MaterialIcon Kind="Send" Width="14" Height="14" />
-                            </Button>
-                            <Button DockPanel.Dock="Right" Classes="tile-btn" VerticalAlignment="Bottom"
-                                    Click="AttachButton_Click" ToolTip.Tip="Attach images">
-                                <mi:MaterialIcon Kind="Paperclip" Width="14" Height="14" />
-                            </Button>
-                            <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-user" Margin="0,2,0,0" />
-                            <TextBox x:Name="InputBox"
-                                     Classes="composer-input"
-                                     Text="{Binding Draft}"
-                                     PlaceholderText="Message the agent… (@ for a file, Shift+Enter for a new line, Alt+V pastes an image)"
-                                     AcceptsReturn="True"
-                                     TextWrapping="Wrap"
-                                     v:FileMentionBehavior.Mentions="{Binding FileMentions}"
-                                     KeyDown="InputBox_KeyDown" />
-                        </DockPanel>
-                    </StackPanel>
-                </Border>
+                <!-- The dots say the turn is alive; the stage beside them says what it is doing, which is
+                     the question anybody watching this row actually has. Read from the conversation and
+                     not from a CLI, so every agent fills it — see TurnStage. -->
+                <v:WaitingRow IsVisible="{Binding IsWorking}"
+                              Stage="{Binding TurnStageText}"
+                              Elapsed="{Binding TurnClock.Text}" />
             </StackPanel>
         </ScrollViewer>
+
     </DockPanel>
 </UserControl>

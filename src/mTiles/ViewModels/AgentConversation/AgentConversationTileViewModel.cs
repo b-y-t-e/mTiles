@@ -66,10 +66,17 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [ObservableProperty] private bool _isWorking;
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private string _usageText = "";
+
+    /// <summary>What the agent is doing, beside the thinking dots. See <see cref="TurnStage"/>.</summary>
+    [ObservableProperty] private string _turnStageText = "";
+
+    /// <summary>How full the model's context is, or null when the agent did not say how big it is.</summary>
+    /// <remarks>Null draws no bar rather than an empty one — see <see cref="ContextGauge"/>. The figures
+    /// stand either way, which is why they are a separate property from this one.</remarks>
+    [ObservableProperty] private double? _contextPercent;
     [ObservableProperty] private QuestionRoundViewModel? _pendingQuestions;
     [ObservableProperty] private TileActivity _activity = TileActivity.Unknown;
     [ObservableProperty] private string _model = "";
-    [ObservableProperty] private string _modelText = "";
     [ObservableProperty] private SessionOption? _selectedMode;
     [ObservableProperty] private SessionOption? _selectedEffort;
     [ObservableProperty] private string? _composerNotice;
@@ -195,6 +202,23 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     public event Action? TimelineChanged;
 
     public string HeaderNote => Model.Length > 0 ? $"{Instance.Name} · {Model}" : Instance.Name;
+
+    /// <summary>What the strip's model control says at rest.</summary>
+    /// <remarks>An empty model is the ordinary state and not a failure: the session reports one only once it
+    /// has started, and three of the agents never report one at all — they run on whatever their own
+    /// configuration says. Drawn as an empty control that is what the strip looked like before this existed,
+    /// a field with nothing in it and no sign that anything could go in it. The words are an invitation
+    /// instead, which is what t3code's picker says in the same place.</remarks>
+    public string ModelLabel => Model.Length > 0 ? Model : "Choose model";
+
+    /// <summary>What the strip's permission control says at rest.</summary>
+    /// <remarks>The label rather than the id, because the id is the CLI's spelling and the label is this
+    /// application's own vocabulary (<c>AiBehaviours</c>) — the whole point of which is that one word means
+    /// the same thing whichever of the six agents is running.</remarks>
+    public string ModeLabel => SelectedMode?.Label ?? "Permissions";
+
+    /// <summary>What the strip's effort control says at rest.</summary>
+    public string EffortLabel => SelectedEffort?.Label ?? "Effort";
 
     public IReadOnlyList<TileAction> Actions =>
     [
@@ -389,16 +413,16 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         else if (_host is { } host) DrawSettings(host.State);
     }
 
-    [RelayCommand]
-    private Task ApplyModelAsync()
+    /// <summary>Runs this conversation on the named model, if it is not the one already running.</summary>
+    /// <remarks>A listed model and one typed into the picker's search arrive here alike, so the two cannot
+    /// come to mean different things.</remarks>
+    public Task ApplyPickedModel(string? name)
     {
-        var typed = ModelText.Trim();
-        return typed.Length == 0 || typed == Model ? Task.CompletedTask : ChangeSettingsAsync(new SessionSettings(Model: typed));
+        var chosen = (name ?? string.Empty).Trim();
+        return chosen.Length == 0 || chosen == Model
+            ? Task.CompletedTask
+            : ChangeSettingsAsync(new SessionSettings(Model: chosen));
     }
-
-    /// <summary>Puts back the model the session runs on, over a name typed and never confirmed.</summary>
-    /// <remarks>Leaving the field is not a choice: what was typed is often only a filter for the list.</remarks>
-    public void DiscardTypedModel() => ModelText = Model;
 
     /// <summary>How long the current turn has been going, beside the thinking dots — the Goal tile's clock.</summary>
     public ElapsedClock TurnClock { get; } = new();
@@ -411,6 +435,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
     partial void OnSelectedModeChanged(SessionOption? value)
     {
+        OnPropertyChanged(nameof(ModeLabel));
         if (_drawingSettings || value is null) return;
         _ = SessionSettingOptions.ParseMode(value.Id) == AiBehaviour.BypassPermissions
             ? RunAsync(() => ConfirmBypassThenChangeAsync(value))
@@ -419,6 +444,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
     partial void OnSelectedEffortChanged(SessionOption? value)
     {
+        OnPropertyChanged(nameof(EffortLabel));
         if (!_drawingSettings && value is not null) _ = ChangeSettingsAsync(new SessionSettings(Effort: value.Id));
     }
 
@@ -971,6 +997,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         Model = state.Model ?? "";
         DrawSettings(state);
         UsageText = UsageDisplay(state.Usage);
+        ContextPercent = ContextGauge.PercentUsed(state.Usage);
+        TurnStageText = TurnStage.For(state);
         StatusText = StatusOf(state);
         Activity = state.IsWaitingForUser
             ? TileActivity.Blocked
@@ -987,7 +1015,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     partial void OnModelChanged(string value)
     {
         OnPropertyChanged(nameof(HeaderNote));
-        ModelText = value;
+        OnPropertyChanged(nameof(ModelLabel));
     }
 
     /// <summary>The choosers, in step with what the session offers and runs as — without that counting as a

@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Controls, and nothing else.
+
+    No reference to the application, the same rule mTiles.AgentSessions keeps and for a related reason:
+    what is in here has to be arguable on its own. A control that knows about an agent instance, a tile
+    or a workspace is not a control, it is a piece of that screen with a template around it.
+
+    It names colours through DynamicResource and defines none of them. The host supplies AppTheme.axaml
+    and every role token in it, so a control drawn in this application takes this application's theme
+    without being told, and a control drawn anywhere else says which roles it needs by using them. The
+    cost is that these controls render colourless with no host - which is the honest state of a library
+    that refuses to have opinions about somebody else's palette.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.*" />
+  </ItemGroup>
+
+</Project>

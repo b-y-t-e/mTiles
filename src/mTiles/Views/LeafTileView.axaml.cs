@@ -52,6 +52,7 @@ public partial class LeafTileView : UserControl, ITileDropTarget
 
         leaf.RefreshAgentInstances();
         leaf.RefreshChangeKindOptions();
+        leaf.RefreshContentActions();
     }
 
     /// <summary>Below this, the header stops offering to split the tile.</summary>

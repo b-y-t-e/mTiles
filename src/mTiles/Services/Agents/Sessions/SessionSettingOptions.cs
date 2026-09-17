@@ -18,14 +18,19 @@ public static class SessionSettingOptions
 {
     public static IReadOnlyList<SessionOption> Modes(IAiAgent agent, AiAgentInstance instance) =>
     [
+        // The sentence travels with the option rather than being looked up wherever a list is drawn: the
+        // web view in ROADMAP reads these same events, and a description only the desktop knows how to
+        // find is a menu that explains itself in one viewer and not the other.
         .. agent.SupportedBehaviours(instance, AiUsage.Interactive)
-            .Select(mode => new SessionOption(ModeId(mode), AiBehaviours.Label(mode))),
+            .Select(mode =>
+                new SessionOption(ModeId(mode), AiBehaviours.Label(mode), AiBehaviours.Description(mode))),
     ];
 
     public static IReadOnlyList<SessionOption> Efforts(IAiAgent agent, AiAgentInstance instance) =>
     [
         .. agent.SupportedEfforts(instance, AiUsage.Interactive)
-            .Select(effort => new SessionOption(EffortId(effort), AiEfforts.Label(effort))),
+            .Select(effort =>
+                new SessionOption(EffortId(effort), AiEfforts.Label(effort), AiEfforts.Description(effort))),
     ];
 
     /// <summary>

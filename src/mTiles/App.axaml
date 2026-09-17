@@ -10,6 +10,10 @@
         <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
         <mi:MaterialIconStyles />
         <StyleInclude Source="avares://mTiles/Styles/Controls.axaml" />
+        <!-- The controls that are not this application's: see src/mTiles.Controls. They name role tokens
+             and define none, so this line has to come after AppTheme has something to answer with — which
+             it does, resources being resolved when they are read rather than when they are included. -->
+        <StyleInclude Source="avares://mTiles.Controls/Themes/Picker.axaml" />
     </Application.Styles>
 
     <Application.Resources>

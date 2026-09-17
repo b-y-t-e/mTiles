@@ -18,6 +18,11 @@ release. Never a manual `git push` or a hand-written version bump.
 
 - `src/mTiles/` — the application
 - `src/mTiles.AgentSessions/` — **no Avalonia, no reference to the application**: the agent conversation contract (`Events/`, `Commands/`, `IAgentSession`), the pure `ConversationReducer`, the SQLite event store, git turn checkpoints, `AgentConversationHost`, and the protocol plumbing every agent shares (`AgentProcess`, `JsonRpcPeer`, ACP). A separate project so a later web view references it as it is — see [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md)
+- `src/mTiles.Controls/` — **controls, and nothing else**: Avalonia, no reference to the application, the
+  same one-way rule `mTiles.AgentSessions` keeps. It names colours by role through `DynamicResource` and
+  defines none of them, so a control drawn here takes this application's theme without being told. Holds
+  `Picker` — the trigger-plus-searchable-list that replaced the model field's combo-box-versus-autocomplete
+  dead end — see [`src/mTiles.Controls/README.md`](src/mTiles.Controls/README.md)
 - `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
 - `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, SplitFixedSide (which side of a split, if either, is held at a size in pixels rather than a share — never written for a split that has none, so a workspace layout saves byte for byte as before), TileKindIds, TileContentType (closed — see Tiles below), AppSettings, AppDefaults, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, GoalTileState, GoalCommit, GoalFinding, GoalReviewResult, GoalClarifyResult, IGoalParsedBlock (the two members the JSON re-send round reads, so a clarification and a review get one round rather than a copy each), GoalCompletionCriteria, GoalStopReason, GoalImageAttachment, SolidPrinciples, AiBehaviour, AiEffort, AiUsage, AiAgentInstance, AiProviderInstance, AiSignIn, AiModelInfo, ProviderCheck, SessionStrategy, ApiFlavor, InstallPlan, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, WorkspaceAgentFileSyncConfig, SpeechSettings, PhoneSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
@@ -780,10 +785,13 @@ a ref under `refs/mtiles/`, so nothing the user can see moves. **Untracked files
 form of `diff` shows one and `checkout HEAD` cannot bring one back. Read *docs/GOAL.md* before touching
 it; four details there were measured and each is load-bearing.
 
-**The tile is a conversation and nothing is docked to the bottom of it.** One `ScrollViewer`, one
-column: the transcript, and then whatever the tile is asking for — the round of questions, the plan
-box, the finished-run actions, the composer with the detect buttons under it — each as a block where the next thing
-in a conversation goes. A round is *replaced by the record of itself* when it is answered, in place,
+**The tile is a conversation, and the composer is the one thing docked to the bottom of it.** One
+`ScrollViewer` (`ChatScroll`), one column: the transcript, and then whatever the tile is asking for — the
+round of questions, the plan box, the finished-run actions — each as a block where the next thing in a
+conversation goes. The composer, with the detect buttons and its pickers under it, sits **outside** that
+scroller, docked to the foot of the tile: it is not something the conversation said but the one place you
+act from, and scrolling back two attempts to re-read a review must not take it off the bottom of the tile
+(`GoalAskPanelTests.What_the_tile_asks_scrolls_and_what_you_type_in_does_not` pins both halves). A round is *replaced by the record of itself* when it is answered, in place,
 rather than being asked in a docked panel and recorded as a numbered paragraph several screens above
 it. Anything in the conversation can be copied on its own — a message, one finding, one question with
 its answer — through one handler and one builder, so a finding copied alone reads exactly as it does

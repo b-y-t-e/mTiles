@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mtc="using:mTiles.Controls">
 
     <!-- ======== An agent talking in a column ========
      Shared by the two tiles that draw one: the Goal tile and the Agent tile. They began as one set of
@@ -51,12 +52,21 @@
          to look for, and it is still the only row with a background. Inset and rounded now, so it
          reads as a block somebody wrote rather than a stripe across the tile, and with the hairline
          above it that says a new turn starts here. -->
+    <!-- And it sits on the right, which is what replaced the hairline above it. The rule said "a new turn
+         starts here" and was the only thing that did; a block on the other side of the column says it
+         before a character is read, the way every messaging application says it, and says *who* as well -
+         which is what let the `❯` in the gutter go. The width is held to three quarters by the grid the
+         row sits in (BubbleLayout), not here: Avalonia has no percentage width.
+
+         The corner is RadiusRow and not RadiusSm - at 3px on a block this size the corners read as a
+         rendering artefact rather than a shape, which is the same argument the workspace rows settled. -->
     <Style Selector="Border.row-user">
         <Setter Property="Background" Value="{DynamicResource BgElevated}" />
-        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusRow}" />
         <Setter Property="Margin" Value="4,10,4,4" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-        <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
     </Style>
 
     <!-- ======== Copy ========
@@ -311,18 +321,38 @@
         <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Padding" Value="0,2" />
+        <!-- One line and a little air, empty or not. The floor is here so that the settings row under the
+             box does not read as docked to the placeholder, and so that the box does not grow under the
+             cursor at the first keystroke - the thing being asked for must not move while it is being
+             answered. It was two lines' worth, which bought that and then spent a second line of the
+             tile's height on nothing: at a tile's width most of what gets typed here is one line.
+
+             The ceiling stays: past it the composer scrolls rather than pushing the conversation off the
+             top of the tile. -->
+        <Setter Property="MinHeight" Value="26" />
         <Setter Property="MaxHeight" Value="140" />
+        <Setter Property="VerticalContentAlignment" Value="Top" />
     </Style>
     <!-- Its own margin now that nothing is docked around it: the composer is the last block in
          the conversation rather than a bar under one, so what separates it from the message above
          is the space the messages are separated by. -->
+    <!-- The one surface in this tile that is a *place to write* rather than a place to read, and it is
+         sized like one: room around the text, and room under it whether or not anything has been typed.
+         It was a 3px-cornered box with four pixels of padding, which read as a field crammed against its
+         own border - the settings row directly under the first line of the placeholder, nothing between
+         them. RadiusXl is the dialog's radius and the largest this application has; the composer earns it
+         for the same reason a dialog does, being a surface rather than a control, and it is deliberately
+         short of the softer corner a browser can afford, because everything around it here is a card at 8. -->
     <Style Selector="Border.composer">
         <Setter Property="Background" Value="{DynamicResource BgSurface}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
-        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
-        <Setter Property="Padding" Value="8,4" />
-        <Setter Property="Margin" Value="4,10,4,4" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusXl}" />
+        <Setter Property="Padding" Value="12,8" />
+        <!-- Twice the side margin it had. Docked to the foot of the tile it is no longer a block in a
+             column of blocks that all share one left edge — it is the bottom of the card, and four
+             pixels there read as a box that had nowhere left to go. -->
+        <Setter Property="Margin" Value="8,12,8,6" />
     </Style>
     <Style Selector="Border.composer:pointerover">
         <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
@@ -394,14 +424,69 @@
         </Style.Animations>
     </Style>
 
-    <Style Selector="ComboBox.strip-choice">
+    <!-- ======== The composer's own settings row ========
+         The pickers under the message box - model, effort, permission. They take the terminal's face and
+         size, because everything else in this tile is set in it and a UI-font control in the middle of a
+         conversation is the one element announcing it came from somewhere else. Set here rather than left
+         to inherit: a picker's list is drawn in a popup, which is a visual root of its own, so nothing of
+         the tile's typography reaches it on its own. -->
+    <Style Selector="mtc|Picker.composer-picker, mtc|Picker.strip-picker">
         <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+    </Style>
+    <Style Selector="mtc|Picker.composer-picker /template/ ToggleButton, mtc|Picker.strip-picker /template/ ToggleButton">
+        <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+    </Style>
+    <!-- The strip's two are quieter than the composer's: what they name is where you are rather than what
+         the next message will be sent as, and the composer's row is the one meant to be read before
+         pressing send. -->
+    <Style Selector="mtc|Picker.strip-picker /template/ ToggleButton">
         <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <!-- Send: the one accent-filled control in the tile, and round because it is the only thing on that
+         row which is an act rather than a setting. Everything beside it is quiet on purpose so that this
+         one is findable without being loud. -->
+    <Style Selector="Button.composer-send">
+        <Setter Property="Background" Value="{DynamicResource AccentDefault}" />
+        <Setter Property="Foreground" Value="{DynamicResource AccentForeground}" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Padding" Value="4,1" />
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="Padding" Value="0" />
         <Setter Property="MinHeight" Value="0" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.composer-send /template/ ContentPresenter">
+        <Setter Property="CornerRadius" Value="14" />
+    </Style>
+    <Style Selector="Button.composer-send:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource AccentHover}" />
+    </Style>
+    <Style Selector="Button.composer-send:disabled /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextFaint}" />
+    </Style>
+    <!-- Stop takes the same slot and not the same colour: the accent is this tile's "go on", and a
+         stop button wearing it would be the one control whose colour says the opposite of what it does.
+         Quiet until it is pointed at, then the danger colour - findable, without the tile flashing red
+         for as long as an agent is working. -->
+    <Style Selector="Button.composer-send.composer-stop /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+        <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextSecondary}" />
+    </Style>
+    <Style Selector="Button.composer-send.composer-stop:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DangerText}" />
+        <Setter Property="TextBlock.Foreground" Value="{DynamicResource DangerText}" />
     </Style>
 
     <!-- An answer that stops or refuses, where the choices are the agent's own (an approval's Cancel). -->

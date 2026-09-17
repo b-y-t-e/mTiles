@@ -12,6 +12,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Material.Icons;
 using Material.Icons.Avalonia;
+using mTiles.Controls;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.ViewModels;
@@ -25,6 +26,7 @@ public partial class GoalTileView : UserControl
     public GoalTileView()
     {
         InitializeComponent();
+        TeachThePickers();
 
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
         ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage);
@@ -32,6 +34,32 @@ public partial class GoalTileView : UserControl
             () => IsPickingAFile);
     }
 
+    /// <summary>Teaches the strip's four pickers how to read this tile's own lists, and where a pick goes.</summary>
+    /// <remarks>The rows are the view model's lists as they stand — agent choices and the words of the two
+    /// scales — so nothing is kept in step. The mode and effort rows carry the vocabulary's own sentence, the
+    /// one the Agent tile's composer shows, so the two tiles explain a mode in the same words. A pick is
+    /// written through the view model's own setters, which is where bypass is asked about.</remarks>
+    private void TeachThePickers()
+    {
+        ExecutionAgentPicker.OptionSelector = item => item is GoalAgentChoice agent
+            ? new PickerOption { Id = agent.InstanceId, Title = agent.Label, Detail = agent.Agent.DisplayName }
+            : null;
+        ReviewAgentPicker.OptionSelector = item => item is GoalReviewerChoice reviewer
+            ? new PickerOption { Id = reviewer.InstanceId, Title = reviewer.Label }
+            : null;
+        PermissionModePicker.OptionSelector = item => item is string label ? SettingPickerRows.Mode(label) : null;
+        EffortPicker.OptionSelector = item => item is string label ? SettingPickerRows.Effort(label) : null;
+
+        ExecutionAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ExecutionAgentInstanceId = e.Option.Id);
+        ReviewAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ReviewAgentInstanceId = e.Option.Id);
+        PermissionModePicker.SelectionRequested += (_, e) => WithVm(vm => vm.PermissionModeLabel = e.Option.Id);
+        EffortPicker.SelectionRequested += (_, e) => WithVm(vm => vm.EffortLabel = e.Option.Id);
+    }
+
+    private void WithVm(Action<GoalTileViewModel> apply)
+    {
+        if (DataContext is GoalTileViewModel vm) apply(vm);
+    }
 
     /// <summary>The dialog this tile has open, if any.</summary>
     private GoalFindingsDialog? _findings;

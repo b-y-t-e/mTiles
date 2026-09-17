@@ -57,6 +57,14 @@ public sealed partial class AgentInstanceChooser : ObservableObject, IDisposable
 
     public bool HasOptions => Options.Count > 1;
 
+    /// <summary>What the strip's control says at rest.</summary>
+    public string SelectedLabel => Selected?.Label ?? "Agent";
+
+    /// <summary>Which row the list marks as the current one.</summary>
+    /// <remarks>The instance's id and not the option object: the list is rebuilt whenever Settings changes,
+    /// so an object held across that rebuild is a different instance from the one now in the list.</remarks>
+    public string SelectedKey => Selected?.Instance.Id ?? "";
+
     /// <summary>Rebuilds the list, in step with what is configured and with what the conversation is bound to.</summary>
     public void Draw()
     {
@@ -97,6 +105,8 @@ public sealed partial class AgentInstanceChooser : ObservableObject, IDisposable
 
     partial void OnSelectedChanged(AgentInstanceOption? value)
     {
+        OnPropertyChanged(nameof(SelectedLabel));
+        OnPropertyChanged(nameof(SelectedKey));
         if (_drawing || value is null) return;
         // The running entry is handed on too: picked back while another pick waits its turn, it is what the user
         // meant last, and the tile only learns that if it is told — the switch itself then finds nothing to do.

@@ -1,7 +1,11 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
+using mTiles.AgentSessions.Events;
+using mTiles.Controls;
+using mTiles.Services;
 using mTiles.ViewModels.AgentConversation;
 
 namespace mTiles.Views;
@@ -17,7 +21,7 @@ public partial class AgentConversationTileView : UserControl
     public AgentConversationTileView()
     {
         InitializeComponent();
-        ModelBox.ItemFilter = (search, item) => ModelSearch.Matches(search, item as string);
+        TeachThePickers();
         Composer.AddHandler(DragDrop.DragOverEvent, Composer_DragOver);
         Composer.AddHandler(DragDrop.DropEvent, Composer_Drop);
 
@@ -32,27 +36,106 @@ public partial class AgentConversationTileView : UserControl
     /// lose the highlight, which is what <c>AgentInstanceChooser.DrawIfBindingChanged</c> exists to avoid one
     /// control along. Nothing awaits it: the list already holds what was last read, and the newer answer
     /// replaces it when it arrives.</remarks>
-    private void ConversationBox_DropDownOpened(object? sender, EventArgs e) =>
-        _ = _subscribed?.Conversations.RefreshAsync();
-
-    private void ModelBox_KeyDown(object? sender, KeyEventArgs e)
+    private void ConversationPicker_Opened(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Key != Key.Enter || _subscribed is null) return;
-        e.Handled = true;
-        _subscribed.ApplyModelCommand.Execute(null);
+        if (e.GetNewValue<bool>()) _ = _subscribed?.Conversations.RefreshAsync();
     }
 
-    /// <summary>A model picked from the list is a choice; the list closing over a half-typed filter is not.</summary>
-    private void ModelBox_DropDownClosed(object? sender, EventArgs e)
+    /// <summary>Teaches the composer's three pickers how to read this tile's own lists.</summary>
+    /// <remarks><para>The pickers take the view model's collections as they are — a list of model ids, a
+    /// list of <see cref="SessionOption"/> — and one line each says how one entry reads. The alternative is
+    /// three more <c>ObservableCollection&lt;PickerOption&gt;</c> on the view model, kept in step with the
+    /// three that already exist, which is three more things that can disagree with what is running.</para>
+    /// <para>The permission list is where the extra words earn their place: <c>AiBehaviours</c> already
+    /// writes a sentence per mode, and until now nothing drew it — the strip's combo box had room for the
+    /// label alone, so the one place saying what <c>bypass</c> actually grants was a tooltip on the whole
+    /// control.</para></remarks>
+    private void TeachThePickers()
     {
-        if (ModelBox.SelectedItem is string picked && picked == ModelBox.Text?.Trim())
-            _subscribed?.ApplyModelCommand.Execute(null);
+        ModelPicker.OptionSelector = item =>
+            item is string id && id.Length > 0 ? new PickerOption { Id = id, Title = id } : null;
+
+        // The sentence is on the option where we built the list ourselves. Where the agent reported its own
+        // options over its protocol it is not, so the vocabulary is asked by id — the same words either
+        // way, which is the point of the vocabulary being one place.
+        EffortPicker.OptionSelector = item => item is SessionOption option ? SettingPickerRows.Effort(option) : null;
+        ModePicker.OptionSelector = item => item is SessionOption option ? SettingPickerRows.Mode(option) : null;
+
+        // The two on the top strip. Their rows are refusable — an agent this conversation cannot be moved
+        // to, a conversation another tile is holding — so each one's reason travels with it and the picker
+        // draws it dimmed with that sentence under it, which is the arrangement both choosers were written
+        // for and which a ComboBox could only approximate with a tooltip nothing could reach.
+        ConversationPicker.OptionSelector = item => item is not ConversationOption conversation
+            ? null
+            : new PickerOption
+            {
+                Id = conversation.IsNew ? NewConversationId : conversation.Summary.Id,
+                Title = conversation.Title,
+                Detail = conversation.Note,
+                IsEnabled = conversation.IsPickable,
+                DisabledReason = conversation.Reason,
+                IsAction = conversation.IsNew,
+                Keywords = conversation.AgentName,
+            };
+        ConversationPicker.SelectionRequested += (_, e) => PickConversation(e.Option.Id);
+        ConversationPicker.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == Picker.IsDropDownOpenProperty) ConversationPicker_Opened(null, e);
+        };
+
+        AgentPicker.OptionSelector = item => item is not AgentInstanceOption agent
+            ? null
+            : new PickerOption
+            {
+                Id = agent.Instance.Id,
+                Title = agent.Instance.Name,
+                Detail = agent.AgentName,
+                IsEnabled = agent.IsPickable,
+                DisabledReason = agent.Reason,
+            };
+        AgentPicker.SelectionRequested += (_, e) => PickAgent(e.Option.Id);
+
+        ModelPicker.SelectionRequested += (_, e) => _subscribed?.ApplyPickedModel(e.Option.Id);
+        EffortPicker.SelectionRequested += (_, e) => Choose(e, options => options.EffortOptions,
+            (vm, option) => vm.SelectedEffort = option);
+        ModePicker.SelectionRequested += (_, e) => Choose(e, options => options.ModeOptions,
+            (vm, option) => vm.SelectedMode = option);
     }
 
-    /// <summary>Only Enter or a pick confirms a model, so leaving the field puts back the one running.</summary>
-    private void ModelBox_LostFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    /// <summary>The id standing in for the row that starts a conversation rather than opening one.</summary>
+    /// <remarks>That row's own conversation is empty by construction — it names nothing yet — so it needs an
+    /// id of its own to be told apart from a stored one. A string nothing could collide with, rather than an
+    /// empty one, because an empty id is also what a conversation the store has not heard of carries.</remarks>
+    private const string NewConversationId = "\0new-conversation";
+
+    /// <summary>Hands a picked conversation back to the chooser, which owns what picking one means.</summary>
+    /// <remarks>Through <c>Selected</c> rather than by calling the chooser's own callbacks: everything the
+    /// pick has to do — the New row, the refusal that puts the selection back, the switch itself — is already
+    /// written there, once, for whatever control is drawing the list.</remarks>
+    private void PickConversation(string id)
     {
-        if (!ModelBox.IsDropDownOpen && !ModelBox.IsKeyboardFocusWithin) _subscribed?.DiscardTypedModel();
+        if (_subscribed?.Conversations is not { } chooser) return;
+        chooser.Selected = chooser.Options.FirstOrDefault(option =>
+            option.IsNew ? id == NewConversationId : option.Summary.Id == id);
+    }
+
+    private void PickAgent(string instanceId)
+    {
+        if (_subscribed?.Chooser is not { } chooser) return;
+        if (chooser.Options.FirstOrDefault(option => option.Instance.Id == instanceId) is { } picked)
+            chooser.Selected = picked;
+    }
+
+    /// <summary>Puts a picked row back on the view model as the option object it came from.</summary>
+    /// <remarks>By id rather than by carrying the object through <see cref="PickerOption.Tag"/>: the list
+    /// is rebuilt whenever the session reports its options again, so an object captured when the popup
+    /// opened can be a different instance from the one the view model is comparing against.</remarks>
+    private void Choose(PickerSelectionEventArgs e,
+        Func<AgentConversationTileViewModel, IEnumerable<SessionOption>> from,
+        Action<AgentConversationTileViewModel, SessionOption> onto)
+    {
+        if (_subscribed is not { } vm) return;
+        if (from(vm).FirstOrDefault(option => option.Id == e.Option.Id) is { } picked) onto(vm, picked);
     }
 
     private static void Composer_DragOver(object? sender, DragEventArgs e) =>

@@ -1066,6 +1066,7 @@ public partial class GoalTileViewModel
 
         OnPropertyChanged(nameof(ExecutionAgent));
         OnPropertyChanged(nameof(ReviewAgent));
+        OnPropertyChanged(nameof(ReviewAgentLabel));
         AnnounceOfferedBehaviours();
     }
 
@@ -1095,6 +1096,7 @@ public partial class GoalTileViewModel
 
             OnPropertyChanged(nameof(ExecutionAgent));
             OnPropertyChanged(nameof(ReviewAgent));
+            OnPropertyChanged(nameof(ReviewAgentLabel));
             AnnounceOfferedBehaviours();
         });
     }
@@ -1113,6 +1115,13 @@ public partial class GoalTileViewModel
         ReviewAgentInstanceId.Length == 0
             ? ExecutionAgent
             : GoalAgents.WithId(_availableAgents, ReviewAgentInstanceId);
+
+    /// <summary>What the reviewer picker says at rest: the chosen row's words, "Same as execution" included.</summary>
+    /// <remarks>Not <see cref="ReviewAgent"/>'s label, which names the execution agent when the choice is
+    /// "the same one" — true of the run, and the wrong answer to "what did I pick".</remarks>
+    public string ReviewAgentLabel =>
+        ReviewAgentChoices.FirstOrDefault(choice => choice.InstanceId == ReviewAgentInstanceId)?.Label
+        ?? GoalReviewerChoice.SameAsExecution.Label;
 
     /// <summary>
     /// Which agent runs this phase.
@@ -1151,6 +1160,7 @@ public partial class GoalTileViewModel
     {
         OnPropertyChanged(nameof(ExecutionAgent));
         OnPropertyChanged(nameof(ReviewAgent));
+        OnPropertyChanged(nameof(ReviewAgentLabel));
         AnnounceOfferedBehaviours();
         SaveStateSoon();
     }
@@ -1169,6 +1179,7 @@ public partial class GoalTileViewModel
     private void OnReviewAgentInstanceIdChanged(string value)
     {
         OnPropertyChanged(nameof(ReviewAgent));
+        OnPropertyChanged(nameof(ReviewAgentLabel));
         SaveStateSoon();
     }
 

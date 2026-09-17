@@ -67,6 +67,15 @@ public sealed partial class ConversationChooser : ObservableObject
     /// the header already names, this is the only thing on screen that says <i>which</i> conversation this is.</remarks>
     public ObservableCollection<ConversationOption> Options { get; } = [];
 
+    /// <summary>What the strip's control says at rest: the user's own opening words, cut to a line.</summary>
+    public string SelectedTitle => Selected?.Title ?? "Conversation";
+
+    /// <summary>Which row the list marks as the current one.</summary>
+    /// <remarks>The conversation's id and not the option object, for the reason
+    /// <c>AgentInstanceChooser.SelectedKey</c> gives: <see cref="RefreshAsync"/> rebuilds the list from the
+    /// store, so an object held across a refresh is not the one now in it.</remarks>
+    public string SelectedKey => Selected?.Summary.Id ?? "";
+
     /// <summary>Reads the store off the caller's thread and redraws the list on the tile's.</summary>
     /// <remarks>A failed read leaves the list as it stands rather than emptying it: the conversation on screen
     /// is open and unaffected, and a chooser that empties itself says the work is gone.
@@ -122,6 +131,8 @@ public sealed partial class ConversationChooser : ObservableObject
 
     partial void OnSelectedChanged(ConversationOption? value)
     {
+        OnPropertyChanged(nameof(SelectedTitle));
+        OnPropertyChanged(nameof(SelectedKey));
         if (_drawing || value is null || value.IsCurrent) return;
         if (value.IsNew)
         {

@@ -82,7 +82,7 @@
                             <Button x:Name="RestartButton"
                                     Classes="tile-btn"
                                     Command="{Binding RestartTerminalCommand}"
-                                    ToolTip.Tip="Restart shell (Ctrl+Shift+R)">
+                                    ToolTip.Tip="{Binding RestartLabel}">
                                 <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
                             </Button>
                             <Button x:Name="NewSessionButton"
@@ -105,7 +105,7 @@
                                                 <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
                                             </MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="Restart shell"
+                                        <MenuItem Header="{Binding RestartAction.Label}"
                                                   InputGesture="Ctrl+Shift+R"
                                                   Command="{Binding RestartTerminalCommand}"
                                                   IsVisible="{Binding CanRestart}">
@@ -144,6 +144,32 @@
                                                     <Setter Property="Command" Value="{Binding SwitchCommand}" />
                                                     <Setter Property="ToggleType" Value="CheckBox" />
                                                     <Setter Property="IsChecked" Value="{Binding IsCurrent}" />
+                                                </Style>
+                                            </MenuItem.Styles>
+                                        </MenuItem>
+                                        <!-- The content's own actions (ITileActions.Actions), under the
+                                             tile's: the one route to an action a kind keeps out of its
+                                             own view, such as deleting an Agent tile's conversation. A
+                                             destructive one asks in the content itself. -->
+                                        <MenuItem Header="Actions"
+                                                  ItemsSource="{Binding ContentActions}"
+                                                  IsVisible="{Binding HasContentActions}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="LightningBoltOutline" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                            <!-- A style rather than an ItemContainerTheme, for the
+                                                 reason "Run as" gives above. -->
+                                            <MenuItem.Styles>
+                                                <Style Selector="MenuItem > MenuItem"
+                                                       x:DataType="vm:TileActionChoice">
+                                                    <Setter Property="Header" Value="{Binding Label}" />
+                                                    <Setter Property="Command" Value="{Binding InvokeCommand}" />
+                                                    <Setter Property="Icon">
+                                                        <Template>
+                                                            <mi:MaterialIcon Width="14" Height="14"
+                                                                             Kind="{Binding IconId, Converter={x:Static views:TileIcons.Icon}}" />
+                                                        </Template>
+                                                    </Setter>
                                                 </Style>
                                             </MenuItem.Styles>
                                         </MenuItem>

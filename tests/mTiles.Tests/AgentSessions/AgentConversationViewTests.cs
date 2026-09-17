@@ -74,7 +74,15 @@ public class AgentConversationViewTests
             {
                 Source = new Uri("avares://mTiles/Styles/AppTheme.axaml"),
             };
+            // The composer's model, effort and permission controls come from mTiles.Controls, and an
+            // untemplated control draws nothing at all — which would let this test pass over a composer
+            // that is, on screen, an empty row.
+            var pickers = new StyleInclude(new Uri("avares://mTiles.Controls/Themes/"))
+            {
+                Source = new Uri("avares://mTiles.Controls/Themes/Picker.axaml"),
+            };
             app.Styles.Add(theme);
+            app.Styles.Add(pickers);
             app.Resources.MergedDictionaries.Add(tokens);
 
             var window = new Window { Content = view, Width = 700, Height = 900 };
@@ -106,7 +114,7 @@ public class AgentConversationViewTests
 
             var texts = view.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
             Assert.Equal(("Auto", "High"), (vm.SelectedMode?.Id, vm.SelectedEffort?.Id));
-            Assert.Equal("opus", vm.ModelText);
+            Assert.Equal("opus", vm.Model);
             var images = view.GetVisualDescendants().OfType<Avalonia.Controls.Image>().ToList();
             Assert.Contains(images, image => image.Source is not null);
             Assert.True(texts.Contains("Edit b.cs"),
@@ -136,11 +144,39 @@ public class AgentConversationViewTests
             Dispatcher.UIThread.RunJobs();
             var copy = view.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("item-copy"));
             Assert.Contains("the third option", CopyButton.GetText(copy));
+
+            // The composer does not scroll with the conversation. It is the one place you act from, and
+            // scrolling back to re-read a turn must not take it off the bottom of the tile — the same
+            // rule GoalAskPanelTests pins one tile along, which is why the pair stays in step.
+            var scroller = view.GetVisualDescendants().OfType<ScrollViewer>().First(s => s.Name == "ChatScroll");
+            var composer = view.GetVisualDescendants().OfType<Border>()
+                .Single(b => b.Classes.Contains("composer"));
+            Assert.DoesNotContain(scroller, composer.GetVisualAncestors());
+            Assert.Equal(Dock.Bottom, DockPanel.GetDock(composer));
+
+            // What you typed sits on the right, at most three quarters across; what the agent said runs
+            // the full width from the left. The column and the span are the whole of it — see
+            // Views/BubbleLayout.cs — so they are what is asserted rather than a measured position.
+            var rows = view.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("row")).ToList();
+            var yours = rows.Single(b => b.Classes.Contains("row-user"));
+            Assert.Equal(1, Grid.GetColumn(yours));
+            Assert.Equal(1, Grid.GetColumnSpan(yours));
+            Assert.Equal(Avalonia.Layout.HorizontalAlignment.Right, yours.HorizontalAlignment);
+
+            var theirs = rows.First(b => !b.Classes.Contains("row-user") && b is not WaitingRow);
+            Assert.Equal(0, Grid.GetColumn(theirs));
+            Assert.Equal(2, Grid.GetColumnSpan(theirs));
+
+            // And your own gutter glyph is gone with it: two things saying who spoke is one of them
+            // being ignored, and the one costing a column of a bubble's width is the one to drop.
+            Assert.Empty(yours.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.Classes.Contains("gutter") && t.IsVisible));
             }
             finally
             {
                 window.Close();
                 vm.Dispose();
+                app.Styles.Remove(pickers);
                 app.Styles.Remove(theme);
                 app.Resources.MergedDictionaries.Remove(tokens);
             }

@@ -343,19 +343,24 @@ public class GoalAskPanelTests : IDisposable
     }
 
     /// <summary>
-    /// Nothing the tile asks of the user is pinned to its bottom edge: every one of them is a block
-    /// inside the conversation.
+    /// What the tile <i>asks</i> scrolls with the conversation; the box you <i>type in</i> does not.
     /// </summary>
     /// <remarks>
-    /// <para>The whole of what this rearrangement is, asked of the markup — which is the only place it
-    /// can be got wrong. A block moved back out of the scroller looks perfectly reasonable in the file
-    /// and is a bar across the foot of the tile again on screen, and the view model cannot tell: every
-    /// one of these was bound to exactly the same property before and after.</para>
+    /// <para>The whole of the arrangement, asked of the markup — which is the only place it can be got
+    /// wrong. A block moved across that line looks perfectly reasonable in the file and is wrong on
+    /// screen, and the view model cannot tell: every one of these is bound to exactly the same property
+    /// either way.</para>
+    /// <para><b>The composer moved, and the two ask blocks did not.</b> A round of questions and a plan
+    /// belong to the turn that produced them: pinned to the foot of the tile they were a bar over a
+    /// conversation they had come loose from, which is what put them in the scroller in the first place.
+    /// The composer is the opposite case and always was — it is not something the conversation said, it
+    /// is the one place you act from, and scrolling back two attempts to re-read a review must not take
+    /// it off the bottom of the tile.</para>
     /// <para>Asked as "is <c>ChatScroll</c> an ancestor" rather than by counting children, because what
-    /// matters is that it scrolls with the conversation, not where in the column it was put.</para>
+    /// matters is whether it moves with the conversation, not where in the column it was put.</para>
     /// </remarks>
     [Fact]
-    public void Everything_the_tile_asks_for_scrolls_with_the_conversation()
+    public void What_the_tile_asks_scrolls_and_what_you_type_in_does_not()
     {
         OnUiThread(() =>
         {
@@ -364,20 +369,25 @@ public class GoalAskPanelTests : IDisposable
 
             var scroller = view.GetVisualDescendants().OfType<ScrollViewer>().First(c => c.Name == "ChatScroll");
 
-            // The two ask blocks — the questions and the plan — and the composer. All three are in the
-            // tree whether or not they are showing, so this holds before anything has been asked.
-            var blocks = Asks(view)
-                .Concat(view.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("composer")))
-                .ToList();
-
-            Assert.Equal(3, blocks.Count);
-            Assert.All(blocks, b => Assert.Contains(scroller, b.GetVisualAncestors()));
+            // The two ask blocks — the questions and the plan. Both are in the tree whether or not they
+            // are showing, so this holds before anything has been asked.
+            var asks = Asks(view).ToList();
+            Assert.Equal(2, asks.Count);
+            Assert.All(asks, b => Assert.Contains(scroller, b.GetVisualAncestors()));
 
             // And the transcript is in there with them, which is the point: one scroller, not two
             // fighting each other for the tile's height.
             Assert.Contains(scroller,
                 view.GetVisualDescendants().OfType<ItemsControl>().First(i => i.Name == "Transcript")
                     .GetVisualAncestors());
+
+            // The composer is not, and it is docked to the bottom rather than merely being outside.
+            var composer = view.GetVisualDescendants().OfType<Border>()
+                .Single(b => b.Classes.Contains("composer"));
+            Assert.DoesNotContain(scroller, composer.GetVisualAncestors());
+            Assert.Equal(Dock.Bottom,
+                DockPanel.GetDock(composer.GetVisualAncestors().OfType<Control>()
+                    .First(c => c.GetVisualParent() is DockPanel)));
         });
     }
 

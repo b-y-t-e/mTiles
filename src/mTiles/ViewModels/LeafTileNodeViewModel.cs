@@ -168,11 +168,47 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     public IReadOnlyList<TileAction> Actions =>
         _disposed ? [] : (Content as ITileActions)?.Actions ?? [];
 
+    /// <summary>The header's Restart button, when the content has something to restart.</summary>
+    /// <remarks><b>What it is called is the content's answer.</b> The header used to spell it "Restart
+    /// shell" in the tooltip and in the menu, which was true of the only kind that had the action when it
+    /// was written and false the moment the Agent tile gained it — that tile restarts a CLI held as a
+    /// conversation and has no shell at all. Each kind already names it (<c>Restart shell</c>,
+    /// <c>Restart agent</c>), exactly as the <c>+</c> beside it already took its own name from
+    /// <see cref="AddAction"/>.</remarks>
+    public TileAction? RestartAction => Actions.FirstOrDefault(a => a.Id == TileActionIds.Restart);
+
     /// <summary>Whether the header's Restart button and Ctrl+Shift+R have anything to do here.</summary>
     /// <remarks>Asked of the content's own list rather than of what kind of tile this is: a second kind
     /// that runs something restartable gets the button by offering the action, and this class does not
     /// have to learn about it.</remarks>
-    public bool CanRestart => Actions.Any(a => a.Id == TileActionIds.Restart);
+    public bool CanRestart => RestartAction is not null;
+
+    /// <summary>The Restart action's name with its shortcut, for the header's tooltip.</summary>
+    public string RestartLabel =>
+        RestartAction is { } action ? $"{action.Label} (Ctrl+Shift+R)" : "";
+
+    /// <summary>The content's actions the overflow menu lists under its own entries.</summary>
+    /// <remarks>Every action but the two the header already draws a control of its own for (Restart and
+    /// Add), so a kind offering a new action gets a menu entry by offering it. Built when the menu opens,
+    /// for the reason <see cref="RefreshChangeKindOptions"/> is: whether an action is enabled moves with
+    /// the content's state, and opening the menu is the moment the answer is read.</remarks>
+    public IReadOnlyList<TileActionChoice> ContentActions { get; private set; } = [];
+
+    /// <summary>Whether the overflow menu has any of the content's own actions to list.</summary>
+    public bool HasContentActions => ContentActions.Count > 0;
+
+    /// <summary>Rebuilds <see cref="ContentActions"/>.</summary>
+    public void RefreshContentActions()
+    {
+        ContentActions =
+        [
+            .. Actions.Where(action => action.Id is not (TileActionIds.Restart or TileActionIds.Add))
+                .Select(action => new TileActionChoice(action, () => InvokeActionAsync(action.Id)))
+        ];
+
+        OnPropertyChanged(nameof(ContentActions));
+        OnPropertyChanged(nameof(HasContentActions));
+    }
 
     /// <summary>The header's <c>+</c>, when the content is a list something can be added to.</summary>
     public TileAction? AddAction => Actions.FirstOrDefault(a => a.Id == TileActionIds.Add);
@@ -312,6 +348,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     private void RaiseActionsChanged()
     {
         OnPropertyChanged(nameof(Actions));
+        OnPropertyChanged(nameof(RestartAction));
+        OnPropertyChanged(nameof(RestartLabel));
         OnPropertyChanged(nameof(CanRestart));
         OnPropertyChanged(nameof(AddAction));
         OnPropertyChanged(nameof(CanAdd));

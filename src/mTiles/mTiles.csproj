@@ -23,6 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Controls with no idea this application exists — the same one-way rule mTiles.AgentSessions keeps. -->
+    <ProjectReference Include="..\mTiles.Controls\mTiles.Controls.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Ships with the application, not only with the repository. Handy and transcribe-rs are MIT and
          parts of the dictation feature are ports of their code; the Parakeet model is CC-BY-4.0. Both
          licences require the notice to reach whoever receives the software, which a file sitting in a

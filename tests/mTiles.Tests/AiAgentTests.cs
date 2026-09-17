@@ -126,6 +126,30 @@ public class AiAgentTests
 
     // ── Rounding ────────────────────────────────────────
 
+    /// <summary>Every mode says what it grants, and the strongest one says it plainly.</summary>
+    /// <remarks>The list is where somebody chooses, so it is where the warning is worth having.
+    /// <c>bypass</c> had exactly one sentence attached to it anywhere — the confirmation asked <i>after</i>
+    /// it is picked — and next to four other one-word labels it read as a synonym for <c>auto</c>.</remarks>
+    [Fact]
+    public void Every_mode_says_what_it_grants()
+    {
+        Assert.All(AiBehaviours.All,
+            mode => Assert.False(string.IsNullOrWhiteSpace(AiBehaviours.Description(mode))));
+
+        Assert.Contains("without asking about anything",
+            AiBehaviours.Description(AiBehaviour.BypassPermissions));
+        Assert.Contains("Changes nothing", AiBehaviours.Description(AiBehaviour.Plan));
+
+        // Asked by the id a session reports, which is how a mode the agent named itself still gets the
+        // sentence. The two scales share the member name ToolDefault, so each lookup answers only its own.
+        Assert.Equal(AiBehaviours.Description(AiBehaviour.Auto), AiBehaviours.DescriptionOf("Auto"));
+        Assert.Null(AiBehaviours.DescriptionOf("Max"));
+        Assert.Null(AiEfforts.DescriptionOf("Auto"));
+
+        // The label of the one that passes no flag is the short word; the sentence carries the rest.
+        Assert.Equal("default", AiBehaviours.Label(AiBehaviour.ToolDefault));
+    }
+
     /// <summary>
     /// Behaviour rounds down, and never to bypass.
     /// </summary>

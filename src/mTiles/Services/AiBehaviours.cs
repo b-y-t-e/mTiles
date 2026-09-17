@@ -25,8 +25,37 @@ public static class AiBehaviours
         AiBehaviour.Auto => "auto",
         AiBehaviour.AcceptEdits => "accept edits",
         AiBehaviour.BypassPermissions => "bypass",
-        _ => "tool default",
+        _ => "default",
     };
+
+    /// <summary>What picking this mode actually grants, in one sentence.</summary>
+    /// <remarks>
+    /// <para><b>Ours, not any agent's.</b> These describe the rung on this application's own scale, which
+    /// is the only thing true of all six CLIs — what a given one passes for it is its own
+    /// <c>BehaviourArgs</c>, and two agents on the same rung stop at slightly different things.</para>
+    /// <para>They exist because until now the vocabulary was five words and nothing else: <c>bypass</c>
+    /// read, to somebody who had not gone looking, as a synonym for <c>auto</c>. The one place that said
+    /// otherwise was the confirmation it asks before it is stored — which is after the choice, and only on
+    /// that one mode. A list that says what it is offering is the cheaper half of the same safeguard.</para>
+    /// </remarks>
+    public static string? Description(AiBehaviour mode) => mode switch
+    {
+        AiBehaviour.Plan => "Works out what it would do and stops. Changes nothing.",
+        AiBehaviour.Ask => "Asks before every command and every file it changes.",
+        AiBehaviour.Auto => "Gets on with routine work, still stops at what it judges risky.",
+        AiBehaviour.AcceptEdits => "Edits files without asking; still asks before running commands.",
+        AiBehaviour.BypassPermissions =>
+            "Runs commands and edits files without asking about anything at all.",
+        // ToolDefault passes no flag, so what happens is whatever the CLI's own configuration says — and
+        // this application genuinely does not know what that is.
+        _ => "Passes nothing, so the tool's own settings decide.",
+    };
+
+    /// <summary>The same sentence, for a mode named the way a session reports it.</summary>
+    /// <remarks>Separate from the effort lookup beside it rather than one method over both: the two enums
+    /// share the member name <c>ToolDefault</c>, so an id alone cannot say which scale it is on.</remarks>
+    public static string? DescriptionOf(string? id) =>
+        Enum.TryParse<AiBehaviour>(id, ignoreCase: false, out var mode) ? Description(mode) : null;
 
     /// <summary>The modes in the order a combo box offers them: safest first, and the one that asks
     /// nothing last.</summary>
@@ -169,6 +198,6 @@ public static class AiBehaviours
     /// </summary>
     public const string RejectedModeAdvice =
         "This looks like the AI tool refusing the permission mode this tile asked for, which an older " +
-        "version of it will do for a mode it has never heard of. Pick \"tool default\" in the strip " +
+        "version of it will do for a mode it has never heard of. Pick \"default\" in the strip " +
         "above to pass no flag at all, or update the tool.";
 }

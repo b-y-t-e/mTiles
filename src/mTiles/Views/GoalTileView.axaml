@@ -4,16 +4,24 @@
              xmlns:m="using:mTiles.Models"
              xmlns:mi="using:Material.Icons.Avalonia"
              xmlns:v="using:mTiles.Views"
+             xmlns:p="using:mTiles.Controls"
              x:Class="mTiles.Views.GoalTileView"
              x:DataType="vm:GoalTileViewModel">
 
     <!--
         The Goal tile is a transcript, not a chat app, so it is drawn as one: the terminal's own
         monospace face at the terminal's own size, the app's colour tokens (which ThemeBridge derives
-        from the active terminal theme), and a fixed gutter column whose glyph says who spoke — an
-        angle bracket you, a dot the tool, a corner a note from the tile itself. No bubbles: they
-        aligned every message differently and made a two-line answer look like a different kind of
-        thing from a twenty-line one.
+        from the active terminal theme), and a fixed gutter column whose glyph says who spoke — a dot
+        the tool, a corner a note from the tile itself.
+
+        **Your own messages are the exception, and that is a reversal.** This said "no bubbles: they
+        aligned every message differently and made a two-line answer look like a different kind of thing
+        from a twenty-line one", and the second half of that is still true — which is why only *your*
+        side moved. What the tool says still runs the full width from the left, at one width whatever its
+        length; what you typed sits on the right, at most three quarters across (Views/BubbleLayout.cs).
+        The asymmetry is the point: in a column of turns the first thing a reader needs is which of the
+        two is speaking, and a side says it before a character is read — which is what let the angle
+        bracket in your gutter go, since two things saying the same thing is one of them being ignored.
 
         The one saturated colour in here is the phase dot in the status strip. Everything else is
         text, muted chrome and one hairline per edge.
@@ -274,8 +282,14 @@
                  box or a paragraph, whose edge being covered for a moment reads as a scrollbar passing
                  over it, while a small button's covered edge reads as a button that has been cut. The
                  lane is here and not on the whole column, which would push the composer, the ask
-                 blocks and every message off their own right edge to fix one row. -->
-            <Setter Property="Margin" Value="4,8,18,0" />
+                 blocks and every message off their own right edge to fix one row.
+
+                 **The lane is gone, and so is the asymmetry.** These sit outside the scroller now — the
+                 whole group is docked to the foot of the tile — so there is no scrollbar passing over
+                 them to clear, and an eighteen-pixel right margin was leaving the buttons further from
+                 the edge than the composer directly above them. They share the composer's own margin,
+                 because they are now the same block. -->
+            <Setter Property="Margin" Value="8,8,8,6" />
         </Style>
 
         <!-- ======== The one control under the composer ========
@@ -377,32 +391,41 @@
                          fit a narrow tile, and of the five this is the one whose value has to be
                          readable at a glance: which agent is writing into this repository. The
                          reviewer is a once-per-goal setting and lives in the panel below. -->
-                    <ComboBox DockPanel.Dock="Left"
-                              Classes="strip-choice"
-                              ItemsSource="{Binding AvailableAgents}"
-                              SelectedValue="{Binding ExecutionAgentInstanceId}"
-                              SelectedValueBinding="{Binding InstanceId}"
-                              DisplayMemberBinding="{Binding Label}"
+                    <p:Picker x:Name="ExecutionAgentPicker"
+                              DockPanel.Dock="Left"
+                              Classes="strip-picker"
+                              Options="{Binding AvailableAgents}"
+                              SelectedId="{Binding ExecutionAgentInstanceId, Mode=OneWay}"
+                              Text="{Binding ExecutionAgent.Label, FallbackValue={x:Null}}"
+                              Placeholder="Agent"
+                              DropDownWidth="300"
+                              MaxWidth="200"
                               ToolTip.Tip="Which agent carries the goal out. Configured agents this machine can run — the CLI installed, and the provider it names still configured." />
                     <!-- Beside the tool because it is a fact about the tool, and because this is where
                          somebody looks after a run that was refused. The default is auto: without a
                          mode the tool inherits the user's own Claude Code settings, and the factory
                          default there is to ask — which a headless run cannot do, so every edit was
                          refused and the tile reported that nothing had changed. -->
-                    <ComboBox DockPanel.Dock="Left"
-                              Classes="strip-choice"
-                              ItemsSource="{Binding AvailablePermissionModes}"
-                              SelectedItem="{Binding PermissionModeLabel}"
-                              ToolTip.Tip="What the AI tool may do without asking. auto gets on with the work and still stops at what it considers dangerous; accept edits waves through file changes only; bypass asks about nothing at all; tool default passes no flag and leaves it to the tool's own settings." />
+                    <p:Picker x:Name="PermissionModePicker"
+                              DockPanel.Dock="Left"
+                              Classes="strip-picker"
+                              Options="{Binding AvailablePermissionModes}"
+                              SelectedId="{Binding PermissionModeLabel, Mode=OneWay}"
+                              Text="{Binding PermissionModeLabel}"
+                              DropDownWidth="330"
+                              ToolTip.Tip="What the AI tool may do without asking. auto gets on with the work and still stops at what it considers dangerous; accept edits waves through file changes only; bypass asks about nothing at all; default passes no flag and leaves it to the tool's own settings." />
                     <!-- Beside the mode because they are the same kind of fact: how this tile runs its
                          tool. High by default rather than the tool's own, which is tuned for a person
                          watching — a goal run is left alone, and an attempt spent on a shallow answer
                          costs as much of the budget as a careful one. -->
-                    <ComboBox DockPanel.Dock="Left"
-                              Classes="strip-choice"
-                              ItemsSource="{Binding AvailableEfforts}"
-                              SelectedItem="{Binding EffortLabel}"
-                              ToolTip.Tip="How hard the AI tool is asked to think. Higher costs time and tokens and is usually worth it here, because the budget is in attempts and a shallow attempt spends one just the same. tool default passes no flag — pick it if your Claude Code is old enough not to know the option." />
+                    <p:Picker x:Name="EffortPicker"
+                              DockPanel.Dock="Left"
+                              Classes="strip-picker"
+                              Options="{Binding AvailableEfforts}"
+                              SelectedId="{Binding EffortLabel, Mode=OneWay}"
+                              Text="{Binding EffortLabel}"
+                              DropDownWidth="300"
+                              ToolTip.Tip="How hard the AI tool is asked to think. Higher costs time and tokens and is usually worth it here, because the budget is in attempts and a shallow attempt spends one just the same. default passes no flag — pick it if your Claude Code is old enough not to know the option." />
                     <TextBlock DockPanel.Dock="Left" Classes="strip" Text="&#xB7;" Margin="6,0" />
                     <Ellipse DockPanel.Dock="Left"
                              x:Name="PhaseDot" Width="6" Height="6"
@@ -476,11 +499,13 @@
                      agent by phase, so a reviewer is read-only unless the criteria oblige it to build
                      and test — see AiUsage. -->
                 <TextBlock Classes="crit-title" Text="reviewed by" />
-                <ComboBox Classes="strip-choice" Margin="0,0,0,6" MinWidth="160"
-                          ItemsSource="{Binding ReviewAgentChoices}"
-                          SelectedValue="{Binding ReviewAgentInstanceId}"
-                          SelectedValueBinding="{Binding InstanceId}"
-                          DisplayMemberBinding="{Binding Label}"
+                <p:Picker x:Name="ReviewAgentPicker"
+                          Classes="strip-picker" Margin="0,0,0,6" MinWidth="160"
+                          HorizontalAlignment="Left"
+                          Options="{Binding ReviewAgentChoices}"
+                          SelectedId="{Binding ReviewAgentInstanceId, Mode=OneWay}"
+                          Text="{Binding ReviewAgentLabel}"
+                          DropDownWidth="300"
                           ToolTip.Tip="Which agent reviews the work. A different one is a second opinion; the same one is the author marking their own work." />
 
                 <TextBlock Classes="crit-title" Text="done when" />
@@ -615,6 +640,143 @@
              the same gesture a terminal asks for. And the tile's height is no longer divided between a
              conversation and a panel, so nothing needs a splitter, a default height or a clamp: a round
              of questions is as tall as it is, above the answers box, in a list that scrolls. -->
+        <!-- ======== What you act with ========
+             Docked to the bottom of the tile rather than trailing the conversation. It was the last
+             block in the scroller, on the argument that the composer is the next thing in a
+             conversation and belongs where the next thing goes - right about a reading order and wrong
+             about a control: scroll back to read a review from two attempts ago and the box you want to
+             answer in, and the Resume you want to press, have both gone off the bottom.
+
+             The composer and the finished-run buttons move together, because they were already one
+             group for a reason the old comment gives: everything this tile offers is in one place,
+             under the box. -->
+        <StackPanel DockPanel.Dock="Bottom">
+            <!-- ======== Composer ========
+                 The last thing in the conversation, and only when there is something it can send: not
+                 while the tool is working, and not while one of the blocks above is asking for the same
+                 thing in a better shape.
+
+                 No second "the tool is busy" line here. The status strip already carries it, with the
+                 phase and the iteration number in it, so a line saying only that something is happening
+                 was the same news told worse. -->
+            <Border x:Name="Composer" Classes="composer"
+                    IsVisible="{Binding ShowComposer}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left"
+                               Classes="gutter gutter-user"
+                               Margin="0,2,0,0" />
+                    <!-- One control where four used to stand: the primary segment does what the
+                         phase and the box say it will (Set goal for typed words, Detect goal for an
+                         empty box, Send answer mid-conversation — see PrimaryActionLabel), and the
+                         caret beside it holds the other four ways in. Every entry stays on its own gate — nothing is hidden or greyed out by
+                         what is in the box: typed words beside a detection are a scope narrowing it
+                         (see docs/GOAL.md), which is a route the menu must not close. -->
+                    <StackPanel DockPanel.Dock="Right"
+                                Classes="run-split"
+                                VerticalAlignment="Bottom">
+                        <Button Classes="chat-action primary run-primary"
+                                Command="{Binding PrimaryActionCommand}"
+                                IsEnabled="{Binding !IsRunning}"
+                                Content="{Binding PrimaryActionLabel}"
+                                ToolTip.Tip="{Binding PrimaryActionHint}" />
+                        <Button Classes="chat-action run-more"
+                                IsEnabled="{Binding !IsRunning}"
+                                ToolTip.Tip="Other ways to start">
+                            <mi:MaterialIcon Kind="ChevronDown" Width="13" Height="13" />
+                            <Button.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight">
+                                    <!-- Down with the rest of the menu wherever the composer is
+                                         answering rather than starting: mid-conversation the same
+                                         send is an answer or an approval, and an entry named after
+                                         the goal it does not set would be the label the primary
+                                         segment was corrected away from. -->
+                                    <!-- Three entries, and every one of them reads the box the same
+                                         way: words are the goal, an empty box means read one from the
+                                         changes, and an @ points at a file or a commit either way.
+                                         There used to be five, of which two — Detect goal and Detect
+                                         & run — were the only controls on this composer that ignored
+                                         what had been typed: the sentence was demoted to a hint and
+                                         then replaced by a goal read off the diff, and the run
+                                         variant cleared the box on its way past. So the pairs are
+                                         merged and the label says which half of the box the entry is
+                                         about to read. -->
+                                    <MenuItem Header="{Binding PrimaryActionLabel}"
+                                              Command="{Binding PrimaryActionCommand}"
+                                              IsEnabled="{Binding CanSetGoal}"
+                                              ToolTip.Tip="Adopt the goal — what you typed, or one read from your changes when the box is empty — and go on to the questions about it" />
+                                    <Separator />
+                                    <MenuItem Header="Review"
+                                              Command="{Binding ReviewCommand}"
+                                              IsEnabled="{Binding CanDetectGoal}"
+                                              ToolTip.Tip="Judge the working tree once, against what you typed or against a goal read from your changes. Nothing is changed." />
+                                    <MenuItem Header="{Binding RunActionLabel}"
+                                              Command="{Binding RunCommand}"
+                                              IsEnabled="{Binding CanRun}"
+                                              ToolTip.Tip="Adopt the goal and run the fix loop to the end without stopping" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
+                    <TextBox x:Name="InputBox"
+                             Classes="composer-input"
+                             Text="{Binding InputText}"
+                             PlaceholderText="Describe the goal, or answer&#x2026;"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             v:FileMentionBehavior.Mentions="{Binding FileMentions}"
+                             CaretIndex="{Binding InputCaretIndex, Mode=TwoWay}" />
+                </DockPanel>
+            </Border>
+
+            <!-- ======== What to do with a finished run ========
+                 One row, and no sentence in it. Each of these used to be its own strip with its own line
+                 of prose — "The attempts ran out.", "This run's changes are not committed." — and a
+                 third would have made three sentences stacked above the composer, each restating the
+                 summary message printed directly above them. The summary already says why the run
+                 stopped and what is outstanding; a bar that repeats it is the same fault the status
+                 strip's four idle labels had. The tooltips carry what a button does, which is the part
+                 that is not already on screen.
+
+                 Under the composer, with the detect row, and that is a correction. They sat above
+                 whatever was asking — the reasoning being that they are what to do with the run that
+                 just ended, so they belong beside its summary. What that produced on screen was a
+                 Resume floating between the transcript and a box it had nothing to do with, and two
+                 rows of buttons in one column with the input wedged between them. Everything the tile
+                 offers is now in one place, under the box: the buttons are read as a group, and the
+                 composer keeps the position it has in every chat window. -->
+            <StackPanel Classes="chat-actions" IsVisible="{Binding HasFinishedRunActions}">
+                <!-- First, and the only one of these that shows while a run is merely stopped rather
+                     than finished. The transcript's last line says to click Resume; until this button
+                     existed the only Resume on screen was a play glyph in the header's strip, which is
+                     not where anything else this tile asks for is answered. That glyph is gone — this
+                     is the whole of Resume now. -->
+                <Button Classes="chat-action primary"
+                        Command="{Binding ResumeCommand}"
+                        IsVisible="{Binding ShowResume}"
+                        IsEnabled="{Binding CanResume}"
+                        Content="Resume"
+                        ToolTip.Tip="Pick the stopped run up where it left off" />
+                <!-- Judge the tree again against the same goal. It does not re-derive the goal: the
+                     reason to press this is that something has just been fixed by hand next door, and
+                     working the goal out afresh from a changed tree answers a different question. -->
+                <Button Classes="chat-action"
+                        Command="{Binding ReReviewCommand}"
+                        IsVisible="{Binding CanReReview}"
+                        Content="Review · +1"
+                        ToolTip.Tip="Judge the working tree against the same goal again, changing nothing" />
+                <Button Classes="chat-action"
+                        Command="{Binding CommitWorkCommand}"
+                        IsVisible="{Binding CanCommit}"
+                        Content="Commit"
+                        ToolTip.Tip="Divide this run's own changes into commits and ask before making them" />
+                <Button Classes="chat-action primary"
+                        Command="{Binding ContinueRunCommand}"
+                        IsVisible="{Binding CanContinue}"
+                        Content="{Binding ContinueLabel}"
+                        ToolTip.Tip="Carry on into the implement and review loop, keeping the conversation" />
+            </StackPanel>
+        </StackPanel>
+
         <ScrollViewer x:Name="ChatScroll"
                       MinHeight="48"
                       VerticalScrollBarVisibility="Auto"
@@ -623,13 +785,21 @@
             <ItemsControl x:Name="Transcript" ItemsSource="{Binding Messages}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="m:GoalMessage">
+                        <!-- Yours to the right, at most three quarters of the width; everything else from
+                             the left across both columns. The Agent tile's arrangement, from the same
+                             place — see Views/BubbleLayout.cs. -->
+                        <Grid ColumnDefinitions="1*,3*">
                         <Border Classes="row"
+                                Grid.Column="{Binding Role, Converter={x:Static v:BubbleLayout.ColumnForRole}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
+                                Grid.ColumnSpan="{Binding Role, Converter={x:Static v:BubbleLayout.SpanForRole}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
                                 Classes.row-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
                                 Classes.row-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}">
                             <DockPanel>
+                                <!-- No glyph on your own messages: the side of the column already says
+                                     who wrote them. -->
                                 <TextBlock DockPanel.Dock="Left"
                                            Classes="gutter"
-                                           Classes.gutter-user="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
+                                           IsVisible="{Binding Role, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter={x:Static m:GoalMessageRole.User}}"
                                            Classes.gutter-assistant="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.Assistant}}"
                                            Classes.gutter-system="{Binding Role, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalMessageRole.System}}" />
                                 <Button DockPanel.Dock="Right"
@@ -765,6 +935,7 @@
                                 </ContentControl>
                             </DockPanel>
                         </Border>
+                        </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
@@ -915,130 +1086,6 @@
                 </DockPanel>
             </Border>
 
-            <!-- ======== Composer ========
-                 The last thing in the conversation, and only when there is something it can send: not
-                 while the tool is working, and not while one of the blocks above is asking for the same
-                 thing in a better shape.
-
-                 No second "the tool is busy" line here. The status strip already carries it, with the
-                 phase and the iteration number in it, so a line saying only that something is happening
-                 was the same news told worse. -->
-            <Border x:Name="Composer" Classes="composer"
-                    IsVisible="{Binding ShowComposer}">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Left"
-                               Classes="gutter gutter-user"
-                               Margin="0,2,0,0" />
-                    <!-- One control where four used to stand: the primary segment does what the
-                         phase and the box say it will (Set goal for typed words, Detect goal for an
-                         empty box, Send answer mid-conversation — see PrimaryActionLabel), and the
-                         caret beside it holds the other four ways in. Every entry stays on its own gate — nothing is hidden or greyed out by
-                         what is in the box: typed words beside a detection are a scope narrowing it
-                         (see docs/GOAL.md), which is a route the menu must not close. -->
-                    <StackPanel DockPanel.Dock="Right"
-                                Classes="run-split"
-                                VerticalAlignment="Bottom">
-                        <Button Classes="chat-action primary run-primary"
-                                Command="{Binding PrimaryActionCommand}"
-                                IsEnabled="{Binding !IsRunning}"
-                                Content="{Binding PrimaryActionLabel}"
-                                ToolTip.Tip="{Binding PrimaryActionHint}" />
-                        <Button Classes="chat-action run-more"
-                                IsEnabled="{Binding !IsRunning}"
-                                ToolTip.Tip="Other ways to start">
-                            <mi:MaterialIcon Kind="ChevronDown" Width="13" Height="13" />
-                            <Button.Flyout>
-                                <MenuFlyout Placement="TopEdgeAlignedRight">
-                                    <!-- Down with the rest of the menu wherever the composer is
-                                         answering rather than starting: mid-conversation the same
-                                         send is an answer or an approval, and an entry named after
-                                         the goal it does not set would be the label the primary
-                                         segment was corrected away from. -->
-                                    <!-- Three entries, and every one of them reads the box the same
-                                         way: words are the goal, an empty box means read one from the
-                                         changes, and an @ points at a file or a commit either way.
-                                         There used to be five, of which two — Detect goal and Detect
-                                         & run — were the only controls on this composer that ignored
-                                         what had been typed: the sentence was demoted to a hint and
-                                         then replaced by a goal read off the diff, and the run
-                                         variant cleared the box on its way past. So the pairs are
-                                         merged and the label says which half of the box the entry is
-                                         about to read. -->
-                                    <MenuItem Header="{Binding PrimaryActionLabel}"
-                                              Command="{Binding PrimaryActionCommand}"
-                                              IsEnabled="{Binding CanSetGoal}"
-                                              ToolTip.Tip="Adopt the goal — what you typed, or one read from your changes when the box is empty — and go on to the questions about it" />
-                                    <Separator />
-                                    <MenuItem Header="Review"
-                                              Command="{Binding ReviewCommand}"
-                                              IsEnabled="{Binding CanDetectGoal}"
-                                              ToolTip.Tip="Judge the working tree once, against what you typed or against a goal read from your changes. Nothing is changed." />
-                                    <MenuItem Header="{Binding RunActionLabel}"
-                                              Command="{Binding RunCommand}"
-                                              IsEnabled="{Binding CanRun}"
-                                              ToolTip.Tip="Adopt the goal and run the fix loop to the end without stopping" />
-                                </MenuFlyout>
-                            </Button.Flyout>
-                        </Button>
-                    </StackPanel>
-                    <TextBox x:Name="InputBox"
-                             Classes="composer-input"
-                             Text="{Binding InputText}"
-                             PlaceholderText="Describe the goal, or answer&#x2026;"
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
-                             v:FileMentionBehavior.Mentions="{Binding FileMentions}"
-                             CaretIndex="{Binding InputCaretIndex, Mode=TwoWay}" />
-                </DockPanel>
-            </Border>
-
-            <!-- ======== What to do with a finished run ========
-                 One row, and no sentence in it. Each of these used to be its own strip with its own line
-                 of prose — "The attempts ran out.", "This run's changes are not committed." — and a
-                 third would have made three sentences stacked above the composer, each restating the
-                 summary message printed directly above them. The summary already says why the run
-                 stopped and what is outstanding; a bar that repeats it is the same fault the status
-                 strip's four idle labels had. The tooltips carry what a button does, which is the part
-                 that is not already on screen.
-
-                 Under the composer, with the detect row, and that is a correction. They sat above
-                 whatever was asking — the reasoning being that they are what to do with the run that
-                 just ended, so they belong beside its summary. What that produced on screen was a
-                 Resume floating between the transcript and a box it had nothing to do with, and two
-                 rows of buttons in one column with the input wedged between them. Everything the tile
-                 offers is now in one place, under the box: the buttons are read as a group, and the
-                 composer keeps the position it has in every chat window. -->
-            <StackPanel Classes="chat-actions" IsVisible="{Binding HasFinishedRunActions}">
-                <!-- First, and the only one of these that shows while a run is merely stopped rather
-                     than finished. The transcript's last line says to click Resume; until this button
-                     existed the only Resume on screen was a play glyph in the header's strip, which is
-                     not where anything else this tile asks for is answered. That glyph is gone — this
-                     is the whole of Resume now. -->
-                <Button Classes="chat-action primary"
-                        Command="{Binding ResumeCommand}"
-                        IsVisible="{Binding ShowResume}"
-                        IsEnabled="{Binding CanResume}"
-                        Content="Resume"
-                        ToolTip.Tip="Pick the stopped run up where it left off" />
-                <!-- Judge the tree again against the same goal. It does not re-derive the goal: the
-                     reason to press this is that something has just been fixed by hand next door, and
-                     working the goal out afresh from a changed tree answers a different question. -->
-                <Button Classes="chat-action"
-                        Command="{Binding ReReviewCommand}"
-                        IsVisible="{Binding CanReReview}"
-                        Content="Review · +1"
-                        ToolTip.Tip="Judge the working tree against the same goal again, changing nothing" />
-                <Button Classes="chat-action"
-                        Command="{Binding CommitWorkCommand}"
-                        IsVisible="{Binding CanCommit}"
-                        Content="Commit"
-                        ToolTip.Tip="Divide this run's own changes into commits and ask before making them" />
-                <Button Classes="chat-action primary"
-                        Command="{Binding ContinueRunCommand}"
-                        IsVisible="{Binding CanContinue}"
-                        Content="{Binding ContinueLabel}"
-                        ToolTip.Tip="Carry on into the implement and review loop, keeping the conversation" />
-            </StackPanel>
 
 
             </StackPanel>
