@@ -22,6 +22,7 @@ public partial class AgentConversationTileView : UserControl
     {
         InitializeComponent();
         TeachThePickers();
+        FitThePickersToTheRow();
         Composer.AddHandler(DragDrop.DragOverEvent, Composer_DragOver);
         Composer.AddHandler(DragDrop.DropEvent, Composer_Drop);
 
@@ -229,5 +230,75 @@ public partial class AgentConversationTileView : UserControl
             _scrollQueued = false;
             scroll.ScrollToEnd();
         }, DispatcherPriority.Loaded);
+    }
+    private double _modelMaxWidth = double.NaN;
+    private bool _fitQueued;
+
+    /// <summary>Keeps the composer's three pickers on one line, giving up words before width.</summary>
+    /// <remarks>Asked again when the row is resized and when a picker's value or visibility changes —
+    /// both move what the row needs. Posted rather than run in place, so a burst of changes is one pass,
+    /// and so nothing here re-measures in the middle of the layout pass that raised it. The rule itself is
+    /// <see cref="ComposerPickerLayout"/>.</remarks>
+    private void FitThePickersToTheRow()
+    {
+        _modelMaxWidth = ModelPicker.MaxWidth;
+        PickerRow.SizeChanged += (_, _) => QueueFit();
+        foreach (var picker in new[] { ModelPicker, EffortPicker, ModePicker })
+        {
+            picker.PropertyChanged += (_, e) =>
+            {
+                if (ChangesWhatAPickerNeeds(e.Property)) QueueFit();
+            };
+        }
+    }
+
+    /// <summary>Whether a change to this property of a picker moves the width it needs. The font is on
+    /// the list because the composer's pickers take theirs from <c>TermFontSm</c>: Terminal Font Size or
+    /// the desktop's text scale change every picker's width while the row and the texts stay as they were.</summary>
+    private static bool ChangesWhatAPickerNeeds(AvaloniaProperty property) =>
+        property == Picker.TriggerTextProperty
+        || property == IsVisibleProperty
+        || property == FontSizeProperty
+        || property == FontFamilyProperty;
+
+    private void QueueFit()
+    {
+        if (_fitQueued) return;
+        _fitQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _fitQueued = false;
+            FitPickers();
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void FitPickers()
+    {
+        ModelPicker.MaxWidth = _modelMaxWidth;
+        var shape = ComposerPickerLayout.For(PickerRow.Bounds.Width,
+            WidthsOf(ModelPicker), WidthsOf(EffortPicker), WidthsOf(ModePicker));
+
+        ModelPicker.Classes.Set("compact", shape.ModelCompact);
+        EffortPicker.Classes.Set("compact", shape.EffortCompact);
+        ModePicker.Classes.Set("compact", shape.ModeCompact);
+        if (shape.ModelMaxWidth is { } max) ModelPicker.MaxWidth = Math.Min(_modelMaxWidth, max - HorizontalMarginOf(ModelPicker));
+    }
+
+    /// <summary>The widths the rule works in are desired sizes, which carry a control's margin, while
+    /// <c>MaxWidth</c> does not — so a cap handed straight over would leave the row that margin too wide.</summary>
+    private static double HorizontalMarginOf(Control control) => control.Margin.Left + control.Margin.Right;
+
+    /// <summary>What a picker needs drawn in full and drawn as its icon, measured by drawing it both ways.
+    /// The class it ends up with is set by the caller straight after.</summary>
+    private static PickerWidths WidthsOf(Picker picker)
+    {
+        if (!picker.IsVisible) return PickerWidths.Hidden;
+
+        picker.Classes.Set("compact", false);
+        picker.Measure(Size.Infinity);
+        var full = picker.DesiredSize.Width;
+        picker.Classes.Set("compact", true);
+        picker.Measure(Size.Infinity);
+        return new PickerWidths(full, picker.DesiredSize.Width);
     }
 }

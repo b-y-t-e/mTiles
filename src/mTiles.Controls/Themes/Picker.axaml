@@ -215,6 +215,19 @@
         <Setter Property="Stroke" Value="{DynamicResource TextHover}" />
     </Style>
 
+    <!-- Compact: the icon alone, for a row that has run out of width. The chevron goes through its own
+         property rather than a setter on the Path, because the template binds the Path's visibility and a
+         template binding outranks any style. -->
+    <Style Selector="c|Picker.compact">
+        <Setter Property="ShowChevron" Value="False" />
+    </Style>
+    <Style Selector="c|Picker.compact /template/ TextBlock.picker-trigger-text">
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="c|Picker.compact /template/ ContentPresenter.picker-trigger-icon">
+        <Setter Property="Margin" Value="0" />
+    </Style>
+
     <!-- ======== The card ======== -->
     <Style Selector="Border.picker-card">
         <Setter Property="Background" Value="{DynamicResource BgElevated}" />

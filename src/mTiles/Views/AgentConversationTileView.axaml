@@ -392,11 +392,16 @@
                         <mi:MaterialIcon Kind="Paperclip" Width="14" Height="14" />
                     </Button>
 
-                    <WrapPanel Orientation="Horizontal" ItemSpacing="2" LineSpacing="2"
-                               VerticalAlignment="Center">
+                    <!-- One line, never two. A DockPanel rather than the WrapPanel it was: that
+                         measured its children with infinite width, so the model's name never trimmed
+                         and a narrow tile wrapped the permission onto a line of its own. Which picker
+                         gives up its words, and when, is ComposerPickerLayout, applied from the
+                         code-behind as the row's width changes. -->
+                    <DockPanel x:Name="PickerRow" LastChildFill="False" VerticalAlignment="Center">
                         <!-- The model. Search on, because a provider's catalogue runs to hundreds
                              and this is the one list here that does. -->
                         <p:Picker x:Name="ModelPicker"
+                                  DockPanel.Dock="Left" Margin="0,0,2,0"
                                   Classes="composer-picker"
                                   Options="{Binding ModelOptions}"
                                   SelectedId="{Binding Model}"
@@ -407,35 +412,37 @@
                                   TypedEntryFormat="{}Use &#x201C;{0}&#x201D;"
                                   DropDownWidth="340"
                                   MaxWidth="230"
-                                  ToolTip.Tip="Which model this conversation runs on">
+                                  ToolTip.Tip="{Binding ModelLabel, StringFormat='Which model this conversation runs on: {0}'}">
                             <p:Picker.Icon>
                                 <mi:MaterialIcon Kind="AutoAwesome" Width="13" Height="13" />
                             </p:Picker.Icon>
                         </p:Picker>
                         <p:Picker x:Name="EffortPicker"
+                                  DockPanel.Dock="Left" Margin="0,0,2,0"
                                   Classes="composer-picker"
                                   Options="{Binding EffortOptions}"
                                   SelectedId="{Binding SelectedEffort.Id, Mode=OneWay}"
                                   Text="{Binding EffortLabel}"
                                   IsVisible="{Binding HasEffortOptions}"
-                                  ToolTip.Tip="How hard the agent is asked to think">
+                                  ToolTip.Tip="{Binding EffortLabel, StringFormat='How hard the agent is asked to think: {0}'}">
                             <p:Picker.Icon>
                                 <mi:MaterialIcon Kind="Brain" Width="13" Height="13" />
                             </p:Picker.Icon>
                         </p:Picker>
                         <p:Picker x:Name="ModePicker"
+                                  DockPanel.Dock="Left"
                                   Classes="composer-picker"
                                   Options="{Binding ModeOptions}"
                                   SelectedId="{Binding SelectedMode.Id, Mode=OneWay}"
                                   Text="{Binding ModeLabel}"
                                   IsVisible="{Binding HasModeOptions}"
                                   DropDownWidth="330"
-                                  ToolTip.Tip="What the agent may do without asking">
+                                  ToolTip.Tip="{Binding ModeLabel, StringFormat='What the agent may do without asking: {0}'}">
                             <p:Picker.Icon>
                                 <mi:MaterialIcon Kind="LockOutline" Width="13" Height="13" />
                             </p:Picker.Icon>
                         </p:Picker>
-                    </WrapPanel>
+                    </DockPanel>
                 </DockPanel>
             </StackPanel>
         </Border>

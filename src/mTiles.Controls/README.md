@@ -93,6 +93,11 @@ Behaviour has knobs too: `Filter` (what matching means — `PickerSearch`'s rule
 `ClearsSearchOnOpen`, `ClosesOnSelection`, `ShowChevron`, `Placement`, `DropDownWidth`,
 `DropDownMinWidth`, `MaxDropDownHeight`, `EmptyText`, `Placeholder` (what the trigger says while `Text` is empty).
 
+**`Picker.compact` is the trigger as its icon alone** — no text, no chevron — for a row that has run out
+of width. It is a class rather than a property because *when* to apply it is the host's decision about
+its own layout, never the control's. Give a compact picker an `Icon`, or there is nothing left to press,
+and put the value in its tooltip, because the trigger no longer says it.
+
 ### Keyboard
 
 Up and down move the highlight over pickable rows, stepping over headings and refusals; Enter takes it;
