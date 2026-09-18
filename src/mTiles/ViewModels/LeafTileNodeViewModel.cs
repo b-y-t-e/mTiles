@@ -183,6 +183,15 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// have to learn about it.</remarks>
     public bool CanRestart => RestartAction is not null;
 
+    /// <summary>Whether the header draws a Restart button, as opposed to leaving it to the <c>…</c>
+    /// menu.</summary>
+    /// <remarks>Asked of the action rather than of the kind, for the reason <see cref="CanRestart"/> is:
+    /// a second kind whose restart is a cold resume says so by setting
+    /// <see cref="TileAction.PreferOverflow"/>, and neither this class nor the header has to grow a list
+    /// of ids. The action is still in the menu and still on Ctrl+Shift+R — this is where it is drawn,
+    /// not whether it can be done.</remarks>
+    public bool RestartHasHeaderButton => RestartAction is { PreferOverflow: false };
+
     /// <summary>The Restart action's name with its shortcut, for the header's tooltip.</summary>
     public string RestartLabel =>
         RestartAction is { } action ? $"{action.Label} (Ctrl+Shift+R)" : "";
@@ -351,6 +360,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         OnPropertyChanged(nameof(RestartAction));
         OnPropertyChanged(nameof(RestartLabel));
         OnPropertyChanged(nameof(CanRestart));
+        OnPropertyChanged(nameof(RestartHasHeaderButton));
         OnPropertyChanged(nameof(AddAction));
         OnPropertyChanged(nameof(CanAdd));
     }

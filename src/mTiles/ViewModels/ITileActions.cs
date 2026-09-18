@@ -32,13 +32,19 @@ public static class TileActionIds
 /// <param name="NeedsLocalScreen">Whether doing it opens something on this machine's screen — a folder
 /// picker, a dialog. Not offered to a phone either: pressed from the sofa, it leaves a window waiting on
 /// a desktop nobody is sitting at.</param>
+/// <param name="PreferOverflow">Whether the header should leave this action to its <c>…</c> menu rather
+/// than give it a button of its own. A fact about how often the action is reached, which only the tile
+/// offering it knows: restarting a shell is a gesture of every few minutes, while restarting an agent is
+/// a cold resume of a conversation drawn on screen. Said here so a kind added later answers it by
+/// offering the action, and the header never learns which kinds those are.</param>
 public sealed record TileAction(
     string Id,
     string Label,
     string Icon,
     bool IsEnabled = true,
     bool IsDestructive = false,
-    bool NeedsLocalScreen = false);
+    bool NeedsLocalScreen = false,
+    bool PreferOverflow = false);
 
 /// <summary>Whether an action was carried out, and why not when it was not.</summary>
 /// <remarks>A refusal is worth a sentence because the phone is usually the only screen the user is

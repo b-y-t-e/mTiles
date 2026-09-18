@@ -386,7 +386,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
     public IReadOnlyList<TileAction> Actions =>
     [
-        new(TileActionIds.Restart, "Restart agent", "restart", IsDestructive: true),
+        new(TileActionIds.Restart, "Restart agent", "restart", IsDestructive: true, PreferOverflow: true),
         // Not destructive any more, and that is the point of the list: a new conversation is started beside the
         // old one rather than over it, and the old one is a row in the chooser rather than something forgotten.
         new(NewConversationActionId, "New conversation", "new-conversation", NeedsLocalScreen: true),

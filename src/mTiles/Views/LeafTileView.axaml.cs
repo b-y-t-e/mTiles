@@ -103,7 +103,7 @@ public partial class LeafTileView : UserControl, ITileDropTarget
         // because this is the only thing that writes these two properties — see the markup for what
         // happened when a binding wrote them as well.
         var roomForSession = width >= SessionButtonsNeedWidth;
-        RestartButton.IsVisible = roomForSession && _subscribedLeaf?.CanRestart == true;
+        RestartButton.IsVisible = roomForSession && _subscribedLeaf?.RestartHasHeaderButton == true;
         // Stands down with the session buttons: the list's strip of initials, the one shape too narrow
         // for it, draws a + of its own.
         AddButton.IsVisible = roomForSession && _subscribedLeaf?.CanAdd == true;
@@ -261,6 +261,7 @@ public partial class LeafTileView : UserControl, ITileDropTarget
             UpdateActiveIndicator(leaf);
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.HasSession)
                  or nameof(LeafTileNodeViewModel.CanRestart)
+                 or nameof(LeafTileNodeViewModel.RestartHasHeaderButton)
                  or nameof(LeafTileNodeViewModel.CanAdd))
             ApplyHeaderWidth(TileToolbar.Bounds.Width);
         else if (e.PropertyName is nameof(LeafTileNodeViewModel.IsRecordingDictation)
