@@ -207,29 +207,17 @@ public interface IAiAgent : IAgentActivityReader
     /// to exist before it starts.
     /// </summary>
     /// <remarks>
-    /// <para>Measured 2026-09-17 against the installed binaries and each CLI's own documentation.
-    /// <b>Claude Code 2.1.274 on <see cref="AgentSurface.Terminal"/> alone answers yes</b>: it watches the
-    /// skills directories and picks up an added, edited or removed skill within the session. codex 0.153.2
-    /// says it "detects skill changes automatically" and then says "if an update doesn't appear, restart
-    /// Codex", names no version and no mechanism, and says nothing at all about <c>codex exec</c> or its
-    /// app-server — a claim that hedged is not one to build on. opencode 1.18.18 is a documented no (its
-    /// own issue #49451: commands are built at start-up and close over the skill's content). pi 0.84.4's
-    /// documentation says the scan happens "at startup" and its RPC protocol carries no reload verb at
-    /// all. agy 1.2.3 documents nothing either way.</para>
-    /// <para><b>The surface is a parameter because Claude Code's own answer depends on it.</b> An Agent
-    /// tile is not the TUI: it runs <c>claude -p --output-format stream-json</c>, and the only thing
-    /// documented about a skill change reaching a headless or SDK session is <c>/reload-skills</c>, a
-    /// command somebody has to send — which this application does not. Answered as one property, the
-    /// commonest configuration there is, an Agent tile on Claude Code, was told to do nothing at all: no
-    /// restart and no notice, which is exactly the silence this question exists to end. So a watcher
-    /// nobody has measured on a surface is a watcher this application does not claim there.</para>
-    /// <para><b>The one condition is what this question is really for.</b> Claude Code's own words:
-    /// <i>"If you create a top-level skills directory that didn't exist when the session started, restart
-    /// Claude Code so it can watch the new directory."</i> This application <em>creates</em> that
-    /// directory — the first time anybody ticks a database in a workspace, <c>WriteSkillIn</c> makes
-    /// <c>.claude/skills</c> on the spot — so the one agent that can follow a skill change was being
-    /// handed exactly the case it cannot follow. <see cref="WorkspaceAgentFiles.Follow"/> now makes the
-    /// directory when the tile appears instead, which is before the session starts.</para>
+    /// <para>Measured 2026-09-17 against the installed binaries and each CLI's own documentation, and
+    /// <b>no agent answers yes</b>. Claude Code 2.1.274 documents a watcher in its terminal interface, and
+    /// this used to answer yes there on the strength of it — until 2026-09-18, when a terminal agent tile
+    /// on Claude Code did not pick up a second database ticked while it ran, while the yes had silenced
+    /// both the notice and the lit Restart. A documented watcher is not a measured one. codex hedges its
+    /// claim with "restart Codex"; opencode has an open bug (#49451); pi scans "at startup" and has no
+    /// reload verb; agy documents nothing.</para>
+    /// <para><b>The surface stays a parameter</b> because a watcher, if one is ever measured, is a fact
+    /// about one surface: an Agent tile runs <c>claude -p --output-format stream-json</c>, not the TUI.</para>
+    /// <para>No skills directory is made ahead of a skill any more: with nobody watching, an empty one
+    /// buys nothing.</para>
     /// <para>False by default, and false is the safe answer: what it costs is a notice asking for a
     /// restart that was not strictly needed, against an agent that never sees the databases the user has
     /// just granted it and nothing on screen saying so.</para>

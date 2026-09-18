@@ -125,12 +125,6 @@ public sealed class WorkspaceAgentFiles
             if (!swept && Same(_skillDirectories, skillDirectories))
                 return;
 
-            // Behind that return, never in front of it. This is a filesystem call on the thread the
-            // application draws on, and the question it answers only changes when the set of agents
-            // does: run unconditionally it was one syscall per splitter drag, which on a repository
-            // held over a network share is the drag itself stuttering.
-            MakeWatchedDirectories(present);
-
             foreach (var gone in Missing(_skillDirectories, skillDirectories))
                 foreach (var skill in _skills.Keys)
                     // An agent tile left; the user withdrew nothing — and closing the window is the
@@ -160,58 +154,6 @@ public sealed class WorkspaceAgentFiles
             Trace.TraceError($"[AgentFiles] A listener for the skill {name} failed: {ex}");
         }
     }
-
-    /// <summary>
-    /// Makes the skills directory of every agent here that <i>watches</i> one, whether or not there is a
-    /// skill to put in it yet.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>An empty directory in somebody's repository, on purpose.</b> Everything else this class
-    /// writes is written because there is something to write; this is the one exception, and it buys the
-    /// one thing it can buy nowhere else. Claude Code watches its skills directory and picks up a skill
-    /// added mid-session — but only a directory that existed when the session started. This application
-    /// creates that directory at the moment the first database is ticked, which is after the session is
-    /// running, so the only CLI able to follow the change was reliably handed the one case it cannot.</para>
-    /// <para><b>Narrow on purpose, by the agent's own answer.</b> Only agents saying
-    /// <see cref="IAiAgent.WatchesSkillsDirectory"/> — today Claude Code alone — and only in a workspace
-    /// whose tiles actually hold one. Making every agent's directory up front would put
-    /// <c>.opencode/skills</c> and <c>.agents/skills</c> in repositories whose owner runs neither, for no
-    /// gain at all: none of those CLIs would notice the skill anyway. That is the littering this class's
-    /// own rule — write only where an agent present here reads — exists to prevent, and the exception has
-    /// to earn itself one agent at a time.</para>
-    /// <para>Git does not track an empty directory, so this shows up in no <c>git status</c> and no diff.
-    /// Failing is harmless and silent for the reason the writes are: the worst case is the behaviour we
-    /// had before it.</para>
-    /// </remarks>
-    private void MakeWatchedDirectories(IEnumerable<IAiAgent> present)
-    {
-        foreach (var directory in Distinct(present
-                     .Where(WatchesOnSomeSurface)
-                     .Select(agent => agent.SkillsDirectory(_workspaceDir))
-                     .Where(path => !string.IsNullOrWhiteSpace(path))
-                     .Select(path => path!)))
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-            }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning($"[AgentFiles] Could not create the watched skills directory {directory}: {ex.Message}");
-            }
-        }
-    }
-
-    /// <summary>Whether this agent watches its skills directory on <i>any</i> of the surfaces it can be
-    /// run on.</summary>
-    /// <remarks>The question the directory has to be made for, which is not the question a tile asks:
-    /// what is on disk when a session starts is one directory whichever tile starts it, and this class is
-    /// handed agents rather than the tiles holding them. Answered across the surfaces rather than on a
-    /// chosen one, because withholding the directory from the surface that does watch is the failure
-    /// <see cref="MakeWatchedDirectories"/> exists to prevent, while making it for one that does not costs
-    /// an empty directory git does not track.</remarks>
-    private static bool WatchesOnSomeSurface(IAiAgent agent) =>
-        Enum.GetValues<AgentSurface>().Any(agent.WatchesSkillsDirectory);
 
     /// <summary>Takes each skill not yet seen in this session out of every path any agent could read,
     /// and answers whether anything was swept.</summary>

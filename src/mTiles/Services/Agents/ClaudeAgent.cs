@@ -38,15 +38,15 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
     public override string? SkillsDirectory(string workspaceDir) =>
         Path.Combine(workspaceDir, ".claude", "skills");
 
-    /// <summary>The one CLI of the six that follows a skill written while it is running — and only in its
-    /// own terminal interface.</summary>
-    /// <remarks>Measured 2026-09-17 against 2.1.274: the watcher is documented for the interactive
-    /// session, while the only thing said about a skill change reaching a headless or SDK session is
-    /// <c>/reload-skills</c> — a command somebody sends, and nothing here sends it. So an Agent tile,
-    /// which runs <c>claude -p --output-format stream-json</c>, answers no and is told to restart like
-    /// everybody else. See <see cref="IAiAgent.WatchesSkillsDirectory"/> for the rest of the measurement
-    /// and for the condition that makes this question worth asking at all.</remarks>
-    public override bool WatchesSkillsDirectory(AgentSurface surface) => surface is AgentSurface.Terminal;
+    /// <summary>Claude Code does not follow a skill change reliably enough to go without a restart.</summary>
+    /// <remarks>Its documentation describes a watcher on the skills directories in the interactive session
+    /// (2.1.274), and this used to answer yes on <see cref="AgentSurface.Terminal"/> on the strength of it.
+    /// Observed 2026-09-18: a terminal agent tile on Claude Code, a second database ticked while it ran,
+    /// and asked about that database it searched the repository instead of using the skill — while the
+    /// yes had silenced both the notice and the lit Restart button. A documented watcher is not a measured
+    /// one, and the cost of the wrong answer is exactly the silence the question exists to end, so it
+    /// answers no like everybody else. See <see cref="IAiAgent.WatchesSkillsDirectory"/>.</remarks>
+    public override bool WatchesSkillsDirectory(AgentSurface surface) => false;
 
     /// <summary>The one agent that does not read the canon.</summary>
     /// <remarks>Measured 2026-09-03: loading is hard-coded — <c>case "Project": return

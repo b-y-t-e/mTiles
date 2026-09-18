@@ -73,13 +73,11 @@ public class SkillChangePolicyTests
         Assert.Contains("Restart the agent", SkillChangePolicy.Notice, StringComparison.Ordinal);
     }
 
-    /// <summary>The one agent the policy's first rule is about, pinned so that a second one is a
-    /// measurement rather than an assumption.</summary>
+    /// <summary>No agent reaches the policy's first rule, pinned so that one doing so is a measurement
+    /// rather than an assumption — Claude Code did on its documentation and was observed not to follow.</summary>
     [Fact]
-    public void Only_one_agent_reaches_the_first_rule() =>
-        Assert.Equal(["claude"],
-            AiAgentCatalog.All.Where(agent => agent.WatchesSkillsDirectory(AgentSurface.Terminal))
-                .Select(agent => agent.Id));
+    public void No_agent_reaches_the_first_rule() =>
+        Assert.DoesNotContain(AiAgentCatalog.All, agent => agent.WatchesSkillsDirectory(AgentSurface.Terminal));
 
     /// <summary>And no agent reaches it in an Agent tile, which is the tile the first rule used to silence
     /// on the commonest configuration there is.</summary>

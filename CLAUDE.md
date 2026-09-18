@@ -777,13 +777,10 @@ answers an unknown id with an error. The table is in
 
 **A change to the workspace's skills reaches the agents already running** (`WorkspaceAgentFiles.SkillsChanged`,
 `SkillChangePolicy`). Ticking a database used to write `SKILL.md` and stop, and a CLI already started reads
-skills only at start-up — with one measured exception, which is why the question takes the surface it is
-asked about (`IAiAgent.WatchesSkillsDirectory(AgentSurface)`): Claude Code follows a change **in its own
-terminal interface**, and only in a skills directory that existed when its session started, which is why
-`WorkspaceAgentFiles.Follow` now makes `.claude/skills` when a Claude tile appears rather than at the first
-tick. The session an Agent tile drives is not that interface — it is `claude -p --output-format stream-json`,
-where the only documented route is a `/reload-skills` nobody here sends — so an Agent tile is told to restart
-like every other. An idle Agent tile restarts on its own; one that is busy or holds an unsent message gets a
+skills only at start-up — and no agent is treated otherwise (`IAiAgent.WatchesSkillsDirectory(AgentSurface)`
+answers no everywhere): Claude Code documents a watcher in its terminal interface, and was observed on
+2026-09-18 not to pick up a second database, so every agent tile is told to restart and no skills directory
+is made ahead of a skill. An idle Agent tile restarts on its own; one that is busy or holds an unsent message gets a
 notice, and a terminal agent tile always does — its restart would take the scrollback and the half-typed
 prompt. **A run of changes is one restart, not one each**: every database ticked and every RW toggle
 writes the skill again, so the tile waits out `SkillChangePolicy.QuietWindow` (two seconds), coalesces a

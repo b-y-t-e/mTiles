@@ -19,8 +19,8 @@ public enum SkillChangeResponse
 /// </summary>
 /// <remarks>
 /// <para>Ticking a database in the Database tile writes <c>SKILL.md</c> into the skills directories of the
-/// agents this workspace holds. Measured 2026-09-17, <b>only Claude Code re-reads it</b>
-/// (<see cref="Agents.IAiAgent.WatchesSkillsDirectory"/>); the other five find out when the process is
+/// agents this workspace holds. No agent is trusted to re-read it
+/// (<see cref="Agents.IAiAgent.WatchesSkillsDirectory"/>); every one of them finds out when the process is
 /// started again. Until now nothing said so, so the user's databases were invisible to the agent they had
 /// just granted them to, with no sign anywhere.</para>
 /// <para><b>An idle agent is restarted, whatever the conversation holds.</b> The restart itself is cheap —
