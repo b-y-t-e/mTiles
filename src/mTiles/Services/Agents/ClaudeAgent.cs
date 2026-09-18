@@ -38,6 +38,16 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
     public override string? SkillsDirectory(string workspaceDir) =>
         Path.Combine(workspaceDir, ".claude", "skills");
 
+    /// <summary>The one CLI of the six that follows a skill written while it is running — and only in its
+    /// own terminal interface.</summary>
+    /// <remarks>Measured 2026-09-17 against 2.1.274: the watcher is documented for the interactive
+    /// session, while the only thing said about a skill change reaching a headless or SDK session is
+    /// <c>/reload-skills</c> — a command somebody sends, and nothing here sends it. So an Agent tile,
+    /// which runs <c>claude -p --output-format stream-json</c>, answers no and is told to restart like
+    /// everybody else. See <see cref="IAiAgent.WatchesSkillsDirectory"/> for the rest of the measurement
+    /// and for the condition that makes this question worth asking at all.</remarks>
+    public override bool WatchesSkillsDirectory(AgentSurface surface) => surface is AgentSurface.Terminal;
+
     /// <summary>The one agent that does not read the canon.</summary>
     /// <remarks>Measured 2026-09-03: loading is hard-coded — <c>case "Project": return
     /// join(dir,"CLAUDE.md")</c> — and the only mention of <c>AGENTS.md</c> in the binary is a

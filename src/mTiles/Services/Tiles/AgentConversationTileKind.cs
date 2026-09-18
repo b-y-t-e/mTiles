@@ -60,6 +60,7 @@ public sealed class AgentConversationTileKind(IConversationStore store, IAgentSe
         return new AgentConversationTileViewModel(context.WorkingDirectory, context.Settings, store, instance, agent,
             context.TileId, SubstitutionFor(requestedInstance, requestedAgent, instance, agent),
             OverridesFrom(state), context.RequestSave, sessionStarter: sessionStarter,
+            agentFiles: context.AgentFiles,
             conversationId: state.String(AgentStateKeys.ConversationIdKey));
     }
 

@@ -64,7 +64,8 @@ public sealed class TerminalAgentTileKind : TileKind<TerminalAgentTileViewModel>
 
         return new TerminalAgentTileViewModel(context.WorkingDirectory,
             ShellTerminalCatalog.ResolveDefault(settings), context.Settings, agent, instance.Id,
-            SessionIdFor(agent, state), context.TileId, context.RequestSave, substitution);
+            SessionIdFor(agent, state), context.TileId, context.RequestSave, substitution,
+            context.AgentFiles);
     }
 
     /// <summary>

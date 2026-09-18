@@ -97,6 +97,15 @@ public abstract class AcpAgentSession : IAgentSession, IProcessBackedSession
         }
         else
         {
+            // A token we cannot hand back is a lost conversation too, and this is the branch it was lost in
+            // silently: an agent that does not advertise loadSession — an older Grok than 1.0.34, or an ACP
+            // agent added later — simply had its resume id dropped here, so an automatic restart after a
+            // skill change handed the user a fresh agent under a full transcript without a word. The load
+            // that fails out loud is the catch above; this says the same thing about the load never tried.
+            if (_resumeSessionId is { Length: > 0 })
+                Sink.Emit(new NoticeRaised(NoticeLevel.Warning,
+                    "The agent cannot reopen a stored conversation, so a new one was started; " +
+                    "everything above is still here, but the agent does not remember it."));
             session = await NewSessionAsync(ct);
         }
 

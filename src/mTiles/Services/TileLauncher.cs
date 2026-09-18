@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
 using mTiles.ViewModels;
 using Terminal.Avalonia;
@@ -111,12 +111,22 @@ internal static class TileLauncher
         // environment, never in a script typed at a live prompt.
         var environment = vm.LaunchEnvironment;
 
+        // Here rather than where the launch was claimed, and with both refusals above it: a launch that
+        // resolves to a problem, or that has been superseded while it was prepared, starts nothing — and
+        // a tile that answered such a launch took down the line asking for a restart while the process
+        // that restart was meant for went on running with the skills it read at its own start.
+        vm.NoteProcessStarting();
+
         if (scripts.RunsCommandChain)
         {
             try
             {
+                // The chain starts processes of its own — a relaunch, the next link, the shell it ends
+                // at — and none of them comes back through here, so it is told to say so: what the tile
+                // answers at a launch it must also answer at a start it did not ask for.
                 vm.ReplaceLaunchSession(DirectLaunchSession.Start(terminal, vm.WorkingDirectory, vm.Shell,
-                    scripts, vm.TileId, environment: environment));
+                    scripts, vm.TileId, environment: environment,
+                    onCommandStarting: vm.NoteProcessStarting));
                 vm.OnLaunched(startedAt);
                 return;
             }

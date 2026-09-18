@@ -35,6 +35,11 @@ public sealed class AntigravityStreamSession(AgentSessionLaunch launch, Antigrav
     private readonly Lock _gate = new();
     private AgentProcess? _process;
     private string? _conversationId = launch.ResumeToken;
+
+    // The id the running process was started with --conversation for, until its init line has answered.
+    // Per process, because agy is started again after a stop or a settings change, and each start is a
+    // resume that can fail on its own.
+    private string? _requestedConversation;
     private string? _turnId;
     private int _queuedTurns;
     private bool _stopping;
@@ -169,6 +174,7 @@ public sealed class AntigravityStreamSession(AgentSessionLaunch launch, Antigrav
         arguments.AddRange(agent.ModelArgs(_model, AiUsage.Interactive));
         arguments.AddRange(["--add-dir", launch.WorkingDirectory]);
         if (_conversationId is { Length: > 0 } conversation) arguments.AddRange(["--conversation", conversation]);
+        _requestedConversation = _conversationId;
         arguments.AddRange(launch.ExtraArgs);
         // The prompt is the print flag's own value and comes from stdin, so it is empty and attached.
         arguments.Add("--print=");
@@ -196,7 +202,18 @@ public sealed class AntigravityStreamSession(AgentSessionLaunch launch, Antigrav
         lock (_gate) turnId = _turnId;
         foreach (var e in _mapper.Map(root, turnId))
         {
-            if (e is SessionConfigured { ResumeToken: { } token }) _conversationId = token;
+            if (e is SessionConfigured { ResumeToken: { } token })
+            {
+                // Measured 2026-09-17: agy asked for a conversation it does not have starts a new one and
+                // exits 0, and the only structured sign is that init names a different id. The new id is
+                // still adopted — the old one does not exist, so it is the only conversation there is to
+                // continue — but no longer in silence, which wrote the loss into the store as though it
+                // were the same conversation.
+                if (ResumeCheck.AgyLost(_requestedConversation, token))
+                    sink.Emit(new NoticeRaised(NoticeLevel.Warning, ResumeCheck.Lost(agent.DisplayName)));
+                _requestedConversation = null;
+                _conversationId = token;
+            }
             sink.Emit(e);
         }
 

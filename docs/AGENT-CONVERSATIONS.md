@@ -1,4 +1,4 @@
-# Agent conversations
+﻿# Agent conversations
 
 An **Agent** tile holds an AI coding agent as a conversation: messages, every tool call as a row,
 approvals and questions as blocks, the agent's plan, the context it has used, and — for every turn that
@@ -159,13 +159,39 @@ failing:
 | Claude Code | `--resume <token>` | kills the process, starts fresh, **says so** in a notice |
 | codex | `thread/resume` | falls back to `thread/start`, **says so** |
 | opencode | its own server's stored session | **says so** ("could not be found in opencode") |
-| pi | `--session-id <token>` — and the token is **ours**, a GUID this application made | creates an empty session under that id and **says nothing**: our transcript shows history the agent has not got |
-| agy | `--conversation <id>` | no fallback of any kind |
-| Grok | ACP `session/load`, **only if the CLI advertises `loadSession`** | discards the token silently and starts a new session |
+| pi | `--session-id <token>` — and the token is **ours**, a GUID this application made | creates an empty session under that id; `get_state` answers `messageCount: 0` and `ResumeCheck.PiLost` **says so** |
+| agy | `--conversation <id>` | starts a new conversation and exits 0; its `init` names a different id and `ResumeCheck.AgyLost` **says so** |
+| Grok | ACP `session/load` (1.0.34 advertises `loadSession`) | a JSON-RPC error, `-32603 Path not found`; the ACP session starts a new one and **says so** |
 
-Picking an old conversation makes that gap routine rather than rare, which is why *A visible sign that a
-resume actually happened* ([`ROADMAP.md`](ROADMAP.md), the Herdr section, item 1) is now part of this
-feature rather than beside it — and why pi's and Grok's silences are worth closing first.
+**None of the six fails in silence any more** — measured live 2026-09-17 against pi 0.84.4, agy 1.2.3 and
+Grok 1.0.34, which is what this table used to be wrong about. pi and agy did fail quietly, and both turned
+out to say it in a structured field before the first message: pi's `get_state` (which `PiRpcSession`
+already asks for) and agy's `init` line (written at start-up, with nothing on stdin). Grok never was
+silent on 1.0.34 — the "discards the token" row described a CLI without `loadSession`, which this one is
+not, and `AcpAgentSession` now says so in that case as well: a resume token it has nowhere to hand back is
+a notice before the first message, exactly as a `session/load` that fails is. That closes *A visible sign that a resume actually happened* ([`ROADMAP.md`](ROADMAP.md), the Herdr
+section, item 1) for the Agent tile, and it is what lets `SkillChangePolicy` restart an idle agent whatever
+its conversation holds: the worst a restart can now do is lose the agent's memory **and say so**.
+
+When each one fails to find a conversation, which is worth knowing because two of the three are about
+*where* rather than *whether*:
+
+- **pi** keys a session by the **exact working directory** — a subdirectory of the same repository is a
+  different key — and by its agent directory, so another sign-in is another store. The session file is
+  written only at the first message, so a conversation nobody spoke in always comes back empty; that is
+  why the check asks whether our own store holds a user message first (`AgentSessionLaunch.HasHistory`).
+  **A trap after the fact**: once something has been said into the empty session pi created, the next
+  start in that directory resumes *it*, without a warning, with the short history. The notice on the start
+  that lost it is therefore the one that matters.
+- **agy** keeps a conversation as `~/.gemini/antigravity-cli/conversations/<id>.db`; without that file it
+  is gone, and a failed resume still leaves an empty new conversation behind on disk. The new id is adopted
+  — the old one does not exist — but no longer silently: it used to be written into the store as though it
+  were the same conversation. Unmemoried, agy also goes looking for what it was asked about: the measured
+  failed resume spent 98 s and 282k tokens to answer that it did not know.
+- **Grok** keys a session by the **cwd string as it was spelled** at `session/new`: forward slashes or a
+  trailing separator make an existing session "Path not found" (case does not matter on NTFS). mTiles
+  passes the workspace directory verbatim both times, which is why it holds — a normalisation added to that
+  path later would quietly start losing Grok conversations.
 
 Conversations held **outside** an Agent tile — in a Terminal agent tile, or in the CLI's own window — are
 not in this list, because they are in the CLI's history and not in ours. Adding them as a second source of

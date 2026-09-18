@@ -48,6 +48,11 @@ public sealed class PiRpcSession(AgentSessionLaunch launch, PiAgent agent, IAgen
         if (await CommandAsync(new JsonObject { ["type"] = "get_state" }, ct, TimeSpan.FromSeconds(60))
             is not { } state) return;
         var data = state.Prop("data");
+        // Measured 2026-09-17: an id pi cannot find under this working directory is created empty, with a
+        // warning on stderr and nothing on stdout. messageCount is the structured half of that, and this is
+        // the moment it is already being asked for.
+        if (ResumeCheck.PiLost(launch.ResumeToken, launch.HasHistory, data.Long("messageCount")))
+            sink.Emit(new NoticeRaised(NoticeLevel.Warning, ResumeCheck.Lost(agent.DisplayName)));
         await ReportOptionsAsync(ct);
         sink.Emit(new SessionConfigured(ModelId(data.Prop("model")), null,
             data.Str("sessionId") ?? sessionId, SessionSettingOptions.EffortId(launch.Effort)));

@@ -382,6 +382,9 @@ public abstract class AiAgent : IAiAgent
     public virtual string? SkillsDirectory(string workspaceDir) => null;
 
     /// <inheritdoc />
+    public virtual bool WatchesSkillsDirectory(AgentSurface surface) => false;
+
+    /// <inheritdoc />
     public virtual string InstructionFile => WorkspaceAgentFiles.CanonicalInstructionFile;
 
     /// <inheritdoc />

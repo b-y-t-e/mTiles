@@ -211,6 +211,41 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     internal int BeginLaunch() => Interlocked.Increment(ref _launchGeneration);
 
     /// <summary>
+    /// Tells the tile a process is about to be started in it — the launch's own first command, the next
+    /// link of its chain, or the same one again after the tool exited.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Not a launch, and deliberately not one.</b> It claims nothing and takes no generation:
+    /// the chain already owns this tile, and bumping the counter would tell a launch waiting on its
+    /// preparation that it had been superseded by the very chain it started. What it is for is the half
+    /// of a launch that is about the process rather than about the claim — a notice asking for a restart
+    /// that has now happened.</para>
+    /// <para><b>Said where the process starts, never where the launch is claimed.</b> A claim is made
+    /// before the launcher has looked at <see cref="LaunchProblem"/> and before a launch that waited
+    /// finds out whether it is still this tile's — so a launch refused for an instance whose provider
+    /// has gone starts nothing at all, while the old CLI runs on with the old skills. Answered at the
+    /// claim, the one line asking the user to restart came down for a restart that never happened. This
+    /// is the same placement <c>AgentConversationTileViewModel</c> makes for the same reason: after the
+    /// refusals, in front of the process.</para>
+    /// </remarks>
+    internal void NoteProcessStarting()
+    {
+        if (_disposed) return;
+
+        OnLaunchBeginning();
+    }
+
+    /// <summary>What stops being true because a process is starting in this tile.</summary>
+    /// <remarks>Empty here: a plain shell has nothing on its bar that a relaunch answers. It is the one
+    /// moment a notice asking for a restart can be taken down by whoever put it up — see
+    /// <c>TerminalAgentTileViewModel</c> — and the tile that put it up is the only thing that knows which
+    /// line is its own. Reached only through <see cref="NoteProcessStarting"/>, so what answers a notice
+    /// is a process starting and never a launch that may yet be refused.</remarks>
+    protected virtual void OnLaunchBeginning()
+    {
+    }
+
+    /// <summary>
     /// Whether the launch that took <paramref name="generation"/> may still start a session in this
     /// tile.
     /// </summary>
@@ -373,6 +408,10 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// exited goes nowhere, and both callers above have to be able to say so.</remarks>
     private Terminal.Avalonia.TerminalControl? LiveTerminal =>
         CachedControl is Terminal.Avalonia.TerminalControl { IsRunning: true } control ? control : null;
+
+    /// <summary>Whether this tile has a session running now — neither refused, nor still being prepared,
+    /// nor ended.</summary>
+    protected bool HasRunningSession => !HasLaunchProblem && LiveTerminal is not null;
 
     /// <summary>What this tile launches, asked at every launch rather than captured once.</summary>
     /// <remarks>A shell tile runs a shell; the question only has an interesting answer for an agent

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.AgentSessions;
 using mTiles.Models;
 using mTiles.Services.Providers;
@@ -49,6 +49,12 @@ public sealed record AgentSessionLaunch(
     string? ResumeToken,
     string ConversationId)
 {
+    /// <summary>Whether anything was said in this conversation before this start.</summary>
+    /// <remarks>What lets a session tell a lost resume from a conversation that simply never had anything in
+    /// it — see <see cref="ResumeCheck.PiLost"/>. Set by the tile after the launch is prepared, because the
+    /// store is the tile's to ask and the launcher's job is the command line.</remarks>
+    public bool HasHistory { get; init; }
+
     /// <summary>The model to ask for, or empty for the agent's own choice.</summary>
     public string Model => Runtime.RequestedModel;
 

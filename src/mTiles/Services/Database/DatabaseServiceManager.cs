@@ -212,12 +212,11 @@ public sealed class DatabaseServiceManager : IDisposable
         // having answered yet: discovery runs on a timer off the thread pool, while a restored tile
         // asks this from its own constructor, so at startup every discovered database is still unknown.
         var withdrawn = !_started || databases.Count == 0;
-        var skill = withdrawn
-            ? null
-            : DatabaseSkillWriter.Build(databases, _registry, _settingsService.Settings.Database.HttpPort);
+        var httpPort = _settingsService.Settings.Database.HttpPort;
+        var skill = withdrawn ? null : DatabaseSkillWriter.Build(databases, _registry, httpPort);
 
         if (skill != null)
-            agentFiles.WriteSkill(DatabaseSkillWriter.SkillName, skill);
+            agentFiles.WriteSkill(DatabaseSkillWriter.SkillName, skill, DatabaseSkillWriter.GrantOf(databases, httpPort));
         else if (withdrawn)
             agentFiles.RemoveSkill(DatabaseSkillWriter.SkillName);
         else

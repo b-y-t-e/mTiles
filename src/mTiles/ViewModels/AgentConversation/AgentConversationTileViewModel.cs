@@ -81,9 +81,50 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [ObservableProperty] private SessionOption? _selectedEffort;
     [ObservableProperty] private string? _composerNotice;
 
+    /// <summary>
+    /// What this tile is asking the user to do about the process it is running — the terminal agent tile's
+    /// bar, by the same name and with the same two halves.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Not a <c>NoticeRaised</c> in the conversation, and that was the bug.</b> A notice is a
+    /// stored event (<c>AgentEvent.IsTransient</c> is false for it), so every skill change wrote another
+    /// identical line into <c>conversations.db</c>: three databases ticked one after another while the
+    /// agent worked left three copies of the same sentence, none of which went away after the restart it
+    /// asked for, and all of which came back every time the conversation was opened. A request about the
+    /// process running now is not part of what was said in the conversation.</para>
+    /// <para>Whole lines through <see cref="LaunchNotices"/> for the reason the terminal agent tile uses
+    /// it: a line is put up once however often the cause repeats, and whoever put one up takes its own
+    /// line down without touching anybody else's.</para>
+    /// </remarks>
+    [NotifyPropertyChangedFor(nameof(HasLaunchNotice))]
+    [ObservableProperty] private string _launchNotice = "";
+
+    /// <summary>Whether anything is on the notice bar at all.</summary>
+    public bool HasLaunchNotice => LaunchNotice.Length > 0;
+
+    /// <summary>Puts the whole bar down — the user's answer to everything standing on it.</summary>
+    [RelayCommand]
+    private void DismissLaunchNotice() => LaunchNotice = "";
+
     private readonly Action? _requestSave;
     private SessionOverrides _overrides;
     private bool _restartQueued;
+
+    /// <summary>A skill change is waiting to be answered with a start of the agent.</summary>
+    private bool _skillRestartWanted;
+
+    /// <summary>Something is already waiting to answer it, so a second change adds no second start.</summary>
+    private bool _skillRestartWaiting;
+
+    /// <summary>A start of the agent is under way: the old process is going or the new one is coming up.
+    /// </summary>
+    /// <remarks>Held for the whole of <see cref="UnderStartGateAsync"/> rather than being read off
+    /// <c>_host</c>, which is null from the first line of <see cref="ReplaceHostAsync"/> until the new
+    /// session exists — seconds of it, since that window holds a CLI being disposed of and a model being
+    /// resolved over the network. A skill change landing in there answered "nothing has started, so
+    /// nothing has read it" about a process that was at that moment starting and reading exactly that
+    /// directory, and the change was dropped without so much as a notice.</remarks>
+    private bool _startUnderWay;
     private SessionOptionsReported? _drawnOptions;
     private bool _drawingSettings;
     private readonly ConversationAgentBinding _binding;
@@ -91,7 +132,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     public AgentConversationTileViewModel(string workingDirectory, SettingsService settings, IConversationStore store,
         AiAgentInstance instance, IAiAgent agent, Func<string> tileId, AgentSubstitution? substitution = null,
         SessionOverrides? overrides = null, Action? requestSave = null, Action<Action>? post = null,
-        IAgentSessionStarter? sessionStarter = null, string? conversationId = null)
+        IAgentSessionStarter? sessionStarter = null, string? conversationId = null,
+        WorkspaceAgentFiles? agentFiles = null)
     {
         _sessionStarter = sessionStarter ?? AgentSessionStarter.Instance;
         _conversationId = conversationId is { Length: > 0 } ? conversationId : null;
@@ -113,7 +155,129 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         Conversations = new ConversationChooser(store, workingDirectory, () => ConversationId, () => Agent.Id,
             RefusalFor, _post, summary => _ = RunAsync(() => SwitchConversationAsync(summary)),
             () => _ = RunAsync(NewConversationAsync));
+
+        _agentFiles = agentFiles;
+        if (_agentFiles is not null) _agentFiles.SkillsChanged += OnSkillsChanged;
     }
+
+    private readonly WorkspaceAgentFiles? _agentFiles;
+
+    /// <summary>
+    /// The databases this workspace grants reached the agents' skills directories — react, or do not.
+    /// </summary>
+    /// <remarks>
+    /// <para>Raised off whichever thread wrote the file, so the first thing it does is get onto the one
+    /// this tile draws on: everything the answer depends on — whether a turn is in flight, what is in the
+    /// composer — is this view model's, and this view model is the UI thread's.</para>
+    /// <para>What to do is <see cref="SkillChangePolicy"/>'s, not this method's, so the reasoning about
+    /// what a restart costs on pi, agy and Grok is argued once in a table test rather than buried in a
+    /// handler. Here there is only the reading of the situation and the carrying out.</para>
+    /// </remarks>
+    private void OnSkillsChanged(string skill) => _post(() =>
+    {
+        if (_disposed) return;
+
+        switch (ResponseToSkillChange())
+        {
+            case SkillChangeResponse.Restart:
+                // Asked for, not performed: a run of clicks is one restart — see RestartWhenTheRunSettlesAsync.
+                WantARestart();
+                return;
+            case SkillChangeResponse.Tell:
+                // Onto the tile's own bar rather than into the transcript: a notice is a stored event, so
+                // the transcript kept one line per tick of a database for the life of the conversation and
+                // lost none of them to the restart that answered them. Added to whatever the bar already
+                // says, and added once — see LaunchNotice.
+                Tell();
+                return;
+            default:
+                return;
+        }
+    });
+
+    /// <summary>What this tile should do about the skills having moved, read as it stands now.</summary>
+    private SkillChangeResponse ResponseToSkillChange() => SkillChangePolicy.For(
+        agentFollowsIt: Agent.WatchesSkillsDirectory(AgentSurface.Structured),
+        // The host, not the agent: it is opened before the process is started and survives a start that
+        // never happened — a resolution that failed (LaunchProblem), a conversation another tile is
+        // holding. In both of those nothing has read anything, so the policy's "nothing started, so
+        // nothing read it" is exactly the answer, and asking `_host is not null` instead turned every
+        // tick of a database into a restart that resolved the model again and came back with the same
+        // problem. `HasSession` is the same question the terminal tile's `HasRunningSession` asks.
+        // A start under way counts as running for the same reason: the process it is bringing up reads
+        // the skills directory as it starts, and a change that lands while it does is one the new process
+        // may already have missed — see _startUnderWay.
+        isRunning: _host is { HasSession: true } || _startUnderWay,
+        isBusy: IsWorking || PendingQuestions is not null || PendingApprovals.Count > 0,
+        hasUnsentWork: Draft.Trim().Length > 0 || Attachments.Count > 0);
+
+    private void Tell() => LaunchNotice = LaunchNotices.With(LaunchNotice, SkillChangePolicy.Notice);
+
+    /// <summary>
+    /// Records that the agent wants starting again, and makes sure exactly one thing is waiting to do it.
+    /// </summary>
+    /// <remarks>Every database added and every RW toggle writes the skill again, so the changes arrive in
+    /// runs; started on each, the tile tore the agent down and brought it up once per click, of which only
+    /// the last was wanted. What is kept is a wish rather than a queue: however many changes land, the
+    /// agent is started again once after them.</remarks>
+    private void WantARestart()
+    {
+        _skillRestartWanted = true;
+        if (_skillRestartWaiting) return;
+        _skillRestartWaiting = true;
+        _ = RunAsync(RestartWhenTheRunSettlesAsync);
+    }
+
+    /// <summary>
+    /// Waits for the run of changes to stop, then starts the agent again — once, however many there were.
+    /// </summary>
+    /// <remarks>
+    /// <para>Three things collapse into one start here. A change during the quiet window pushes the window
+    /// out rather than adding a start. A change during the start itself is answered by one more lap — which
+    /// is what <see cref="_startUnderWay"/> buys: the tile holds no host through most of a restart, and read
+    /// off the host such a change answered "nothing has started" and was dropped, notice and all. And the
+    /// situation is read
+    /// <em>again</em> at the moment the start would happen: the window is long enough for the user to have
+    /// sent a turn into the agent meanwhile, and a restart must never interrupt one — that change gets the
+    /// notice it would have got had it arrived a second later.</para>
+    /// <para>On the thread this tile draws on throughout: every flag here is this view model's, and the
+    /// delay resumes on the dispatcher it was started from.</para>
+    /// </remarks>
+    private async Task RestartWhenTheRunSettlesAsync()
+    {
+        try
+        {
+            while (_skillRestartWanted)
+            {
+                _skillRestartWanted = false;
+                await Task.Delay(SkillChangePolicy.QuietWindow, _lifetime.Token);
+                if (_skillRestartWanted) continue;
+                if (_disposed) return;
+
+                switch (ResponseToSkillChange())
+                {
+                    case SkillChangeResponse.Restart:
+                        await StartAsync();
+                        break;
+                    case SkillChangeResponse.Tell:
+                        Tell();
+                        break;
+                }
+            }
+        }
+        finally
+        {
+            _skillRestartWaiting = false;
+        }
+    }
+
+    /// <summary>A process is about to be started in this tile, so the restart it was asked for has happened.
+    /// </summary>
+    /// <remarks>Without it the bar went on asking for a restart the tile had already performed — a request
+    /// nobody can satisfy, which is how a notice bar stops being read. Only its own line comes down, so a
+    /// sentence somebody else put up stays, and so does one the user has already dismissed.</remarks>
+    private void OnSessionStarting() =>
+        LaunchNotice = LaunchNotices.Without(LaunchNotice, SkillChangePolicy.Notice);
 
     /// <summary>The <c>@</c> file suggestions every box in this tile offers — the composer and an answer —
     /// the Goal tile's own, so a path is found the same way in both.</summary>
@@ -752,6 +916,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private async Task UnderStartGateAsync(Func<Task> start)
     {
         await _startGate.WaitAsync();
+        _startUnderWay = true;
         try
         {
             // Every start from here on reads the overrides as they are now, so a queued restart is covered.
@@ -760,6 +925,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         }
         finally
         {
+            _startUnderWay = false;
             _startGate.Release();
         }
     }
@@ -844,6 +1010,18 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
                 return;
             }
 
+            // Read off the host, which has just replayed this conversation, rather than off the store a
+            // second time: the same answer, without reading every event of a long conversation twice.
+            launch = launch with
+            {
+                HasHistory = host.State.Timeline.OfType<MessageEntry>().Any(m => m.Role == MessageRole.User),
+            };
+
+            // The symmetric half of OnSkillsChanged, and the reason it is here rather than at the top of
+            // this method: a start that never reached a process — a model that could not be resolved, a
+            // conversation another tile is holding — read nothing off disk, so the request stands. From
+            // here a process does read it, whether the user pressed restart or the policy did.
+            OnSessionStarting();
             await host.StartAsync(sink => _sessionStarter.Create(agent, launch, sink), _lifetime.Token);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -1122,6 +1300,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         if (_disposed) return;
         _disposed = true;
         _lifetime.Cancel();
+        if (_agentFiles is not null) _agentFiles.SkillsChanged -= OnSkillsChanged;
         OpenConversations.ReleaseAllOf(_tileId());
         Chooser.Dispose();
         FileMentions.Dispose();

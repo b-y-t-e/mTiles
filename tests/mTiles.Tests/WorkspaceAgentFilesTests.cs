@@ -480,5 +480,150 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         Assert.False(File.Exists(Path_("AGENTS.md")));
     }
 
+    /// <summary>
+    /// The skills directory of an agent that watches one is made when its tile appears, before there is
+    /// anything to put in it.
+    /// </summary>
+    /// <remarks>Claude Code follows a skill written while it runs, but only in a directory that existed
+    /// when the session started — its own documentation says so. This application makes that directory at
+    /// the moment the first database is ticked, which is after the session is running, so without this the
+    /// only CLI that can follow the change was reliably handed the one case it cannot.</remarks>
+    [Fact]
+    public void A_watching_agents_skills_directory_is_made_before_there_is_a_skill()
+    {
+        var files = new WorkspaceAgentFiles(_dir);
+
+        files.Follow([Agent("claude")]);
+
+        Assert.True(Directory.Exists(Path_(".claude", "skills")));
+        // And nothing in it: this buys a watcher, not a skill.
+        Assert.Empty(Directory.GetFileSystemEntries(Path_(".claude", "skills")));
+    }
+
+    /// <summary>
+    /// And it is made when the set of agents moves, not on every layout change.
+    /// </summary>
+    /// <remarks><c>Follow</c> is asked again for every change to the tile tree — a dragged splitter as
+    /// readily as a tile added — on the thread the application draws on. Making the directory in front of
+    /// that answer was a filesystem call per drag, which on a repository held over a network share is the
+    /// drag itself stuttering. Deleting it and following the same agents again is the observable proof
+    /// that the call sits behind the early return: the directory is not remade because nothing was
+    /// asked.</remarks>
+    [Fact]
+    public void The_watched_directory_is_not_remade_on_every_layout_change()
+    {
+        var files = new WorkspaceAgentFiles(_dir);
+        files.Follow([Agent("claude")]);
+        Directory.Delete(Path_(".claude", "skills"));
+
+        files.Follow([Agent("claude")]);
+
+        Assert.False(Directory.Exists(Path_(".claude", "skills")));
+
+        // And the moment the agents do move, it is made again.
+        files.Follow([Agent("claude"), Agent("codex")]);
+        Assert.True(Directory.Exists(Path_(".claude", "skills")));
+    }
+
+    /// <summary>
+    /// And nobody else's is, because for them an empty directory buys nothing at all.
+    /// </summary>
+    /// <remarks>opencode, codex, pi and agy do not follow a skill written mid-session, so making their
+    /// directories up front would put <c>.opencode/skills</c> and <c>.agents/skills</c> in a repository
+    /// for no gain — the littering this class's own rule exists to prevent.</remarks>
+    [Fact]
+    public void An_agent_that_does_not_watch_gets_no_directory_until_there_is_a_skill()
+    {
+        var files = new WorkspaceAgentFiles(_dir);
+
+        files.Follow([Agent("opencode"), Agent("codex"), Agent("pi"), Agent("agy")]);
+
+        Assert.False(Directory.Exists(Path_(".opencode")));
+        Assert.False(Directory.Exists(Path_(".agents")));
+
+        // The moment there is something to write, the ordinary rule puts it where it goes.
+        files.WriteSkill(Skill, "body");
+        Assert.True(File.Exists(Path_(".opencode", "skills", Skill, "SKILL.md")));
+        Assert.True(File.Exists(Path_(".agents", "skills", Skill, "SKILL.md")));
+    }
+
+    /// <summary>A workspace holding no agent at all is left completely alone.</summary>
+    [Fact]
+    public void A_workspace_with_no_agents_is_untouched()
+    {
+        new WorkspaceAgentFiles(_dir).Follow([]);
+
+        Assert.Empty(Directory.GetFileSystemEntries(_dir));
+    }
+
+    /// <summary>Which agents claim to follow a skill written while they run — the measurement, pinned so
+    /// that adding one is adding a measurement.</summary>
+    /// <remarks>Measured 2026-09-17: Claude Code 2.1.274 alone documents both a watcher and
+    /// <c>/reload-skills</c> (in headless and SDK sessions as of 2.1.260). codex hedges its own claim with
+    /// "restart Codex" and says nothing about <c>codex exec</c>; opencode has an open bug for it; pi's
+    /// documentation says the scan is at startup and its RPC protocol has no reload verb; agy documents
+    /// nothing. See <c>IAiAgent.WatchesSkillsDirectory</c>.</remarks>
+    [Fact]
+    public void Only_claude_code_claims_to_follow_a_skill_written_while_it_runs()
+    {
+        Assert.Equal(["claude"],
+            AiAgentCatalog.All.Where(agent => agent.WatchesSkillsDirectory(AgentSurface.Terminal))
+                .Select(agent => agent.Id));
+
+        // And the answer is only meaningful where there is a directory to watch.
+        Assert.All(AiAgentCatalog.All.Where(agent => agent.WatchesSkillsDirectory(AgentSurface.Terminal)),
+            agent => Assert.NotNull(agent.SkillsDirectory(_dir)));
+    }
+
+    /// <summary>What a restored tile offers at startup, and a tile closing, are not changes; a later
+    /// decision is.</summary>
+    /// <remarks>At startup the database tile forgets the skill while discovery is still running and writes
+    /// it once the registry answers. Announcing either restarted every idle agent on every launch.</remarks>
+    [Fact]
+    public void Only_a_change_from_what_was_offered_is_announced()
+    {
+        var files = new WorkspaceAgentFiles(_dir);
+        var announced = 0;
+        files.SkillsChanged += _ => announced++;
+
+        files.ForgetSkill(Skill);
+        files.WriteSkill(Skill, "body");
+        Assert.Equal(0, announced);
+
+        // The same content again is the tile tree having moved, not a decision.
+        files.WriteSkill(Skill, "body");
+        Assert.Equal(0, announced);
+
+        files.WriteSkill(Skill, "second body");
+        Assert.Equal(1, announced);
+
+        files.RemoveSkill(Skill);
+        Assert.Equal(2, announced);
+
+        files.WriteSkill(Skill, "second body");
+        Assert.Equal(3, announced);
+    }
+
+    /// <summary>A skill that was taken away and comes back is a change, however unchanged its content.
+    /// </summary>
+    /// <remarks>Closing the database tile takes the <c>SKILL.md</c> off disk, so an agent started after
+    /// that reads no skill. Measured against what was last offered rather than against what is on disk, the
+    /// same selection coming back was silence — the agent never saw the databases and nobody was told,
+    /// which is this event's own failure reached by closing and reopening a tile.</remarks>
+    [Fact]
+    public void A_skill_that_went_away_and_came_back_is_announced()
+    {
+        var files = new WorkspaceAgentFiles(_dir);
+        var announced = 0;
+        files.WriteSkill(Skill, "body");
+        files.SkillsChanged += _ => announced++;
+
+        files.ForgetSkill(Skill);
+        Assert.Equal(0, announced);
+
+        files.WriteSkill(Skill, "body");
+        Assert.Equal(1, announced);
+    }
+
     private const char Lf = '\n';
 }

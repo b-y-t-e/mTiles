@@ -750,8 +750,36 @@ conversation* is what takes it), **a conversation is one tile's at a time** (`Op
 of one conversation number their events from the same starting point and the store keeps whichever landed
 last), and **the agent comes with the conversation** rather than the other way round, because a resume token
 is only ever handed back to the CLI that issued it. What the picker cannot promise is that the *agent*
-remembers what the transcript shows: three of the six fail quietly at a cold resume, and the table is in
+remembers what the transcript shows — but it can promise to **say so** when it does not: pi and agy used to
+fail a cold resume in silence, and both are now caught before the first message (`ResumeCheck` — pi's
+`get_state` `messageCount`, agy's `init` naming another id; measured live 2026-09-17), while Grok 1.0.34
+answers an unknown id with an error. The table is in
 [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) → *Which conversation a tile is showing*.
+
+**A change to the workspace's skills reaches the agents already running** (`WorkspaceAgentFiles.SkillsChanged`,
+`SkillChangePolicy`). Ticking a database used to write `SKILL.md` and stop, and a CLI already started reads
+skills only at start-up — with one measured exception, which is why the question takes the surface it is
+asked about (`IAiAgent.WatchesSkillsDirectory(AgentSurface)`): Claude Code follows a change **in its own
+terminal interface**, and only in a skills directory that existed when its session started, which is why
+`WorkspaceAgentFiles.Follow` now makes `.claude/skills` when a Claude tile appears rather than at the first
+tick. The session an Agent tile drives is not that interface — it is `claude -p --output-format stream-json`,
+where the only documented route is a `/reload-skills` nobody here sends — so an Agent tile is told to restart
+like every other. An idle Agent tile restarts on its own; one that is busy or holds an unsent message gets a
+notice, and a terminal agent tile always does — its restart would take the scrollback and the half-typed
+prompt. **A run of changes is one restart, not one each**: every database ticked and every RW toggle
+writes the skill again, so the tile waits out `SkillChangePolicy.QuietWindow` (two seconds), coalesces a
+change arriving during a restart into one further lap, and asks the policy **again** at the moment it
+would start — the window is long enough for a turn to have been sent meanwhile, and that change gets the
+notice instead. Acted on per click, three databases were three teardowns and three cold resumes, of which
+only the last described what the user meant to grant. The notice comes down at the next start of a process in that tile — a launch, and equally one the
+launch chain made on its own after the tool exited (`TerminalTileViewModel.NoteProcessStarting`, said by
+`TileLauncher` once the launch is past its refusals and by `DirectLaunchSession` before each command it
+starts) — so a bar does not go on asking for a restart that has happened, and equally does not stop
+asking for one that a refused launch never made. **In both kinds the notice is the
+tile's own bar and never an event of the conversation**: a `NoticeRaised` is stored, so the Agent tile wrote
+one identical line per ticked database into `conversations.db`, kept none of it down when the restart it asked
+for happened, and said it all again every time the conversation was opened. One line however often the cause
+repeats, taken down at the start that satisfies it, and dismissible — `LaunchNotices` for both.
 
 The tile counts as an agent in its workspace and as a process of this machine's: it answers
 `IAgentTile` — which `TerminalAgentTileViewModel` answers too, so the workspace's skills and its CLAUDE.md/
@@ -760,8 +788,9 @@ through the session's own `IProcessBackedSession`, so the workspace row's memory
 this tile started.
 
 Claude Code, codex, opencode, pi and agy were each run live through launcher, session, host and checkpoint
-(`LiveAgentConversationTests`, opt-in by `MTILES_LIVE_AGENTS`); Grok was not, because it is not installed
-here. Transports, measurements and every trap found on the way are in
+(`LiveAgentConversationTests`, opt-in by `MTILES_LIVE_AGENTS`). Grok's resume and ACP surface were measured
+live separately (1.0.34, 2026-09-17), installed at `~/.grok/bin` — which `ExecutableFinder` reaches through
+its `~/.{name}/bin` rule. Transports, measurements and every trap found on the way are in
 [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) — read it before touching
 `src/mTiles.AgentSessions/`, `Services/Agents/Sessions/` or `ViewModels/AgentConversation/`.
 

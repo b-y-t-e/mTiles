@@ -719,6 +719,44 @@ public class TerminalAgentTileTests
         finally { leaf.Dispose(); }
     }
 
+    /// <summary>A process starting takes the skill notice down, and leaves the rest of the bar alone.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The launch chain relaunches without going through <c>TileLauncher</c>.</b> A user who
+    /// leaves the agent with <c>/exit</c> has it brought back by <c>DirectLaunchSession</c> ten seconds
+    /// later, reading whatever <c>SKILL.md</c> is on disk by then — so the bar asking for a restart was
+    /// asking for one that had already happened, and the user paid a scrollback to satisfy it. This is
+    /// that path: the chain says a command is starting, and the tile answers exactly as it does at a
+    /// launch, because both end in a child reading the skills directory.</para>
+    /// <para>The other line is the one an <c>AgentSubstitution</c> puts up: a fact about the layout,
+    /// reported once, and a process starting does not answer it.</para>
+    /// <para>Which starts reach this at all is the launcher's half of the same rule, and it is asserted
+    /// where a launch can be driven end to end — <c>SkillChangeWiringTests</c>.</para>
+    /// </remarks>
+    [Fact]
+    public void A_process_starting_takes_the_notice_down()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var instance = settings.Service.Settings.AiAgentInstances[0];
+
+        var kind = new TerminalAgentTileKind();
+        var tile = (TerminalAgentTileViewModel)((ITileKind)kind).Create(
+            Context(directory.Path, settings, Guid.NewGuid().ToString()),
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
+
+        try
+        {
+            const string substitution = "Running Claude Code instead of Codex.";
+            tile.LaunchNotice = LaunchNotices.With(substitution, SkillChangePolicy.Notice);
+
+            tile.NoteProcessStarting();
+
+            Assert.Equal(substitution, tile.LaunchNotice);
+        }
+        finally { tile.Dispose(); }
+    }
+
     /// <summary>Two instances of one agent, so a switch has somewhere to go.</summary>
     /// <remarks>The second is a copy of the first, so the pair differs by nothing the availability rule
     /// looks at: a test about switching must not turn into a test about what is installed.</remarks>

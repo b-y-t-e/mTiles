@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using Avalonia.Threading;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Activity;
@@ -24,6 +25,14 @@ namespace mTiles.ViewModels;
 /// </remarks>
 public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescribedTile, IAgentTile
 {
+    private readonly WorkspaceAgentFiles? _agentFiles;
+
+    /// <summary>Getting onto the thread this tile is drawn on.</summary>
+    /// <remarks><see cref="WorkspaceAgentFiles.SkillsChanged"/> is raised on whichever thread wrote the
+    /// file, and what this tile does with it writes an observable property straight into a binding. The
+    /// same seam the Agent tile keeps, and for the same reason: a test drives it without a dispatcher.
+    /// </remarks>
+    private readonly Action<Action> _post;
     private readonly IAiAgent _agent;
     private readonly SettingsService _settings;
     private readonly Action? _requestSave;
@@ -90,9 +99,13 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     public TerminalAgentTileViewModel(string workingDirectory, ShellInstallation? shell,
         SettingsService settingsService, IAiAgent agent, string instanceId,
         string? sessionId = null, Func<string>? tileId = null, Action? requestSave = null,
-        AgentSubstitution? substitution = null)
+        AgentSubstitution? substitution = null, WorkspaceAgentFiles? agentFiles = null,
+        Action<Action>? post = null)
         : base(workingDirectory, shell, settingsService, tileId: tileId)
     {
+        _post = post ?? (action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background));
+        _agentFiles = agentFiles;
+        if (_agentFiles is not null) _agentFiles.SkillsChanged += OnSkillsChanged;
         _agent = agent;
         _settings = settingsService;
         _requestSave = requestSave;
@@ -198,13 +211,14 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
                 instance => instance.Id == instanceId && instance.AgentId == AgentId);
 
     /// <summary>Puts down the report of a substitution the user has just overruled.</summary>
-    /// <remarks>The notice only if it is still the one the substitution put there: the user may have
-    /// dismissed it, and a launch may have replaced it with something of its own.</remarks>
+    /// <remarks>Its own line off the bar and nothing else: the user may have dismissed it, and something
+    /// else — a skill this workspace has just granted — may be standing there beside it
+    /// (<see cref="LaunchNotices"/>).</remarks>
     private void ClearSubstitution()
     {
         if (Substitution is not { } substitution) return;
 
-        if (LaunchNotice == substitution.Notice) LaunchNotice = "";
+        LaunchNotice = LaunchNotices.Without(LaunchNotice, substitution.Notice);
         Substitution = null;
     }
 
@@ -506,11 +520,54 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         _requestSave?.Invoke();
     }
 
+    /// <summary>
+    /// The databases this workspace grants reached the agents' skills directories.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A terminal agent is never restarted on its own.</b> Where the Agent tile can weigh what a
+    /// restart costs — its conversation is events in a store, so it can tell an empty one from a long one
+    /// — this tile is a TUI in a shell: the restart takes the scrollback and whatever is half-typed at the
+    /// prompt, and neither is anything this application can put back. There is nothing here to be the
+    /// "nothing to lose" case, so whenever <see cref="SkillChangePolicy"/> has anything to say at all, what
+    /// it says here is the notice.</para>
+    /// <para>The same bar <c>AgentSubstitution</c> writes to, for the same reason: the tile is running and
+    /// keeps running, something happened that the user would want to know about once, and they can put it
+    /// down. Beside it rather than over it — see <see cref="LaunchNotices"/>.</para>
+    /// <para>Raised off whichever thread wrote the file, so the first thing this does is get onto the one
+    /// the tile draws on: <c>LaunchNotice</c> is an observable property read by a binding.</para>
+    /// </remarks>
+    private void OnSkillsChanged(string skill) => _post(() =>
+    {
+        // The same rule the Agent tile asks, read with this tile's own answer to the last two questions:
+        // a TUI in a shell always holds a scrollback and may hold a half-typed prompt, so there is never
+        // nothing to lose here. What is left for the policy to decide — whether the agent follows the
+        // change itself, and whether anything has started to read it — is decided there and not here.
+        if (SkillChangePolicy.For(agentFollowsIt: _agent.WatchesSkillsDirectory(AgentSurface.Terminal),
+                isRunning: HasRunningSession,
+                isBusy: true, hasUnsentWork: true) is not SkillChangeResponse.Tell) return;
+
+        // Added to whatever the bar already says rather than written over it: an AgentSubstitution notice
+        // is reported once, at construction, so replacing it here would lose for good the one sentence
+        // saying a different program is running in this repository.
+        LaunchNotice = LaunchNotices.With(LaunchNotice, SkillChangePolicy.Notice);
+    });
+
+    /// <summary>The restart the notice asked for, taking the notice down.</summary>
+    /// <remarks><b>The symmetric half of <see cref="OnSkillsChanged"/>.</b> Without it the bar went on
+    /// asking for a restart after the restart had happened and the new process had read the skill, until
+    /// the user happened to press Dismiss — a request nobody could satisfy, which is how a notice bar
+    /// stops being read at all. Every launch, not only a restart: the first one reads whatever is on disk
+    /// too. Its own line off the bar, so an <c>AgentSubstitution</c> standing beside it stays, and so does
+    /// one the user has already put down — see <see cref="LaunchNotices"/>.</remarks>
+    protected override void OnLaunchBeginning() =>
+        LaunchNotice = LaunchNotices.Without(LaunchNotice, SkillChangePolicy.Notice);
+
     /// <inheritdoc />
     /// <remarks>The claim goes with the tile: a session nobody is showing any more is one the next codex
     /// tile in this workspace may legitimately be handed.</remarks>
     protected override void OnDisposing()
     {
+        if (_agentFiles is not null) _agentFiles.SkillsChanged -= OnSkillsChanged;
         CancelCapture();
         CapturedSessions.ReleaseAllOf(TileId);
         // And whatever it held before its last change of identity, for a tile closed after "New

@@ -70,6 +70,17 @@ public sealed class CodexAgent : AiAgent, Sessions.IConversationalAgent
     /// another.</summary>
     public override string? SkillsDirectory(string workspaceDir) =>
         Path.Combine(workspaceDir, ".agents", "skills");
+
+    /// <summary>Not taken at its word, and that is the decision worth recording.</summary>
+    /// <remarks>Measured 2026-09-17 against codex-cli 0.153.2's own documentation, which says both
+    /// <i>"Codex detects skill changes automatically"</i> and <i>"If an update doesn't appear, restart
+    /// Codex"</i> — no version, no mechanism, no reload command, and not one word about
+    /// <c>codex exec</c> or the app-server, which is the long-lived process an Agent tile actually talks
+    /// to. A claim hedged by its own author is not one to build a silent behaviour on: answering true
+    /// here would make this application stop telling the user to restart, on the strength of a sentence
+    /// that ends "restart Codex".</remarks>
+    public override bool WatchesSkillsDirectory(AgentSurface surface) => false;
+
     public override string BinaryName => "codex";
 
     /// <summary>

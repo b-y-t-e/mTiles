@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Avalonia.Threading;
 using mTiles.Models;
 using mTiles.Services.Shells;
@@ -32,6 +32,16 @@ internal sealed class DirectLaunchSession : IDisposable
     /// in the scrollback and in the shell's history file, and a key must never go that way.</summary>
     private readonly IReadOnlyDictionary<string, string?>? _environment;
 
+    /// <summary>Told before every command this chain starts, including the plain shell it ends at.
+    /// </summary>
+    /// <remarks><b>The chain starts processes nobody asked it to start.</b> A tool that exits is
+    /// relaunched from here, and the next link is started from here — neither goes back through
+    /// <c>TileLauncher.Launch</c>, so a tile that takes a notice down at a process starting never saw these.
+    /// What that cost was a bar still asking for a restart after the chain had already restarted the
+    /// agent, which is a request nobody can satisfy and the one thing a notice bar must never become.
+    /// </remarks>
+    private readonly Action? _onCommandStarting;
+
     /// <summary>Cancelled by <see cref="Dispose"/>. Every wait in the chain takes it, so stopping is
     /// immediate rather than "at the next checkpoint" — a chain waiting on a tool that runs for hours
     /// would otherwise hold the tile's teardown for exactly that long.</summary>
@@ -39,9 +49,10 @@ internal sealed class DirectLaunchSession : IDisposable
 
     private DirectLaunchSession(TerminalControl terminal, string workingDir, ShellInstallation shell,
         IReadOnlyList<string> commands, ChainPolicy policy,
-        IReadOnlyDictionary<string, string?>? environment)
+        IReadOnlyDictionary<string, string?>? environment, Action? onCommandStarting)
     {
         _environment = environment;
+        _onCommandStarting = onCommandStarting;
         policy.Validate();
         _policy = policy;
         _terminal = terminal;
@@ -53,7 +64,7 @@ internal sealed class DirectLaunchSession : IDisposable
     /// <summary>Starts the chain and returns the handle that owns it. Dispose it to stop relaunching.</summary>
     public static DirectLaunchSession Start(TerminalControl terminal, string workingDir, ShellInstallation shell,
         LaunchScripts scripts, string tileId, ChainPolicy? policy = null,
-        IReadOnlyDictionary<string, string?>? environment = null)
+        IReadOnlyDictionary<string, string?>? environment = null, Action? onCommandStarting = null)
     {
         // Here, where the caller can see it. The chain reaches the control's own thread check only
         // inside a task nobody awaits, so a call from the wrong thread would be caught, traced, and
@@ -63,7 +74,7 @@ internal sealed class DirectLaunchSession : IDisposable
         var commands = BuildCommands(scripts, tileId);
 
         var session = new DirectLaunchSession(terminal, workingDir, shell,
-            commands, policy ?? ChainPolicy.Default, environment);
+            commands, policy ?? ChainPolicy.Default, environment, onCommandStarting);
         _ = session.RunGuardedAsync();
         return session;
     }
@@ -125,6 +136,8 @@ internal sealed class DirectLaunchSession : IDisposable
 
             var command = _commands[index];
             var (exe, args) = _shell.CommandLineFor(command);
+            AnnounceCommandStarting();
+
             int session;
             try
             {
@@ -214,6 +227,9 @@ internal sealed class DirectLaunchSession : IDisposable
         if (_terminal.IsDisposed) return;
         try
         {
+            // The chain has given up on the tool, so whatever a notice was asking the user to restart is
+            // not running any more either — told for the same reason every other start here is.
+            AnnounceCommandStarting();
             await ShellStarter.StartAsync(_terminal, _workingDir, _shell.ExecutablePath,
                 _shell.InteractiveArgs, environment: _environment, cancellationToken: stop);
         }
@@ -226,6 +242,25 @@ internal sealed class DirectLaunchSession : IDisposable
             // command left on screen — or nothing at all, if the first command failed to spawn too.
             Trace.TraceError("The tile has no shell: starting '{0}' {1} in '{2}' failed: {3}",
                 _shell.ExecutablePath, string.Join(' ', _shell.InteractiveArgs), _workingDir, ex);
+        }
+    }
+
+    /// <summary>Tells the tile a process is about to start in it, without letting it cost the start.
+    /// </summary>
+    /// <remarks>Swallowed for the reason the chain swallows a failed spawn: what is on the other end of
+    /// this draws, and a tile that could not take a line off its notice bar is no reason to leave the
+    /// user without the shell the chain was about to give them. On the dispatcher already — every await
+    /// in this chain resumes there — so a handler writing an observable property is on its own thread.
+    /// </remarks>
+    private void AnnounceCommandStarting()
+    {
+        try
+        {
+            _onCommandStarting?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("A tile refused to be told its chain was starting a command: {0}", ex);
         }
     }
 

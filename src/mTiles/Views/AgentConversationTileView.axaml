@@ -216,6 +216,34 @@
             </DockPanel>
         </Border>
 
+        <!-- ======== What this tile is asking about the process it runs ========
+             The terminal agent tile's notice bar, in this tile's own language. Docked rather than drawn in
+             the conversation: it is a request about the process running now, not something that was said,
+             and a stored notice was one more identical line in the transcript per tick of a database.
+             Dismissible, because the tile *is* running below it. -->
+        <Border DockPanel.Dock="Top"
+                IsVisible="{Binding HasLaunchNotice}"
+                Background="{DynamicResource BgElevated}"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="{DynamicResource BorderBottom}"
+                Padding="8,6">
+            <DockPanel LastChildFill="True">
+                <mi:MaterialIcon DockPanel.Dock="Left"
+                                 Kind="InformationOutline"
+                                 Width="14" Height="14"
+                                 Margin="0,1,8,0"
+                                 VerticalAlignment="Top"
+                                 Foreground="{DynamicResource AccentHover}" />
+                <Button DockPanel.Dock="Right"
+                        Classes="chat-action"
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Top"
+                        Command="{Binding DismissLaunchNoticeCommand}"
+                        Content="Dismiss" />
+                <SelectableTextBlock Classes="msg msg-system" Text="{Binding LaunchNotice}" />
+            </DockPanel>
+        </Border>
+
         <!-- ======== What the context costs ========
              At the very foot of the tile, under the composer, and quiet: it is a thing to glance at
              while writing rather than a thing to read. It was words on the top strip, beside the
