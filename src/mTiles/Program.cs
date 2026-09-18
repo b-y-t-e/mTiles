@@ -27,8 +27,9 @@ public static class Program
         // native scrollback, drag-selection and select-while-scrolling in tiles.
         // Opt back into the classic renderer for all PTYs spawned by mTiles.
         // A user-defined value (set before launching mTiles) always wins.
-        SetDefaultEnv("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1");
-        SetDefaultEnv("CLAUDE_CODE_DISABLE_MOUSE", "1");
+        // Disabled: the classic renderer caused problems when the terminal tile was resized.
+        // SetDefaultEnv("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1");
+        // SetDefaultEnv("CLAUDE_CODE_DISABLE_MOUSE", "1");
 
         try
         {
