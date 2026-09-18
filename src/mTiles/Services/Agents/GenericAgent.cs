@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
 
 namespace mTiles.Services.Agents;
@@ -42,8 +42,8 @@ public sealed class GenericAgent(string binaryName) : AiAgent
     public override IReadOnlyList<string> BehaviourArgs(AiBehaviour behaviour, AiUsage usage) => [];
 
     /// <summary>The binary on its own. There is no resume to offer and nothing to fall back to.</summary>
-    protected override LaunchScripts Resume(string sessionId) =>
-        LaunchScripts.FromProfile(binaryName, null);
+    protected override LaunchScripts Resume(string program, string sessionId) =>
+        LaunchScripts.FromProfile(program, null);
 
     /// <summary>No model flag, so <see cref="AiAgent.AcceptsModel"/> answers false: a flag for a
     /// binary nothing is known about would be a guess, and a wrong guess fails every run.</summary>

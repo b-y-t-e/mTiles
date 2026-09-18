@@ -150,8 +150,8 @@ public sealed class PiAgent : AiAgent, Sessions.IConversationalAgent
     public override IReadOnlyList<string> ModelArgs(string model, AiUsage usage) =>
         model.Length > 0 ? ["--model", model] : [];
 
-    protected override LaunchScripts Resume(string sessionId) =>
-        LaunchScripts.FromProfile($"pi --session-id {sessionId}", "pi");
+    protected override LaunchScripts Resume(string program, string sessionId) =>
+        LaunchScripts.FromProfile($"{program} --session-id {sessionId}", program);
 
     public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
         AiUsage usage, AiBehaviour behaviour = AiBehaviour.Auto,

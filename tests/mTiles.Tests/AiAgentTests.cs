@@ -40,8 +40,17 @@ public class AiAgentTests
 
     /// <summary>The shell a command is composed for, where the test is not about quoting.</summary>
     /// <remarks>None of the agents' own flags need quoting in any shell, so which one this is only
-    /// matters to <see cref="Extra_arguments_are_quoted_by_the_shell_that_will_run_them"/>.</remarks>
-    private static readonly IShellTerminal Shell = new PowerShellTerminal();
+    /// matters to <see cref="Extra_arguments_are_quoted_by_the_shell_that_will_run_them"/>.
+    /// <para><b>bash rather than PowerShell, and that is not arbitrary any more.</b> A shell also says
+    /// how the binary itself is spelled (<c>IShellTerminal.Program</c>), and PowerShell answers with
+    /// the path this machine found rather than the name — so under it every expectation here would be
+    /// a fact about the machine running the suite. These tests are about flags, order and quoting; the
+    /// spelling is <see cref="PowerShellProgramTests"/>'.</para></remarks>
+    private static readonly IShellTerminal Shell = new BashTerminal();
+
+    /// <summary>How PowerShell spells pi's binary under the suite's pretended installation
+    /// (<see cref="AiAgentCatalog.PretendEveryAgentIsInstalled"/>) — the same on every machine.</summary>
+    private static readonly string PretendedPi = $"& '{AiAgentCatalog.PretendedPathPrefix}pi'";
 
     // ── The catalog ─────────────────────────────────────
 
@@ -777,7 +786,7 @@ public class AiAgentTests
             ExtraArgs = ["--add-dir", "/tmp/some repo", "   "],
         };
 
-        Assert.Equal("pi --session-id the-id --add-dir '/tmp/some repo'",
+        Assert.Equal(PretendedPi + " --session-id the-id --add-dir '/tmp/some repo'",
             new PiAgent().Interactive(Runtime(instance), "the-id", new PowerShellTerminal()).Startup);
 
         Assert.Equal("pi --session-id the-id --add-dir '/tmp/some repo'",
@@ -801,7 +810,7 @@ public class AiAgentTests
             ExtraArgs = ["--note=$(whoami) it's \"here\""],
         };
 
-        Assert.Equal("pi --session-id the-id '--note=$(whoami) it''s \"here\"'",
+        Assert.Equal(PretendedPi + " --session-id the-id '--note=$(whoami) it''s \"here\"'",
             new PiAgent().Interactive(Runtime(instance), "the-id", new PowerShellTerminal()).Startup);
 
         Assert.Equal("pi --session-id the-id '--note=$(whoami) it'\\''s \"here\"'",

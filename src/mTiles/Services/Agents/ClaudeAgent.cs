@@ -500,8 +500,9 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
     /// ever resumes anything. If both commands are refused the chain still ends at an interactive
     /// shell, so the tile is not left dead.</para>
     /// </remarks>
-    protected override LaunchScripts Resume(string sessionId) =>
-        LaunchScripts.FromProfile($"claude --resume {sessionId}", $"claude --session-id {sessionId}");
+    protected override LaunchScripts Resume(string program, string sessionId) =>
+        LaunchScripts.FromProfile($"{program} --resume {sessionId}",
+            $"{program} --session-id {sessionId}");
 
     /// <summary><c>claude -p</c> with no prompt after it reads the prompt from standard input.</summary>
     public override bool AcceptsPromptOnStdin => true;

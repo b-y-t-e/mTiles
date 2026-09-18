@@ -39,7 +39,7 @@ internal abstract class StubAgent : AiAgent
 
     public override IReadOnlyList<string> BehaviourArgs(AiBehaviour behaviour, AiUsage usage) => [];
 
-    protected override LaunchScripts Resume(string sessionId) => LaunchScripts.None;
+    protected override LaunchScripts Resume(string program, string sessionId) => LaunchScripts.None;
 
     public override IReadOnlyList<AiOutputChunk> ParseLine(string line) => [];
 

@@ -141,9 +141,9 @@ public sealed class AntigravityAgent : AiAgent, Sessions.IConversationalAgent
     /// <remarks>The empty case is what keeps the pre-create honest: handing <c>--conversation</c> an id
     /// we invented would not fail, it would silently open a different conversation and report success.
     /// </remarks>
-    protected override LaunchScripts Resume(string sessionId) =>
+    protected override LaunchScripts Resume(string program, string sessionId) =>
         LaunchScripts.FromProfile(
-            sessionId is { Length: > 0 } ? $"agy --conversation {sessionId}" : "agy", "agy");
+            sessionId is { Length: > 0 } ? $"{program} --conversation {sessionId}" : program, program);
 
     /// <summary>
     /// Opens a conversation by asking agy something trivial, and keeps the id it answers with.

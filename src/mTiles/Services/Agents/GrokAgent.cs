@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
 
 namespace mTiles.Services.Agents;
@@ -74,7 +74,8 @@ public sealed class GrokAgent : AiAgent, Sessions.IConversationalAgent
         _ => [],
     };
 
-    protected override LaunchScripts Resume(string sessionId) => LaunchScripts.FromProfile("grok", null);
+    protected override LaunchScripts Resume(string program, string sessionId) =>
+        LaunchScripts.FromProfile(program, null);
 
     /// <summary>The prompt as a plain argument, as <see cref="GenericAgent"/> does: no print flag has
     /// been read off this CLI.</summary>

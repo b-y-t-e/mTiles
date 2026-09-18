@@ -228,16 +228,28 @@ public sealed class OpenCodeAgent : AiAgent, Sessions.IConversationalAgent
     /// <em>import's</em> working directory, which is the tile's. Re-importing an id that exists is
     /// non-destructive, so this is create-if-missing and not a way to wipe the conversation being
     /// resumed.</remarks>
-    protected override LaunchScripts Resume(string sessionId)
+    protected override LaunchScripts Resume(string program, string sessionId)
     {
-        var resume = $"opencode --session {sessionId}";
+        var resume = $"{program} --session {sessionId}";
         // The token rather than the path it expands to: writing the document is the launcher's job, and
         // what tells it there is one to write is exactly this token in the script (see
         // OpenCodeSession.PrepareIfReferenced). A path spelled out here reads the same to a shell and is
         // invisible to the launcher, so the import would point at a file nobody ever wrote.
         return LaunchScripts.FromProfile(resume,
-            $"opencode import \"{TileScript.OpenCodeSessionFileToken}\" ; {resume}");
+            $"{program} import \"{TileScript.OpenCodeSessionFileToken}\" ; {resume}");
     }
+
+    /// <summary>The import document's path — what <see cref="TileScript.OpenCodeSessionFileToken"/>
+    /// expands to at launch.</summary>
+    /// <remarks>The path is under the user's profile, and a profile name may carry an <c>&amp;</c> or a
+    /// <c>%</c>, which <c>cmd.exe</c> behind an <c>opencode.cmd</c> shim would read as a second command
+    /// or a variable. A session id that was not made from a usable tile id adds nothing: the launch
+    /// refuses to expand the token for it (<see cref="TileScript.TryResolve"/>), so no path is ever
+    /// written into that line.</remarks>
+    protected override IEnumerable<string> ResumeArguments(string sessionId) =>
+        OpenCodeSession.TileIdOf(sessionId) is { } tileId && TileScript.IsUsableId(tileId)
+            ? [OpenCodeSession.DocumentPath(tileId)]
+            : [];
 
     /// <inheritdoc />
     /// <remarks>The <c>ses_</c> prefix is the only thing opencode enforces on an imported id, and the

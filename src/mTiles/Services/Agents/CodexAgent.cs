@@ -265,9 +265,9 @@ public sealed class CodexAgent : AiAgent, Sessions.IConversationalAgent
     /// <remarks><b>Never <c>resume</c> with an id we invented.</b> An unknown id makes codex open its
     /// session picker, and a picker in a launch chain is a tile that waits for a keystroke nobody knows
     /// it wants. The fallback is a plain <c>codex</c> for the same reason.</remarks>
-    protected override LaunchScripts Resume(string sessionId) =>
+    protected override LaunchScripts Resume(string program, string sessionId) =>
         LaunchScripts.FromProfile(
-            sessionId is { Length: > 0 } ? $"codex resume {sessionId}" : "codex", "codex");
+            sessionId is { Length: > 0 } ? $"{program} resume {sessionId}" : program, program);
 
     /// <summary>Read from the session codex itself started, so there is nothing to read until it has.
     /// </summary>

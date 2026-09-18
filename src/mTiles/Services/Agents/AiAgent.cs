@@ -29,11 +29,23 @@ public abstract class AiAgent : IAiAgent
     /// The agent's own pair of commands: the one that resumes <paramref name="sessionId"/>, and the one
     /// to try when it does not work. Nothing about the instance's configuration belongs here.
     /// </summary>
+    /// <param name="program">How this tile's shell is told to run this agent's binary — usually the
+    /// binary's own name, and on PowerShell the path to it. Written into the command rather than the
+    /// name, for the reason <c>IShellTerminal.Program</c> gives.</param>
+    /// <param name="sessionId">Already quoted for that shell; see <see cref="Interactive"/>.</param>
     /// <remarks>What an agent implements instead of <see cref="Interactive"/>, for the reason
     /// <see cref="Configure"/> exists instead of <see cref="EnvFor"/>: the instance's effort, behaviour
     /// and extra arguments have to reach the command line of every agent, and a rule six classes have to
     /// remember is one five of them did forget.</remarks>
-    protected abstract LaunchScripts Resume(string sessionId);
+    protected abstract LaunchScripts Resume(string program, string sessionId);
+
+    /// <summary>The arguments <see cref="Resume"/> writes into its commands itself, beyond the session
+    /// id, as they will be when the command runs.</summary>
+    /// <remarks>Part of what the shell is asked about in <see cref="Interactive"/>, because on
+    /// PowerShell a <c>.cmd</c> shim is only used for arguments <c>cmd.exe</c> cannot misread
+    /// (<c>IShellTerminal.Program</c>) — and an argument the question never saw is one it could not
+    /// refuse.</remarks>
+    protected virtual IEnumerable<string> ResumeArguments(string sessionId) => [];
 
     public abstract IReadOnlyList<AiBehaviour> SupportedBehaviours(AiAgentInstance instance, AiUsage usage);
     public abstract IReadOnlyList<AiEffort> SupportedEfforts(AiAgentInstance instance, AiUsage usage);
@@ -274,11 +286,18 @@ public abstract class AiAgent : IAiAgent
     /// or a backup can corrupt, or — for a captured agent — whatever string the CLI printed as its
     /// conversation id. Unquoted, a <c>;</c> in either of those is a second command running in the
     /// user's repository. Quoted here rather than in six <see cref="Resume"/> bodies, for the reason
-    /// this method is not virtual at all.</para></remarks>
+    /// this method is not virtual at all.</para>
+    /// <para><b>And the binary is spelled the way that shell runs a program</b>
+    /// (<c>IShellTerminal.Program</c>), which on PowerShell is the path this machine found
+    /// rather than the name — otherwise an npm-installed CLI runs as its <c>.ps1</c> shim and a default
+    /// Windows refuses to load it. Looked up here for the same reason again: six <c>Resume</c> bodies
+    /// spelling their own binary is six chances to spell it as a bare name.</para></remarks>
     public LaunchScripts Interactive(AgentRuntime runtime, string sessionId, IShellTerminal shell)
     {
-        var commands = Resume(ForCommandLine(sessionId, shell));
         var arguments = InteractiveArguments(runtime);
+        var program = shell.Program(BinaryName, AiAgentCatalog.Locate(this),
+            [.. SessionArgument(sessionId), .. ResumeArguments(sessionId), .. arguments]);
+        var commands = Resume(program, ForCommandLine(sessionId, shell));
 
         return arguments.Count == 0
             ? commands
@@ -336,16 +355,14 @@ public abstract class AiAgent : IAiAgent
     private static string ForCommandLine(string sessionId, IShellTerminal shell) =>
         sessionId.Length == 0 ? sessionId : Quoted(sessionId, shell);
 
+    /// <summary>The session id as one of the arguments the shell is told about, or none when empty.
+    /// </summary>
+    private static IEnumerable<string> SessionArgument(string sessionId) =>
+        sessionId.Length == 0 ? [] : [sessionId];
+
     /// <inheritdoc cref="Append"/>
     private static string Quoted(string argument, IShellTerminal shell) =>
-        argument.Length > 0 && argument.All(IsQuoteFree) ? argument : shell.Quote(argument);
-
-    /// <summary>A character every shell in the catalog leaves alone, so an argument made only of them
-    /// is passed through unquoted.</summary>
-    /// <remarks>An allow-list rather than a list of what to escape: the next shell added brings its own
-    /// metacharacters, and a rule stated the other way round would already be wrong for it.</remarks>
-    private static bool IsQuoteFree(char character) =>
-        char.IsAsciiLetterOrDigit(character) || "._-/:=@+,".Contains(character);
+        ShellArgument.IsQuoteFree(argument) ? argument : shell.Quote(argument);
 
     /// <summary>
     /// What the agent asks for, and then what the user asked for on top of it.

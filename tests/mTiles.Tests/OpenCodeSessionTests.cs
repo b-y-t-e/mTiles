@@ -22,7 +22,10 @@ public sealed class OpenCodeSessionTests
 
     /// <summary>The shell the tile's commands are composed for. Nothing here needs quoting, so which
     /// one it is does not change what is asserted.</summary>
-    private static readonly IShellTerminal Shell = new PowerShellTerminal();
+    /// <remarks>bash, because PowerShell spells the binary as the path this machine found
+    /// (<c>IShellTerminal.Program</c>) and these tests are about the session id and the import token.
+    /// </remarks>
+    private static readonly IShellTerminal Shell = new BashTerminal();
 
     private static JsonElement Info(string tileId = TileId, string workingDirectory = @"D:\work\repo")
     {

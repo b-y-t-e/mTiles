@@ -223,7 +223,9 @@ public class TerminalAgentTileTests
             Assert.Equal("ses_" + tileId, tile.SessionId);
 
             var scripts = tile.ResolveCurrentScripts();
-            Assert.Equal($"opencode --session ses_{tileId}", scripts.Startup);
+            // How the binary is spelled is the default shell's (a name, or on PowerShell a path).
+            Assert.Contains("opencode", scripts.Startup, StringComparison.Ordinal);
+            Assert.EndsWith($" --session ses_{tileId}", scripts.Startup, StringComparison.Ordinal);
 
             // The launcher writes the import document only for a script that names it by token, and
             // the token has to survive resolution as the path of *this* tile's document.

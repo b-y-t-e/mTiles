@@ -1071,7 +1071,12 @@ public partial class SettingsViewModel
         // The tile that runs it is a plain terminal, and plumbing an environment block through the tile
         // kind for this one command would be a second route to keep in step with the first.
         var shell = ShellTerminalCatalog.ResolveDefault(_settingsService.Settings).Shell;
-        var command = shell.WithEnv(agent.SignInEnv(directory), agent.BinaryName);
+        // The binary spelled the way this shell runs a program (IShellTerminal.Program), not its bare
+        // name: on PowerShell a bare `claude` finds npm's `.ps1` shim, which a default Windows refuses
+        // to load — so this button opened a tile that printed an execution-policy error while the row
+        // went on saying "not signed in".
+        var command = shell.WithEnv(agent.SignInEnv(directory),
+            shell.Program(agent.BinaryName, AiAgentCatalog.Locate(agent), []));
 
         // Not an InstallPlan in spirit, but exactly one in shape: a command line, a note, and a tile to
         // run it in. A second type for the same three fields would be two things to keep in step.
@@ -1593,7 +1598,9 @@ public partial class SettingsViewModel
     private async Task AuthCcsCodexAsync()
     {
         var shell = ShellTerminalCatalog.ResolveDefault(_settingsService.Settings).Shell;
-        var command = shell.Invoke(CcsProvider.CommandName, CcsProvider.AuthArguments);
+        // Resolved to a file the way Install… is (InstallCommand.Line): on PowerShell a bare `ccs` finds
+        // npm's `.ps1` shim, which a default Windows refuses to load.
+        var command = InstallCommand.Line(CcsProvider.CommandName, CcsProvider.AuthArguments, shell);
 
         // Not an InstallPlan in spirit, but exactly one in shape — the rule the Sign in button already
         // lives by: a command line, a note, and a tile to run it in.
