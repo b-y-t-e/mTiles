@@ -108,29 +108,6 @@
             <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
         </Style>
 
-        <!-- The status word, coloured by what it says: the same meanings the tile header's marks carry, so a
-             glance at the strip answers "can I type now" without reading it. Starting and not running keep
-             the strip's own muted colour. -->
-        <Style Selector="TextBlock.strip.status-ready">
-            <Setter Property="Foreground" Value="{DynamicResource StatusSuccessText}" />
-        </Style>
-        <Style Selector="TextBlock.strip.status-working">
-            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
-        </Style>
-        <Style Selector="TextBlock.strip.status-waiting">
-            <Setter Property="Foreground" Value="{DynamicResource WarnText}" />
-        </Style>
-        <Style Selector="TextBlock.strip.status-failed">
-            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
-        </Style>
-
-        <Style Selector="Border.strip-divider">
-            <Setter Property="Width" Value="1" />
-            <Setter Property="Height" Value="12" />
-            <Setter Property="Margin" Value="4,0,8,0" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
-        </Style>
     </UserControl.Styles>
 
     <UserControl.Resources>
@@ -162,85 +139,107 @@
                 Padding="8,3"
                 BorderBrush="{DynamicResource BorderSubtle}"
                 BorderThickness="{DynamicResource BorderBottom}">
-            <DockPanel>
-                <!-- Right-hand corner: which conversation, and a new one. Stop stands first, so that its
-                     coming and going with a turn moves neither the list nor the button beside it. -->
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
-                    <Button Classes="tile-btn"
-                            Command="{Binding InterruptCommand}"
-                            IsVisible="{Binding IsWorking}"
-                            ToolTip.Tip="Stop the agent (Esc)">
-                        <mi:MaterialIcon Kind="Stop" Width="14" Height="14" />
-                    </Button>
-                    <!-- Which conversation this tile is showing. Every conversation ever held in this
-                         workspace is in the store, and until this list existed there was no way back to any
-                         of them: a conversation was the tile's own id, so a new one could only be started
-                         over the old. Read when the list is opened rather than kept in step, because the
-                         answer changes only when something is said and the tile redraws every frame while
-                         an agent replies.
+            <!-- One line, never two: RowFitter gives words up in the order AgentStripLayout writes
+                 down - the conversation to its icon, the status to its dot, then the agent trimmed and
+                 last of all to its icon. It used to wrap, which in a narrow tile put the status alone on
+                 a second line under a half-cut agent name.
 
-                         Searchable, unlike the agent beside it: this list grows for as long as the
-                         workspace is used, and a month in it is the one list on this tile that nobody can
-                         read down. Short at rest - the opening words are a reminder, not the conversation -
-                         and wide when open, where the rows have room to be told apart. -->
-                    <p:Picker x:Name="ConversationPicker"
-                              Classes="strip-picker"
-                              Options="{Binding Conversations.Options}"
-                              SelectedId="{Binding Conversations.SelectedKey}"
-                              Text="{Binding Conversations.SelectedTitle}"
-                              IsSearchEnabled="True"
-                              SearchPlaceholder="Search conversations…"
-                              EmptyText="No conversation here matches that."
-                              DropDownWidth="340"
-                              MaxWidth="170"
-                              ToolTip.Tip="The conversation this tile is showing" />
-                    <!-- A new conversation: a button rather than a row in the list above, because it is an
-                         action and not a place, and because it asks first - to the eye it clears the screen.
-                         Nothing is lost by it; the old conversation stays in the list. Deleting a conversation
-                         is *not* drawn here: it was the one destructive thing standing permanently beside the
-                         settings, a misclick from a conversation and its checkpoints, so it is declared in
-                         ITileActions.Actions and the tile header's overflow lists it. -->
-                    <!-- Accent (tile-btn-accent), so the one way to a fresh conversation is found without
-                         hunting; the confirmation behind it is what keeps it from being pressed by accident. -->
-                    <Button Classes="tile-btn tile-btn-accent"
-                            Command="{Binding NewConversationCommand}"
-                            ToolTip.Tip="New conversation (this one stays in the list)">
-                        <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
-                    </Button>
-                </StackPanel>
-                <!-- Who holds the conversation, then what it is doing. Wraps rather than truncating, so a
-                     narrow tile keeps every control reachable; one Spacing rather than a margin per control,
-                     so the row has one rhythm. -->
-                <WrapPanel Orientation="Horizontal" ItemSpacing="2" LineSpacing="2">
-                    <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
-                         a conversation with nothing in it is bound to nobody yet. An agent it cannot be moved
-                         to is drawn dimmed with the reason beneath it, never left out of the list and never
-                         disabled - a disabled item is out of the hit test, and the reason would go with it. -->
-                    <p:Picker x:Name="AgentPicker"
-                              Classes="strip-picker"
-                              Options="{Binding Chooser.Options}"
-                              SelectedId="{Binding Chooser.SelectedKey}"
-                              Text="{Binding Chooser.SelectedLabel}"
-                              IsVisible="{Binding Chooser.HasOptions}"
-                              DropDownWidth="320"
-                              MaxWidth="240"
-                              ToolTip.Tip="The agent this conversation is held with" />
-                    <!-- The model, the mode and the effort are *not* on this strip any more: they moved
-                         into the composer, beside the box whose message they qualify - t3code's
-                         arrangement, and it is right for the reason the Goal tile's own strip is wrong to
-                         copy here. What is left is what this tile is *showing*: which conversation, held
-                         by whom, and then the state after the rule. -->
-                    <Border Classes="strip-divider" />
-                    <TextBlock Classes="strip"
-                               Classes.status-ready="{Binding StatusTone, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:AgentStatusTone.Ready}}"
-                               Classes.status-working="{Binding StatusTone, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:AgentStatusTone.Working}}"
-                               Classes.status-waiting="{Binding StatusTone, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:AgentStatusTone.Waiting}}"
-                               Classes.status-failed="{Binding StatusTone, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:AgentStatusTone.Failed}}"
-                               Text="{Binding StatusText}" />
-                    <!-- The context figures used to stand here. They are at the foot of the tile now,
-                         with a bar behind them: a number that moves with every turn does not belong in
-                         the one row that says where you are. -->
-                </WrapPanel>
+                 One DockPanel rather than a docked StackPanel beside a fill: the fitter measures every
+                 control on the row, and a StackPanel's spacing would be width nobody measured. The
+                 right-hand controls come first, so they are measured before the agent is given what is
+                 left - which is what makes its trimming the backstop rather than theirs. -->
+            <DockPanel x:Name="StripRow" LastChildFill="False">
+                <!-- Right-hand corner: which conversation, and a new one. Docked right to left, so Stop
+                     stands first on screen, and its coming and going with a turn moves neither the list
+                     nor the button beside it. -->
+                <!-- A new conversation: a button rather than a row in the list, because it is an action
+                     and not a place, and because it asks first - to the eye it clears the screen. Nothing
+                     is lost by it; the old conversation stays in the list. Deleting a conversation is
+                     *not* drawn here: it was the one destructive thing standing permanently beside the
+                     settings, a misclick from a conversation and its checkpoints, so it is declared in
+                     ITileActions.Actions and the tile header's overflow lists it.
+                     Accent (tile-btn-accent), so the one way to a fresh conversation is found without
+                     hunting; the confirmation behind it is what keeps it from being pressed by accident. -->
+                <Button x:Name="NewConversationButton"
+                        DockPanel.Dock="Right"
+                        Classes="tile-btn tile-btn-accent"
+                        Command="{Binding NewConversationCommand}"
+                        ToolTip.Tip="New conversation (this one stays in the list)">
+                    <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
+                </Button>
+                <!-- Which conversation this tile is showing. Every conversation ever held in this
+                     workspace is in the store, and until this list existed there was no way back to any
+                     of them: a conversation was the tile's own id, so a new one could only be started
+                     over the old. Read when the list is opened rather than kept in step, because the
+                     answer changes only when something is said and the tile redraws every frame while
+                     an agent replies.
+
+                     Searchable, unlike the agent beside it: this list grows for as long as the
+                     workspace is used, and a month in it is the one list on this tile that nobody can
+                     read down. Short at rest - the opening words are a reminder, not the conversation -
+                     and wide when open, where the rows have room to be told apart. First to give way,
+                     because those opening words are what the transcript under the strip is showing. -->
+                <p:Picker x:Name="ConversationPicker"
+                          DockPanel.Dock="Right" Margin="0,0,2,0"
+                          Classes="strip-picker"
+                          Options="{Binding Conversations.Options}"
+                          SelectedId="{Binding Conversations.SelectedKey}"
+                          Text="{Binding Conversations.SelectedTitle}"
+                          IsSearchEnabled="True"
+                          SearchPlaceholder="Search conversations…"
+                          EmptyText="No conversation here matches that."
+                          DropDownWidth="340"
+                          MaxWidth="170"
+                          ToolTip.Tip="{Binding Conversations.SelectedTitle, StringFormat='The conversation this tile is showing: {0}'}">
+                    <p:Picker.Icon>
+                        <mi:MaterialIcon Kind="ForumOutline" Width="13" Height="13" />
+                    </p:Picker.Icon>
+                </p:Picker>
+                <Button x:Name="StopButton"
+                        DockPanel.Dock="Right" Margin="0,0,2,0"
+                        Classes="tile-btn"
+                        Command="{Binding InterruptCommand}"
+                        IsVisible="{Binding IsWorking}"
+                        ToolTip.Tip="Stop the agent (Esc)">
+                    <mi:MaterialIcon Kind="Stop" Width="14" Height="14" />
+                </Button>
+
+                <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
+                     a conversation with nothing in it is bound to nobody yet. An agent it cannot be moved
+                     to is drawn dimmed with the reason beneath it, never left out of the list and never
+                     disabled - a disabled item is out of the hit test, and the reason would go with it.
+                     Last to give way: which agent holds the conversation is said nowhere else here. -->
+                <p:Picker x:Name="AgentPicker"
+                          DockPanel.Dock="Left" Margin="0,0,2,0"
+                          Classes="strip-picker"
+                          Options="{Binding Chooser.Options}"
+                          SelectedId="{Binding Chooser.SelectedKey}"
+                          Text="{Binding Chooser.SelectedLabel}"
+                          IsVisible="{Binding Chooser.HasOptions}"
+                          DropDownWidth="320"
+                          MaxWidth="240"
+                          ToolTip.Tip="{Binding Chooser.SelectedLabel, StringFormat='The agent this conversation is held with: {0}'}">
+                    <p:Picker.Icon>
+                        <mi:MaterialIcon Kind="RobotOutline" Width="13" Height="13" />
+                    </p:Picker.Icon>
+                </p:Picker>
+                <!-- The model, the mode and the effort are *not* on this strip any more: they moved
+                     into the composer, beside the box whose message they qualify - t3code's
+                     arrangement, and it is right for the reason the Goal tile's own strip is wrong to
+                     copy here. What is left is what this tile is *showing*: which conversation, held
+                     by whom, and then the state after the rule.
+
+                     The state is a word, and compact a dot of the word's own colour with the word in the
+                     tooltip: the colour carries the meaning, and the tile header's mark says it again.
+                     The rule goes with the word, since a rule in front of a dot divides nothing. -->
+                <v:StripStatus x:Name="StatusView"
+                               DockPanel.Dock="Left"
+                               Text="{Binding StatusText}"
+                               Tone="{Binding StatusTone}"
+                               ToolTip.Tip="{Binding StatusText}" />
+                <!-- The context figures used to stand here. They are at the foot of the tile now,
+                     with a bar behind them: a number that moves with every turn does not belong in
+                     the one row that says where you are. -->
             </DockPanel>
         </Border>
 

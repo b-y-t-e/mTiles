@@ -424,6 +424,61 @@
         </Style.Animations>
     </Style>
 
+    <!-- ======== The strip's status ========
+         Shared by the Agent and Goal tiles, so the two conversations answer "can I type here" in one
+         language. A word coloured by what it says - the meanings the tile header's marks carry - after
+         a rule, and compact (RowFitter, when the strip runs out of width) a dot of the same colour with
+         the word in the tooltip. Quiet states keep the strip's own muted colour. -->
+    <Style Selector="StackPanel.strip-status.status-ready > TextBlock.strip">
+        <Setter Property="Foreground" Value="{DynamicResource StatusSuccessText}" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.status-working > TextBlock.strip">
+        <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.status-waiting > TextBlock.strip">
+        <Setter Property="Foreground" Value="{DynamicResource WarnText}" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.status-failed > TextBlock.strip">
+        <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+    </Style>
+
+    <!-- The status as a dot, when the strip has run out of width: the word's own colour, so the
+         meaning survives the word. Quiet states keep the strip's muted colour. -->
+    <Style Selector="Ellipse.status-dot">
+        <Setter Property="Width" Value="7" />
+        <Setter Property="Height" Value="7" />
+        <Setter Property="Margin" Value="6,0,4,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Fill" Value="{DynamicResource TextMuted}" />
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.compact > Ellipse.status-dot">
+        <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.compact > TextBlock.strip, StackPanel.strip-status.compact > Border.strip-divider">
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.status-ready > Ellipse.status-dot">
+        <Setter Property="Fill" Value="{DynamicResource StatusSuccessText}" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.status-working > Ellipse.status-dot">
+        <Setter Property="Fill" Value="{DynamicResource AccentHover}" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.status-waiting > Ellipse.status-dot">
+        <Setter Property="Fill" Value="{DynamicResource WarnText}" />
+    </Style>
+    <Style Selector="StackPanel.strip-status.status-failed > Ellipse.status-dot">
+        <Setter Property="Fill" Value="{DynamicResource DangerText}" />
+    </Style>
+
+    <Style Selector="Border.strip-divider">
+        <Setter Property="Width" Value="1" />
+        <Setter Property="Height" Value="12" />
+        <Setter Property="Margin" Value="4,0,8,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
+    </Style>
+
     <!-- ======== The composer's own settings row ========
          The pickers under the message box - model, effort, permission. They take the terminal's face and
          size, because everything else in this tile is set in it and a UI-font control in the middle of a

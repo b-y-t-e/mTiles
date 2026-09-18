@@ -1,6 +1,7 @@
 ﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
+             xmlns:ac="using:mTiles.ViewModels.AgentConversation"
              xmlns:m="using:mTiles.Models"
              xmlns:mi="using:Material.Icons.Avalonia"
              xmlns:v="using:mTiles.Views"
@@ -87,9 +88,6 @@
         <StyleInclude Source="avares://mTiles/Styles/GoalFindings.axaml" />
 
 
-        <!-- The phase's colour comes from the ANSI palette (ThemeBridge), so it stays legible on
-             whatever background the terminal theme paints. Set as a class rather than as a brush
-             resolved in code-behind, so changing theme repaints it without rebuilding the view. -->
         <!-- Dimmer than the phase beside it, and it never grows the strip: a tool call is transient and
              must not be able to push what the tile is doing off the end of the line. -->
         <Style Selector="TextBlock.strip-activity">
@@ -97,24 +95,6 @@
             <Setter Property="MaxWidth" Value="220" />
         </Style>
 
-        <Style Selector="Ellipse.phase-goal">
-            <Setter Property="Fill" Value="{DynamicResource TextMuted}" />
-        </Style>
-        <Style Selector="Ellipse.phase-clarify">
-            <Setter Property="Fill" Value="{DynamicResource GoalPhaseClarify}" />
-        </Style>
-        <Style Selector="Ellipse.phase-plan">
-            <Setter Property="Fill" Value="{DynamicResource GoalPhasePlan}" />
-        </Style>
-        <Style Selector="Ellipse.phase-implement">
-            <Setter Property="Fill" Value="{DynamicResource GoalPhaseImplement}" />
-        </Style>
-        <Style Selector="Ellipse.phase-review">
-            <Setter Property="Fill" Value="{DynamicResource GoalPhaseReview}" />
-        </Style>
-        <Style Selector="Ellipse.phase-summary">
-            <Setter Property="Fill" Value="{DynamicResource GoalPhaseSummary}" />
-        </Style>
 
 
         <!-- ======== Finding badges ========
@@ -361,7 +341,7 @@
                     <Button Classes="tile-btn"
                             Command="{Binding ToggleCriteriaCommand}"
                             ToolTip.Tip="When is this goal done?">
-                        <mi:MaterialIcon Kind="Tune" Width="13" Height="13" />
+                        <mi:MaterialIcon Kind="CogOutline" Width="13" Height="13" />
                     </Button>
                     <Button Classes="tile-btn"
                             Command="{Binding PauseCommand}"
@@ -385,16 +365,17 @@
                     </Button>
                 </StackPanel>
 
-                <!-- A DockPanel rather than a horizontal StackPanel: the label is the one part that
-                     has to give way, and a StackPanel measures its children with infinite width, so
-                     TextTrimming there is inert and a long phase is cut off mid-letter instead. -->
-                <DockPanel>
+                <!-- One line, and RowFitter decides what gives way (GoalStripLayout): effort and mode to
+                     their icons, then the status to its dot, then the agent trimmed and at last to its
+                     icon. A DockPanel rather than a horizontal StackPanel, because a StackPanel measures
+                     its children with infinite width and nothing in it can ever trim. -->
+                <DockPanel x:Name="StripRow">
                     <!-- The execution agent, and only that one, is in the strip. Five controls do not
                          fit a narrow tile, and of the five this is the one whose value has to be
                          readable at a glance: which agent is writing into this repository. The
                          reviewer is a once-per-goal setting and lives in the panel below. -->
                     <p:Picker x:Name="ExecutionAgentPicker"
-                              DockPanel.Dock="Left"
+                              DockPanel.Dock="Left" Margin="0,0,2,0"
                               Classes="strip-picker"
                               Options="{Binding AvailableAgents}"
                               SelectedId="{Binding ExecutionAgentInstanceId, Mode=OneWay}"
@@ -402,40 +383,57 @@
                               Placeholder="Agent"
                               DropDownWidth="300"
                               MaxWidth="200"
-                              ToolTip.Tip="Which agent carries the goal out. Configured agents this machine can run — the CLI installed, and the provider it names still configured." />
+                              ToolTip.Tip="Which agent carries the goal out. Configured agents this machine can run — the CLI installed, and the provider it names still configured.">
+                        <p:Picker.Icon>
+                            <mi:MaterialIcon Kind="RobotOutline" Width="13" Height="13" />
+                        </p:Picker.Icon>
+                    </p:Picker>
                     <!-- Beside the tool because it is a fact about the tool, and because this is where
                          somebody looks after a run that was refused. The default is auto: without a
                          mode the tool inherits the user's own Claude Code settings, and the factory
                          default there is to ask — which a headless run cannot do, so every edit was
                          refused and the tile reported that nothing had changed. -->
                     <p:Picker x:Name="PermissionModePicker"
-                              DockPanel.Dock="Left"
+                              DockPanel.Dock="Left" Margin="0,0,2,0"
                               Classes="strip-picker"
                               Options="{Binding AvailablePermissionModes}"
                               SelectedId="{Binding PermissionModeLabel, Mode=OneWay}"
                               Text="{Binding PermissionModeLabel}"
                               DropDownWidth="330"
-                              ToolTip.Tip="What the AI tool may do without asking. auto gets on with the work and still stops at what it considers dangerous; accept edits waves through file changes only; bypass asks about nothing at all; default passes no flag and leaves it to the tool's own settings." />
+                              ToolTip.Tip="What the AI tool may do without asking. auto gets on with the work and still stops at what it considers dangerous; accept edits waves through file changes only; bypass asks about nothing at all; default passes no flag and leaves it to the tool's own settings.">
+                        <p:Picker.Icon>
+                            <mi:MaterialIcon Kind="LockOutline" Width="13" Height="13" />
+                        </p:Picker.Icon>
+                    </p:Picker>
                     <!-- Beside the mode because they are the same kind of fact: how this tile runs its
                          tool. High by default rather than the tool's own, which is tuned for a person
                          watching — a goal run is left alone, and an attempt spent on a shallow answer
                          costs as much of the budget as a careful one. -->
                     <p:Picker x:Name="EffortPicker"
-                              DockPanel.Dock="Left"
+                              DockPanel.Dock="Left" Margin="0,0,2,0"
                               Classes="strip-picker"
                               Options="{Binding AvailableEfforts}"
                               SelectedId="{Binding EffortLabel, Mode=OneWay}"
                               Text="{Binding EffortLabel}"
                               DropDownWidth="300"
-                              ToolTip.Tip="How hard the AI tool is asked to think. Higher costs time and tokens and is usually worth it here, because the budget is in attempts and a shallow attempt spends one just the same. default passes no flag — pick it if your Claude Code is old enough not to know the option." />
-                    <TextBlock DockPanel.Dock="Left" Classes="strip" Text="&#xB7;" Margin="6,0" />
-                    <Ellipse DockPanel.Dock="Left"
-                             x:Name="PhaseDot" Width="6" Height="6"
-                             VerticalAlignment="Center" />
+                              ToolTip.Tip="How hard the AI tool is asked to think. Higher costs time and tokens and is usually worth it here, because the budget is in attempts and a shallow attempt spends one just the same. default passes no flag — pick it if your Claude Code is old enough not to know the option.">
+                        <p:Picker.Icon>
+                            <mi:MaterialIcon Kind="Brain" Width="13" Height="13" />
+                        </p:Picker.Icon>
+                    </p:Picker>
+                    <!-- The status, as the Agent tile's strip draws it and in its colours (GoalStatus):
+                         a rule, then a word coloured by what it says, and compact a dot of that colour.
+                         It replaced a dot coloured by phase beside a label that was empty whenever the
+                         tile was idle, which answered "can I type here" in a language of its own. -->
+                    <v:StripStatus x:Name="StatusView"
+                                   DockPanel.Dock="Left"
+                                   Text="{Binding StatusText}"
+                                   Tone="{Binding StatusTone}"
+                                   ToolTip.Tip="{Binding StatusTip}" />
                     <!-- One template, four styles. Every severity used to need a view-model
                          property, a TextBlock, a visibility converter and a style, and each of the four
                          could be forgotten on its own. -->
-                    <ItemsControl DockPanel.Dock="Right" ItemsSource="{Binding Badges}">
+                    <ItemsControl x:Name="Badges" DockPanel.Dock="Right" ItemsSource="{Binding Badges}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal" />
@@ -467,17 +465,8 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <!-- The phase is pinned to the right edge and the activity flows in front of it,
-                         because a DockPanel trims its *last* child — the one that fills. With the two the
-                         other way round the phase was what gave way, which is backwards: the phase says
-                         what the tile is doing and the activity is about this second. Docking the phase
-                         puts the reading that has to survive out of the way of the one that does not. -->
-                    <TextBlock DockPanel.Dock="Right"
-                               Classes="strip"
-                               Text="{Binding PhaseLabel}"
-                               TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding PhaseLabel}"
-                               Margin="6,0,8,0" />
+                    <!-- The activity fills what is left and is the first thing to go: it is about this
+                         second, and a DockPanel trims its last child. RowFitter never counts it. -->
                     <TextBlock Classes="strip strip-activity"
                                Text="{Binding ActivityText}"
                                IsVisible="{Binding ActivityText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"

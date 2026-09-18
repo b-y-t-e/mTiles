@@ -28,6 +28,14 @@ public partial class GoalTileView : UserControl
         InitializeComponent();
         TeachThePickers();
 
+        // One line for the strip, giving up words before width in the order GoalStripLayout writes
+        // down - the Agent tile's strip does the same with its own. Nothing keeps the fitter but the
+        // handlers it hangs on these controls, which is exactly as long as it is needed.
+        new RowFitter(StripRow, GoalStripLayout.Steps,
+            ExecutionAgentPicker, PermissionModePicker, EffortPicker, StatusView, Badges)
+            .Watch(StatusView, StripStatus.TextProperty)
+            .Watch(Badges, BoundsProperty);
+
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
         ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage);
         ComposerInput.Attach(PlanBox, () => (DataContext as GoalTileViewModel)?.ApproveOrChangeCommand.Execute(null),
@@ -153,7 +161,6 @@ public partial class GoalTileView : UserControl
                     whenUnavailable: false);
             };
             vm.PropertyChanged += OnVmPropertyChanged;
-            UpdatePhaseDot(vm.CurrentPhase);
 
         }
     }
@@ -232,9 +239,6 @@ public partial class GoalTileView : UserControl
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (sender is not GoalTileViewModel vm) return;
-
-        if (e.PropertyName == nameof(GoalTileViewModel.CurrentPhase))
-            UpdatePhaseDot(vm.CurrentPhase);
 
         if (e.PropertyName == nameof(GoalTileViewModel.ShowQuestions) && vm.ShowQuestions)
             FocusFirstAnswer();
@@ -315,36 +319,6 @@ public partial class GoalTileView : UserControl
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             QuestionList.GetVisualDescendants().OfType<TextBox>().FirstOrDefault()?.Focus(),
             Avalonia.Threading.DispatcherPriority.Background);
-    }
-
-    /// <summary>
-    /// Every phase class, so the dot can be told which one it is by setting all of them. The list is
-    /// the reason <c>Classes.Clear()</c> is not used: clearing takes out whatever else was put on the
-    /// element, which today is nothing and tomorrow is a bug nobody connects to this method.
-    /// </summary>
-    private static readonly (GoalPhase Phase, string Class)[] PhaseClasses =
-    [
-        (GoalPhase.Clarify, "phase-clarify"),
-        (GoalPhase.Plan, "phase-plan"),
-        (GoalPhase.Implement, "phase-implement"),
-        (GoalPhase.Review, "phase-review"),
-        (GoalPhase.Summary, "phase-summary"),
-        (GoalPhase.Goal, "phase-goal"),
-    ];
-
-    /// <summary>
-    /// The phase becomes a style class, not a brush: the class carries a <c>DynamicResource</c> fill,
-    /// so the dot follows a theme change on its own. Resolving the brush here painted it once, with
-    /// whatever the palette held at the time.
-    /// </summary>
-    private void UpdatePhaseDot(GoalPhase phase)
-    {
-        // A phase the enum does not know — a hand-edited file saying 99 — falls back to the Goal
-        // marker rather than to no class at all, which is a dot with no fill.
-        var known = PhaseClasses.Any(c => c.Phase == phase) ? phase : GoalPhase.Goal;
-
-        foreach (var (p, cls) in PhaseClasses)
-            PhaseDot.Classes.Set(cls, p == known);
     }
 
     /// <summary>

@@ -206,6 +206,26 @@ public partial class GoalTileViewModel
         : ShowQuestions || ShowApproval ? TileActivity.Blocked
         : TileActivity.Idle;
 
+    /// <summary>The strip's status word — see <see cref="GoalStatus"/>. Raised wherever
+    /// <see cref="Activity"/> is, and with the phase, its label and a pause.</summary>
+    private (string Text, AgentConversation.AgentStatusTone Tone) Status =>
+        GoalStatus.Of(IsRunning, IsPaused, ShowQuestions || ShowApproval, CurrentPhase, _engine.LastStopReason,
+            PhaseLabel);
+
+    public string StatusText => Status.Text;
+    public AgentConversation.AgentStatusTone StatusTone => Status.Tone;
+
+    /// <summary>The status's tooltip: the engine's own sentence where it has one — a pause says how to
+    /// resume, a run which attempt it is on — and the word otherwise.</summary>
+    public string StatusTip => PhaseLabel.Length > 0 ? PhaseLabel : StatusText;
+
+    private void RaiseStatus()
+    {
+        OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(StatusTone));
+        OnPropertyChanged(nameof(StatusTip));
+    }
+
     /// <summary>Whether the completion-criteria panel is open. View state only — a panel left open is
     /// not something a restart should have to remember.</summary>
     [ObservableProperty] private bool _showCriteria;
@@ -412,11 +432,18 @@ public partial class GoalTileViewModel
 
     /// <summary>Pausing and resuming move the button in the conversation, not only the header's glyph.
     /// </summary>
-    partial void OnIsPausedChanged(bool value) => RefreshFinishedRunActions();
+    partial void OnIsPausedChanged(bool value)
+    {
+        RefreshFinishedRunActions();
+        RaiseStatus();
+    }
+
+    partial void OnPhaseLabelChanged(string value) => RaiseStatus();
 
     partial void OnIsRunningChanged(bool value)
     {
         OnPropertyChanged(nameof(Activity));
+        RaiseStatus();
         OnPropertyChanged(nameof(CanContinue));
         RefreshComposerActions();
         RefreshFinishedRunActions();
@@ -426,6 +453,7 @@ public partial class GoalTileViewModel
     partial void OnCurrentPhaseChanged(GoalPhase value)
     {
         _log?.Event($"Phase -> {value}.");
+        RaiseStatus();
         OnPropertyChanged(nameof(RunStage));
         OnPropertyChanged(nameof(CanContinue));
         RefreshComposerActions();
@@ -578,6 +606,7 @@ public partial class GoalTileViewModel
         // Both are what Blocked is derived from, so the panel's light moves with the round of questions
         // and the plan box rather than only with the run.
         OnPropertyChanged(nameof(Activity));
+        RaiseStatus();
         OnPropertyChanged(nameof(ShowComposer));
         OnPropertyChanged(nameof(QuestionsTitle));
 
