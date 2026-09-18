@@ -147,7 +147,7 @@ public static class CodexAppServerMapper
         "mcpToolCall" => (ToolKind.Mcp, item.Str("tool") ?? "mcp", $"{item.Str("server")}: {item.Str("tool")}"),
         "dynamicToolCall" => (ToolKind.Other, item.Str("tool") ?? "tool", item.Str("tool") ?? "Tool"),
         "webSearch" => (ToolKind.WebFetch, "web_search", $"Search the web {item.Str("query")}".TrimEnd()),
-        "imageView" => (ToolKind.FileRead, "view_image", $"View {Path.GetFileName(item.Str("path") ?? "")}".TrimEnd()),
+        "imageView" => (ToolKind.FileRead, "view_image", $"View {ToolPath.FileName(item.Str("path") ?? "")}".TrimEnd()),
         "collabAgentToolCall" => (ToolKind.SubAgent, item.Str("tool") ?? "agent", $"Sub-agent: {item.Str("tool")}"),
         _ => (null, "", ""),
     };
@@ -158,7 +158,7 @@ public static class CodexAppServerMapper
         return paths.Count switch
         {
             0 => "Edit files",
-            1 => $"Edit {Path.GetFileName(paths[0])}",
+            1 => $"Edit {ToolPath.FileName(paths[0])}",
             _ => $"Edit {paths.Count} files",
         };
     }

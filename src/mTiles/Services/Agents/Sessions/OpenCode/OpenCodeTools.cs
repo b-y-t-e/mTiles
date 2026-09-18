@@ -31,9 +31,9 @@ public static class OpenCodeTools
         return tool switch
         {
             "bash" => input.Str("description") ?? input.Str("command") ?? stateTitle ?? "Run a command",
-            "read" when path is not null => $"Read {Path.GetFileName(path)}",
-            "edit" or "multiedit" or "patch" when path is not null => $"Edit {Path.GetFileName(path)}",
-            "write" when path is not null => $"Write {Path.GetFileName(path)}",
+            "read" when path is not null => $"Read {ToolPath.FileName(path)}",
+            "edit" or "multiedit" or "patch" when path is not null => $"Edit {ToolPath.FileName(path)}",
+            "write" when path is not null => $"Write {ToolPath.FileName(path)}",
             "glob" or "grep" when input.Str("pattern") is { } pattern => $"Search {pattern}",
             "webfetch" when input.Str("url") is { } url => $"Fetch {url}",
             "task" when input.Str("description") is { } description => description,

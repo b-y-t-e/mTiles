@@ -116,7 +116,7 @@ public static class ClaudeTools
 
     private static IReadOnlyList<string>? Paths(string? path) => path is null ? null : [path];
 
-    private static string? FileName(string? path) => path is null ? null : Path.GetFileName(path);
+    private static string? FileName(string? path) => path is null ? null : ToolPath.FileName(path);
 
     /// <summary>A path as a diff header shows it — the name alone is enough to read.</summary>
     private static string Relative(string path) => path.Replace('\\', '/');

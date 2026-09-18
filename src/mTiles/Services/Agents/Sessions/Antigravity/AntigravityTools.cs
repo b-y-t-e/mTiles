@@ -30,10 +30,10 @@ public static class AntigravityTools
         return tool switch
         {
             "run_command" => parameters.Str("CommandLine") ?? "Run a command",
-            "view_file" when path is not null => $"Read {Path.GetFileName(path)}",
+            "view_file" when path is not null => $"Read {ToolPath.FileName(path)}",
             "list_dir" when path is not null => $"List {path}",
             "write_to_file" or "replace_file_content" or "multi_replace_file_content" or "sed_file" when path is not null
-                => $"Edit {Path.GetFileName(path)}",
+                => $"Edit {ToolPath.FileName(path)}",
             "grep_search" or "find_by_name" => $"Search {parameters.Str("Query") ?? parameters.Str("Pattern")}".TrimEnd(),
             "read_url_content" => $"Fetch {parameters.Str("Url")}".TrimEnd(),
             "search_web" => $"Search the web {parameters.Str("query") ?? parameters.Str("Query")}".TrimEnd(),

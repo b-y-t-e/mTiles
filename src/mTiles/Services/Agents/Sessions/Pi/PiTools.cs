@@ -25,9 +25,9 @@ public static class PiTools
         return tool switch
         {
             "bash" or "powershell" => args.Str("command") ?? tool,
-            "read" when path is not null => $"Read {Path.GetFileName(path)}",
-            "edit" when path is not null => $"Edit {Path.GetFileName(path)}",
-            "write" when path is not null => $"Write {Path.GetFileName(path)}",
+            "read" when path is not null => $"Read {ToolPath.FileName(path)}",
+            "edit" when path is not null => $"Edit {ToolPath.FileName(path)}",
+            "write" when path is not null => $"Write {ToolPath.FileName(path)}",
             "grep" or "find" when args.Str("pattern") is { } pattern => $"Search {pattern}",
             "ls" => $"List {path ?? "."}",
             _ => tool,
