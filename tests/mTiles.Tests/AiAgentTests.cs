@@ -18,8 +18,14 @@ namespace mTiles.Tests;
 /// codex-cli 0.141.0, opencode 1.18.18, pi 0.84.3 and agy 1.1.22. Pinned so that a move in one of those
 /// contracts is a failing build rather than a tile that quietly stops doing what its strip says.
 /// </remarks>
-public class AiAgentTests
+public class AiAgentTests : IDisposable
 {
+    // Every Claude Code launch writes its session settings under AppPaths, so without this the suite
+    // wrote into a live installation.
+    private readonly TempAppData _appData = new();
+
+    public void Dispose() => _appData.Dispose();
+
     private static readonly AiAgentInstance AnyInstance = new();
 
     /// <summary>An instance that adds nothing to a command line, so a test about the <em>session</em>
@@ -553,7 +559,7 @@ public class AiAgentTests
     [InlineData("pi", "pi --session-id the-id")]
     public void An_agent_that_can_be_told_an_id_is_told_it(string agentId, string expected)
     {
-        Assert.Equal(expected, AiAgentCatalog.Find(agentId)!.Interactive(Runtime(UnconfiguredInstance), "the-id", Shell).Startup);
+        Assert.StartsWith(expected, AiAgentCatalog.Find(agentId)!.Interactive(Runtime(UnconfiguredInstance), "the-id", Shell).Startup!, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -597,9 +603,36 @@ public class AiAgentTests
     {
         var plan = new ClaudeAgent().Interactive(Runtime(UnconfiguredInstance), "the-id", Shell);
 
-        Assert.Equal("claude --resume the-id", plan.Startup);
-        Assert.Equal("claude --session-id the-id", plan.Fallback);
+        Assert.StartsWith("claude --resume the-id", plan.Startup!, StringComparison.Ordinal);
+        Assert.StartsWith("claude --session-id the-id", plan.Fallback!, StringComparison.Ordinal);
         Assert.True(plan.RunsCommandChain);
+    }
+
+    /// <summary>
+    /// Every Claude Code session starts on the <c>Concise</c> output style, and an argument on the
+    /// instance comes after it, so the user's own <c>--settings</c> still has the last word.
+    /// </summary>
+    [Fact]
+    public void Claude_starts_concise_and_the_instances_own_arguments_come_after()
+    {
+        var instance = new AiAgentInstance
+        {
+            DefaultBehaviour = AiBehaviour.ToolDefault,
+            DefaultEffort = AiEffort.ToolDefault,
+            ExtraArgs = ["--settings", "mine.json"],
+        };
+
+        var plan = new ClaudeAgent().Interactive(Runtime(instance), "the-id", new BashTerminal());
+        var ours = ClaudeSessionSettings.PathFor();
+
+        foreach (var line in new[] { plan.Startup!, plan.Fallback! })
+        {
+            var concise = line.IndexOf(ours, StringComparison.Ordinal);
+            Assert.True(concise > 0, line);
+            Assert.True(concise < line.IndexOf("mine.json", StringComparison.Ordinal), line);
+        }
+        Assert.Contains("\"outputStyle\": \"Concise\"", File.ReadAllText(ours), StringComparison.Ordinal);
+        Assert.Equal(["--settings", ours], new ClaudeAgent().SessionDefaultArgs());
     }
 
     /// <summary>
@@ -655,8 +688,8 @@ public class AiAgentTests
 
         var plan = new ClaudeAgent().Interactive(Runtime(instance), "the-id", Shell);
 
-        Assert.Equal("claude --resume the-id --permission-mode plan --effort low", plan.Startup);
-        Assert.Equal("claude --session-id the-id --permission-mode plan --effort low", plan.Fallback);
+        Assert.StartsWith("claude --resume the-id --permission-mode plan --effort low", plan.Startup!, StringComparison.Ordinal);
+        Assert.StartsWith("claude --session-id the-id --permission-mode plan --effort low", plan.Fallback!, StringComparison.Ordinal);
     }
 
     /// <summary>

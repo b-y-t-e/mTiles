@@ -61,6 +61,9 @@ public abstract class AiAgent : IAiAgent
     /// says so rather than one that quietly runs on its own.</remarks>
     public virtual IReadOnlyList<string> ModelArgs(string model, AiUsage usage) => [];
 
+    /// <summary>Nothing by default.</summary>
+    public virtual IReadOnlyList<string> SessionDefaultArgs() => [];
+
     /// <inheritdoc />
     /// <remarks>The id as the instance stores it, which is right for every agent that is pointed at a
     /// service by its address rather than by its name. The two that keep a registry override this.
@@ -323,6 +326,7 @@ public abstract class AiAgent : IAiAgent
             // The resolved model rather than the stored one: a sentinel on a command line is a model
             // name no provider has.
             .. ModelArgs(QualifiedModel(runtime), AiUsage.Interactive),
+            .. SessionDefaultArgs(),
             .. instance.ExtraArgs.Where(argument => !string.IsNullOrWhiteSpace(argument)),
         ];
     }

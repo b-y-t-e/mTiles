@@ -521,6 +521,12 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
         _ => null,
     };
 
+    /// <summary>The <c>Concise</c> output style, through <see cref="ClaudeSessionSettings"/>; an
+    /// <c>outputStyle</c> the user wants instead goes in the instance's extra arguments, which come after
+    /// this.</summary>
+    public override IReadOnlyList<string> SessionDefaultArgs() =>
+        ClaudeSessionSettings.Write() is { } path ? ["--settings", path] : [];
+
     /// <summary>
     /// <c>claude --resume &lt;tileId&gt;</c>, falling back to <c>claude --session-id &lt;tileId&gt;</c>.
     /// </summary>

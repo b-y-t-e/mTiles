@@ -400,6 +400,11 @@ public interface IAiAgent : IAgentActivityReader
     /// </remarks>
     IReadOnlyList<string> ModelArgs(string model, AiUsage usage);
 
+    /// <summary>What this application passes to every session it holds with a person on the other end
+    /// — a terminal agent tile and an Agent tile alike — ahead of the instance's own
+    /// <see cref="AiAgentInstance.ExtraArgs"/>, so an argument typed there still has the last word.</summary>
+    IReadOnlyList<string> SessionDefaultArgs();
+
     /// <summary>
     /// The model to ask for, spelled the way this CLI expects it.
     /// </summary>

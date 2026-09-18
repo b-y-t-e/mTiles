@@ -153,6 +153,7 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
         else arguments.Add($"--session-id={Guid.NewGuid()}");
         arguments.AddRange(agent.BehaviourArgs(launch.Behaviour, AiUsage.Interactive));
         arguments.AddRange(agent.EffortArgs(launch.Effort, AiUsage.Interactive));
+        arguments.AddRange(agent.SessionDefaultArgs());
         arguments.AddRange(launch.ExtraArgs);
 
         var process = AgentProcess.Start(launch.StartInfo(arguments), OnLine);
