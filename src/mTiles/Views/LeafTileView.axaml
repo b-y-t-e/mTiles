@@ -86,10 +86,12 @@
                                 <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
                             </Button>
                             <Button x:Name="NewSessionButton"
-                                    Classes="tile-btn"
+                                    Classes="tile-btn tile-btn-accent"
                                     Command="{Binding ResetTileIdCommand}"
                                     ToolTip.Tip="New session">
-                                <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
+                                <!-- The Agent and Goal tiles' "start another" glyph and colour: one gesture,
+                                     one picture, whichever kind of tile it is pressed in. -->
+                                <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
                             </Button>
                             <Button x:Name="TileOverflow"
                                     Classes="tile-btn"
@@ -117,7 +119,7 @@
                                                   Command="{Binding ResetTileIdCommand}"
                                                   IsVisible="{Binding HasSession}">
                                             <MenuItem.Icon>
-                                                <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
+                                                <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
                                             </MenuItem.Icon>
                                         </MenuItem>
                                         <!-- Same agent, another configured way of running it: same

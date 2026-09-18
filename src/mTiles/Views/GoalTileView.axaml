@@ -375,11 +375,13 @@
                          of the tile from the sentence that names it. Pause stays: it is the one of the
                          pair that has to be reachable while the transcript is scrolled anywhere at all,
                          because what it interrupts is happening now. -->
-                    <Button Classes="tile-btn"
+                    <!-- The Agent tile's new-conversation glyph and colour, so the two conversations
+                         say "start another" the same way. -->
+                    <Button Classes="tile-btn tile-btn-accent"
                             Command="{Binding NewGoalCommand}"
                             IsEnabled="{Binding !IsRunning}"
                             ToolTip.Tip="New goal">
-                        <mi:MaterialIcon Kind="Plus" Width="13" Height="13" />
+                        <mi:MaterialIcon Kind="MessagePlusOutline" Width="13" Height="13" />
                     </Button>
                 </StackPanel>
 
