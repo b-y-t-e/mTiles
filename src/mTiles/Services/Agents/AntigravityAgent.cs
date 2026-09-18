@@ -71,6 +71,26 @@ public sealed class AntigravityAgent : AiAgent, Sessions.IConversationalAgent
     /// decide the same thing, and only one of them would be listened to.</para></remarks>
     public override bool SupportsSignIns => false;
     public override string? InstallUrl => "https://antigravity.google/product/antigravity-cli";
+    /// <summary>
+    /// <b>agy is the one agent here with no readable session store, and that is measured rather than
+    /// unfinished.</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured 2026-09-18 against 1.1.22. Its conversations are
+    /// <c>~/.gemini/antigravity-cli/conversations/&lt;id&gt;.db</c> — one SQLite file each, whose every
+    /// interesting column is a protobuf blob. Two consequences: the <b>working directory</b> appears only
+    /// as a <c>file:///</c> URI inside <c>trajectory_metadata_blob</c>, so telling this workspace's
+    /// conversations from another's would mean scanning blobs for a substring, and there are <b>no token
+    /// counts anywhere in the file</b> — agy reports what it has spent per account, through the quota
+    /// endpoint <c>AntigravityUsageReader</c> asks, and never per conversation.</para>
+    /// <para>So there is no gauge to draw and no id to pick up after a <c>/new</c> inside the TUI. What
+    /// this tile keeps instead is what it has always had: the conversation created for it before launch
+    /// (<see cref="SessionStrategy.CapturedAfterStart"/>). Answering with a reader built on a substring
+    /// search of somebody else's protobuf would be a tile confidently resuming the wrong conversation,
+    /// which is worse than a tile that says nothing.</para>
+    /// </remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog => null;
+
     public override SessionStrategy SessionStrategy => SessionStrategy.CapturedAfterStart;
 
     /// <summary>Nothing to offer. Antigravity is installed by Google's own installer rather than from a

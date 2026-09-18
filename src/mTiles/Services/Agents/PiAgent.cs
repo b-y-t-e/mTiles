@@ -48,6 +48,22 @@ public sealed class PiAgent : AiAgent, Sessions.IConversationalAgent
     public override bool SupportsSignIns => true;
 
     /// <inheritdoc />
+    /// <remarks>Under whichever directory <c>PI_CODING_AGENT_DIR</c> names, which is the same fact
+    /// <see cref="SignInEnv"/> carries — the default account's included, where this machine exports it.
+    /// </remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog { get; } =
+        new SessionLogs.PiSessionLog(signIn => signIn is null
+            ? DefaultConfigDirectory()
+            : AiSignInStore.DirectoryFor(signIn));
+
+    /// <summary>Where the default account lives: an exported <c>PI_CODING_AGENT_DIR</c>, else pi's own
+    /// <c>~/.pi/agent</c>.</summary>
+    private static string DefaultConfigDirectory() =>
+        Environment.GetEnvironmentVariable("PI_CODING_AGENT_DIR") is { Length: > 0 } directory
+            ? directory
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pi", "agent");
+
+    /// <inheritdoc />
     public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
         new Dictionary<string, string?>(StringComparer.Ordinal)
         {
@@ -59,10 +75,7 @@ public sealed class PiAgent : AiAgent, Sessions.IConversationalAgent
     /// which is not this sign-in's login and would report every empty directory as signed in.</remarks>
     public override SignInStatus ReadSignIn(string? configDirectory)
     {
-        var home = configDirectory is { Length: > 0 } directory
-            ? directory
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".pi", "agent");
+        var home = configDirectory is { Length: > 0 } directory ? directory : DefaultConfigDirectory();
 
         return File.Exists(Path.Combine(home, "auth.json"))
             ? SignInStatus.SignedInAnonymously

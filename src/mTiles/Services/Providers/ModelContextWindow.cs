@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using mTiles.Models;
 using mTiles.Services.Agents;
@@ -109,8 +109,28 @@ public static class ModelContextWindow
         // straight off the runtime — so there is nothing here to resolve and no provider to ask.
         if (instance.AutoCompactWindow is not null && instance.MaxContextTokens is not null) return null;
 
-        if (!agent.UsesModelContextWindow || model.Length == 0 || model == AiModelChoice.FirstLoaded)
-            return null;
+        if (!agent.UsesModelContextWindow) return null;
+
+        return Answer(instance, await ContextOfAsync(settings, agent, instance, model, ct));
+    }
+
+    /// <summary>
+    /// How large a context this model is served with, as the provider describes it, or null when nobody
+    /// said.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A different question from <see cref="ResolveAsync"/>, and deliberately ungated.</b> That
+    /// one asks what to put in this agent's <em>environment</em>, which only Claude Code reads — hence
+    /// <c>IAiAgent.UsesModelContextWindow</c>. This one asks how big the window is, which is worth
+    /// knowing for any agent whose tile draws a context bar: four of the five that count tokens never
+    /// name the limit, so without this their gauge has figures and no bar.</para>
+    /// <para>Answers rather than throws, and caches for half an hour against provider, address and
+    /// model — the same cache <see cref="ResolveAsync"/> spends, because it is the same call.</para>
+    /// </remarks>
+    public static async Task<long?> ContextOfAsync(AppSettings settings, IAiAgent agent,
+        AiAgentInstance instance, string model, CancellationToken ct = default)
+    {
+        if (model.Length == 0 || model == AiModelChoice.FirstLoaded) return null;
 
         var runtime = AgentRuntime.For(settings, instance, model, agent);
         if (runtime.Provider is not { } provider || runtime.ProviderInstance is not { } configured)
@@ -119,7 +139,7 @@ public static class ModelContextWindow
         var key = $"{provider.Id}|{runtime.ProviderInstance.BaseUrl.Trim()}|{model}";
         if (Cache.TryGetValue(key, out var held)
             && DateTimeOffset.UtcNow - held.At < TimeSpan.FromMinutes(30))
-            return Answer(instance, held.Context);
+            return held.Context;
 
         long? context;
         try
@@ -137,7 +157,7 @@ public static class ModelContextWindow
         }
 
         Cache[key] = (DateTimeOffset.UtcNow, context);
-        return Answer(instance, context);
+        return context;
     }
 
     /// <summary>The launch's answer, given the model's context: each window typed on the instance

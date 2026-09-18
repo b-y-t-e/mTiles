@@ -206,6 +206,12 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
 
     private volatile bool _disposed;
 
+    /// <summary>Whether this tile has been closed.</summary>
+    /// <remarks>Readable by a subclass because the answers a tile waits on outlive it: a session read, a
+    /// capture, a model resolution all come back on some other thread and must not write to a tile that
+    /// has gone. The field stays private — what a subclass may do is ask, not set.</remarks>
+    protected bool IsDisposed => _disposed;
+
     /// <summary>Claims this tile for a launch that is starting now, and gives it the token it is known
     /// by. Every earlier launch stops being the current one at this call.</summary>
     internal int BeginLaunch() => Interlocked.Increment(ref _launchGeneration);
@@ -349,8 +355,22 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     [
         new(TileActionIds.Restart, "Restart shell", "restart",
             IsEnabled: CachedControl is Terminal.Avalonia.TerminalControl,
-            IsDestructive: true),
+            IsDestructive: true,
+            Urgency: RestartUrgency),
     ];
+
+    /// <summary>Why this tile's restart wants doing now, or null when nothing is waiting on it.</summary>
+    /// <remarks>Null here and overridden where there is something to say: a plain shell is never waiting
+    /// to be restarted for a reason this application knows about. Virtual rather than a flag the base
+    /// class sets, for the reason <c>Configure</c> is virtual on <c>AiAgent</c> — the subclass owns the
+    /// question and the base owns the rule that the answer reaches the header.</remarks>
+    protected virtual string? RestartUrgency => null;
+
+    /// <summary>How full the model's context is, or null for a tile that is not running a model.</summary>
+    /// <remarks>Null on a plain shell, and that is an answer rather than an omission: a shell has no
+    /// context to be full. Asked of the content the way the header asks it for its actions, so the view
+    /// draws a bar for any tile that grows one without learning which kinds those are.</remarks>
+    public virtual ContextGaugeViewModel? ContextGauge => null;
 
     /// <inheritdoc />
     public Task<TileActionResult> InvokeAsync(string id)
@@ -383,7 +403,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// from resolving the destination precisely so it can be tested without a shell. A second copy of it
     /// living on this class would be the copy nothing covers.</para>
     /// </remarks>
-    public bool TrySendText(string text, bool submit) =>
+    public virtual bool TrySendText(string text, bool submit) =>
         LiveTerminal is { } terminal && DictationTextSink.Type(terminal.SendText, text, submit);
 
     /// <summary>

@@ -179,8 +179,7 @@ public sealed class TerminalAgentTileKind : TileKind<TerminalAgentTileViewModel>
         // And not the conversation either, while the tile is substituted: the id belongs to the agent
         // standing in, while the ids above name the one the layout still asks for — the disagreement
         // SessionIdFor drops on the next load, and handed on it would be an id an agent has never seen.
-        if (tile.Substitution is null && tile.NamesItsOwnSession
-            && tile.SessionId is { Length: > 0 } session)
+        if (tile.Substitution is null && tile.StoredSessionId is { Length: > 0 } session)
             state[AgentStateKeys.SessionIdKey] = session;
         return state;
     }
@@ -194,7 +193,7 @@ public sealed class TerminalAgentTileKind : TileKind<TerminalAgentTileViewModel>
     /// different conversation and exits 0.</remarks>
     private static string? SessionIdFor(IAiAgent agent, JsonObject? state)
     {
-        if (agent.SessionStrategy != SessionStrategy.CapturedAfterStart) return null;
+        if (!TerminalAgentTileViewModel.KeepsSessionId(agent)) return null;
         var storedAgent = state.String(AgentStateKeys.AgentIdKey);
         // A layout this build wrote always names the agent beside the id; nothing else is evidence of a
         // disagreement, so an absent name is read as "the one being resolved" rather than as a mismatch.

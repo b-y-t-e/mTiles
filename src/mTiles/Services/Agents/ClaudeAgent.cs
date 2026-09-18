@@ -265,6 +265,43 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
     public override bool SupportsSignIns => true;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>Asked of Anthropic itself, as this login (<see cref="ClaudeModelCatalog"/>). It is the only
+    /// route to the figure for a tile on a subscription — there is no provider instance there, so
+    /// nothing else has an address or a key to ask with — and it is the same credentials file the usage
+    /// card already reads — but a stale token is <em>not</em> refreshed from here: the tile asking is running
+    /// Claude Code on that same login, which renews it itself, and spending the rotating refresh token at
+    /// the same moment is how one of the two exchanges gets refused. An expired token is no answer until
+    /// the CLI's own renewal lands, and the gauge asks again at its next reading.</para>
+    /// <para>The same <c>FilesFor</c> rule every other read here uses, which is what keeps a sign-in's
+    /// answer coming out of the sign-in's own directory: the default account's credentials are in
+    /// <c>~/.claude</c> while a relocated one keeps everything inside <c>CLAUDE_CONFIG_DIR</c>.</para>
+    /// </remarks>
+    public override Task<long?> AccountContextWindowAsync(AiSignIn? signIn, string model,
+        CancellationToken ct = default)
+    {
+        var (_, credentialsFile) = FilesFor(signIn is null ? null : AiSignInStore.DirectoryFor(signIn));
+        return ClaudeModelCatalog.ContextWindowAsync(credentialsFile, model, ct);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Its own transcripts, under whichever directory <c>CLAUDE_CONFIG_DIR</c> names — the same
+    /// rule <see cref="SignInEnv"/> applies, asked once here so a sign-in's conversations are read out of
+    /// the sign-in's own <c>projects/</c> rather than the default account's. The default account honours
+    /// an exported <c>CLAUDE_CONFIG_DIR</c> exactly as <see cref="FilesFor"/> does, or a machine that
+    /// exports it would watch a <c>~/.claude/projects</c> Claude Code never writes to.</remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog { get; } =
+        new SessionLogs.ClaudeSessionLog(signIn => signIn is null
+            ? ExportedConfigDirectory()
+              ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude")
+            : AiSignInStore.DirectoryFor(signIn));
+
+    /// <summary>The directory the default account lives in when this machine exports
+    /// <c>CLAUDE_CONFIG_DIR</c>, else null.</summary>
+    private static string? ExportedConfigDirectory() =>
+        Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR") is { Length: > 0 } directory ? directory : null;
+
+    /// <inheritdoc />
     public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
         new Dictionary<string, string?>(StringComparer.Ordinal)
         {
@@ -318,7 +355,7 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
         // A machine that already exports CLAUDE_CONFIG_DIR has its default account *there*, so asking
         // about ~/.claude would report a working login as signed out - the false "not signed in" this
         // rule exists to avoid.
-        configDirectory ??= Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+        configDirectory ??= ExportedConfigDirectory();
 
         return configDirectory is { Length: > 0 } directory
             ? (Path.Combine(directory, ".claude.json"), Path.Combine(directory, ".credentials.json"))

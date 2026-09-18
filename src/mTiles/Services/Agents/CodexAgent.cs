@@ -292,6 +292,14 @@ public sealed class CodexAgent : AiAgent, Sessions.IConversationalAgent
             request.WorkingDirectory,
             sessionId => CapturedSessions.TryClaim(sessionId, request.TileId)));
 
+    /// <inheritdoc />
+    /// <remarks>The only one of the six that names its own context window, so a codex gauge needs
+    /// nothing from the provider side. Its sessions move with <c>CODEX_HOME</c>, which is the same fact
+    /// <see cref="SignInEnv"/> and <see cref="UsageAsync"/> both already rest on.</remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog { get; } =
+        new SessionLogs.CodexSessionLog(signIn =>
+            SessionsRootFor(signIn is null ? null : AiSignInStore.DirectoryFor(signIn)));
+
     /// <summary>Where codex keeps its rollout files: <c>~/.codex/sessions</c>, then a directory per
     /// year, month and day.</summary>
     private static string SessionsRoot => SessionsRootFor(null);

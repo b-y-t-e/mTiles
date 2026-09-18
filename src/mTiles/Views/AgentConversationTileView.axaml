@@ -101,12 +101,7 @@
         <!-- The foot of the tile. A hairline above it and nothing else: it is the quietest thing here on
              purpose, and a ground of its own would make a third band across a tile that already has a
              strip at the top and a composer above this. -->
-        <Style Selector="Border.context-bar">
-            <!-- The composer's own side margin, so the bar starts and ends where the box above it does. -->
-            <Setter Property="Padding" Value="12,4,12,5" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
-            <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
-        </Style>
+        <!-- Border.context-bar is in Controls.axaml: the terminal agent tile draws the same bar. -->
 
     </UserControl.Styles>
 

@@ -26,6 +26,9 @@ public sealed class GenericAgent(string binaryName) : AiAgent
     /// session id reaches this tool somehow, and there is no flag here to carry one.</summary>
     public override SessionStrategy SessionStrategy => SessionStrategy.CapturedAfterStart;
 
+    /// <summary>For the same reason: no flag carries an id to it.</summary>
+    public override bool ResumesTerminalSession => false;
+
     public override IReadOnlyList<ApiFlavor> ConsumesApiFlavors => [];
 
     /// <summary>Only "pass no flag", because no flag is known to pass. Every mode therefore rounds to

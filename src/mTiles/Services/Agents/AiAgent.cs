@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using mTiles.Models;
 using mTiles.Services.Providers;
@@ -402,6 +402,20 @@ public abstract class AiAgent : IAiAgent
     public virtual bool WatchesSkillsDirectory(AgentSurface surface) => false;
 
     /// <inheritdoc />
+    /// <remarks>Stated on the base rather than left to the interface's default body, for the reason
+    /// <c>UsesModelContextWindow</c> is: a default interface member is invisible to a subclass reading
+    /// this file, and an agent that grows a store later should find the property it is overriding
+    /// here.</remarks>
+    public virtual SessionLogs.IAgentSessionLog? SessionLog => null;
+
+    /// <inheritdoc />
+    public virtual bool FollowsSessionChanges => true;
+
+    /// <inheritdoc />
+    public virtual Task<long?> AccountContextWindowAsync(AiSignIn? signIn, string model,
+        CancellationToken ct = default) => Task.FromResult<long?>(null);
+
+    /// <inheritdoc />
     public virtual string InstructionFile => WorkspaceAgentFiles.CanonicalInstructionFile;
 
     /// <inheritdoc />
@@ -617,6 +631,9 @@ public abstract class AiAgent : IAiAgent
 
     /// <inheritdoc />
     public virtual bool CapturesWhileRunning => false;
+
+    /// <inheritdoc />
+    public virtual bool ResumesTerminalSession => true;
 
     /// <summary>Nothing to capture, which is the answer for every agent that lets us name the session
     /// ourselves.</summary>

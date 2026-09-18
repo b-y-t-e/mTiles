@@ -150,6 +150,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _overrides = overrides ?? SessionOverrides.None;
         _requestSave = requestSave;
         _post = post ?? (action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background));
+        _contextWindow = new ContextWindowFollower(ContextWindowOfAsync, _post, RedrawAgainstTheWindow);
         FileMentions = new FileMentionsViewModel(new WorkspaceFileMentionSource(workingDirectory,
             settings.Settings.GitPath is { Length: > 0 } git ? git : "git"));
         _binding = new ConversationAgentBinding(store);
@@ -1032,6 +1033,12 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             // conversation another tile is holding — read nothing off disk, so the request stands. From
             // here a process does read it, whether the user pressed restart or the policy did.
             OnSessionStarting();
+
+            // The gauge's denominator, settled with the model this launch resolved. Asked for every
+            // agent, unlike the windows the launch puts in Claude Code's environment, and not awaited:
+            // the session must not wait on a bar, and the answer redraws the gauge when it comes.
+            _contextWindow.Settle(launch.Model);
+
             await host.StartAsync(sink => _sessionStarter.Create(agent, launch, sink), _lifetime.Token);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -1138,7 +1145,11 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         await RunAsync(() => _host.ExecuteAsync(new RestoreCheckpoint(checkpoint.BaseCheckpointId), _lifetime.Token));
     }
 
-    private void OnChanged(ConversationState state, AgentEvent _)
+    private void OnChanged(ConversationState state, AgentEvent _) => ScheduleDraw(state);
+
+    /// <summary>Draws <paramref name="state"/> on the UI thread, folding every state raised before that
+    /// draw runs into the latest of them.</summary>
+    private void ScheduleDraw(ConversationState state)
     {
         lock (_drawGate)
         {
@@ -1184,8 +1195,16 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         IsWorking = state.IsWorking;
         Model = state.Model ?? "";
         DrawSettings(state);
-        UsageText = UsageDisplay(state.Usage);
-        ContextPercent = ContextGauge.PercentUsed(state.Usage);
+        // The window the agent did not name, filled in the same way and in the same order as the terminal
+        // agent tile's — see GaugeWindowSources. Claude Code's stream reports the tokens and never the limit, so
+        // without this the commonest tile in the application counts against nothing and draws no bar.
+        // The conversation reports the model it is actually running on, which on a subscription is the
+        // only place that does — those instances carry no model, so the launch had nothing to ask the
+        // account about — and after a model change mid-conversation the only place that is right.
+        if (Instance.MaxContextTokens is null) _contextWindow.Follow(state.Model);
+        var usage = WithAWindow(state.Usage);
+        UsageText = UsageDisplay(usage);
+        ContextPercent = ContextGauge.PercentUsed(usage);
         TurnStageText = TurnStage.For(state);
         (StatusText, StatusTone) = StatusOf(state);
         Activity = state.IsWaitingForUser
@@ -1274,26 +1293,54 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
                 PendingApprovals.Add(new ApprovalRequestViewModel(request, AnswerApprovalAsync));
     }
 
-    /// <summary>"42.1k / 200k tokens · $0.31" — whatever of it the agent said.</summary>
-    internal static string UsageDisplay(TokenUsage? usage)
+    /// <summary>The agent's reading with a context window put under it, where it named none.</summary>
+    /// <remarks>
+    /// <para><b>Only codex and ACP name their own</b> (<c>modelContextWindow</c>, <c>size</c>). Claude
+    /// Code's stream reports the tokens and nothing else, so the bar this tile is built around was drawn
+    /// for two agents out of six — and never for the commonest configuration there is.</para>
+    /// <para>The order is the terminal agent tile's, because it is the same question: the provider's
+    /// figure is a fact about what is being served and this application hands it to the CLI anyway, and
+    /// with no provider — a subscription has no catalogue to ask — what is left is what the CLI itself
+    /// believes, which is where the run will stop.</para>
+    /// <para>Applied here rather than in the reducer: the conversation's events are what the agent
+    /// <em>said</em>, and a window nobody named is not something to write into them.</para>
+    /// </remarks>
+    private TokenUsage? WithAWindow(TokenUsage? usage)
     {
-        if (usage is null) return "";
-        var parts = new List<string>();
-        if (usage.UsedTokens is { } used)
-            parts.Add(usage.ContextWindow is { } window
-                ? $"{Tokens(used)} / {Tokens(window)} tokens"
-                : $"{Tokens(used)} tokens");
-        if (usage.CostUsd is { } cost and > 0) parts.Add(string.Create(CultureInfo.InvariantCulture, $"${cost:0.00}"));
-        return string.Join(" · ", parts);
+        if (usage is null || usage.ContextWindow is not null) return usage;
+        if (GaugeWindow is not { } window) return usage;
+
+        return usage with { ContextWindow = window };
     }
 
-    /// <summary>Invariant, like every other figure the application draws in its English interface.</summary>
-    private static string Tokens(long count) => count switch
+    /// <summary>The window of the model this conversation runs on now, settled when the session starts
+    /// and followed when the model changes.</summary>
+    private readonly ContextWindowFollower _contextWindow;
+
+    /// <summary>How large a context <paramref name="model"/> is served with — Claude Code's stream never
+    /// names a window itself.</summary>
+    private Task<long?> ContextWindowOfAsync(string model, CancellationToken ct) =>
+        GaugeWindowSources.LookupAsync(_settings.Settings, Agent, Instance, model, ct);
+
+    /// <summary>Redraws against the state already on screen: the figures have not changed, only what
+    /// they are being counted against.</summary>
+    /// <remarks>Through the same scheduling every other change goes through, so nothing here has to know
+    /// which properties a redraw touches.</remarks>
+    private void RedrawAgainstTheWindow()
     {
-        >= 1_000_000 => string.Create(CultureInfo.InvariantCulture, $"{count / 1_000_000d:0.#}M"),
-        >= 1_000 => string.Create(CultureInfo.InvariantCulture, $"{count / 1_000d:0.#}k"),
-        _ => count.ToString(CultureInfo.InvariantCulture),
-    };
+        if (!_disposed && _host is { } live) ScheduleDraw(live.State);
+    }
+
+    /// <summary>What to count this conversation's tokens against, when the agent did not say — in the
+    /// terminal agent tile's order, because it is the same question (<see cref="GaugeWindowSources"/>).
+    /// </summary>
+    private long? GaugeWindow => GaugeWindowSources.For(Instance, _contextWindow);
+
+    /// <summary>"42.1k / 200k tokens · $0.31" — whatever of it the agent said.</summary>
+    /// <remarks>The wording is <see cref="ContextGaugeViewModel"/>'s, because the terminal agent tile
+    /// draws the same bar from a different source and two spellings of one figure is how a reader comes
+    /// to think they are two different figures.</remarks>
+    internal static string UsageDisplay(TokenUsage? usage) => ContextGaugeViewModel.Describe(usage);
 
     /// <summary>The status word and its colour, from one table, so a state added or reordered here moves both.</summary>
     private (string Text, AgentStatusTone Tone) StatusOf(ConversationState state) => state switch

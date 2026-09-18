@@ -1,7 +1,8 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:v="using:mTiles.Views"
              x:Class="mTiles.Views.TerminalTileView"
              x:DataType="vm:TerminalTileViewModel">
     <!-- The two banners take a strip off the top rather than floating over the terminal: drawn on top they
@@ -62,6 +63,49 @@
                            LineHeight="17"
                            VerticalAlignment="Center"
                            Foreground="{DynamicResource TextPrimary}" />
+            </DockPanel>
+        </Border>
+
+        <!-- ======== How full the model's context is ========
+             The Agent tile's bar, the Agent tile's wording and the Agent tile's style
+             (Border.context-bar in Controls.axaml) — because it is the same figure about the same
+             conversation, and only where it is read from differs. Here it comes out of the CLI's own
+             session store, since a TUI paints these numbers into a footer no host can read off a
+             pseudo-terminal.
+
+             Docked below the terminal rather than drawn over it: the terminal is the tile's content and
+             something floating in its bottom corner sits on top of whatever the agent is printing. It
+             takes a strip only while there is something to say — a plain shell answers null, and so does
+             an agent whose CLI keeps no readable store (agy), so neither loses a line to a bar that
+             would always be empty.
+
+             The bar itself is hidden separately from the figures: four of the five CLIs that count
+             tokens never name the window, so until a provider supplies one there is a count to show and
+             nothing to draw it against.
+
+             The negative margin undoes TerminalTileViewModel.ContentInset for this one strip, and it is
+             the rule LeafTileView.UpdateContentBackground already states rather than an exception to it:
+             a terminal is text against an edge and wants the gap, while chrome runs to the card's edge
+             and takes its corners from the clip. Inside the inset this bar was the same bar as the Agent
+             tile's drawn 6px short on three sides, with its hairline stopping before the card did. -->
+        <Border DockPanel.Dock="Bottom" Classes="context-bar"
+                Margin="-6,0,-6,-6"
+                DataContext="{Binding ContextGauge}"
+                IsVisible="{Binding HasAnythingToSay, FallbackValue=False}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0"
+                           VerticalAlignment="Center"
+                           FontSize="{DynamicResource TermFontSm}"
+                           FontFamily="{DynamicResource TerminalFontFamily}"
+                           Foreground="{DynamicResource TextMuted}"
+                           Text="{Binding Text}" />
+                <v:UsageBar Height="6" VerticalAlignment="Center"
+                            UsedPercent="{Binding UsedPercent}"
+                            IsVisible="{Binding UsedPercent, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            TrackBrush="{DynamicResource BgElevated}"
+                            FillBrush="{DynamicResource AccentHover}"
+                            OverBrush="{DynamicResource DangerText}"
+                            ToolTip.Tip="How much of the model's context window this conversation has used" />
             </DockPanel>
         </Border>
 

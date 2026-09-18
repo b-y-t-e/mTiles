@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using mTiles.Services;
@@ -59,6 +61,7 @@ public partial class TerminalTileView : UserControl
             PtyFactory = options => WatchChildProcess(Terminal.Pty.PtyConnection.Start(options), vm),
         };
 
+        if (vm is IInputSubmissionTile submissions) ReportSubmissions(terminal, submissions);
         vm.AttachControl(terminal);
         TerminalHost.Content = terminal;
 
@@ -76,6 +79,15 @@ public partial class TerminalTileView : UserControl
             TileLauncher.Launch(terminal, vm);
         }
     }
+
+    /// <summary>Tells the tile every time Enter is pressed in its terminal.</summary>
+    /// <remarks>On the tunnel and with handled events too, because the control marks the key handled
+    /// on its way to the child — which is the ordinary case, not the exception.</remarks>
+    private static void ReportSubmissions(TerminalControl terminal, IInputSubmissionTile submissions) =>
+        terminal.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key == Key.Enter) submissions.OnInputSubmitted();
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
     /// <summary>Tells the tile which process its shell is, for as long as that process lives.</summary>
     private static Terminal.Pty.IPtyConnection WatchChildProcess(

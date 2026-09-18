@@ -23,7 +23,8 @@ namespace mTiles.ViewModels;
 /// same rule a shell profile already follows — and the reason a tile stores an id rather than a copy.
 /// </para>
 /// </remarks>
-public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescribedTile, IAgentTile
+public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescribedTile, IAgentTile,
+    IActiveStateTile, IInputSubmissionTile
 {
     private readonly WorkspaceAgentFiles? _agentFiles;
 
@@ -80,21 +81,58 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// <summary>
     /// The conversation this tile resumes.
     /// </summary>
-    /// <remarks>For the two strategies where we choose it, it is the tile's own identity as
-    /// <em>the agent</em> spells it — opencode's <c>ses_</c> prefix is not this tile's business, and a
-    /// bare GUID handed to it threw before the tile could launch — and nothing has to be written down.
-    /// For the one where the agent chooses, it is whatever was captured under <em>this</em> identity —
-    /// empty until it has been, which every agent reads as "start a fresh one".</remarks>
+    /// <remarks>
+    /// <para>For the two strategies where we choose it, it is the tile's own identity as <em>the
+    /// agent</em> spells it — opencode's <c>ses_</c> prefix is not this tile's business, and a bare GUID
+    /// handed to it threw before the tile could launch. For the one where the agent chooses, it is
+    /// whatever was captured under <em>this</em> identity — empty until it has been, which every agent
+    /// reads as "start a fresh one".</para>
+    /// <para><b>And a conversation the CLI moved to by itself outranks both.</b> <c>/clear</c> and
+    /// <c>/resume</c> inside the TUI change which conversation the agent is in, at which point the id
+    /// this tile launched with resumes something nobody is looking at — and a derived id is exactly as
+    /// wrong as a stale captured one. What follows it is <see cref="AgentSessionWatcher"/>, and what
+    /// decides whether a followed id may be adopted at all is the agent
+    /// (<see cref="IAiAgent.FollowsSessionChanges"/>), because resuming it is the agent's own
+    /// contract.</para>
+    /// <para>The stored id is still only ever read under the identity it was stored for, which is what
+    /// makes "New session" a new conversation rather than the same one under a new name.</para>
+    /// </remarks>
     public string SessionId =>
-        NamesItsOwnSession
-            ? (_capturedForTileId == TileId ? _capturedSessionId : "")
-            : _agent.SessionIdForTile(TileId);
+        _capturedForTileId == TileId && _capturedSessionId.Length > 0
+            ? _capturedSessionId
+            : NamesItsOwnSession
+                ? ""
+                : _agent.SessionIdForTile(TileId);
 
     /// <summary>Whether this tile's session id is the agent's own answer rather than ours.</summary>
     /// <remarks>Which is what makes it worth writing down: the two strategies where we choose the id
     /// derive it from the tile's identity at every launch, so a stored copy could only ever disagree —
     /// and, handed to a different agent, would be an id it has never seen.</remarks>
     public bool NamesItsOwnSession => _agent.SessionStrategy == SessionStrategy.CapturedAfterStart;
+
+    /// <summary>The session id worth writing into the layout, or empty when the tile's identity says
+    /// it all.</summary>
+    /// <remarks>Whatever this tile captured or followed under its current identity: a codex or agy
+    /// tile's captured id, and equally a claude tile's conversation after a <c>/clear</c> or
+    /// <c>/resume</c> — which, left unwritten, the next start would replace with the id derived from the
+    /// tile, resuming the conversation the user had left.
+    /// <para>Never for an agent that is not handed its id back (<see cref="IAiAgent.ResumesTerminalSession"/>):
+    /// written down, it would name a conversation no launch opens.</para></remarks>
+    public string StoredSessionId =>
+        _capturedForTileId == TileId && _agent.ResumesTerminalSession ? _capturedSessionId : "";
+
+    /// <summary>Whether a session id stored for <paramref name="agent"/> is one it can be handed back.
+    /// </summary>
+    /// <remarks>The captured strategy's own id, and a conversation followed out of the agent's store —
+    /// but only for an agent that resumes what it follows (<see cref="IAiAgent.FollowsSessionChanges"/>),
+    /// since opencode's resume is keyed on the tile and a stored id there would name a second
+    /// conversation, and only from a store that can tell its own interface from a headless run
+    /// (<see cref="Services.Agents.SessionLogs.IAgentSessionLog.TellsHeadlessRunsApart"/>), since nothing else is ever followed:
+    /// pi's store marks neither, so a pi tile keeps resuming the id derived from the tile.</remarks>
+    public static bool KeepsSessionId(IAiAgent agent) =>
+        agent.ResumesTerminalSession
+        && (agent.SessionStrategy == SessionStrategy.CapturedAfterStart
+            || (agent.SessionLog is { TellsHeadlessRunsApart: true } && agent.FollowsSessionChanges));
 
     public TerminalAgentTileViewModel(string workingDirectory, ShellInstallation? shell,
         SettingsService settingsService, IAiAgent agent, string instanceId,
@@ -109,6 +147,14 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         _agent = agent;
         _settings = settingsService;
         _requestSave = requestSave;
+        _conversation = new ConversationFollower(agent.SessionLog, WorkingDirectory,
+            signIn: () => AiSignInStore.Find(_settings.Settings, Instance.SignInId),
+            isFree: id => !CapturedSessions.IsHeldByAnother(id, TileId),
+            knownSessionId: () => SessionId,
+            report: OnSessionRead,
+            post: _post);
+        _contextWindow = new ContextWindowFollower(ContextWindowOfAsync, _post,
+            () => _conversation.ReadNow());
         InstanceId = instanceId;
         Substitution = substitution;
         // Said at construction rather than at the launch: it is an answer about the layout this tile was
@@ -118,10 +164,87 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         // The identity the stored id belongs to is the one this tile is loading under: a layout only
         // ever carries the two together.
         _capturedForTileId = TileId;
-        // Claimed at construction, not only when captured: a layout reopened brings its session back
-        // without anything capturing it, and a neighbouring codex tile starting a moment later must not
-        // be able to adopt the conversation this tile is already showing.
-        CapturedSessions.Claim(_capturedSessionId, TileId);
+        ClaimCurrentSession();
+        _conversation.Start();
+    }
+
+    /// <summary>Holds the conversation this tile is in against every other tile's watcher and capture.
+    /// </summary>
+    /// <remarks>Claimed up front, not only when captured or followed: a layout reopened brings its
+    /// session back without anything capturing it, and a claude or pi tile derives its id from its own
+    /// identity without capturing anything at all — so without this, a neighbouring tile of the same
+    /// agent watching the same directory could take the conversation this one is showing the moment it
+    /// is written, and both would resume it at the next restart.</remarks>
+    private void ClaimCurrentSession() => CapturedSessions.Claim(SessionId, TileId);
+
+    /// <summary>How full the model's context is, drawn at the foot of the tile.</summary>
+    /// <remarks>The Agent tile's own bar and the Agent tile's own wording
+    /// (<see cref="ContextGaugeViewModel"/>), fed from a different place: that tile is told the figures
+    /// by the protocol it drives, and this one reads them out of the CLI's own store, because a TUI
+    /// paints them into a footer no host can read off a pseudo-terminal. An agent that keeps no readable
+    /// store leaves it empty and the bar is simply not drawn.</remarks>
+    public override ContextGaugeViewModel? ContextGauge => Gauge;
+
+    /// <summary>The gauge itself, held so this class can write to it without going through a nullable.
+    /// </summary>
+    private ContextGaugeViewModel Gauge { get; } = new();
+
+    /// <summary>Follows the CLI's own record of which conversation this tile is in and what it has
+    /// spent.</summary>
+    /// <remarks>A collaborator rather than a set of fields here, the shape <see cref="ContextWindowFollower"/>
+    /// already takes: the watcher's lifetime, the adoption window and the claim test are one machine with
+    /// one reason to change, and this class has enough of its own — launching the agent, capturing a
+    /// session id and writing it into the layout. What is left here is what only the tile can answer:
+    /// which id it holds and whether a followed one may be adopted at all.</remarks>
+    private readonly ConversationFollower _conversation;
+
+    /// <inheritdoc />
+    public void OnInputSubmitted() => _conversation.OnInputSubmitted();
+
+    /// <inheritdoc />
+    /// <remarks>A dictated line sent with its Enter is a submission like a typed one, and arrives as text
+    /// rather than as a keystroke the view could see — so it is counted here, or a <c>/clear</c> dictated
+    /// with auto-Enter would never open the window in which the conversation it starts may be taken.
+    /// </remarks>
+    public override bool TrySendText(string text, bool submit)
+    {
+        var sent = base.TrySendText(text, submit);
+        if (sent && submit) OnInputSubmitted();
+        return sent;
+    }
+
+    /// <inheritdoc />
+    public void OnActiveChanged(bool isActive) => _conversation.OnActiveChanged(isActive);
+
+    /// <summary>
+    /// What the agent's own store just said: which conversation it is in, and how full its context is.
+    /// </summary>
+    /// <remarks>
+    /// <para>On the thread this tile draws on, because both halves write observable properties.</para>
+    /// <para><b>The gauge always follows and the id only sometimes does</b>
+    /// (<see cref="IAiAgent.FollowsSessionChanges"/>): drawing a figure is free and adopting an id is a
+    /// promise about what the next launch will resume.</para>
+    /// <para><b>Adopted through <see cref="Remember"/>, which saves the layout.</b> A followed id that
+    /// is not written down is a conversation lost at the next restart — the same rule the capture
+    /// follows, and the reason the two share one method rather than one setting the fields the other
+    /// owns.</para>
+    /// </remarks>
+    private void OnSessionRead(Services.Agents.SessionLogs.AgentSessionReading reading)
+    {
+        if (IsDisposed) return;
+
+        // The transcript names the model the last turn actually ran on, which on a subscription is the
+        // only place that does, and after a /model inside the TUI is the only place that is right.
+        // Followed before drawing, so a reading on a new model is never drawn against the old one's window.
+        if (Instance.MaxContextTokens is null) _contextWindow.Follow(reading.Model);
+
+        Gauge.Show(reading.UsedTokens, reading.ContextWindow, reading.CostUsd,
+            fallbackWindow: GaugeWindow);
+
+        if (!_agent.FollowsSessionChanges) return;
+        if (string.Equals(reading.SessionId, SessionId, StringComparison.Ordinal)) return;
+
+        Remember(reading.SessionId, TileId);
     }
 
     /// <summary>The instance as settings define it <em>now</em>, or the agent's seeded one when the
@@ -154,9 +277,10 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// <remarks>Switching kills whatever the shell is running, so it is asked about like any other
     /// destructive action — and the sentence names the part the user cannot see coming: the account is
     /// where the CLI keeps its conversations, so changing it is what changes which conversation the tile
-    /// comes back to. On an agent that names its own session that loss is one way; on the other two the
-    /// id is derived from the tile's identity at every launch, so switching back finds the old
-    /// conversation again.</remarks>
+    /// comes back to. That loss is one way wherever the tile holds an id of its own — one the agent named,
+    /// or one followed out of its store after a <c>/clear</c> or <c>/resume</c> — because the switch drops
+    /// it (<see cref="ForgetCapturedSession"/>). Only a tile still on the id derived from its identity
+    /// finds the old conversation again by switching back.</remarks>
     public string? ConfirmationForSwitchTo(string instanceId)
     {
         if (Target(instanceId) is not { } target) return null;
@@ -164,10 +288,13 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         var question = $"Run this tile as \"{target.Name}\"? Whatever it is running now is stopped.";
         if (target.SignInId == Instance.SignInId) return question;
 
-        return question + (NamesItsOwnSession
+        return question + (HoldsASessionIdOfItsOwn
             ? " It is a different account, so the current conversation will not be resumed."
             : " It is a different account, so a new conversation starts — switching back reopens this one.");
     }
+
+    /// <summary>Whether the conversation this tile resumes is one an account switch forgets.</summary>
+    private bool HoldsASessionIdOfItsOwn => NamesItsOwnSession || StoredSessionId.Length > 0;
 
     /// <summary>
     /// Points the tile at another instance of the same agent.
@@ -191,7 +318,7 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
 
         InstanceId = target.Id;
         ClearSubstitution();
-        if (accountChanged) ForgetCapturedSession();
+        if (accountChanged) LeaveTheAccount();
 
         OnPropertyChanged(nameof(HeaderNote));
         _requestSave?.Invoke();
@@ -222,6 +349,18 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         Substitution = null;
     }
 
+    /// <summary>Drops everything this tile knew about the account it is leaving.</summary>
+    /// <remarks>The watcher is handed the sign-in once, so it goes on reading the old account's
+    /// directory until it is replaced: the bar would describe a conversation of the account the tile has
+    /// left, and a <c>/clear</c> under the new one would never be followed. Cleared and restarted here
+    /// for the reason <see cref="ReleaseSessionOfPreviousIdentity"/> does both.</remarks>
+    private void LeaveTheAccount()
+    {
+        ForgetCapturedSession();
+        Gauge.Clear();
+        _conversation.Restart();
+    }
+
     /// <summary>Forgets the conversation captured under the account the tile is leaving.</summary>
     /// <remarks>The same reset <see cref="ReleaseSessionOfPreviousIdentity"/> performs, keyed on the
     /// account rather than on the tile's identity — two independent triggers, both of which have to
@@ -231,12 +370,17 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// silently starts a different conversation and exits 0.</remarks>
     private void ForgetCapturedSession()
     {
-        if (!NamesItsOwnSession) return;
+        // Not only the captured agents any more: a claude tile that followed the user into
+        // another conversation is holding an id of exactly the same kind, belonging to exactly the same
+        // account's directory — so an account switch has to drop it for the same reason. With nothing
+        // stored there is nothing to drop, which is what the length test says.
+        if (!NamesItsOwnSession && _capturedSessionId.Length == 0) return;
 
         CancelCapture();
         CapturedSessions.ReleaseAllOf(_capturedForTileId);
         _capturedSessionId = "";
         _capturedForTileId = TileId;
+        ClaimCurrentSession();
     }
 
     /// <inheritdoc />
@@ -326,6 +470,22 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// <c>CLAUDE_CODE_MAX_CONTEXT_TOKENS</c>. Same rules, same reset, same null.</summary>
     private long? _maxContextTokens;
 
+    /// <summary>The model's whole context, as the provider or the account describes it — the gauge's
+    /// denominator.</summary>
+    /// <remarks><b>Not <see cref="_maxContextTokens"/>, although it is the same figure for one agent.</b>
+    /// That one is resolved only where the CLI reads it out of its environment (Claude Code alone), so
+    /// four of the five agents that count tokens would have had figures and no bar. Settled at the
+    /// launch and followed from the transcript, because the model the conversation runs on can change
+    /// inside the TUI. codex overrides it by naming its own window in its rollout.</remarks>
+    private readonly ContextWindowFollower _contextWindow;
+
+    private Task<long?> ContextWindowOfAsync(string model, CancellationToken ct) =>
+        GaugeWindowSources.LookupAsync(_settings.Settings, _agent, Instance, model, ct);
+
+    /// <summary>What to count this conversation's tokens against, when the agent did not say — see
+    /// <see cref="GaugeWindowSources"/> for the order and why nothing is guessed after it.</summary>
+    private long? GaugeWindow => GaugeWindowSources.For(Instance, _contextWindow);
+
     /// <inheritdoc />
     /// <remarks>The provider's address and key, and the model resolved above — never the startup
     /// script, which is typed into a live prompt and kept in the shell's history.</remarks>
@@ -377,6 +537,16 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
             _maxContextTokens = windows.MaxContextTokens;
         }
 
+        // Asked for every agent, not only the one that reads a window out of its environment: this is
+        // the gauge's denominator, and the five CLIs that count tokens without naming a limit have no
+        // other source for it. Not awaited — the launch must not stand still for a bar; the answer
+        // arrives through the follower and asks the watcher for a fresh reading then.
+        _contextWindow.Settle(_resolvedModel);
+
+        // The window of the previous model has just been dropped, so the reading on screen is redrawn
+        // now rather than left showing a bar against room this launch may not have.
+        _conversation.ReadNow();
+
         // The header shows the model this launch settled on, and until now that was the instance's
         // stored value — which for the "first loaded" sentinel is not a model name at all. Announced
         // rather than pushed at the view, so the tile stays a view model that knows nothing about
@@ -394,6 +564,7 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     public override async Task PrepareForLaunchAsync()
     {
         ReleaseSessionOfPreviousIdentity();
+        ForgetSessionThatIsNotResumed();
 
         // First, because the environment the commands run with is read straight after they are
         // resolved: a model settled afterwards would reach the tile one launch late.
@@ -505,6 +676,25 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         CapturedSessions.ReleaseAllOf(_capturedForTileId);
         _capturedSessionId = "";
         _capturedForTileId = TileId;
+        ClaimCurrentSession();
+        // The bar was describing the conversation this tile has just left. Cleared rather than left at
+        // its last reading, because nothing on screen would say the figure is about something else.
+        Gauge.Clear();
+        _conversation.Restart();
+    }
+
+    /// <summary>Drops the conversation of the previous launch where this one will not resume it.
+    /// </summary>
+    /// <remarks>A Grok started again is a fresh conversation (<see cref="IAiAgent.ResumesTerminalSession"/>),
+    /// so the id captured from the last one names something the tile is no longer showing: kept, the bar
+    /// would go on describing it and the capture — which asks only while the tile has no id — would never
+    /// find the new one.</remarks>
+    private void ForgetSessionThatIsNotResumed()
+    {
+        if (_agent.ResumesTerminalSession || _capturedSessionId.Length == 0) return;
+
+        ForgetCapturedSession();
+        Gauge.Clear();
     }
 
     /// <summary>Keeps a captured id, and asks for the layout to be written.</summary>
@@ -514,10 +704,15 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     {
         if (capturedFor != TileId) return;
 
+        // Moved rather than added to: the conversation this tile has left must be free for the tile
+        // that resumes into it next. And a conversation another tile took in the meantime stays theirs.
+        if (!CapturedSessions.TryMoveTo(sessionId, capturedFor)) return;
+
         _capturedSessionId = sessionId;
         _capturedForTileId = capturedFor;
-        CapturedSessions.Claim(sessionId, capturedFor);
         _requestSave?.Invoke();
+        // A captured conversation was written before the tile knew it, so no event is coming to draw it.
+        _conversation.ReadNow();
     }
 
     /// <summary>
@@ -546,11 +741,41 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
                 isRunning: HasRunningSession,
                 isBusy: true, hasUnsentWork: true) is not SkillChangeResponse.Tell) return;
 
+        AskForRestartForSkills();
+    });
+
+    /// <summary>Asks for the restart a skill change needs: the line on the bar and the lit header button.</summary>
+    internal void AskForRestartForSkills()
+    {
         // Added to whatever the bar already says rather than written over it: an AgentSubstitution notice
         // is reported once, at construction, so replacing it here would lose for good the one sentence
         // saying a different program is running in this repository.
         LaunchNotice = LaunchNotices.With(LaunchNotice, SkillChangePolicy.Notice);
-    });
+        SetSkillsAwaitRestart(true);
+    }
+
+    /// <summary>Whether a skill change is waiting on a restart this tile has not had yet.</summary>
+    /// <remarks><b>Its own state rather than read back off the bar.</b> The bar can be dismissed, and
+    /// dismissing it puts the sentence away without making the restart any less needed — the running CLI
+    /// still holds the old skills. Derived from the bar, closing it also put out the header's light and
+    /// took the reason out of the tooltip, so the request was made once and then forgotten by both sides.
+    /// Set by <see cref="OnSkillsChanged"/> and cleared by <see cref="OnLaunchBeginning"/>, the same two
+    /// moments that put the line up and take it down.</remarks>
+    private bool _skillsAwaitRestart;
+
+    /// <summary>The skill notice, as the reason the header's Restart button is lit.</summary>
+    protected override string? RestartUrgency => _skillsAwaitRestart ? SkillChangePolicy.Notice : null;
+
+    /// <summary>Records whether a restart is owed, and tells the header when that changes.</summary>
+    /// <remarks>The leaf recomputes its action list on any change the content reports, so announcing
+    /// <see cref="TerminalTileViewModel.Actions"/> is what redraws the button.</remarks>
+    private void SetSkillsAwaitRestart(bool value)
+    {
+        if (_skillsAwaitRestart == value) return;
+
+        _skillsAwaitRestart = value;
+        OnPropertyChanged(nameof(Actions));
+    }
 
     /// <summary>The restart the notice asked for, taking the notice down.</summary>
     /// <remarks><b>The symmetric half of <see cref="OnSkillsChanged"/>.</b> Without it the bar went on
@@ -559,8 +784,11 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// stops being read at all. Every launch, not only a restart: the first one reads whatever is on disk
     /// too. Its own line off the bar, so an <c>AgentSubstitution</c> standing beside it stays, and so does
     /// one the user has already put down — see <see cref="LaunchNotices"/>.</remarks>
-    protected override void OnLaunchBeginning() =>
+    protected override void OnLaunchBeginning()
+    {
         LaunchNotice = LaunchNotices.Without(LaunchNotice, SkillChangePolicy.Notice);
+        SetSkillsAwaitRestart(false);
+    }
 
     /// <inheritdoc />
     /// <remarks>The claim goes with the tile: a session nobody is showing any more is one the next codex
@@ -568,6 +796,7 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     protected override void OnDisposing()
     {
         if (_agentFiles is not null) _agentFiles.SkillsChanged -= OnSkillsChanged;
+        _conversation.Dispose();
         CancelCapture();
         CapturedSessions.ReleaseAllOf(TileId);
         // And whatever it held before its last change of identity, for a tile closed after "New

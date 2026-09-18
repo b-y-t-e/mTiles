@@ -312,3 +312,138 @@ New UX for either tile goes into these shared pieces, not into one view.
   `AgentConversationHost.ExecuteAsync` as the one entry point for commands. Both are one contract with two
   transports, and what travels, what proxies back to the host and what a paired peer is allowed to do are
   [`ROADMAP.md`](ROADMAP.md) §5.
+
+## Reading an agent's own session store
+
+Measured 2026-09-18 on Windows against the installed binaries. **Five of the six CLIs keep a record on
+disk of the conversations they hold, filed by working directory**, and two things this application could
+not otherwise know are read out of it: **which conversation the tile is really in** (the user types
+`/clear` or `/resume` inside the TUI and the id in the layout stops being the one on screen) and **how
+full the model's context is** (a TUI paints that into its own footer, where no host can read it off a
+pseudo-terminal).
+
+The port is `Services/Agents/SessionLogs/IAgentSessionLog`, reached through `IAiAgent.SessionLog`, which
+defaults to `null` — an agent whose author has measured nothing keeps the session id it was launched with
+and draws no bar, which is exactly what it does today. **Grok answers `null` too, although its store is
+the easiest of the five to read** (`GrokSessionLog` is measured and tested): a store is read by the id of
+the conversation a tile is in, and a terminal Grok tile never has one — it resumes nothing, and it
+captures nothing because its store cannot tell its TUI from an Agent tile's ACP session or a Goal run.
+Wired in, the reader would only keep a watcher running for a reading that can never arrive.
+
+| agent | store | session id | working directory | tokens | context window | cost |
+|---|---|---|---|---|---|---|
+| **claude** | `<config>/projects/<slug>/<id>.jsonl` | the file's name | on the message lines | `message.usage` — input + cache read + cache write + output | — | — |
+| **codex** | `<home>/sessions/YYYY/MM/DD/rollout-<stamp>-<id>.jsonl` | in the file name | first line, `payload.cwd` | `last_token_usage.total_tokens` | **`model_context_window`** | — |
+| **opencode** | `<data>/opencode/storage/{project,session,message}/` | `ses_…`, the session file's name | `project/<id>.json` → `worktree` | `tokens` on an assistant message | — | `cost`, per turn |
+| **pi** | `<dir>/sessions/--<slug>--/<stamp>_<id>.jsonl` | after the first `_` | first line, `cwd` | `message.usage` — input + output + cacheRead + cacheWrite | — | `usage.cost.total`, per turn |
+| **grok** | `~/.grok/sessions/<url-encoded cwd>/<id>/` | the directory's name | the directory's name, and `summary.json` | `usage.json` → the last of `turns`, `totalTokens` (never `session.totalTokens`, a running sum) | — | `costUsdTicks`, 1e-10 USD each |
+| **agy** | `~/.gemini/antigravity-cli/conversations/<id>.db` | the file's name | **only inside a protobuf blob** | **none anywhere** | — | — |
+
+Six things in there are load-bearing and each was a wrong first guess:
+
+- **The slug is not "replace the separators".** Claude Code and pi turn *every* character that is not a
+  letter or a digit into a dash, so `D:\work\sources\kursalpha.eu` is `D--work-sources-kursalpha-eu` —
+  the dot goes the same way as the colon. A slug wrong by one character finds no directory, which reads
+  exactly like an agent that has never been run in this workspace.
+- **Grok url-encodes instead** (`C%3A%5CUsers%5Candrz`), so the colon and the separators survive as
+  themselves. A slug would find nothing there.
+- **opencode's project id is not a hash of the path.** It looks like one; SHA-1 of the worktree in every
+  plausible spelling misses it. The index is read instead, which is right today and free the next time
+  opencode changes how it derives the id.
+- **The cache counts towards the context and the reasoning does not.** What occupies the window on the
+  next turn is what will be sent again. A Claude turn of 6 669 input against 116 608 cache-read is a
+  conversation of some 124 000 tokens, and counting the input alone drew it as almost empty.
+- **codex's `last_token_usage`, never `total_token_usage`.** The second is every token the conversation
+  has ever spent, which runs past the window after a few turns and draws the gauge as permanently full.
+- **A usage object of zeroes is a turn that never reached the model** — an auth failure, a refused model.
+  Read as the answer it empties the gauge behind a conversation that is still there.
+
+**Only codex names its own window** (`modelContextWindow`), and over the Agent tile's own protocols only
+codex and ACP do (`size`). Claude Code's stream reports the tokens and nothing else, so the bar the Agent
+tile was built around was drawn for two agents out of six — and never on a subscription. The denominator
+is therefore filled in, in this order and in both tiles:
+
+1. **what the agent said**, where it said anything;
+2. **`AiAgentInstance.MaxContextTokens`** — the field in Settings → AI. A decision, handed over unchanged,
+   the same precedence `ModelContextWindow.Answer` already gives it;
+3. **the provider** (`ModelContextWindow.ContextOfAsync`, the same half-hour cache the launch's own
+   windows spend). A fact about what is being served, and also what this application hands the CLI, so
+   the gauge and the run agree;
+4. **the agent's own account** (`IAiAgent.AccountContextWindowAsync`). The only route left for a
+   subscription, which has no provider instance at all and is the commonest configuration there is.
+
+Measured 2026-09-18: **`GET api.anthropic.com/v1/models` with Claude Code's own OAuth token answers 200**
+and carries `max_input_tokens` per model — 1 000 000 for `claude-opus-5`, `claude-sonnet-5`,
+`claude-fable-5-1` and the 4.6–4.8 families, 200 000 for `claude-opus-4-5-20251101` and
+`claude-haiku-4-5-20251001`. `ClaudeModelCatalog` asks it with the request shape `ClaudeUsageReader`
+already uses — the token read through `ClaudeCredentialStore` but **never renewed from here**
+(`LiveAccessToken`): the tile asking runs Claude Code on that same login, which renews it itself, and a
+rotating refresh token spent by both at once leaves one exchange refused — possibly the CLI's. An expired
+token is no answer until the CLI's renewal lands, and the gauge asks again at its next reading; the status and never the body in a log — plus **two headers, not one**: `anthropic-beta:
+oauth-2025-04-20` *and* `anthropic-version: 2023-06-01`. The second is what this endpoint wants and the
+usage endpoint does not; left out, the answer is `400 anthropic-version: header is required`, and since
+every failure here becomes "no window", the symptom is a bar that silently never appears. Both are pinned
+by a test against a capturing handler. **A long-context variant names its own window and outranks the
+list** (`ClaudeModelCatalog.VariantWindow`): Claude Code spells those by putting the size in brackets
+after the model — `claude-sonnet-4-5[1m]` — and the suffix travels to the API as part of the model
+string, so the transcript carries it too. Matched against the catalogue's ids it finds nothing, and the
+plain entry beside it is the *short* window, so a session really running on a million tokens was drawn
+against 200 000: a full bar from a fifth of the way in, which is the wrong full bar this whole section
+exists to avoid. The suffix is read rather than tabulated — a count and a scale — and anything else
+falls through to the plain id. The answer is cached for half an hour per credentials file, and a *failed* read is not cached, so a network that came back does not leave
+the tile barless for the rest of it. **`max_input_tokens`, never `max_tokens`**: the second sits right
+beside it and is how much the model may *write* in one reply (128 000 on the current families), which as
+a window would draw every conversation as long past full. The other five agents have no measured route to
+their own service, answer null, and show a count with no bar.
+
+**There is deliberately no fifth step, and the families are why.** An earlier version fell back to what
+Claude Code documents itself as assuming for a model it cannot verify — 200 000 — and drew a *full* bar
+over a conversation of 234k. One account, asked at one moment, serves opus-5 a million tokens and
+opus-4.5 two hundred thousand, so no single figure is right for both; and across this machine's own
+transcripts the largest context actually seen was 1 000 782 on `claude-opus-5` and 534 018 on
+`z-ai/glm-5.3-flash`. A bar pinned at 100% reads as *about to run out*, which is the one thing it must not
+say wrongly — so a tile with no source shows the count and no bar, and the Settings field is the way to
+get one. Past a window somebody really did name, the bar clamps: an agent that compacts reports the
+tokens it had before the compaction landed, and there a full bar is the truth.
+
+`Services/Agents/AgentSessionWatcher` is what follows it: one per tile, debounced, never reading twice at
+once, and knowing nothing about any CLI. It carries the two filters a capture already carries — a
+conversation older than this tile's current identity is not this tile's to take, and one another tile
+holds (`CapturedSessions`) is passed over, claimed rather than merely tested so that two tiles restored
+from one layout cannot both take it. A tile claims the conversation it is in the moment it has one — the derived id of a claude or pi
+tile included, so a neighbour of the same agent reading first cannot take it — and a *headless* run filed
+in the same directory is never a candidate at all: Claude Code marks every message line with its
+`entrypoint`, `cli` in the TUI and `sdk-cli` under `-p`, which is what a Goal tile's run and an Agent
+tile's session both are, and codex says the same on its first line (`payload.source`: `cli` in the TUI,
+`exec` for `codex exec`, `vscode` for an app-server client). pi, opencode and grok mark nothing, so the
+first two are read **by id alone** (`IAgentSessionLog.TellsHeadlessRunsApart`): the gauge follows, and a
+`/clear` inside their TUI is not adopted, because the newest conversation there may be a Goal tile's run.
+The time filter is the **last write** against the tile's own start, not the conversation's start:
+`/resume` goes on appending to a conversation begun before the tile, and filtered by its start that move
+would never be seen. A followed id is written into the layout (`StoredSessionId`) for claude as well as
+for the captured agents, or the next start would resume the conversation derived from the tile — and not
+for pi, whose store is read by id alone and so never follows anything to write down
+(`TerminalAgentTileViewModel.KeepsSessionId` asks the same question).
+**Only the active tile may take a conversation it did not start with** (`IActiveStateTile`): nothing in
+the store says which process wrote a new file, so a `/clear` in one tile — or a `claude` started by hand
+in a plain terminal next door — is seen by every tile of that agent in the workspace, and the one being
+typed into is the active one. The others go on reading the conversation they know. **And only on the heels of an Enter pressed in it** (`IInputSubmissionTile`,
+`ConversationFollower.MoveWindow`, 30 s): a `claude` outside this application — a
+terminal next door, VS Code — can go on writing a long task into the same directory for minutes after the
+user has come back to the tile, so being active is not enough. A new conversation is taken only when it
+was written after that Enter *and* the conversation the tile knows was not: a process still writing where
+it was has not moved. **And never one seen written while no window was open** (`AgentSessionWatcher`
+`NoteStrangersAsync`, `IAgentSessionLog.ListInteractiveAsync`): an Enter that makes the tile's own
+transcript write nothing straight away — a menu choice, a permission accepted before a long tool run —
+leaves the window open while that outside `claude` goes on writing, and nothing typed here moves the tile
+into a conversation that was already alive elsewhere. One the tile has held itself is exempt, so
+`/resume` back to what a `/clear` left still follows. Switching the tile to an instance on another account restarts the watcher on that
+account's directory and clears the bar, as "New session" does. A reading that
+arrives from a watcher "New session" has already replaced is dropped, or it would put the tile back
+into the conversation it was asked to leave.
+
+**The following is a collaborator, not more of the tile** (`ViewModels/ConversationFollower`, the shape
+`ContextWindowFollower` already takes): the watcher's lifetime, the adoption window and the claim test are
+one machine with one reason to change, and the tile already launches an agent, captures a session id and
+writes it into the layout. What stays with the tile is what only it can answer — which id it holds,
+whether the agent may be resumed on a followed one, and the save that makes it survive a restart.

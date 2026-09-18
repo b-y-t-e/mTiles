@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using mTiles.Models;
 using mTiles.Services.Activity;
 using mTiles.Services.Providers;
@@ -239,6 +239,68 @@ public interface IAiAgent : IAgentActivityReader
     bool WatchesSkillsDirectory(AgentSurface surface) => false;
 
     /// <summary>
+    /// This CLI's own record of the conversations it holds, where it keeps one this application can
+    /// read. Null where it does not.
+    /// </summary>
+    /// <remarks>
+    /// <para>Two things are read out of it and neither can be had any other way. <b>Which conversation a
+    /// tile is really in</b>: every one of these CLIs lets the user change it from inside its own
+    /// interface (<c>/clear</c>, <c>/resume</c> and their spellings), at which point the id in the layout
+    /// resumes something nobody is looking at — <see cref="SessionStrategy"/> describes how a session
+    /// gets its identity at launch and has nothing to say about it moving afterwards. And <b>how full
+    /// the model's context is</b>, which a TUI paints into its own footer and no host can read off a
+    /// pseudo-terminal.</para>
+    /// <para>Null by default, like <see cref="SkillsDirectory"/> and <see cref="UsageAsync"/>: an agent
+    /// whose author has measured nothing gets no gauge and keeps the session id it was launched with,
+    /// which is exactly what it has today. Measured 2026-09-18, five of the six answer — and agy is the
+    /// one that cannot, because its store is protobuf blobs in SQLite with the working directory buried
+    /// inside them; it says so in its own class rather than being given a reader nobody has tested.</para>
+    /// <para>A property rather than a method taking the instance, because where a CLI keeps its store is
+    /// a fact about the CLI. What varies per tile — which sign-in, which workspace — is a parameter of
+    /// the reads themselves.</para>
+    /// </remarks>
+    SessionLogs.IAgentSessionLog? SessionLog => null;
+
+    /// <summary>
+    /// Whether a conversation this CLI moved to by itself becomes the one the tile resumes.
+    /// </summary>
+    /// <remarks>
+    /// <para>True wherever <see cref="SessionLog"/> answers, which is the point of having one: the user
+    /// typing <c>/clear</c> in the TUI has changed conversation, and a tile that went on resuming the id
+    /// it launched with would reopen something nobody is looking at.</para>
+    /// <para><b>opencode is the exception and says so in its own class.</b> Its resume is backed by an
+    /// import document whose path is a pure function of the <em>tile</em> id, so a followed id would be
+    /// resumed by a command whose fallback recreates a different session — a mismatch that only shows
+    /// when the followed conversation is gone, which is the worst moment for it to show. Its gauge still
+    /// works; only the adoption is withheld.</para>
+    /// <para>Answering true where <see cref="SessionLog"/> is null costs nothing: with no reader there
+    /// is nothing to follow.</para>
+    /// </remarks>
+    bool FollowsSessionChanges => true;
+
+    /// <summary>
+    /// How large a context this CLI is served for a model on <em>its own account</em>, where it has a
+    /// way to ask.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The one question a provider cannot answer, because there is no provider.</b> An agent
+    /// running on a subscription has no <c>AiProviderInstance</c> at all — which is the commonest
+    /// configuration there is — so <c>ModelContextWindow.ContextOfAsync</c> has nothing to call and the
+    /// context bar had no denominator. Only the CLI's own service knows, and only the CLI's own
+    /// credentials can ask it.</para>
+    /// <para>Measured 2026-09-18: Claude Code's OAuth token gets a <c>200</c> out of
+    /// <c>api.anthropic.com/v1/models</c> with <c>max_input_tokens</c> per model. The other five have no
+    /// such route measured, answer null, and show a count with no bar — which is the honest outcome, and
+    /// the reason there is no guess anywhere behind this: a flat assumption drew a full bar over a
+    /// conversation at a quarter of its real window.</para>
+    /// <para>Read-only, cached by the implementation, and it never throws: what a failure costs is a
+    /// bar.</para>
+    /// </remarks>
+    /// <param name="signIn">Which login to ask as, or null for the CLI's own default account.</param>
+    Task<long?> AccountContextWindowAsync(AiSignIn? signIn, string model, CancellationToken ct = default) =>
+        Task.FromResult<long?>(null);
+
+    /// <summary>
     /// The project instruction file this CLI opens. <c>AGENTS.md</c> is the canon.
     /// </summary>
     /// <remarks>Measured 2026-09-03: opencode, codex, pi and agy all read <c>AGENTS.md</c>; only Claude
@@ -468,6 +530,18 @@ public interface IAiAgent : IAgentActivityReader
     /// other way costs a model call per tile.</para>
     /// </remarks>
     bool CapturesWhileRunning { get; }
+
+    /// <summary>
+    /// Whether a session id this tile holds is handed back to the CLI at its next launch.
+    /// </summary>
+    /// <remarks>
+    /// <para>True for every agent whose <c>Resume</c> carries the id. <b>False where nothing survives a
+    /// restart</b> — Grok, whose terminal resume has not been measured, and a binary nothing is known
+    /// about — and there the id is only this launch's: it names the conversation the session store is
+    /// read for, it is dropped at the next launch so the fresh conversation is captured in its place, and
+    /// it is never written into the layout, where it would name something no launch will open.</para>
+    /// </remarks>
+    bool ResumesTerminalSession => true;
 
     /// <summary>
     /// Whether this agent can report what it is doing as it does it.

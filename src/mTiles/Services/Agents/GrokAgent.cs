@@ -33,8 +33,26 @@ public sealed class GrokAgent : AiAgent, Sessions.IConversationalAgent
         AgentSessions.IAgentEventSink sink) =>
         new Sessions.Grok.GrokAcpSession(launch, this, sink);
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para><b>None, although the store is readable</b> (<see cref="SessionLogs.GrokSessionLog"/>,
+    /// measured 2026-09-18 against 1.0.34). A store is read by the id of the conversation a tile is in,
+    /// and a terminal Grok tile never has one: it resumes nothing
+    /// (<see cref="ResumesTerminalSession"/>) and captures nothing, because its store marks nothing that
+    /// tells this TUI from an Agent tile's ACP session or a Goal run in the same working directory — so
+    /// "the newest conversation written since this launch" could be either, and the tile would draw
+    /// somebody else's tokens and cost as its own.</para>
+    /// <para>Wired in, the log would only keep a file watcher on <c>~/.grok/sessions</c> running for a
+    /// reading that can never arrive. A terminal Grok tile therefore draws no bar, which says less and
+    /// nothing wrong — the same answer agy gives, for a different reason.</para>
+    /// </remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog => null;
+
     /// <summary>Nothing survives a terminal restart — see the remarks.</summary>
     public override SessionStrategy SessionStrategy => SessionStrategy.CapturedAfterStart;
+
+    /// <inheritdoc />
+    public override bool ResumesTerminalSession => false;
 
     /// <summary>Its own login or <c>XAI_API_KEY</c>; no provider in the catalogue speaks to it.</summary>
     public override IReadOnlyList<ApiFlavor> ConsumesApiFlavors => [];

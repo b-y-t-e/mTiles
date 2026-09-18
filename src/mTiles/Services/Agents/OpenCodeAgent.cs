@@ -68,6 +68,27 @@ public sealed class OpenCodeAgent : AiAgent, Sessions.IConversationalAgent
     public override bool SupportsSignIns => true;
 
     /// <inheritdoc />
+    /// <remarks><b>The gauge follows this CLI and the session id does not.</b> An opencode tile resumes
+    /// through <c>OpenCodeSession</c>'s import document, whose path is a pure function of the tile's own
+    /// id — so adopting a conversation the user moved to inside the TUI would leave the resume command
+    /// and its fallback naming two different sessions, which shows up only once the adopted one is gone.
+    /// Reading the store for the context bar has no such cost.</remarks>
+    public override bool FollowsSessionChanges => false;
+
+    /// <inheritdoc />
+    /// <remarks>The data root <see cref="SignInEnv"/> points <c>XDG_DATA_HOME</c> at, and for the
+    /// default account the machine's own <c>XDG_DATA_HOME</c> or <c>~/.local/share</c> — the same three
+    /// cases <see cref="ReadSignIn"/> spells out, and for the same reason: a store read from anywhere
+    /// else is answering about a directory the launch does not use.</remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog { get; } =
+        new SessionLogs.OpenCodeSessionLog(signIn => signIn is not null
+            ? Path.Combine(AiSignInStore.DirectoryFor(signIn), "data")
+            : Environment.GetEnvironmentVariable("XDG_DATA_HOME") is { Length: > 0 } xdg
+                ? xdg
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".local", "share"));
+
+    /// <inheritdoc />
     public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
         new Dictionary<string, string?>(StringComparer.Ordinal)
         {

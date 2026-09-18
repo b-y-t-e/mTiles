@@ -174,6 +174,32 @@
         <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
     </Style>
 
+    <!-- ======== The context bar at the foot of an agent tile ========
+         The quietest thing on either agent tile, and one style rather than two that look alike: the
+         Agent tile is told its figures by the protocol it drives and the terminal agent tile reads them
+         out of the CLI's own store, which is a difference about where they come from and not about what
+         they are. A hairline above it and no ground of its own — a ground would make a third band across
+         a tile that already has a strip at the top. -->
+    <Style Selector="Border.context-bar">
+        <!-- The composer's own side margin, so the bar starts and ends where the box above it does. -->
+        <Setter Property="Padding" Value="12,4,12,5" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
+    </Style>
+
+    <!-- A tile-btn something is waiting on — today the Restart button of an agent tile whose workspace's
+         skills have moved under it. WarnText rather than DangerText: nothing is broken and nothing is
+         about to be lost, the tile is simply working from something that has since changed. Colour only,
+         for the reason the two above are colour only, and it never travels without the sentence in the
+         tooltip (LeafTileNodeViewModel.RestartLabel) — a coloured glyph on its own is a mark the user
+         has to guess the meaning of. -->
+    <Style Selector="Button.tile-btn.urgent">
+        <Setter Property="Foreground" Value="{DynamicResource WarnText}" />
+    </Style>
+    <Style Selector="Button.tile-btn.urgent:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource WarnText}" />
+    </Style>
+
     <!-- A tile-btn that starts another conversation — the Agent, Goal and terminal agent tiles' one
          "start another" gesture, in the accent so it is found without hunting. On the button rather than
          on its icon: a colour set on the icon is a local value, which outranks both the hover colour and
