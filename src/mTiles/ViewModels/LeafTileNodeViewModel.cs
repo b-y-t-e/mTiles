@@ -193,8 +193,23 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     public bool RestartHasHeaderButton => RestartAction is { PreferOverflow: false };
 
     /// <summary>The Restart action's name with its shortcut, for the header's tooltip.</summary>
-    public string RestartLabel =>
-        RestartAction is { } action ? $"{action.Label} (Ctrl+Shift+R)" : "";
+    /// <remarks>A reason the tile is waiting to be restarted goes above it rather than instead of it: the
+    /// shortcut is what the tooltip is for the rest of the time, and a coloured icon whose tooltip only
+    /// says "Restart agent" is a mark the user has to guess the meaning of.</remarks>
+    public string RestartLabel => RestartAction is not { } action
+        ? ""
+        : action.Urgency is { Length: > 0 } why
+            ? $"{why}{Environment.NewLine}{action.Label} (Ctrl+Shift+R)"
+            : $"{action.Label} (Ctrl+Shift+R)";
+
+    /// <summary>Whether something is waiting on the tile's restart, so the header draws it in the warning
+    /// colour.</summary>
+    /// <remarks>Asked of the action rather than of the kind, for the reason <see cref="CanRestart"/> is:
+    /// a kind that grows a reason later is drawn that way by saying so, and neither this class nor the
+    /// header learns what the reasons are. The sentence itself is in <see cref="RestartLabel"/> — colour
+    /// alone says that something is up and never what, which is why the two always travel together.
+    /// </remarks>
+    public bool RestartIsUrgent => RestartAction?.Urgency is { Length: > 0 };
 
     /// <summary>The content's actions the overflow menu lists under its own entries.</summary>
     /// <remarks>Every action but the two the header already draws a control of its own for (Restart and
@@ -320,6 +335,9 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     partial void OnContentChanged(ITile? oldValue, ITile? newValue)
     {
         WatchContent(oldValue, newValue);
+        // Content put into a tile that is already active — a kind chosen, a type changed — is told so,
+        // or it would believe itself inactive until the next time the focus moved away and back.
+        if (IsActive && newValue is IActiveStateTile activeState) activeState.OnActiveChanged(true);
         OnPropertyChanged(nameof(HasSession));
         OnPropertyChanged(nameof(CanMaximize));
         RefreshAgentInstances();
@@ -359,6 +377,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         OnPropertyChanged(nameof(Actions));
         OnPropertyChanged(nameof(RestartAction));
         OnPropertyChanged(nameof(RestartLabel));
+        OnPropertyChanged(nameof(RestartIsUrgent));
         OnPropertyChanged(nameof(CanRestart));
         OnPropertyChanged(nameof(RestartHasHeaderButton));
         OnPropertyChanged(nameof(AddAction));
@@ -500,6 +519,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // _disposed like every other reach into Content here — Dispose leaves the reference in place.
         if (value && !_disposed && Content is IActivatableTile activatable)
             activatable.OnActivated();
+        if (!_disposed && Content is IActiveStateTile activeState)
+            activeState.OnActiveChanged(value);
     }
     partial void OnIsDictatingChanged(bool value) => OnPropertyChanged(nameof(ShowsActiveOutline));
 

@@ -1,5 +1,7 @@
-﻿using mTiles.Services;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
+using mTiles.Services;
 using mTiles.Services.Agents;
+using mTiles.ViewModels;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -88,4 +90,60 @@ public class SkillChangePolicyTests
     [Fact]
     public void No_agent_follows_a_skill_change_in_the_session_an_Agent_tile_drives() =>
         Assert.DoesNotContain(AiAgentCatalog.All, agent => agent.WatchesSkillsDirectory(AgentSurface.Structured));
+
+    /// <summary>
+    /// A restart something is waiting on is drawn differently, and says why.
+    /// </summary>
+    /// <remarks>The header shows the state <see cref="SkillChangePolicy"/> puts the tile into, and it
+    /// was the one thing about that state nothing on the tile said: a notice bar the user had dismissed
+    /// left no trace at all, so the request was made once and then forgotten by both sides. Colour
+    /// alone would be a mark nobody can read, so the two are asserted together — the reason is the
+    /// urgency, and the tooltip is the reason above the shortcut.</remarks>
+    [Fact]
+    public void An_action_nothing_is_waiting_on_is_drawn_as_it_always_was()
+    {
+        var leaf = LeafWith(new TileAction(TileActionIds.Restart, "Restart agent", "restart"));
+
+        Assert.False(leaf.RestartIsUrgent);
+        Assert.Equal("Restart agent (Ctrl+Shift+R)", leaf.RestartLabel);
+    }
+
+    [Fact]
+    public void An_action_something_is_waiting_on_is_lit_and_names_the_cause()
+    {
+        var leaf = LeafWith(new TileAction(TileActionIds.Restart, "Restart agent", "restart",
+            Urgency: SkillChangePolicy.Notice));
+
+        Assert.True(leaf.RestartIsUrgent);
+        Assert.Contains(SkillChangePolicy.Notice, leaf.RestartLabel, StringComparison.Ordinal);
+        // The shortcut is what the tooltip is for the rest of the time, so it is kept rather than
+        // replaced: the reason goes above it.
+        Assert.Contains("Ctrl+Shift+R", leaf.RestartLabel, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_tile_with_nothing_to_restart_says_nothing_about_it()
+    {
+        var leaf = LeafWith();
+
+        Assert.False(leaf.RestartIsUrgent);
+        Assert.Equal("", leaf.RestartLabel);
+    }
+
+    private static LeafTileNodeViewModel LeafWith(params TileAction[] actions)
+    {
+        var content = actions.Length > 0 ? new ActionsOnly(actions) : null;
+        return new LeafTileNodeViewModel("test", content, "", new TileActivationScope());
+    }
+
+    /// <summary>Content that offers a list of actions and does nothing else.</summary>
+    /// <remarks>The header asks the content what it can do rather than what kind it is, which is what
+    /// lets a test hand it a list without building a terminal.</remarks>
+    private sealed class ActionsOnly(IReadOnlyList<TileAction> actions) : ObservableObject, ITileActions
+    {
+        public string KindId => "test";
+        public IReadOnlyList<TileAction> Actions { get; } = actions;
+        public Task<TileActionResult> InvokeAsync(string id) => Task.FromResult(TileActionResult.Ok);
+        public void Dispose() { }
+    }
 }

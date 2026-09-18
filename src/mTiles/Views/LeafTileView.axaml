@@ -79,8 +79,13 @@
                                     ToolTip.Tip="{Binding AddAction.Label}">
                                 <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
                             </Button>
+                            <!-- Classes, not Foreground, and that is the point: ApplyHeaderWidth is the
+                                 single writer of this button's IsVisible, so anything a binding says has
+                                 to be said about a different property or the two fight at the same
+                                 priority. The tooltip carries the reason; see RestartIsUrgent. -->
                             <Button x:Name="RestartButton"
                                     Classes="tile-btn"
+                                    Classes.urgent="{Binding RestartIsUrgent}"
                                     Command="{Binding RestartTerminalCommand}"
                                     ToolTip.Tip="{Binding RestartLabel}">
                                 <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
