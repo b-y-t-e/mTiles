@@ -256,12 +256,41 @@ public class ConversationPickerTests
         using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
             new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
 
+        tile.ConfirmAction = _ => Task.FromResult(true);
         await tile.InvokeAsync(AgentConversationTileViewModel.NewConversationActionId);
 
         Assert.NotEqual("tile-1", tile.ConversationId);
         Assert.NotNull(store.Find("tile-1"));
         Assert.NotEmpty(store.ReadEvents("tile-1"));
         Assert.Contains(tile.Conversations.Options, o => o.Summary.Id == "tile-1" && o.IsPickable);
+    }
+
+    /// <summary>To the eye a new conversation clears the screen, so it asks first — and an answer of no, or no
+    /// dialog to ask in, leaves the tile where it was.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task New_conversation_asks_first_and_a_no_stays_put(bool wired)
+    {
+        using var settings = new TempSettings();
+        var claude = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
+        var store = TestTiles.ConversationStore();
+        Record(store, "tile-1", "claude", Path.GetTempPath(), "The old one", DateTimeOffset.UtcNow);
+
+        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
+        var asked = 0;
+        if (wired)
+            tile.ConfirmAction = _ =>
+            {
+                asked++;
+                return Task.FromResult(false);
+            };
+
+        await tile.InvokeAsync(AgentConversationTileViewModel.NewConversationActionId);
+
+        Assert.Equal("tile-1", tile.ConversationId);
+        Assert.Equal(wired ? 1 : 0, asked);
     }
 
     /// <summary>The agent comes with the conversation: a resume token is only ever handed back to the CLI
@@ -380,38 +409,25 @@ public class ConversationPickerTests
     public void The_open_conversation_is_in_the_list_even_when_the_store_has_never_heard_of_it()
     {
         var chooser = new ConversationChooser(TestTiles.ConversationStore(), @"C:\work", () => "mine",
-            () => "claude", _ => null, action => action(), _ => { }, () => { });
+            () => "claude", _ => null, action => action(), _ => { });
 
-        var only = Assert.Single(chooser.Options, option => !option.IsNew);
+        var only = Assert.Single(chooser.Options);
 
         Assert.Equal("mine", only.Summary.Id);
         Assert.True(only.IsCurrent);
         Assert.Same(only, chooser.Selected);
     }
 
-    /// <summary>
-    /// Starting a conversation is a row in the list, because it was reachable from nowhere else.
-    /// </summary>
-    /// <remarks>The tile declares it in <c>ITileActions.Actions</c>, but the tile header's overflow is a
-    /// hand-written list of menu items and renders no content action, and <c>NeedsLocalScreen</c> keeps a phone
-    /// away — so the gesture existed and had no way in on any screen.</remarks>
+    /// <summary>Starting a conversation is the strip's button, not a row: the list holds places only.</summary>
     [Fact]
-    public void Starting_a_conversation_is_the_first_row_and_leaves_the_selection_alone()
+    public void The_list_holds_only_conversations()
     {
-        var started = 0;
         var chooser = new ConversationChooser(TestTiles.ConversationStore(), @"C:\work", () => "mine",
-            () => "claude", _ => null, action => action(), _ => { }, () => started++);
+            () => "claude", _ => null, action => action(), _ => { });
 
-        chooser.Draw([Summary("mine", "claude")]);
+        chooser.Draw([Summary("mine", "claude"), Summary("other", "claude")]);
 
-        Assert.True(chooser.Options[0].IsNew);
-        Assert.Equal("New conversation", chooser.Options[0].Title);
-
-        chooser.Selected = chooser.Options[0];
-
-        Assert.Equal(1, started);
-        // Put back, or the strip would name the open conversation "New conversation" until the start redrew it.
-        Assert.Equal("mine", chooser.Selected!.Summary.Id);
+        Assert.Equal(["mine", "other"], chooser.Options.Select(option => option.Summary.Id));
     }
 
     [Fact]
@@ -420,7 +436,7 @@ public class ConversationPickerTests
         var picked = new List<string>();
         var chooser = new ConversationChooser(TestTiles.ConversationStore(), @"C:\work", () => "mine",
             () => "claude", summary => summary.Id == "theirs" ? "Another tile has it." : null,
-            action => action(), summary => picked.Add(summary.Id), () => { });
+            action => action(), summary => picked.Add(summary.Id));
 
         chooser.Draw([
             Summary("mine", "claude"),

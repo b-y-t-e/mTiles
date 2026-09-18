@@ -126,7 +126,7 @@ pointed at it (below).
 ## Which conversation a tile is showing
 
 **Every conversation ever held in this workspace is in the list** (`IConversationStore.List(directory)`,
-the chooser at the left of the strip). Until it existed there was no way back to any of them: the
+the chooser in the strip's right-hand corner, which holds conversations and nothing else). Until it existed there was no way back to any of them: the
 conversation *was* the tile's id, so the only way to start a new one in a tile was to write over the old.
 
 - **The tile keeps a `conversationId` in its layout, and only once one has been chosen.** Absent means the
@@ -134,8 +134,10 @@ conversation *was* the tile's id, so the only way to start a new one in a tile w
   tile nobody has pointed elsewhere saves the same bytes as before. A field rather than a change of `TileId`
   because the id is the tile's identity to the layout, and two tiles showing one conversation would
   otherwise be two leaves saved under one id.
-- **"New conversation" no longer forgets.** It opens a new one beside the old, which stays in the list.
-  Forgetting is **Delete this conversation**, which says what it takes and asks first.
+- **"New conversation" no longer forgets, and always asks.** It is the strip's own button beside the list
+  (`MessagePlusOutline` in the accent — the one "start another" glyph the Goal and terminal agent tiles
+  share), not a row in it, and it asks first every time, since to the eye it clears the screen; an
+  unwired dialog is a no. It opens a new one beside the old, which stays in the list. Forgetting is **Delete this conversation**, which says what it takes and asks first.
 - **A conversation is one tile's at a time** (`OpenConversations`). Two hosts of one conversation each
   number their events from what the store held when they were built, so both write the same sequence
   numbers and the store keeps whichever landed last — one of the two is lost, silently. The second tile is

@@ -65,6 +65,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [ObservableProperty] private bool _isStarting;
     [ObservableProperty] private bool _isWorking;
     [ObservableProperty] private string _statusText = "";
+
+    /// <summary>Which colour the status word takes — decided with the word, so the two cannot disagree.</summary>
+    [ObservableProperty] private AgentStatusTone _statusTone = AgentStatusTone.Quiet;
     [ObservableProperty] private string _usageText = "";
 
     /// <summary>What the agent is doing, beside the thinking dots. See <see cref="TurnStage"/>.</summary>
@@ -153,8 +156,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         Chooser = new AgentInstanceChooser(settings, () => Instance, IsRunning, () => ConversationAgentId, _post,
             instance => _ = RunAsync(() => SwitchInstanceAsync(instance)));
         Conversations = new ConversationChooser(store, workingDirectory, () => ConversationId, () => Agent.Id,
-            RefusalFor, _post, summary => _ = RunAsync(() => SwitchConversationAsync(summary)),
-            () => _ = RunAsync(NewConversationAsync));
+            RefusalFor, _post, summary => _ = RunAsync(() => SwitchConversationAsync(summary)));
 
         _agentFiles = agentFiles;
         if (_agentFiles is not null) _agentFiles.SkillsChanged += OnSkillsChanged;
@@ -744,17 +746,25 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private Task RestartAsync() => StartAsync();
 
     /// <summary>Opens a new conversation beside this one, leaving it in the store.</summary>
-    /// <remarks><b>It used to forget the old one</b>, and had to: a conversation was the tile's id, so the only
-    /// way to have a new one in the same tile was to write over what was there. With a list to pick from, the old
-    /// conversation is a row rather than a loss, so this asks nothing and destroys nothing — and forgetting is
-    /// <see cref="DeleteConversationAsync"/>, which says out loud what it takes.</remarks>
+    /// <remarks><para><b>It used to forget the old one</b>, and had to: a conversation was the tile's id, so the
+    /// only way to have a new one in the same tile was to write over what was there. With a list to pick from, the
+    /// old conversation is a row rather than a loss, so this destroys nothing — forgetting is
+    /// <see cref="DeleteConversationAsync"/>, which says out loud what it takes.</para>
+    /// <para><b>It still asks, every time.</b> It is a button on the strip now, beside the list, and to the eye
+    /// a new conversation is a cleared screen: one misclick empties the transcript somebody was reading, and
+    /// the way back is a search through the list. No dialog to ask in is a no.</para></remarks>
+    [RelayCommand]
     private Task NewConversationAsync() => UnderSwitchGateAsync(async () =>
     {
-        if (!await ConfirmInterruptingTurnAsync(
-                "Start a new conversation? The agent is working, and this stops what it is doing."))
-            return;
+        var question = IsWorking
+            ? "Start a new conversation? The agent is working, and this stops what it is doing. " +
+              "This one stays in the list of conversations."
+            : "Start a new conversation? This one stays in the list of conversations.";
+        if (ConfirmAction is null || !await ConfirmAction(question)) return;
 
-        await MoveToConversationAsync(Guid.NewGuid().ToString());
+        // Logged rather than thrown: bound straight to a button, a failure here would otherwise reach the
+        // crash handler rather than the log, where the pick that used to start a conversation sent it.
+        await RunAsync(() => MoveToConversationAsync(Guid.NewGuid().ToString()));
     });
 
     /// <summary>Forgets this conversation and its checkpoints, and opens a new one.</summary>
@@ -1177,7 +1187,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         UsageText = UsageDisplay(state.Usage);
         ContextPercent = ContextGauge.PercentUsed(state.Usage);
         TurnStageText = TurnStage.For(state);
-        StatusText = StatusOf(state);
+        (StatusText, StatusTone) = StatusOf(state);
         Activity = state.IsWaitingForUser
             ? TileActivity.Blocked
             : state.IsWorking
@@ -1285,14 +1295,15 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _ => count.ToString(CultureInfo.InvariantCulture),
     };
 
-    private string StatusOf(ConversationState state) => state switch
+    /// <summary>The status word and its colour, from one table, so a state added or reordered here moves both.</summary>
+    private (string Text, AgentStatusTone Tone) StatusOf(ConversationState state) => state switch
     {
-        { IsWaitingForUser: true } => "Waiting for you",
-        { IsWorking: true } => "Working",
-        { SessionState: AgentSessionState.Starting } => "Starting",
-        { SessionState: AgentSessionState.Ready } => "Ready",
-        { SessionState: AgentSessionState.Failed } => "Stopped with an error",
-        _ => IsStarting ? "Starting" : "Not running",
+        { IsWaitingForUser: true } => ("Waiting for you", AgentStatusTone.Waiting),
+        { IsWorking: true } => ("Working", AgentStatusTone.Working),
+        { SessionState: AgentSessionState.Starting } => ("Starting", AgentStatusTone.Quiet),
+        { SessionState: AgentSessionState.Ready } => ("Ready", AgentStatusTone.Ready),
+        { SessionState: AgentSessionState.Failed } => ("Stopped with an error", AgentStatusTone.Failed),
+        _ => (IsStarting ? "Starting" : "Not running", AgentStatusTone.Quiet),
     };
 
     public void Dispose()

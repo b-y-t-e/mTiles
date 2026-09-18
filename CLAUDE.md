@@ -751,11 +751,11 @@ uses: it numbers and stores events, records the user's message itself, brackets 
 checkpoints and keeps the resume token beside the conversation.
 
 **A tile can be pointed at any conversation it has held in this workspace** (`IConversationStore.List`, the
-chooser at the left of the strip, `ConversationTitle` for what a row is called). The conversation is a
+chooser in the strip's right-hand corner, holding conversations only, `ConversationTitle` for what a row is called). The conversation is a
 `conversationId` in the layout **written only once one has been chosen** — absent means the tile's own id,
 so a layout from before this opens exactly what it always did — rather than a change of `TileId`, which is
 the tile's identity to the layout and would let two leaves be saved under one id. Consequences worth
-knowing: **"New conversation" no longer forgets** (it opens one beside the old, and *Delete this
+knowing: **"New conversation" no longer forgets and always asks** (a button beside the list, not a row in it; it opens one beside the old, and *Delete this
 conversation* is what takes it), **a conversation is one tile's at a time** (`OpenConversations` — two hosts
 of one conversation number their events from the same starting point and the store keeps whichever landed
 last), and **the agent comes with the conversation** rather than the other way round, because a resume token

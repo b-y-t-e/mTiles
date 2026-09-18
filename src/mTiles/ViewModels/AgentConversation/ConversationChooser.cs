@@ -31,7 +31,6 @@ public sealed partial class ConversationChooser : ObservableObject
     private readonly Func<ConversationSummary, string?> _refusal;
     private readonly Action<Action> _post;
     private readonly Action<ConversationSummary> _picked;
-    private readonly Action _startNew;
     private bool _drawing;
     private int _latestRefresh;
 
@@ -44,12 +43,13 @@ public sealed partial class ConversationChooser : ObservableObject
     /// <param name="refusal">Why an entry cannot be picked, or null when it can.</param>
     /// <param name="post">Runs on the thread the tile draws on.</param>
     /// <param name="picked">A pickable entry the user chose.</param>
-    /// <param name="startNew">The user chose the row that starts a conversation.</param>
+    /// <remarks>Starting a conversation is not a row here: it is the strip's own button beside this list, and it
+    /// asks first. As a row it read as one more place to go rather than an action, and a pick carries no
+    /// confirmation.</remarks>
     public ConversationChooser(IConversationStore store, string workingDirectory, Func<string> current,
         Func<string> currentAgentId, Func<ConversationSummary, string?> refusal, Action<Action> post,
-        Action<ConversationSummary> picked, Action startNew)
+        Action<ConversationSummary> picked)
     {
-        _startNew = startNew;
         _store = store;
         _workingDirectory = workingDirectory;
         _current = current;
@@ -117,9 +117,6 @@ public sealed partial class ConversationChooser : ObservableObject
         WhileDrawing(() =>
         {
             Options.Clear();
-            // First, because it is the one row here that is an action rather than a place, and because a list
-            // grows: at the bottom it would move every time a conversation is added.
-            Options.Add(ConversationOption.New);
             foreach (var summary in known) Options.Add(OptionFor(summary, current));
             Selected = Options.FirstOrDefault(option => option.IsCurrent);
         });
@@ -134,15 +131,6 @@ public sealed partial class ConversationChooser : ObservableObject
         OnPropertyChanged(nameof(SelectedTitle));
         OnPropertyChanged(nameof(SelectedKey));
         if (_drawing || value is null || value.IsCurrent) return;
-        if (value.IsNew)
-        {
-            // Put back first: this row is an action, and left selected it would name the open conversation as
-            // "New conversation" until the start finished and redrew the list.
-            RestoreSelection();
-            _startNew();
-            return;
-        }
-
         if (!value.IsPickable)
         {
             RestoreSelection();

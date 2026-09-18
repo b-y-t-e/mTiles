@@ -69,12 +69,11 @@ public partial class AgentConversationTileView : UserControl
             ? null
             : new PickerOption
             {
-                Id = conversation.IsNew ? NewConversationId : conversation.Summary.Id,
+                Id = conversation.Summary.Id,
                 Title = conversation.Title,
                 Detail = conversation.Note,
                 IsEnabled = conversation.IsPickable,
                 DisabledReason = conversation.Reason,
-                IsAction = conversation.IsNew,
                 Keywords = conversation.AgentName,
             };
         ConversationPicker.SelectionRequested += (_, e) => PickConversation(e.Option.Id);
@@ -102,21 +101,14 @@ public partial class AgentConversationTileView : UserControl
             (vm, option) => vm.SelectedMode = option);
     }
 
-    /// <summary>The id standing in for the row that starts a conversation rather than opening one.</summary>
-    /// <remarks>That row's own conversation is empty by construction — it names nothing yet — so it needs an
-    /// id of its own to be told apart from a stored one. A string nothing could collide with, rather than an
-    /// empty one, because an empty id is also what a conversation the store has not heard of carries.</remarks>
-    private const string NewConversationId = "\0new-conversation";
-
     /// <summary>Hands a picked conversation back to the chooser, which owns what picking one means.</summary>
     /// <remarks>Through <c>Selected</c> rather than by calling the chooser's own callbacks: everything the
-    /// pick has to do — the New row, the refusal that puts the selection back, the switch itself — is already
+    /// pick has to do — the refusal that puts the selection back, the switch itself — is already
     /// written there, once, for whatever control is drawing the list.</remarks>
     private void PickConversation(string id)
     {
         if (_subscribed?.Conversations is not { } chooser) return;
-        chooser.Selected = chooser.Options.FirstOrDefault(option =>
-            option.IsNew ? id == NewConversationId : option.Summary.Id == id);
+        chooser.Selected = chooser.Options.FirstOrDefault(option => option.Summary.Id == id);
     }
 
     private void PickAgent(string instanceId)

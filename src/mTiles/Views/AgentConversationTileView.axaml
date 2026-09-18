@@ -108,6 +108,22 @@
             <Setter Property="BorderThickness" Value="{DynamicResource BorderTop}" />
         </Style>
 
+        <!-- The status word, coloured by what it says: the same meanings the tile header's marks carry, so a
+             glance at the strip answers "can I type now" without reading it. Starting and not running keep
+             the strip's own muted colour. -->
+        <Style Selector="TextBlock.strip.status-ready">
+            <Setter Property="Foreground" Value="{DynamicResource StatusSuccessText}" />
+        </Style>
+        <Style Selector="TextBlock.strip.status-working">
+            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
+        </Style>
+        <Style Selector="TextBlock.strip.status-waiting">
+            <Setter Property="Foreground" Value="{DynamicResource WarnText}" />
+        </Style>
+        <Style Selector="TextBlock.strip.status-failed">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+
         <Style Selector="Border.strip-divider">
             <Setter Property="Width" Value="1" />
             <Setter Property="Height" Value="12" />
@@ -147,6 +163,8 @@
                 BorderBrush="{DynamicResource BorderSubtle}"
                 BorderThickness="{DynamicResource BorderBottom}">
             <DockPanel>
+                <!-- Right-hand corner: which conversation, and a new one. Stop stands first, so that its
+                     coming and going with a turn moves neither the list nor the button beside it. -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
                     <Button Classes="tile-btn"
                             Command="{Binding InterruptCommand}"
@@ -154,20 +172,6 @@
                             ToolTip.Tip="Stop the agent (Esc)">
                         <mi:MaterialIcon Kind="Stop" Width="14" Height="14" />
                     </Button>
-                    <!-- Deleting a conversation is *not* drawn here. It was the one destructive thing
-                         standing permanently beside four settings, a misclick from a conversation and its
-                         checkpoints. It is declared in ITileActions.Actions, and the tile header's overflow
-                         lists it under Actions. -->
-                </StackPanel>
-                <!-- What the agent runs as, switchable in place, and then what it is doing.
-                     **Settings first, state after the rule** - the Goal tile's order, which this one had
-                     backwards. The five controls read as one cascade: which conversation, held by whom, on
-                     what model, with what freedom, thinking how hard. Putting the status sentence in front
-                     of them broke the cascade with a line of prose that changes while you read it, and on a
-                     narrow tile it was the prose that stayed on the first row and the controls that wrapped.
-                     Wraps rather than truncating, so a narrow tile keeps every control reachable; one
-                     Spacing rather than a margin per control, so the row has one rhythm. -->
-                <WrapPanel Orientation="Horizontal" ItemSpacing="2" LineSpacing="2">
                     <!-- Which conversation this tile is showing. Every conversation ever held in this
                          workspace is in the store, and until this list existed there was no way back to any
                          of them: a conversation was the tile's own id, so a new one could only be started
@@ -177,7 +181,8 @@
 
                          Searchable, unlike the agent beside it: this list grows for as long as the
                          workspace is used, and a month in it is the one list on this tile that nobody can
-                         read down. -->
+                         read down. Short at rest - the opening words are a reminder, not the conversation -
+                         and wide when open, where the rows have room to be told apart. -->
                     <p:Picker x:Name="ConversationPicker"
                               Classes="strip-picker"
                               Options="{Binding Conversations.Options}"
@@ -187,8 +192,26 @@
                               SearchPlaceholder="Search conversations…"
                               EmptyText="No conversation here matches that."
                               DropDownWidth="340"
-                              MaxWidth="260"
+                              MaxWidth="170"
                               ToolTip.Tip="The conversation this tile is showing" />
+                    <!-- A new conversation: a button rather than a row in the list above, because it is an
+                         action and not a place, and because it asks first - to the eye it clears the screen.
+                         Nothing is lost by it; the old conversation stays in the list. Deleting a conversation
+                         is *not* drawn here: it was the one destructive thing standing permanently beside the
+                         settings, a misclick from a conversation and its checkpoints, so it is declared in
+                         ITileActions.Actions and the tile header's overflow lists it. -->
+                    <!-- Accent (tile-btn-accent), so the one way to a fresh conversation is found without
+                         hunting; the confirmation behind it is what keeps it from being pressed by accident. -->
+                    <Button Classes="tile-btn tile-btn-accent"
+                            Command="{Binding NewConversationCommand}"
+                            ToolTip.Tip="New conversation (this one stays in the list)">
+                        <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
+                    </Button>
+                </StackPanel>
+                <!-- Who holds the conversation, then what it is doing. Wraps rather than truncating, so a
+                     narrow tile keeps every control reachable; one Spacing rather than a margin per control,
+                     so the row has one rhythm. -->
+                <WrapPanel Orientation="Horizontal" ItemSpacing="2" LineSpacing="2">
                     <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
                          a conversation with nothing in it is bound to nobody yet. An agent it cannot be moved
                          to is drawn dimmed with the reason beneath it, never left out of the list and never
@@ -208,7 +231,12 @@
                          copy here. What is left is what this tile is *showing*: which conversation, held
                          by whom, and then the state after the rule. -->
                     <Border Classes="strip-divider" />
-                    <TextBlock Classes="strip" Text="{Binding StatusText}" />
+                    <TextBlock Classes="strip"
+                               Classes.status-ready="{Binding StatusTone, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:AgentStatusTone.Ready}}"
+                               Classes.status-working="{Binding StatusTone, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:AgentStatusTone.Working}}"
+                               Classes.status-waiting="{Binding StatusTone, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:AgentStatusTone.Waiting}}"
+                               Classes.status-failed="{Binding StatusTone, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:AgentStatusTone.Failed}}"
+                               Text="{Binding StatusText}" />
                     <!-- The context figures used to stand here. They are at the foot of the tile now,
                          with a bar behind them: a number that moves with every turn does not belong in
                          the one row that says where you are. -->
