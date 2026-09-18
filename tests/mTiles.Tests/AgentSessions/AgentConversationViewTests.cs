@@ -33,10 +33,17 @@ public class AgentConversationViewTests
         {
             using var settings = new TempSettings();
             var agent = AiAgentCatalog.Find("claude")!;
+            // An account that does not exist refuses the launch before anything is spawned. Left to start, the
+            // tile runs the real CLI, which a test has no business doing and a CI runner does not have.
+            var instance = AiAgentCatalog.SeedInstanceFor(agent);
+            instance.ApiAccountId = "no-such-account";
+            // A window of its own, so no lookup of one runs: its answer redraws the host's conversation — empty
+            // here, since the state under test is drawn straight onto the tile — over all seven entries.
+            instance.MaxContextTokens = 200_000;
             var vm = new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
                 new mTiles.AgentSessions.Storage.SqliteConversationStore(
                     Path.Combine(Path.GetTempPath(), $"mtiles-view-{Guid.NewGuid():N}.db")),
-                AiAgentCatalog.SeedInstanceFor(agent), agent, () => "tile", post: action => action());
+                instance, agent, () => "tile", post: action => action());
 
             var state = ConversationReducer.Replay(
             [

@@ -1,4 +1,4 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:mi="using:Material.Icons.Avalonia"
@@ -343,6 +343,28 @@
                      code-behind (see ContentInset), not here: a terminal wants one and a tile whose
                      content is its own chrome does not. -->
                 <Panel>
+                    <!-- The filter and the chooser under it share a DockPanel, so the cards start
+                         wherever the filter ends at any font size rather than at a fixed offset the
+                         filter can outgrow. No background: while nothing in it is shown it is not a
+                         hit-testable sheet over the content. -->
+                    <DockPanel>
+                    <!-- The filter over whichever of the two choosers below is on screen. Focused as
+                         soon as a chooser is shown, so a new tile is picked by typing a few letters and
+                         Enter; the arrows move the highlighted card, Escape clears the filter and then
+                         leaves a setup step. Kept outside the scrollers so it never scrolls away. -->
+                    <TextBox x:Name="ChooserFilterBox"
+                             DockPanel.Dock="Top"
+                             IsVisible="False"
+                             HorizontalAlignment="Center"
+                             Width="240"
+                             Margin="0,12,0,8"
+                             Padding="9,6"
+                             PlaceholderText="Filter..."
+                             FontSize="{DynamicResource FontSm}"
+                             />
+
+                    <Panel>
+
                     <!-- One card per registered kind, built in the code-behind from the catalog.
                          They used to be six blocks of markup written out by hand, which meant a
                          seventh kind was a class, a line of registration and a page of XAML nobody
@@ -385,6 +407,8 @@
                             </Button>
                         </WrapPanel>
                     </ScrollViewer>
+                    </Panel>
+                    </DockPanel>
 
                     <Panel x:Name="ContentHost" />
                 </Panel>

@@ -1,4 +1,4 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
@@ -43,7 +43,8 @@
                     Margin="8,0"
                     Background="{DynamicResource BorderSubtle}" />
 
-            <TextBox DockPanel.Dock="Top"
+            <TextBox x:Name="FilterBox"
+                     DockPanel.Dock="Top"
                      Text="{Binding FilterText, Mode=TwoWay}"
                      PlaceholderText="Filter..."
                      IsVisible="{Binding ShowFilter}"

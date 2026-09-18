@@ -238,7 +238,8 @@
                             <TextBlock Text="{Binding AllDatabases.Count, StringFormat='Detected ({0})'}"
                                        Classes="section" Margin="0"
                                        VerticalAlignment="Center" />
-                            <TextBox DockPanel.Dock="Right"
+                            <TextBox x:Name="FilterBox"
+                                     DockPanel.Dock="Right"
                                      Text="{Binding DetectedFilterText, Mode=TwoWay}"
                                      PlaceholderText="Filter..."
                                      Margin="8,0,0,0"

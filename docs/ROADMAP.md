@@ -172,6 +172,33 @@ the one of these that costs users most today, and there is no cheap substitute f
 
 ---
 
+## A filter box bound to a list — the whole application driven from the keyboard
+
+**Where it stands.** Every tile now puts the keyboard somewhere predictable when it is activated
+(`Views/IFocusTargetView.cs`): the terminal, the prompt of an Agent or Goal tile, the editor of a note or a
+todo list, the filter of the database tile and of the workspaces list, the git tile's file list, the usage
+tile's Refresh. A press on anything that does not take the keyboard itself sends it to that target. The
+empty tile's chooser has a filter with arrows, Enter and Escape — written by hand in `LeafTileView`, the
+card highlight a class and the movement `ChooserNavigation`.
+
+**What is wrong with that.** It is the third hand-written filter-plus-list pairing, and each one answers
+the keys differently: the database filter narrows its list and the arrows do nothing, the workspaces
+filter narrows and the arrows do nothing, the chooser's arrows move a highlight. A keyboard user has to
+learn each one.
+
+**What would settle it.** One control, modelled on `OpenDataGridTextFilter` in
+`D:\work\sources\OpenDataGrid` (`src/Open.DataGrid/Controls/OpenDataGridTextFilter.cs`): a `TextBox` that
+is *bound to a list* rather than only narrowing it — a debounced filter over named fields with the
+application's one matching rule (`PickerSearch`), and Up/Down/PageUp/PageDown/Enter forwarded to the list
+while the caret stays in the box, so typing and moving never fight over focus; Enter confirms (or runs a
+command), Escape clears and then gives the keyboard back. Written once in `mTiles.Controls` against a small
+list-side interface, so a `ListBox`, an `ItemsControl` of rows and the chooser's `WrapPanel` of cards can
+all be driven by it. Then put under: the tile chooser and setup step, the git tile's file list, the
+database tile's detected list, the workspaces list — and later the list of tiles, if a "go to tile" ever
+arrives. The chooser's code and `ChooserNavigation` move into it rather than being kept beside it.
+
+---
+
 ## A control that is a combo box and a search box at once
 
 **Where it hurts.** The agent instance form's **Model** and **Fast model** fields (Settings → AI), and

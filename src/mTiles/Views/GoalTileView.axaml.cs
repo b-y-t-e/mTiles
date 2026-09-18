@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia;
@@ -19,8 +19,12 @@ using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
-public partial class GoalTileView : UserControl
+public partial class GoalTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The composer, docked to the foot of the tile - the one place a goal is acted on from.
+    /// </summary>
+    public InputElement? PreferredFocusTarget => InputBox;
+
     private GoalTileViewModel? _subscribedVm;
 
     public GoalTileView()

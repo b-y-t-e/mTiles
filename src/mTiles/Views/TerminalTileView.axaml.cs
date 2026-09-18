@@ -11,8 +11,11 @@ using TerminalControl = Terminal.Avalonia.TerminalControl;
 
 namespace mTiles.Views;
 
-public partial class TerminalTileView : UserControl
+public partial class TerminalTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The terminal: it reads the keyboard itself, with no inner control to hand it to.</summary>
+    public InputElement? PreferredFocusTarget => TerminalHost.Content as TerminalControl;
+
     private TerminalTileViewModel? _subscribedVm;
 
     public TerminalTileView()

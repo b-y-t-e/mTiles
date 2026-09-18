@@ -13,8 +13,11 @@ namespace mTiles.Views;
 /// <summary>
 /// Draws an agent conversation, follows its end, and asks the questions its view model needs asked.
 /// </summary>
-public partial class AgentConversationTileView : UserControl
+public partial class AgentConversationTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The composer: a conversation is driven by what is typed into it.</summary>
+    public InputElement? PreferredFocusTarget => InputBox;
+
     private AgentConversationTileViewModel? _subscribed;
     private bool _scrollQueued;
 

@@ -1,4 +1,4 @@
-﻿<Styles xmlns="https://github.com/avaloniaui"
+<Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:mi="using:Material.Icons.Avalonia"
         xmlns:ae="using:AvaloniaEdit">
@@ -302,6 +302,16 @@
     </Style>
     <Style Selector="Button.chooser-card:pressed">
         <Setter Property="Background" Value="{DynamicResource InteractivePressed}" />
+    </Style>
+
+    <!-- The card the chooser's filter would pick on Enter - moved by the arrow keys. The keyboard stays
+         in the filter, so this is drawn as a hover that the pointer did not cause, plus the accent edge
+         a focused control would carry. -->
+    <Style Selector="Button.chooser-card.current, Button.chooser-back.current">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentOutline}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        <Setter Property="Opacity" Value="1" />
     </Style>
 
     <!-- ======== BUTTON: chooser-back (ghost-like back button) ========

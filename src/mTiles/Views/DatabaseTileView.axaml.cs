@@ -5,8 +5,11 @@ using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
-public partial class DatabaseTileView : UserControl
+public partial class DatabaseTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The filter over the detected databases — the one thing here typed into.</summary>
+    public Avalonia.Input.InputElement? PreferredFocusTarget => FilterBox;
+
     public DatabaseTileView()
     {
         InitializeComponent();

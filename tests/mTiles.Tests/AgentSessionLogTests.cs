@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using mTiles.Models;
 using mTiles.Services.Agents;
 using mTiles.Services.Agents.SessionLogs;
@@ -37,6 +37,14 @@ public class AgentSessionLogTests : IDisposable
         Directory.CreateDirectory(path);
         return path;
     }
+
+    /// <summary>A workspace path spelled the Windows way, as the shell there hands it over.</summary>
+    /// <remarks>Elsewhere a backslash is a character of the name and <c>D:</c> is no drive, so the same
+    /// literal names a different place from the fixtures' forward-slashed one; there it is spelled the
+    /// fixtures' way (drive letter upper-cased, since those file systems compare case).</remarks>
+    private static string Here(string windowsPath) => OperatingSystem.IsWindows()
+        ? windowsPath
+        : char.ToUpperInvariant(windowsPath[0]) + windowsPath[1..].Replace('\\', '/');
 
     /// <summary>Writes a fixture exactly as its CLI would, less one detail: the recorded working
     /// directory is spelled with forward slashes.</summary>
@@ -263,7 +271,7 @@ public class AgentSessionLogTests : IDisposable
         var log = new OpenCodeSessionLog(_ => Path.Combine(_root, ".local", "share"));
         // A different spelling from the index's on purpose: opencode records whichever the shell was
         // started in, and on Windows that is the same place.
-        var reading = await log.ReadLatestAsync(null, @"d:\work\sources\kursalpha.eu", DateTimeOffset.MinValue);
+        var reading = await log.ReadLatestAsync(null, Here(@"d:\work\sources\kursalpha.eu"), DateTimeOffset.MinValue);
 
         Assert.NotNull(reading);
         Assert.Equal("ses_3d1d74b74ffeYuhhLstdW0w25Q", reading.SessionId);
@@ -286,7 +294,7 @@ public class AgentSessionLogTests : IDisposable
         Write(first, """{"role":"assistant","modelID":"glm-4.7","cost":0.25,"tokens":{"input":1000,"output":0}}""");
         File.SetLastWriteTimeUtc(first, DateTime.UtcNow.AddMinutes(-2));
         var log = new OpenCodeSessionLog(_ => Path.Combine(_root, ".local", "share"));
-        const string workspace = @"D:\work\sources\kursalpha.eu";
+        var workspace = Here(@"D:\work\sources\kursalpha.eu");
 
         var before = await log.ReadAsync(null, workspace, "ses_a");
         Write(Path.Combine(messages, "msg_0002.json"),
@@ -305,8 +313,8 @@ public class AgentSessionLogTests : IDisposable
 
         var log = new OpenCodeSessionLog(_ => Path.Combine(_root, ".local", "share"));
 
-        Assert.Null(log.WatchDirectory(null, @"D:\somewhere\else"));
-        Assert.Null(await log.ReadLatestAsync(null, @"D:\somewhere\else", DateTimeOffset.MinValue));
+        Assert.Null(log.WatchDirectory(null, Here(@"D:\somewhere\else")));
+        Assert.Null(await log.ReadLatestAsync(null, Here(@"D:\somewhere\else"), DateTimeOffset.MinValue));
     }
 
     [Fact]
@@ -318,7 +326,7 @@ public class AgentSessionLogTests : IDisposable
         // found: it is a new file in that directory, which is the change the walk is spent on.
         Dir(".local", "share", "opencode", "storage", "project");
         var log = new OpenCodeSessionLog(_ => Path.Combine(_root, ".local", "share"));
-        const string workspace = @"D:\work\sources\kursalpha.eu";
+        var workspace = Here(@"D:\work\sources\kursalpha.eu");
 
         Assert.Null(log.WatchDirectory(null, workspace));
 
@@ -347,7 +355,7 @@ public class AgentSessionLogTests : IDisposable
             """);
 
         var log = new CodexSessionLog(_ => Path.Combine(_root, ".codex", "sessions"));
-        var reading = await log.ReadLatestAsync(null, @"D:\work\sources\mterminal", DateTimeOffset.MinValue);
+        var reading = await log.ReadLatestAsync(null, Here(@"D:\work\sources\mterminal"), DateTimeOffset.MinValue);
 
         Assert.NotNull(reading);
         Assert.Equal("01a0a6f6-ab78-7db2-9dd0-459fde90ae0b", reading.SessionId);
@@ -363,7 +371,7 @@ public class AgentSessionLogTests : IDisposable
         var day = Dir(".codex", "sessions", "2026", "09", "18");
         var rollout = Path.Combine(day, "rollout-2026-09-18T10-00-00-01a0a6f6-ab78-7db2-9dd0-459fde90ae0b.jsonl");
         const string id = "01a0a6f6-ab78-7db2-9dd0-459fde90ae0b";
-        const string workspace = @"D:\work\sources\mterminal";
+        var workspace = Here(@"D:\work\sources\mterminal");
         File.WriteAllText(rollout,
             """{"type":"session_meta","payload":{"cwd":"D:/work/sources/mterminal"}}""" + "\n"
             + """{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":100},"model_context_window":258400}}}""" + "\n"
@@ -393,7 +401,7 @@ public class AgentSessionLogTests : IDisposable
 
         var log = new CodexSessionLog(_ => Path.Combine(_root, ".codex", "sessions"));
 
-        Assert.Null(await log.ReadLatestAsync(null, @"D:\work\sources\mterminal", DateTimeOffset.MinValue));
+        Assert.Null(await log.ReadLatestAsync(null, Here(@"D:\work\sources\mterminal"), DateTimeOffset.MinValue));
     }
 
     [Fact]
@@ -411,7 +419,7 @@ public class AgentSessionLogTests : IDisposable
             """{"type":"session_meta","payload":{"cwd":"D:/work/sources/mterminal","source":"vscode"}}""");
 
         var log = new CodexSessionLog(_ => Path.Combine(_root, ".codex", "sessions"));
-        var reading = await log.ReadLatestAsync(null, @"D:\work\sources\mterminal", DateTimeOffset.MinValue);
+        var reading = await log.ReadLatestAsync(null, Here(@"D:\work\sources\mterminal"), DateTimeOffset.MinValue);
 
         Assert.True(log.TellsHeadlessRunsApart);
         Assert.Equal("01a0a6f6-0000-0000-0000-000000000001", reading?.SessionId);
@@ -594,7 +602,7 @@ public class AgentSessionLogTests : IDisposable
             """{"role":"assistant","modelID":"glm-4.7","tokens":{"input":100,"output":10}}""");
 
         var log = new OpenCodeSessionLog(_ => Path.Combine(_root, ".local", "share"));
-        var reading = await log.ReadLatestAsync(null, @"D:\work\sources\mterminal", DateTimeOffset.MinValue);
+        var reading = await log.ReadLatestAsync(null, Here(@"D:\work\sources\mterminal"), DateTimeOffset.MinValue);
 
         Assert.Equal("glm-4.7", reading?.Model);
     }

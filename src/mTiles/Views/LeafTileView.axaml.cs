@@ -39,6 +39,15 @@ public partial class LeafTileView : UserControl, ITileDropTarget
             dragging: on => Opacity = on ? 0.4 : 1.0);
 
         DropOverlay.BorderThickness = new Thickness(2);
+
+        _chooserKeyboard = new ChooserKeyboard(ChooserFilterBox, ChooserCards, SetupBackButton, LeaveChooser);
+
+        // The last place the keyboard can go when nothing in the tile will take it - a content view
+        // whose target is disabled for a moment. Without it a click on such a tile lit its outline and
+        // left the keyboard in the tile that was active before.
+        // Not a Tab stop, though: Tab past a tile's controls must not land on an invisible card.
+        Focusable = true;
+        IsTabStop = false;
         TileToolbar.SizeChanged += (_, e) => ApplyHeaderWidth(e.NewSize.Width);
     }
 
@@ -165,6 +174,19 @@ public partial class LeafTileView : UserControl, ITileDropTarget
     private void OnTilePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
     {
         (DataContext as LeafTileNodeViewModel)?.Activate();
+
+        // A press on something that takes the keyboard itself - a field, a list, the terminal, a
+        // button - leaves focus to that control. Anything else (the background, the header, a label)
+        // sends the keyboard to the tile's own target, so a click anywhere on a tile always leaves the
+        // keyboard somewhere predictable inside it.
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && !FocusTargets.PressTakesKeyboard(e.Source, this))
+            Dispatcher.UIThread.Post(() =>
+            {
+                // The press may have handed the keyboard on by the time this runs: a workspace row in
+                // the list sends it to that workspace's active tile, which deactivates this one; and the
+                // second press of a double-click on the name opens the rename box, which must keep it.
+                if (_subscribedLeaf is { IsActive: true } && !TileNameEditor.IsVisible) FocusContent();
+            }, DispatcherPriority.Input);
     }
 
     private void OnTileGotFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -394,12 +416,52 @@ public partial class LeafTileView : UserControl, ITileDropTarget
 
         // The scroller is what is shown and hidden, not the panel inside it: a visible scroller wrapped
         // round a collapsed panel is still a hit-testable sheet lying over the tile's content.
-        ContentChooserScroll.IsVisible = empty && !leaf.IsChoosingSetup;
+        var choosingKind = empty && !leaf.IsChoosingSetup;
+        var wasChoosing = ChooserFilterBox.IsVisible;
+        ContentChooserScroll.IsVisible = choosingKind;
         SetupChooserScroll.IsVisible = leaf.IsChoosingSetup;
         ContentHost.IsVisible = !empty && !leaf.IsChoosingSetup;
 
         if (leaf.IsChoosingSetup)
             PopulateSetupButtons(leaf);
+
+        // One filter for both choosers, started afresh whenever the list under it changes: letters typed
+        // to find a kind mean nothing among the shells that kind then offers.
+        var choosing = choosingKind || leaf.IsChoosingSetup;
+        bool? chooserShown = choosing ? leaf.IsChoosingSetup : null;
+        ChooserFilterBox.IsVisible = choosing;
+        if (chooserShown != _chooserShown)
+            _chooserKeyboard.Clear();
+        _chooserShown = chooserShown;
+        _chooserKeyboard.Apply();
+
+        if (KeyboardFollowsChooser(leaf, choosing, wasChoosing))
+            Dispatcher.UIThread.Post(FocusContent, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Whether the chooser appearing or going away moves the keyboard.</summary>
+    /// <remarks>A chooser appearing is the tile asking a question, so the keyboard goes to it - but only in
+    /// the active tile: a layout restored with an empty tile in it must not pull focus there. A chooser
+    /// going away - Escape or Back out of a Change type step drawn over running content - hands the
+    /// keyboard back to that content, or it stays behind in a filter that is no longer on screen.</remarks>
+    private static bool KeyboardFollowsChooser(LeafTileNodeViewModel leaf, bool choosing, bool wasChoosing) =>
+        choosing ? leaf.IsActive || wasChoosing : wasChoosing && leaf.IsActive;
+
+    private ChooserKeyboard _chooserKeyboard = null!;
+
+    /// <summary>Which chooser the filter was last over: the kinds (false), a setup step (true), none (null).
+    /// </summary>
+    private bool? _chooserShown;
+
+    /// <summary>The cards of whichever chooser is on screen, Back included.</summary>
+    private IEnumerable<Button> ChooserCards() =>
+        (SetupChooserScroll.IsVisible ? SetupChooser : ContentChooser).Children.OfType<Button>();
+
+    /// <summary>Escape on an empty filter: leaves a setup step; the kinds have nowhere to go back to.</summary>
+    private void LeaveChooser()
+    {
+        if (SetupChooserScroll.IsVisible && DataContext is LeafTileNodeViewModel leaf)
+            leaf.CancelSetupCommand.Execute(null);
     }
 
     /// <summary>One card per registered kind.</summary>
@@ -418,6 +480,7 @@ public partial class LeafTileView : UserControl, ITileDropTarget
                 Classes = { "chooser-card" },
                 Command = leaf.SelectKindCommand,
                 CommandParameter = kind.Id,
+                Tag = kind.DisplayName,
                 Content = ChooserCardContent(TileIcons.Kind(kind.IconId), kind.DisplayName, kind.AccentKey),
             };
             ContentChooser.Children.Add(button);
@@ -468,6 +531,7 @@ public partial class LeafTileView : UserControl, ITileDropTarget
                 Classes = { "chooser-card" },
                 Command = leaf.SelectSetupOptionCommand,
                 CommandParameter = option,
+                Tag = option.Label,
                 Content = ChooserCardContent(
                     TileIcons.Kind(option.IconId), option.Label, option.AccentKey),
             });
@@ -633,22 +697,21 @@ public partial class LeafTileView : UserControl, ITileDropTarget
         e.Handled = true;
     }
 
-    // Suppress activation during Focus() to prevent GotFocus → Activate → FocusContent ping-pong
+    /// <summary>Puts the keyboard where this tile wants it.</summary>
+    /// <remarks>
+    /// <para>One rule for every kind, in the window's layout and in a workspace's alike: a chooser on
+    /// screen takes it in its filter; otherwise the content view names its target
+    /// (<see cref="IFocusTargetView"/>); a target that cannot take it right now falls to the card itself,
+    /// so the keyboard is never left behind in the tile that was active before. A view that names no
+    /// target at all gets the old fallback, its first focusable element.</para>
+    /// <para>Activation is suppressed during <c>Focus()</c> to prevent GotFocus → Activate →
+    /// FocusContent ping-pong.</para>
+    /// </remarks>
     private void FocusContent()
     {
         if (_subscribedLeaf == null) return;
 
-        // Terminal najpierw i wprost: kontrolka terminala sama czyta klawiaturę (nie ma
-        // template'u ani wewnętrznego ScrollBara), więc fokus siada deterministycznie.
-        // Dla Note/Git/Todo fallback na pierwszy focusable.
-        InputElement? focusable = ContentHost.GetVisualDescendants()
-            .OfType<Terminal.Avalonia.TerminalControl>()
-            .FirstOrDefault();
-        focusable ??= ContentHost.GetVisualDescendants()
-            .OfType<InputElement>()
-            .FirstOrDefault(e => e.Focusable);
-        if (focusable == null) return;
-
+        var focusable = ResolveFocusTarget();
         using (_subscribedLeaf.ActivationScope.SuppressActivation())
             focusable.Focus();
 
@@ -660,11 +723,17 @@ public partial class LeafTileView : UserControl, ITileDropTarget
         Dispatcher.UIThread.Post(() =>
         {
             if (_subscribedLeaf is not { IsActive: true }) return;
-            if (focusable.IsFocused) return;
+            var target = ResolveFocusTarget();
+            if (target.IsFocused) return;
             using (_subscribedLeaf.ActivationScope.SuppressActivation())
-                focusable.Focus();
+                target.Focus();
         }, DispatcherPriority.Loaded);
     }
+
+    private InputElement ResolveFocusTarget() =>
+        ChooserFilterBox.IsVisible
+            ? ChooserFilterBox
+            : FocusTargets.Resolve(ContentHost.Children.FirstOrDefault(), fallback: this);
 
     #region Drag & Drop
 

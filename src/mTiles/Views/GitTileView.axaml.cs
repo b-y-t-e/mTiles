@@ -10,8 +10,15 @@ using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
-public partial class GitTileView : UserControl
+public partial class GitTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The list on show - changed files, or the history - never the commit message.</summary>
+    /// <remarks>The file list is where this tile is driven from the keyboard (arrows, Space to tick);
+    /// a caret parked in the message box would take every keystroke meant for it, and a click on the
+    /// tile's background would drop stray letters into the next commit.</remarks>
+    public Avalonia.Input.InputElement? PreferredFocusTarget =>
+        FocusTargets.ListTarget(HistoryListBox.IsVisible ? HistoryListBox : FilesListBox);
+
     private bool _isVerticalLayout;
     private bool _layoutApplied;
     private GitTileViewModel? _subscribedVm;

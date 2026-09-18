@@ -5,8 +5,11 @@ using Notepad.Avalonia.Model;
 
 namespace mTiles.Views;
 
-public partial class NoteTileView : UserControl
+public partial class NoteTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The editor, which is the whole of the tile.</summary>
+    public Avalonia.Input.InputElement? PreferredFocusTarget => Editor;
+
     private ImageSyncHelper<ImageEntry>? _imageSync;
     private EventHandler<ImagePastedEventArgs>? _imagePastedHandler;
     private NoteTileViewModel? _subscribedVm;

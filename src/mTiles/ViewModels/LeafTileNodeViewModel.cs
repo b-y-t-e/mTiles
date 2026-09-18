@@ -706,6 +706,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         }
 
         Adopt(kindId, state: null);
+        RequestFocus();
     }
 
     /// <summary>Draws a kind's own step in place of whatever the tile is showing.</summary>
@@ -736,7 +737,10 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         if (isConversion)
             await ConvertToAsync(kindId, option.State);
         else
+        {
             Adopt(kindId, option.State);
+            RequestFocus();
+        }
     }
 
     [RelayCommand]

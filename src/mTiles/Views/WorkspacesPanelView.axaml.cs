@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -11,8 +11,14 @@ using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
-public partial class WorkspacesPanelView : UserControl
+public partial class WorkspacesPanelView : UserControl, IFocusTargetView
 {
+    /// <summary>The filter, where the list shows one; otherwise the panel itself.</summary>
+    /// <remarks>The strip of initials and the row of tabs keep their filter behind a button, and a
+    /// flyout opened by a click on the tile's background would be a surprise - so in those shapes the
+    /// panel takes the keyboard, which is still away from whichever tile had it before.</remarks>
+    public InputElement? PreferredFocusTarget => FocusTargets.CanTake(FilterBox) ? FilterBox : null;
+
     private WorkspacesPanelViewModel? _subscribedVm;
     private WorkspacesPanelShape _shape = WorkspacesPanelShape.List;
 
