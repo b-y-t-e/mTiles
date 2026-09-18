@@ -426,10 +426,13 @@ public sealed class SettingsService
     /// merging would leave the machine holding a mixture nobody chose and no way of saying which half
     /// came from where.</para>
     /// <para><b>The secrets on this machine are kept</b>, and that is the one exception the merge rule
-    /// makes. An export carries no keys and no passwords (<see cref="SettingsPortability"/>), so an
-    /// import that took the file literally would silently empty the working key of every provider the
-    /// user already had — a file meant to add configuration removing the only part of it that cannot be
-    /// typed back from memory.</para>
+    /// makes. An export carries no keys and no passwords unless a passphrase put them there
+    /// (<see cref="SettingsPortability"/>), so an import that took the file literally would silently
+    /// empty the working key of every provider the user already had — a file meant to add configuration
+    /// removing the only part of it that cannot be typed back from memory. A secret the file did carry
+    /// is already decrypted into the imported settings by then, so it replaces the one stored here;
+    /// only a field left empty is read as "the file said nothing" and filled back in from this
+    /// machine.</para>
     /// <para>Everything else reads <see cref="Settings"/> through this object rather than holding the
     /// object it returned, so a notification is all it takes for the application to be running on the
     /// new one.</para>
@@ -455,24 +458,12 @@ public sealed class SettingsService
     /// imported back into it must leave the machine as it was.</remarks>
     private void KeepExistingSecrets(AppSettings incoming)
     {
-        foreach (var provider in incoming.AiProviderInstances.Where(p => p.ApiKey.Length == 0))
+        var known = SettingsSecrets.KnownValues(Settings);
+        foreach (var secret in SettingsSecrets.In(incoming))
         {
-            if (Settings.AiProviderInstances.FirstOrDefault(existing => existing.Id == provider.Id)
-                is { ApiKey.Length: > 0 } known)
-                provider.ApiKey = known.ApiKey;
+            if (secret.Get().Length == 0 && known.TryGetValue(secret.Key, out var value))
+                secret.Set(value);
         }
-
-        foreach (var connection in incoming.Database.ManualConnections.Where(c => c.Password.Length == 0))
-        {
-            if (Settings.Database.ManualConnections.FirstOrDefault(existing => existing.Id == connection.Id)
-                is { Password.Length: > 0 } known)
-                connection.Password = known.Password;
-        }
-
-        if (incoming.Database.SqlServer.Password.Length == 0)
-            incoming.Database.SqlServer.Password = Settings.Database.SqlServer.Password;
-        if (incoming.Database.PostgreSql.Password.Length == 0)
-            incoming.Database.PostgreSql.Password = Settings.Database.PostgreSql.Password;
     }
 
     public void NotifyChanged()

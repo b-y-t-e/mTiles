@@ -17,4 +17,10 @@ public sealed class ManualDatabaseConnection
     [JsonConverter(typeof(ProtectedStringConverter))]
     public string Password { get; set; } = "";
     public bool UseIntegratedSecurity { get; set; }
+
+    /// <summary>An independent copy: every field, the id and the password included.</summary>
+    /// <remarks><see cref="object.MemberwiseClone"/> rather than a hand-kept field list, so a field
+    /// added to this model cannot be forgotten here — this is the one clone the merge preview and the
+    /// portability both go through, and its whole point is that it cannot drift.</remarks>
+    public ManualDatabaseConnection Clone() => (ManualDatabaseConnection)MemberwiseClone();
 }

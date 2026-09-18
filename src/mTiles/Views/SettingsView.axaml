@@ -949,6 +949,28 @@
                     <DockPanel Margin="0,0,0,2">
                         <TextBlock Text="MANUAL CONNECTIONS" Classes="section" Margin="0"
                                    VerticalAlignment="Center" />
+                        <!-- The heading row's actions, in one class, above the list: Add first
+                             because it is what this page is for, then the pair that moves the whole
+                             list between machines. Docked right in reverse order, so they read
+                             Add · Export · Import from the left. -->
+                        <Button DockPanel.Dock="Right"
+                                Classes="header-action"
+                                Command="{Binding ImportManualConnectionsCommand}"
+                                ToolTip.Tip="Merge a connections file into this list">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="Import" Width="12" Height="12" />
+                                <TextBlock Text="Import" />
+                            </StackPanel>
+                        </Button>
+                        <Button DockPanel.Dock="Right"
+                                Classes="header-action"
+                                Command="{Binding ExportManualConnectionsCommand}"
+                                ToolTip.Tip="Write these connections to a file">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <mi:MaterialIcon Kind="Export" Width="12" Height="12" />
+                                <TextBlock Text="Export" />
+                            </StackPanel>
+                        </Button>
                         <Button DockPanel.Dock="Right"
                                 Classes="header-action"
                                 Command="{Binding AddManualConnectionCommand}"

@@ -41,6 +41,7 @@ public class SecretStorageTests
         Assert.Equal(SecretStorage.IsEncrypted,
             SettingsViewModel.ExportSecretsNote.Contains("encrypted"));
         Assert.Contains("not exported", SettingsViewModel.ExportSecretsNote);
+        Assert.Contains("With a passphrase they travel", SettingsViewModel.ExportSecretsNote);
     }
 
     [Fact]

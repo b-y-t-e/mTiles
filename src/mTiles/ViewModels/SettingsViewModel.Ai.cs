@@ -46,6 +46,18 @@ public partial class SettingsViewModel
     public Func<string, Task<string?>>? BrowseSaveFile { get; set; }
     public Func<Task<string?>>? BrowseOpenFile { get; set; }
 
+    /// <summary>The same pair for the connections file, and deliberately a second pair.</summary>
+    /// <remarks>The dialogs carry their own title and suggested name, and a file picker titled
+    /// "Export settings" over a list of database connections is the one moment the user could hand the
+    /// wrong file to the wrong importer.</remarks>
+    public Func<string, Task<string?>>? BrowseSaveDbFile { get; set; }
+    public Func<Task<string?>>? BrowseOpenDbFile { get; set; }
+
+    /// <summary>Asks for a passphrase: a string to use, "" for none, null for cancelled.</summary>
+    /// <remarks>Title and description, because the two exports ask the same question about different
+    /// files and only the words tell them apart.</remarks>
+    public Func<string, string, Task<string?>>? PromptPassphrase { get; set; }
+
     private void LoadAiInstances()
     {
         AgentInstances.Clear();
@@ -1605,21 +1617,51 @@ public partial class SettingsViewModel
     {
         if (BrowseSaveFile is not { } browse) return;
 
+        // The passphrase is asked for before the save dialog rather than after it: cancelling here has
+        // then cost the user nothing, while cancelling after would leave a file they chose a name for
+        // and never got. The confirmation follows it rather than preceding it, because what the file
+        // will carry — and so what the warning has to say — is the answer to that question.
+        if (await AskExportPassphraseAsync("Export settings") is not { } passphrase) return;
+
         // Said before the file exists, because afterwards the user has already shared it.
-        var agreed = ConfirmAction != null
-                     && await ConfirmAction($"Export settings?\n\n{SettingsPortability.SecretsWarning}");
+        var agreed = ConfirmAction != null && await ConfirmAction($"Export settings?\n\n"
+            + (passphrase.Length > 0
+                ? SettingsPortability.EncryptedSecretsWarning
+                : SettingsPortability.SecretsWarning));
         if (!agreed) return;
 
         if (await browse(SettingsPortability.SuggestedFileName) is not { Length: > 0 } path) return;
 
         try
         {
-            SettingsPortability.Export(_settingsService.Settings, path);
+            SettingsPortability.Export(_settingsService.Settings, path, passphrase);
         }
         catch (Exception ex)
         {
             await ShowProblemAsync("Export", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// The passphrase a new export is written under, an empty string for one without secrets, or null
+    /// when the user cancelled.
+    /// </summary>
+    /// <remarks>
+    /// <para>Three answers rather than two, and the description in the dialog is what makes the middle
+    /// one findable: leaving the box empty is how the old behaviour is asked for — a file carrying the
+    /// configuration and no credential at all — while Cancel stops the export. A dialog offering only OK
+    /// and Cancel would make "export without secrets" unreachable, and a checkbox would make it the
+    /// thing the user has to notice.</para>
+    /// <para>Shared by both exports. The warning is <see cref="PassphraseVault.PassphraseWarning"/>
+    /// because the risk is the same one in both files: whoever has the file and the passphrase has every
+    /// credential in it, so the two go by different routes.</para>
+    /// </remarks>
+    private async Task<string?> AskExportPassphraseAsync(string title)
+    {
+        if (PromptPassphrase is not { } ask) return "";
+
+        return await ask(title,
+            PassphraseVault.PassphraseWarning + "\n\nLeave it empty to export without them.");
     }
 
     [RelayCommand]
@@ -1628,7 +1670,29 @@ public partial class SettingsViewModel
         if (BrowseOpenFile is not { } browse) return;
         if (await browse() is not { Length: > 0 } path) return;
 
-        var imported = SettingsPortability.Import(path, out var problem);
+        var passphrase = "";
+        if (SettingsPortability.IsProtected(path))
+        {
+            // Asked for once, here, rather than retried in a loop: a wrong passphrase is shown as a
+            // wrong passphrase and the user starts the import again, which is two clicks and keeps this
+            // command a straight line.
+            if (PromptPassphrase is not { } ask)
+            {
+                await ShowProblemAsync("Import",
+                    "This file's passwords and API keys are protected with a passphrase, and there is "
+                    + "nowhere to ask for one.");
+                return;
+            }
+
+            if (await ask("Import settings",
+                    "This file's passwords and API keys are encrypted. Type the passphrase it was "
+                    + "exported with.") is not { } typed)
+                return;
+
+            passphrase = typed;
+        }
+
+        var imported = SettingsPortability.Import(path, passphrase, out var problem, out _);
         if (imported is null)
         {
             await ShowProblemAsync("Import", $"That file could not be read: {problem}");
@@ -1637,8 +1701,11 @@ public partial class SettingsViewModel
 
         var agreed = ConfirmAction != null && await ConfirmAction(
             "Replace your settings with this file?\n\n"
-            + "Everything on this dialog is replaced. API keys and database passwords already set up "
-            + "here are kept, because an exported file carries none.");
+            + "Everything on this dialog is replaced. "
+            + (passphrase.Length > 0
+                ? "The API keys and database passwords in this file replace the ones set up here."
+                : "API keys and database passwords already set up here are kept, because this file "
+                  + "carries none."));
         if (!agreed) return;
 
         _settingsService.Replace(imported);

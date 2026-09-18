@@ -30,13 +30,18 @@ public partial class SettingsViewModel : ObservableObject
 
     public static string SecretStorageWarning => SecretStorage.Warning ?? "";
 
-    /// <summary>Why the export leaves every secret blank — which is true either way, but for a
-    /// different reason once there is no encryption to be bound to this machine.</summary>
-    public static string ExportSecretsNote => SecretStorage.IsEncrypted
-        ? "API keys and database passwords are not exported — they are encrypted for this machine and "
-          + "would not work anywhere else. An import keeps the ones already set up here."
-        : "API keys and database passwords are not exported — a file meant to be shared must not carry "
-          + "them. An import keeps the ones already set up here.";
+    /// <summary>What the export does with the secrets: blank without a passphrase — for a reason that
+    /// depends on the platform — and carried, locked under it, with one.</summary>
+    /// <remarks>The passphrase sentence avoids the word "encrypted" on purpose: that word is what says
+    /// this platform encrypts at rest, and the note must not claim it where it does not.</remarks>
+    public static string ExportSecretsNote => (SecretStorage.IsEncrypted
+        ? "Without a passphrase, API keys and database passwords are not exported — they are encrypted "
+          + "for this machine and would not work anywhere else, and an import keeps the ones already set "
+          + "up here."
+        : "Without a passphrase, API keys and database passwords are not exported — a file meant to be "
+          + "shared must not carry them — and an import keeps the ones already set up here.")
+        + " With a passphrase they travel, locked under it, and importing that file replaces the ones "
+        + "set up here.";
 
     public bool IsGeneralTab => SelectedTab == SettingsTabs.General;
     public bool IsDatabaseTab => SelectedTab == SettingsTabs.Database;
@@ -829,6 +834,112 @@ public partial class SettingsViewModel : ObservableObject
         _settingsService.NotifyChanged();
         IsEditingManualConnection = false;
         _editingConnection = null;
+        LoadManualConnections();
+        _dbManager?.Restart();
+    }
+
+    // ───────────────── The manual connections, out and back in ─────────────────
+    //
+    // Deliberately not a slice of the settings export above it. That one replaces everything on this
+    // dialog; this one merges into one list — overwrite what matches, add what is missing, remove
+    // nothing — which is what makes handing the file to a colleague safe. The two formats are told
+    // apart by name, so neither importer can be given the other's file by mistake.
+
+    [RelayCommand]
+    private async Task ExportManualConnectionsAsync()
+    {
+        if (BrowseSaveDbFile is not { } browse) return;
+
+        var list = _settingsService.Settings.Database.ManualConnections;
+        if (list.Count == 0)
+        {
+            await ShowProblemAsync("Export connections", "There are no manual connections to export.");
+            return;
+        }
+
+        if (await AskExportPassphraseAsync("Export connections") is not { } passphrase) return;
+
+        // Asked on both paths, and an unwired dialog answers no — the rule the settings export beside
+        // this one follows: the file either names somebody's servers or carries their passwords.
+        var agreed = ConfirmAction != null && await ConfirmAction(passphrase.Length > 0
+            ? $"Export connections with their passwords?\n\n{PassphraseVault.PassphraseWarning}"
+            : $"Export without a passphrase?\n\n{ManualConnectionsPortability.NoPassphraseWarning}");
+        if (!agreed) return;
+
+        if (await browse(ManualConnectionsPortability.SuggestedFileName) is not { Length: > 0 } path)
+            return;
+
+        try
+        {
+            ManualConnectionsPortability.Export(list, path, passphrase);
+        }
+        catch (Exception ex)
+        {
+            await ShowProblemAsync("Export connections", ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private async Task ImportManualConnectionsAsync()
+    {
+        if (BrowseOpenDbFile is not { } browse) return;
+        if (await browse() is not { Length: > 0 } path) return;
+
+        if (ManualConnectionsPortability.Read(path, out var problem) is not { } bundle)
+        {
+            await ShowProblemAsync("Import connections", $"That file could not be read: {problem}");
+            return;
+        }
+
+        var passphrase = "";
+        if (ManualConnectionsPortability.IsProtected(bundle))
+        {
+            if (PromptPassphrase is not { } ask)
+            {
+                await ShowProblemAsync("Import connections",
+                    "This file's passwords are protected with a passphrase, and there is nowhere to "
+                    + "ask for one.");
+                return;
+            }
+
+            if (await ask("Import connections",
+                    "The passwords in this file are encrypted. Type the passphrase it was exported "
+                    + "with.") is not { } typed)
+                return;
+
+            passphrase = typed;
+        }
+
+        if (ManualConnectionsPortability.Open(bundle, passphrase, out var opened) is not { } incoming)
+        {
+            await ShowProblemAsync("Import connections", opened);
+            return;
+        }
+
+        // Merged once for the question and once for real: the merge never touches the lists it is
+        // given, so the preview is the same rows the confirmation describes. A merge is not obviously
+        // safe from the outside — "overwrite" is in it — and the user is entitled to know how much of
+        // their list it touches before it does.
+        var stored = _settingsService.Settings.Database.ManualConnections;
+        var preview = ManualConnectionMerge.Merge(stored, incoming);
+
+        if (preview.Updated == 0 && preview.Added == 0)
+        {
+            await ShowProblemAsync("Import connections", preview.Summary);
+            return;
+        }
+
+        var agreed = ConfirmAction != null && await ConfirmAction(
+            $"Import {incoming.Count} connection{(incoming.Count == 1 ? "" : "s")}?\n\n"
+            + preview.Summary
+            + "\n\nNothing here is removed — a connection this file does not mention is left alone.");
+        if (!agreed) return;
+
+        var merged = ManualConnectionMerge.Merge(stored, incoming);
+        stored.Clear();
+        foreach (var connection in merged.Merged) stored.Add(connection);
+
+        _settingsService.NotifyChanged();
         LoadManualConnections();
         _dbManager?.Restart();
     }

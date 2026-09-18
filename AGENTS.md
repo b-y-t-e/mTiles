@@ -606,11 +606,20 @@ Shell persistence in layout: the tile's state carries `shellName`, and `Terminal
 Settings dialog as a modal overlay with responsive sizing (50% window width / 80% window height, min 420×400). Four tabs:
 - **General** — Default Shell, Appearance (color theme, font), Terminal (font), and the settings file
   itself: **Export** and **Import** (`SettingsPortability`). On this tab rather than a page of its own
-  because what it carries is the whole dialog. **Secrets do not travel** — every field encrypted at rest
-  is written out empty, since a DPAPI blob is bound to this user on this machine and would not work
-  anywhere else, and the alternative is plain-text keys in a file somebody is about to share. `ExtraEnv`
-  is the documented exception (nothing here can tell a proxy address from a token in it), so the warning
-  is shown *before* the file is written. An import is a replacement rather than a merge — a mixture
+  because what it carries is the whole dialog. **Secrets do not travel unless a passphrase says they
+  may** — with none, every field encrypted at rest is written out empty, since a DPAPI blob is bound to
+  this user on this machine and would not work anywhere else, and the alternative is plain-text keys in
+  a file somebody is about to share. A passphrase, asked for before the save dialog (empty keeps that
+  old behaviour), puts the secrets into one `SecretVault` property *beside* the settings rather than
+  inside them (`PassphraseVault`: PBKDF2-SHA256 into AES-256-GCM, cost parameters written into the
+  file), so a vault file still opens in a build that knows nothing of vaults; and the confirmation
+  names which of the two files is about to be written — the two warnings are constants on
+  `SettingsPortability` for exactly that reason, and the `ExtraEnv` sentence is in both, because it is
+  the one part true either way. An import that reads a vault asks once for the passphrase and stops
+  otherwise — a wrong one is named a wrong passphrase, not a corrupt file (`ExportProtection.Check`
+  carries a known plaintext for that question) — and a secret that will not decrypt arrives empty,
+  which `SettingsService.KeepExistingSecrets` reads as *the file said nothing*, so the value already
+  on this machine survives. An import is a replacement rather than a merge — a mixture
   nobody chose is worse — except that `SettingsService.Replace` **keeps every secret already set up
   here**, matched by id (provider keys *and* manual database connection passwords, one restore for each
   field the export blanks, or a file exported from this machine and imported back into it would empty
@@ -685,7 +694,8 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   nothing — it has no catalogue to ask. The field narrows by every typed word in any order
   (`Views/ModelSearch.cs`), because an id is punctuated by whoever published it and the separator is the
   part nobody remembers.
-- **Database** — enable service, HTTP port, SQL Server/PostgreSQL credentials, scan interval, manual connections
+- **Database** — enable service, HTTP port, SQL Server/PostgreSQL credentials, scan interval, manual
+  connections with their own **Export/Import** on the heading row (`ManualConnectionsPortability`)
 - **Speech** — dictation on/off, shortcut (captured by pressing it), push-to-talk vs toggle, microphone,
   language, auto-Enter, vocabulary, and the model list with download/delete and progress; plus a **Phone**
   section (keep the bridge running, preferred port, and the phone's own auto-Enter). Those last two are
@@ -1058,7 +1068,20 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 
 **Workspace config:** `.mtiles/databases.json` — `WorkspaceDatabaseTileConfig` with `Databases` (list). Context files are generated when database service is running and the list is non-empty.
 
-**Settings:** Database tab in Settings — enable service, HTTP port, SQL Server (Windows Auth / SQL Auth), PostgreSQL (credentials, ports), scan interval, manual connections (add, edit, clone, test, delete — the form is the shared overlay every settings entry is edited on). Save & Apply restarts the service automatically. Passwords encrypted with DPAPI.
+**Settings:** Database tab in Settings — enable service, HTTP port, SQL Server (Windows Auth / SQL Auth), PostgreSQL (credentials, ports), scan interval, manual connections (add, edit, clone, test, delete — the form is the shared overlay every settings entry is edited on; **Export/Import** on the heading row, `ManualConnectionsPortability`). Save & Apply restarts the service automatically. Passwords encrypted with DPAPI.
+
+**A connections file is a merge, and a file of its own.** `ManualConnectionsPortability` writes the
+list — the passwords included, under a `PassphraseVault` passphrase (the same vault the settings
+export uses), or without them — to its own format, and its import **overwrites what matches** (by id,
+then address, then alias — the two ways `DbRegistry` files a row), **adds what is missing and removes
+nothing** (`ManualConnectionMerge`, pure and argued in a table test): handing a file to a colleague
+must not be handing them the whole configuration. A password that did not travel arrives empty and is
+read as *not said*, so it never erases the one stored here; and a candidate value that would land on
+another row keeps the stored one — alias and address, the port with the address — so the merged list
+never holds a clash the form would refuse. The two files refuse each other by name
+(`ManualConnectionsBundle.Kind`; the settings import recognises a connections file and names the
+Database tab, and this import refuses a settings export by the same question), because a settings
+export dropped into this importer would otherwise read as a file with no connections in it.
 
 **A name and an address may each be used once** (`ManualConnectionClash`, pure and argued in a table
 test). `DbRegistry.Register` files an instance under its address — server, instance, database — **and**

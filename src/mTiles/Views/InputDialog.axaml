@@ -14,6 +14,18 @@
                        Foreground="{DynamicResource TextPrimary}"
                        Margin="0,0,0,10" />
 
+            <!-- Collapsed unless the caller has something to say. A passphrase field is the case that
+                 needs it: the one thing the user has to be told is what happens if they leave it
+                 empty, and a placeholder is not where that fits. -->
+            <TextBlock x:Name="DescriptionText"
+                       DockPanel.Dock="Top"
+                       IsVisible="False"
+                       TextWrapping="Wrap"
+                       FontFamily="{DynamicResource UiFontFamily}"
+                       FontSize="{DynamicResource FontXs}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       Margin="0,0,0,10" />
+
             <StackPanel DockPanel.Dock="Bottom"
                         Orientation="Horizontal"
                         HorizontalAlignment="Right"
