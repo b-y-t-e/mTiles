@@ -105,8 +105,9 @@
                             UsedPercent="{Binding UsedPercent}"
                             IsVisible="{Binding UsedPercent, Converter={x:Static ObjectConverters.IsNotNull}}"
                             TrackBrush="{DynamicResource BgElevated}"
-                            FillBrush="{DynamicResource AccentHover}"
+                            FillBrush="{DynamicResource StatusSuccess}"
                             OverBrush="{DynamicResource DangerText}"
+                            RampFromPercent="40"
                             ToolTip.Tip="How much of the model's context window this conversation has used" />
             </DockPanel>
         </Border>
