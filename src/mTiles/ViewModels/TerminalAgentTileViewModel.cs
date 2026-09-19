@@ -73,6 +73,10 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// <inheritdoc />
     public IAiAgent Agent => _agent;
 
+    /// <summary>No scrollbar while Claude Code runs on its fullscreen renderer: it scrolls its own
+    /// conversation, and the terminal's bar would only ever describe the shell's history.</summary>
+    public override bool ShowsScrollbar => !(_agent is ClaudeAgent && ClaudeAgent.UsesFullscreenRenderer);
+
     /// <summary>What the layout asked for, when this tile could not be built as it — otherwise null.
     /// </summary>
     /// <remarks>Read by <c>TerminalAgentTileKind.Save</c>, which writes the requested ids rather than these

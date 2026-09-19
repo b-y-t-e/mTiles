@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using mTiles.Services.Agents;
+using System.Diagnostics;
 using Avalonia;
 using mTiles.Services;
 using Velopack;
@@ -30,7 +31,7 @@ public static class Program
         // default, which it switches off by itself after a crashed start. The classic renderer breaks the
         // scrollback whenever a tile is narrowed. See docs/adr/0001-claude-code-fullscreen-renderer.md.
         // A value set before launching mTiles always wins.
-        SetDefaultEnv("CLAUDE_CODE_NO_FLICKER", "1");
+        SetDefaultEnv(ClaudeAgent.FullscreenRendererVariable, "1");
 
         try
         {

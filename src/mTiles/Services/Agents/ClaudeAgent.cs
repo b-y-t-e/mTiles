@@ -28,6 +28,18 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
     public override string Id => "claude";
     public override string DisplayName => "Claude Code";
 
+    /// <summary>The variable that puts Claude Code on its fullscreen renderer — forced for every tile in
+    /// <c>Program</c>, see docs/adr/0001-claude-code-fullscreen-renderer.md.</summary>
+    public const string FullscreenRendererVariable = "CLAUDE_CODE_NO_FLICKER";
+
+    /// <summary>Whether Claude Code in a tile draws on its fullscreen renderer: its own history on the
+    /// alternate screen, where the terminal's scrollbar describes nothing that is on screen. Read from
+    /// the process environment the tiles inherit, so turning the renderer off (a value set before mTiles
+    /// starts, or later a setting) brings the scrollbar back without anything else changing.</summary>
+    public static bool UsesFullscreenRenderer =>
+        Environment.GetEnvironmentVariable(FullscreenRendererVariable) is { Length: > 0 } value
+        && value != "0" && !value.Equals("false", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>A conversation over stream-json and the control channel — see
     /// <see cref="Sessions.Claude.ClaudeStreamSession"/>.</summary>
     public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,

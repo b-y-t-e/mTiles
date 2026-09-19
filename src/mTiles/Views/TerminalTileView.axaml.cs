@@ -80,6 +80,7 @@ public partial class TerminalTileView : UserControl, IFocusTargetView
             // primary screen only. Its cost: that Ctrl+L reaches a raw stdin reader too, so a password
             // typed at a prompt that was resized mid-entry picks up a stray control character.
             RedrawShellOnResize = true,
+            ShowScrollbar = vm.ShowsScrollbar,
             // Claude Code (and other agents) read an image off the clipboard when they see Ctrl+V.
             // Swallowing the key on a non-text clipboard, which is the control's default, is the
             // difference between image paste working and silently doing nothing.

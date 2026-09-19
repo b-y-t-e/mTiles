@@ -40,6 +40,10 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// other half is which of those commands is running, which only the chain knows.</remarks>
     protected virtual bool OwnCommandsReadTheirOwnPrompt => false;
 
+    /// <summary>Whether the terminal draws its vertical scrollbar. A plain shell always does; an agent
+    /// tile whose program keeps its own history on the alternate screen does not.</summary>
+    public virtual bool ShowsScrollbar => true;
+
     /// <summary>Where the tile's identity is read from — see <see cref="TileId"/>.</summary>
     private readonly Func<string>? _tileId;
     /// <summary>
