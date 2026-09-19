@@ -20,11 +20,11 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
     public InputElement? PreferredFocusTarget => InputBox;
 
     private AgentConversationTileViewModel? _subscribed;
-    private bool _scrollQueued;
 
     public AgentConversationTileView()
     {
         InitializeComponent();
+        TranscriptAnchor.Attach(ChatScroll);
         TeachThePickers();
         FitTheRows();
         // Anywhere on the tile, not only on the composer: the transcript is most of the card, and a
@@ -176,14 +176,12 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         base.OnDataContextChanged(e);
         if (_subscribed is not null)
         {
-            _subscribed.TimelineChanged -= FollowTheEnd;
             _subscribed.ConfirmAction = null;
             _subscribed = null;
         }
 
         if (DataContext is not AgentConversationTileViewModel vm) return;
         _subscribed = vm;
-        vm.TimelineChanged += FollowTheEnd;
         vm.ConfirmAction = message => MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: false);
         if (VisualRoot is not null) vm.EnsureStarted();
     }
@@ -220,22 +218,6 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
     /// <summary>Whether the <c>@</c> suggestions are up, in which case Enter takes the file rather than sends
     /// — the second lock the Goal tile keeps behind <see cref="FileMentionBehavior"/>'s own.</summary>
     private bool IsPickingAFile => _subscribed?.FileMentions.IsOpen == true;
-
-    /// <summary>Scrolls to the end after the new content is laid out, if the reader was at the end.</summary>
-    private void FollowTheEnd()
-    {
-        var scroll = ChatScroll;
-        // The Goal tile's rule: further up, the reader has scrolled back on purpose.
-        var atEnd = TranscriptFollow.ShouldFollow(scroll.Extent.Height, scroll.Viewport.Height, scroll.Offset.Y);
-        if (!atEnd || _scrollQueued) return;
-
-        _scrollQueued = true;
-        Dispatcher.UIThread.Post(() =>
-        {
-            _scrollQueued = false;
-            scroll.ScrollToEnd();
-        }, DispatcherPriority.Loaded);
-    }
 
     /// <summary>Keeps the composer's settings row and the top strip on one line each, giving up words
     /// before width, in the orders <see cref="ComposerPickerLayout"/> and <see cref="AgentStripLayout"/>

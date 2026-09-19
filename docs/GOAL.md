@@ -680,21 +680,38 @@ the tool has been working and wrong for the one that opens on somebody else's ch
 table test): it scrolls only for a reader who was already at the bottom — within a line and a half of
 it, which covers the last message being measured and an inner markdown view settling a pass later — and
 leaves anybody who has scrolled up exactly where they are. Content that fits follows too, and by the
-same subtraction rather than a branch: with no scrollbar the distance from the bottom is zero. **The
-answer has to be read before the new content is measured**, which is why the decision is taken when the
-message arrives and kept for the turn: a turn later the extent has grown by the height of what just
-arrived, and the reader who was at the bottom looks scrolled up by exactly that much.
+same subtraction rather than a branch: with no scrollbar the distance from the bottom is zero.
+
+**What keeps the reader in place is `TranscriptAnchor`, and the Agent tile attaches the same one.** It
+is the whole of the scrolling in both tiles: one `ScrollViewer.ScrollChanged` handler, nothing on the
+view model and nothing on the message collection. **The answer has to be read before the new content is
+measured**, which is why it is not read when a message arrives but remembered when the *reader* moves:
+a pass that moved only the offset is somebody scrolling, so that is when the anchor is taken, and every
+pass whose extent or viewport moved is a layout change under the reader, so that is when it is put back.
+A turn later the extent has grown by the height of what just arrived, and a reader who was at the bottom
+would look scrolled up by exactly that much — the remembered answer is what survives it.
+
+**The anchor is a place in the text, not a number of pixels.** Either "the end", or the chain of elements
+spanning the top of the viewport with how far into each the top edge fell, as a fraction of its height —
+so a message that reflows to twice its height still has the reader the same share of the way through it,
+which is what a resized tile, a reflow and a markdown view settling at its final height all need. The
+whole chain is kept rather than only the deepest element, because a markdown view may rebuild its inner
+visuals when it reflows and the nearest survivor is then the next best place. A top edge that fell in a
+gap between two children anchors to the neighbour across it, never to the container: a fraction of the
+whole transcript would move the reader every time a message was added below them. Which offsets count as
+the reader's own move is `TranscriptAnchor.ReaderMoved` — pure, argued in a table test, and it has to
+tell three things apart that all arrive as a moved offset: the reader, an offset clamped by content that
+grew shorter, and the anchor's own restore.
 
 **Nothing overrules that**, and the exception that used to is gone. A block arriving — the round of
-questions, the plan waiting to be approved, the composer coming back, the finished-run actions — is
-followed on the ordinary terms and no others: it changes the length of what is being scrolled, so the
-view has to hear about it (the message collection never does), but a reader who has scrolled up keeps
-their place. It forced, on the reasoning that a plan waiting for an answer is worth interrupting for;
-being pulled away from what you are reading is the thing the rule exists to prevent, and it does not
-stop being that because the tile has something to say. The block is still there when the reader reaches
-the bottom. `GoalTileView.Showing` remains as the answer to *which* four properties are blocks — pinned
-arm by arm, because a switch that reads properties by name is the shape a copy-paste survives while
-everything it could return is false.
+questions, the plan waiting to be approved, the composer coming back, the finished-run actions — changes
+the length of what is being scrolled, which is a layout change like any other: the reader who was at the
+bottom sees it arrive and the reader further up keeps their place. Neither tile's view lists those
+properties or hears about them, which is the other half of what the anchor bought: the view model raises
+no event for the view to follow. It forced, on the reasoning that a plan waiting for an answer is worth
+interrupting for; being pulled away from what you are reading is the thing the rule exists to prevent,
+and it does not stop being that because the tile has something to say. The block is still there when the
+reader reaches the bottom.
 
 **Everything a finished run offers sits in one bar, and the bar says nothing.** Re-review, Commit and
 Continue each appear on their own condition, right-aligned, with no prose beside them. They used to be a
@@ -1092,7 +1109,7 @@ the tree to an ignored directory that never changes, so the review was handed no
 never seen. It is taken out before `LivePaths`, not inside it, so its mention is not offered to git as a
 commit instead.
 
-**Everything the tile asks of you is a block in the conversation, and nothing is pinned to its bottom edge.** There used to be four bars docked under the transcript — the composer, the plan box, the two detect buttons and the finished-run actions — with the questions in a fifth behind a draggable splitter. Every one was a fixed slab across the foot of the tile, and between them they took most of a small one: a tile that had been asked three questions was a band of buttons over two lines of the conversation they were about. It was also two shapes for one thing, since a round was *asked* in a panel and *recorded*, afterwards, as a numbered paragraph several screens up — so the control you answered in and the record you read back were laid out differently and neither was where the other was. All of it is now one `ScrollViewer` holding one column: the transcript, then the waiting row, then whatever the tile is offering — the finished-run actions, the round of questions, the plan box, the composer, and under the composer the detect buttons — each appearing where the next thing in a conversation appears, and staying there. The detect row is the one that reads *upwards*: it is the alternative to the box it follows (type a goal, or have one read out of what you have already changed), so above the box it was the first thing the eye landed on with the caret somewhere below it. The finished-run actions stay above everything, because they are what to do with the run that has just ended and belong beside its summary. The price is stated rather than hidden: the composer scrolls too, so reading back through a plan and then typing is a scroll away, which the follow-to-the-bottom rule does for the user on every new message and which is the gesture a terminal asks for anyway. That rule stands down when the reader has scrolled up, and **nothing overrules it** — a block arriving asks the transcript to follow (`GoalTileView.Showing` names the four, pinned arm by arm, because a switch that reads properties by name is the shape a copy-paste survives while everything it could return is false), and if the reader is not at the bottom, nothing moves. It used to force, on the reasoning that a block arriving below the fold leaves a tile that looks like it has stopped with nowhere to type; what that traded away was the reader's place in the middle of a run, which is the whole point of the rule. What it buys is that the tile's height is no longer divided between a conversation and a panel — so the ask needs no cap, no default height, no stored height read back on every pass, and no ratchet to tell a clamp from something the user had dragged. All five of those existed to arbitrate a fight that no longer happens, and `GoalTileView` is a hundred lines shorter for it.
+**Everything the tile asks of you is a block in the conversation, and nothing is pinned to its bottom edge.** There used to be four bars docked under the transcript — the composer, the plan box, the two detect buttons and the finished-run actions — with the questions in a fifth behind a draggable splitter. Every one was a fixed slab across the foot of the tile, and between them they took most of a small one: a tile that had been asked three questions was a band of buttons over two lines of the conversation they were about. It was also two shapes for one thing, since a round was *asked* in a panel and *recorded*, afterwards, as a numbered paragraph several screens up — so the control you answered in and the record you read back were laid out differently and neither was where the other was. All of it is now one `ScrollViewer` holding one column: the transcript, then the waiting row, then whatever the tile is offering — the finished-run actions, the round of questions, the plan box, the composer, and under the composer the detect buttons — each appearing where the next thing in a conversation appears, and staying there. The detect row is the one that reads *upwards*: it is the alternative to the box it follows (type a goal, or have one read out of what you have already changed), so above the box it was the first thing the eye landed on with the caret somewhere below it. The finished-run actions stay above everything, because they are what to do with the run that has just ended and belong beside its summary. The price is stated rather than hidden: the composer scrolls too, so reading back through a plan and then typing is a scroll away, which the follow-to-the-bottom rule does for the user on every new message and which is the gesture a terminal asks for anyway. That rule stands down when the reader has scrolled up, and **nothing overrules it** — a block arriving is a layout change like any other, so `TranscriptAnchor` puts the reader back where they were and the one who was at the bottom follows, while the one reading further up does not move. It used to force, on the reasoning that a block arriving below the fold leaves a tile that looks like it has stopped with nowhere to type; what that traded away was the reader's place in the middle of a run, which is the whole point of the rule. What it buys is that the tile's height is no longer divided between a conversation and a panel — so the ask needs no cap, no default height, no stored height read back on every pass, and no ratchet to tell a clamp from something the user had dragged. All five of those existed to arbitrate a fight that no longer happens, and `GoalTileView` is a hundred lines shorter for it.
 
 The question block is what the numbered skeleton in the composer used to be, and the difference is who
 does the filing. A number in its own grid column is a real hanging indent, so a question that wraps

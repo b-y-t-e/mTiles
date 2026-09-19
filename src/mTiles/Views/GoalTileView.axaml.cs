@@ -31,6 +31,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
     public GoalTileView()
     {
         InitializeComponent();
+        TranscriptAnchor.Attach(ChatScroll);
         TeachThePickers();
 
         // One line for the strip, giving up words before width in the order GoalStripLayout writes
@@ -163,7 +164,6 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         if (_subscribedVm != null)
         {
             _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
-            _subscribedVm.Messages.CollectionChanged -= OnMessagesChanged;
 
             // ConfirmAction too, and for more than tidiness: the closure holds this view, so a view
             // model left with it keeps the view alive — and if that view model ever asks again, the
@@ -176,15 +176,6 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         {
             _subscribedVm = vm;
 
-            // The collection, and only the collection. There used to be a hook on the view model as
-            // well, called where the workflow adds a message — which is most of them and not all: a
-            // tile reopened from its file fills the transcript without going through it, and opened on
-            // a finished run it showed the top of a conversation whose interesting end was several
-            // screens down. Watching the collection covers both, and covers the hook's cases twice
-            // over: every message cost two synchronous UpdateLayout passes over the whole transcript,
-            // markdown views included, and four ScrollToEnd calls. One event is the whole answer.
-            vm.Messages.CollectionChanged += OnMessagesChanged;
-            ScrollTranscriptToEnd();
             vm.ConfirmAction = async message =>
             {
                 // No window to ask in means no, the same answer the Settings dialog gives. The view
@@ -199,77 +190,6 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         }
     }
 
-    private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (e.Action is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Reset)
-            FollowTheEndSoon();
-    }
-
-    /// <summary>
-    /// Decides now, scrolls once.
-    /// </summary>
-    /// <remarks>
-    /// <para>One change to the view model reaches here several times: setting <c>IsRunning</c> raises
-    /// <c>CanDetectGoal</c>, <c>HasFinishedRunActions</c>, the three ask flags and then itself, four of
-    /// which this view follows — so every boundary of a run paid for four synchronous
-    /// <c>UpdateLayout</c> passes over the whole transcript, markdown views included, and eight
-    /// <c>ScrollToEnd</c> calls, to end where the first one already was. Exactly the cost that was
-    /// taken out of the per-message path by watching the collection instead of a hook, and it grew back
-    /// on the other side.</para>
-    /// <para><b>The decision cannot be deferred with the work.</b> Whether to follow at all is "was the
-    /// reader at the bottom <em>before</em> this arrived", and the answer is only readable while the
-    /// new content is still unmeasured — a turn later the extent has grown and every reader looks
-    /// scrolled up. So it is taken on the first call of the turn and kept. Which also settles what was
-    /// previously decided four times against an extent that the first of the four had already
-    /// changed.</para>
-    /// </remarks>
-    private void FollowTheEndSoon()
-    {
-        if (_scrollQueued) return;
-        _scrollQueued = true;
-        _scrollWanted = IsNearTheEnd();
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            _scrollQueued = false;
-            if (_scrollWanted) ScrollTranscriptToEnd();
-        }, DispatcherPriority.Loaded);
-    }
-
-    private bool _scrollQueued;
-    private bool _scrollWanted;
-
-    /// <summary>
-    /// Goes to the end of the transcript, unconditionally.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>Whether</b> to follow is not asked here and must not be — it is
-    /// <see cref="FollowTheEndSoon"/>'s, taken while the new content is still unmeasured. This is only
-    /// the doing, and it is reached having already been decided. It had a <c>force</c> parameter with a
-    /// guard behind it, left over from when the two were one method; both callers passed true, so the
-    /// guard was unreachable and the paragraph explaining it described a rule that had moved. A third
-    /// caller written against that paragraph would have got a decision taken a turn late, against an
-    /// extent that had already grown — which is the one thing the rule exists to prevent.</para>
-    /// <para>The scroll happens twice, and both are needed. <c>UpdateLayout</c> forces the new message
-    /// to be measured so <c>ScrollToEnd</c> has the real extent to scroll to — without it the call used
-    /// the old one and stopped a message short, which is the bug this replaced. The posted one catches
-    /// what sizes late: a rendered markdown answer arrives at its final height after its own pass, and
-    /// <c>Loaded</c> is the priority that runs once layout is done.</para>
-    /// </remarks>
-    private void ScrollTranscriptToEnd()
-    {
-        ChatScroll.UpdateLayout();
-        ChatScroll.ScrollToEnd();
-        Dispatcher.UIThread.Post(ChatScroll.ScrollToEnd, DispatcherPriority.Loaded);
-    }
-
-    /// <summary>Whether the reader is watching the run rather than reading back through it.</summary>
-    /// <remarks>The rule itself is <see cref="TranscriptFollow"/> — pure, so it can be argued in a
-    /// table test; this only reads the three numbers off the scroller, which cannot be.</remarks>
-    private bool IsNearTheEnd() =>
-        TranscriptFollow.ShouldFollow(
-            ChatScroll.Extent.Height, ChatScroll.Viewport.Height, ChatScroll.Offset.Y);
-
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (sender is not GoalTileViewModel vm) return;
@@ -279,61 +199,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
 
         if (e.PropertyName == nameof(GoalTileViewModel.IsShowingFindings))
             ApplyFindingsModality(vm.IsShowingFindings);
-
-        if (e.PropertyName is not { } name) return;
-
-        // Everything the tile asks of the user is a block at the end of the conversation, so each of
-        // these changes the length of the thing being scrolled without adding a message — and the
-        // follow-to-the-bottom rule is driven by the message collection, which never hears about them.
-        //
-        // Followed on the ordinary terms and no others: if the reader is at the end they see the block
-        // arrive, and if they are reading further up nothing moves. A block appearing used to overrule
-        // that, on the reasoning that a plan waiting to be approved is worth interrupting for — but
-        // being pulled away from what you are reading is the thing this rule exists to prevent, and it
-        // does not become acceptable because the tile has something to say. The block is still there
-        // when the reader arrives at the bottom.
-        if (Showing(vm, name) is not null || FollowsTheEnd.Contains(name))
-            FollowTheEndSoon();
     }
-
-    /// <summary>
-    /// What each of the four blocks is showing now, and null for a name that is not one of them.
-    /// </summary>
-    /// <remarks>
-    /// <para>Read rather than listed, so a name here that cannot be answered does not compile — the
-    /// alternative was a second set beside the first, where "in the set" and "how to read it" drift.</para>
-    /// <para>Only whether the block is showing, which is all that is asked of it: what it is for is
-    /// saying that this property is one of the four, so that a block arriving or leaving asks the
-    /// transcript to follow on the ordinary terms. Nothing here overrules a reader's position any
-    /// more.</para>
-    /// <para><c>CanDetectGoal</c> and <c>IsRunning</c> are not here because they are not requests, but
-    /// both are in <see cref="FollowsTheEnd"/> and reach the same call: with the overruling gone the
-    /// two lists differ only in what they are called, and they are kept apart because the next thing
-    /// added to either has to be read as one or the other.</para>
-    /// <para>Internal so it can be stated in a test, as <see cref="TextOf"/> is.</para>
-    /// </remarks>
-    internal static bool? Showing(GoalTileViewModel vm, string name) => name switch
-    {
-        nameof(GoalTileViewModel.ShowQuestions) => vm.ShowQuestions,
-        nameof(GoalTileViewModel.ShowApproval) => vm.ShowApproval,
-        nameof(GoalTileViewModel.ShowComposer) => vm.ShowComposer,
-        nameof(GoalTileViewModel.HasFinishedRunActions) => vm.HasFinishedRunActions,
-        _ => null,
-    };
-
-    /// <summary>
-    /// What, changing, moves the end of the conversation without being a request in its own right.
-    /// </summary>
-    /// <remarks>
-    /// A set rather than a chain of comparisons, because the failure it guards against is a block added
-    /// to the markup and forgotten here: one place to look, next to nothing else. It is the *end* being
-    /// followed rather than each block in turn — whichever of them appears, the answer is the same.
-    /// </remarks>
-    private static readonly HashSet<string> FollowsTheEnd =
-    [
-        nameof(GoalTileViewModel.IsRunning),
-        nameof(GoalTileViewModel.CanDetectGoal),
-    ];
 
     /// <summary>
     /// Puts the caret in the first answer box when the panel arrives.

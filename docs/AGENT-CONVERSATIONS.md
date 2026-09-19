@@ -325,8 +325,13 @@ Both tiles are an agent talking in a column, so the parts they share are one def
   keys used to break the line (`ComposerEnterTests` presses real keys through a window to pin it).
 - **Waiting**: `WaitingRow` (the thinking dots, a stage and a clock) fed by `ElapsedClock` — the Goal
   tile's run, the Agent tile's turn.
-- **A copy button per message** (`msg-copy` + `CopyButton`), and following the end of the transcript by
-  `TranscriptFollow`'s rule.
+- **A copy button per message** (`msg-copy` + `CopyButton`), and keeping the reader's place in the
+  transcript by `TranscriptAnchor` — attached to the `ScrollViewer` and nothing else, so neither tile's
+  view watches its messages to follow the end. What is at the top of the viewport is remembered when the
+  reader moves and put back whenever the layout moves under them: a reader at the bottom follows the new
+  messages (`TranscriptFollow`'s rule for what counts as the bottom), and one reading higher up keeps
+  their line through a resize, a reflow or a markdown view settling at its final height. The reasoning is
+  in [`GOAL.md`](GOAL.md) → *The transcript follows its end*.
 
 New UX for either tile goes into these shared pieces, not into one view.
 

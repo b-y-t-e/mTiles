@@ -392,22 +392,16 @@ public class GoalAskPanelTests : IDisposable
     }
 
     /// <summary>
-    /// Which properties are the tile's request blocks, and which are not.
+    /// One block at a time: the composer is up until a round of questions takes its place.
     /// </summary>
     /// <remarks>
-    /// <para>A block appearing changes the length of the transcript without adding a message, so the
-    /// view has to hear about it — the follow-to-the-bottom rule is driven by the message collection,
-    /// which never does. What it must <b>not</b> do any more is overrule where the reader is: that
-    /// forced a plan or a composer into view over somebody reading further up, which is the one thing
-    /// the rule exists to prevent. Now a block arriving asks on the ordinary terms and a reader who has
-    /// scrolled up keeps their place.</para>
-    /// <para>What is left to pin is the switch: five arms reading properties by name is exactly the
-    /// shape a copy-paste survives, and a name that is not a block has to answer null rather than
-    /// false — <c>CanDetectGoal</c> is fed by the git watcher and turns over when a file changes in a
-    /// terminal tile next door.</para>
+    /// Each of these is a block at the end of the conversation, and two of them up at once is two things
+    /// asking the user for different answers in the same column. The composer going away is the half
+    /// worth pinning: the questions arriving is what takes it, so an arm of either rule left alone would
+    /// leave a tile asking to be answered twice.
     /// </remarks>
     [Fact]
-    public void The_four_request_blocks_are_named_and_nothing_else_is()
+    public void The_composer_gives_way_to_a_round_of_questions()
     {
         OnUiThread(() =>
         {
@@ -415,44 +409,26 @@ public class GoalAskPanelTests : IDisposable
 
             // A fresh tile: the composer is up and nothing else is.
             Assert.True(vm.ShowComposer);
-            Assert.True(Shows(vm, nameof(vm.ShowComposer)));
-            Assert.False(Shows(vm, nameof(vm.ShowApproval)));
-            Assert.False(Shows(vm, nameof(vm.ShowQuestions)));
-            Assert.False(Shows(vm, nameof(vm.HasFinishedRunActions)));
+            Assert.False(vm.ShowApproval);
+            Assert.False(vm.ShowQuestions);
+            Assert.False(vm.HasFinishedRunActions);
 
-            // A round is asked. The questions overrule; the composer, now gone, does not — which is the
-            // going-away case, and it fires on exactly the same property name.
             vm.CurrentPhase = GoalPhase.Clarify;
             vm.Questions.Add(new GoalQuestionAnswer(1, new GoalQuestion { Question = "Which file?" }));
 
-            Assert.True(Shows(vm, nameof(vm.ShowQuestions)));
+            Assert.True(vm.ShowQuestions);
             Assert.False(vm.ShowComposer);
-            Assert.False(Shows(vm, nameof(vm.ShowComposer)));
-
-            // Neither of the two that are not requests, whatever the tile is doing.
-            Assert.False(Shows(vm, nameof(vm.CanDetectGoal)));
-            Assert.False(Shows(vm, nameof(vm.IsRunning)));
-
-            // And a name nothing knows about is not a request either — the handler falls through to the
-            // ordinary follow rather than forcing on every property the view model raises.
-            Assert.False(Shows(vm, nameof(vm.CurrentPhase)));
         });
     }
 
     /// <summary>
-    /// The other two arms, each seen answering yes.
+    /// The other two blocks, each alone in the state that raises it.
     /// </summary>
     /// <remarks>
-    /// <para>A five-armed switch that reads properties by name is exactly the shape a copy-paste
-    /// survives: an arm returning its neighbour's property is indistinguishable from a correct one
-    /// while every property it could return is false. Both of these are false on a fresh tile, so
-    /// asserting them there proves only that nothing is on — which is what the test above could do,
-    /// and no more.</para>
-    /// <para>Reached by loading a state rather than running to it, because these are facts about a
-    /// saved conversation and the constructor that takes a file is how a tile gets one. What is being
-    /// pinned is that the plan waiting to be approved, and the row of things to do with a finished run,
-    /// each pull the view to themselves — the failure otherwise being the one this whole rule exists
-    /// for: the block arrives below the fold and the tile looks like it has stopped.</para>
+    /// Reached by loading a state rather than running to it, because these are facts about a saved
+    /// conversation and the constructor that takes a file is how a tile gets one. A plan waiting to be
+    /// approved holds the composer down — otherwise the tile takes a new goal while the old one's plan
+    /// is still unanswered — and a finished run offers its own row with nothing left to approve.
     /// </remarks>
     [Fact]
     public void The_plan_and_the_finished_run_actions_are_blocks_too()
@@ -467,12 +443,7 @@ public class GoalAskPanelTests : IDisposable
             });
 
             Assert.True(waitingForApproval.ShowApproval);
-            Assert.True(Shows(waitingForApproval, nameof(GoalTileViewModel.ShowApproval)));
-
-            // And not the arm next door, which is false in this very state — a swapped pair would pass
-            // the assertion above and fail this one.
             Assert.False(waitingForApproval.ShowComposer);
-            Assert.False(Shows(waitingForApproval, nameof(GoalTileViewModel.ShowComposer)));
 
             using var finished = TileWith(new GoalTileState
             {
@@ -482,8 +453,7 @@ public class GoalAskPanelTests : IDisposable
             });
 
             Assert.True(finished.HasFinishedRunActions);
-            Assert.True(Shows(finished, nameof(GoalTileViewModel.HasFinishedRunActions)));
-            Assert.False(Shows(finished, nameof(GoalTileViewModel.ShowApproval)));
+            Assert.False(finished.ShowApproval);
         });
     }
 
@@ -565,10 +535,6 @@ public class GoalAskPanelTests : IDisposable
                 b => b.IsVisible && (b.Content as string) == "Resume");
         });
     }
-
-    /// <summary>Whether this property is one of the tile's four request blocks, and showing.</summary>
-    private static bool Shows(GoalTileViewModel vm, string name) =>
-        GoalTileView.Showing(vm, name) is true;
 
     /// <summary>A tile reopened on a saved conversation, which is the only way to a phase it did not
     /// get to by being driven.</summary>

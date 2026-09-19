@@ -372,9 +372,6 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <summary>Asked before anything is thrown away. Unwired answers no.</summary>
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
-    /// <summary>Raised when the timeline gained or changed an entry, so the view can follow the end.</summary>
-    public event Action? TimelineChanged;
-
     public string HeaderNote => Model.Length > 0 ? $"{Instance.Name} · {Model}" : Instance.Name;
 
     /// <summary>What the strip's model control says at rest.</summary>
@@ -1278,7 +1275,6 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(IsBoundToItsAgent));
         Chooser.DrawIfBindingChanged();
-        TimelineChanged?.Invoke();
     }
 
     partial void OnModelChanged(string value)
