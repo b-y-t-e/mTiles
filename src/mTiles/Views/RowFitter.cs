@@ -32,6 +32,7 @@ internal sealed class RowFitter
     private readonly double[] _caps;
     private readonly IReadOnlyList<RetreatStep> _steps;
     private bool _queued;
+    private bool _deferred;
 
     public RowFitter(Control row, IReadOnlyList<RetreatStep> steps, params Control[] items)
     {
@@ -80,6 +81,12 @@ internal sealed class RowFitter
 
     private void Fit()
     {
+        if (!CanBeDrawn())
+        {
+            DeferUntilDrawable();
+            return;
+        }
+
         for (var i = 0; i < _items.Length; i++) _items[i].MaxWidth = _caps[i];
 
         var shape = RowRetreat.For(_row.Bounds.Width, _items.Select(WidthsOf).ToArray(), _steps);
@@ -92,6 +99,31 @@ internal sealed class RowFitter
             if (shape.MaxWidth[i] is { } max)
                 _items[i].MaxWidth = Math.Min(_caps[i], max - _items[i].Margin.Left - _items[i].Margin.Right);
         }
+    }
+
+    private bool CanBeDrawn() =>
+        _row.IsAttachedToVisualTree() && _row.IsEffectivelyVisible && _row.Bounds.Width > 0;
+
+    /// <summary>Holds a fit asked for while the row could not be drawn until the first layout pass in
+    /// which it can.</summary>
+    /// <remarks>A row in a hidden workspace or a tile being re-parented would be measured against nothing,
+    /// so the fit waits instead. It cannot wait for <c>SizeChanged</c>: a workspace is hidden by an
+    /// ancestor's <c>IsVisible</c>, which leaves the row's bounds as they were, so showing it again at the
+    /// same window size raises nothing on the row - and a picker's value or the font changed meanwhile
+    /// would stay fitted to the old text until something else asked.</remarks>
+    private void DeferUntilDrawable()
+    {
+        if (_deferred) return;
+        _deferred = true;
+        _row.LayoutUpdated += FitOnceDrawable;
+    }
+
+    private void FitOnceDrawable(object? sender, EventArgs e)
+    {
+        if (!CanBeDrawn()) return;
+        _deferred = false;
+        _row.LayoutUpdated -= FitOnceDrawable;
+        Queue();
     }
 
     /// <summary>What a control needs drawn in full and drawn compact, measured by drawing it both ways.
