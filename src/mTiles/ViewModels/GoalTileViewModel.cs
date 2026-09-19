@@ -671,10 +671,11 @@ public partial class GoalTileViewModel
         // that catches it.
         if (!ShowApproval) return;
 
-        if (InputText.Trim().Length == 0)
+        var typed = InputText.Trim().Length > 0;
+        if (!typed)
             InputText = "ok";
 
-        await Submit();
+        await SubmitCore(echoTyped: true, typedByUser: typed);
     }
 
     /// <summary>What a status line does when it finally reaches the dispatcher: nothing, if the run it
@@ -716,6 +717,26 @@ public partial class GoalTileViewModel
     [ObservableProperty] private string _activityText = "";
 
     public ObservableCollection<GoalMessage> Messages { get; } = [];
+
+    /// <summary>What the user sent from the composer, oldest first — what its Up, Down and history list
+    /// walk.</summary>
+    /// <remarks>Not the transcript's user turns: a new goal clears the transcript, a detected goal is the
+    /// tool's words, the approval of a plan is ours, and the words typed beside Detect or Review never
+    /// become a turn at all. Kept beside the goal's state (<see cref="SentMessagesFile"/>), so it survives a
+    /// restart as the Agent tile's does.</remarks>
+    public IReadOnlyList<string> SentFromComposer => SentFile.Entries;
+
+    private SentMessagesFile? _sentFile;
+    private SentMessagesFile SentFile => _sentFile ??= new SentMessagesFile(SentMessagesFile.BesideGoal(_filePath));
+
+    private void RememberSent(string text) => SentFile.Add(text);
+
+    /// <summary>Takes the composer's words: they go into the history, and the box is emptied.</summary>
+    private void ConsumeComposer()
+    {
+        RememberSent(InputText);
+        InputText = "";
+    }
 
     /// <summary>
     /// The completion-criteria panel. Its own object because editing seven settings is not this class's
@@ -1480,7 +1501,7 @@ public partial class GoalTileViewModel
             // Cleared after, not before: the words went into a review that actually ran. One that was
             // paused before it started leaves the draft in the box — the only copy of those words
             // there is.
-            if (ran) InputText = "";
+            if (ran) ConsumeComposer();
         }) : Task.CompletedTask;
 
     /// <summary>
@@ -1702,7 +1723,7 @@ public partial class GoalTileViewModel
         // differently if the user committed in between — leaving the goal reading from an end its own
         // detection never saw.
         ApplyScope(scope);
-        if (andRun || andReview) InputText = "";
+        if (andRun || andReview) ConsumeComposer();
         SyncFromEngine(save: File.Exists(_filePath));
         await AddMessageAsync(GoalMessageRole.User, goal, GoalPhase.Goal);
         await CaptureBaselineAsync();
@@ -1906,8 +1927,11 @@ public partial class GoalTileViewModel
     /// <param name="start">What happens once a typed goal has been adopted. Only the phases that start
     /// a goal read it — everything else this method does is owed whichever of the three was
     /// pressed.</param>
+    /// <param name="typedByUser">Whether the text is the user's own rather than the approval filled in
+    /// for an empty plan box. Only the user's own words, sent as a turn of theirs, go into
+    /// <see cref="SentFromComposer"/>.</param>
     private async Task SubmitCore(bool echoTyped,
-        TypedGoalStart start = TypedGoalStart.Conversation)
+        TypedGoalStart start = TypedGoalStart.Conversation, bool typedByUser = true)
     {
         var text = InputText.Trim();
         if (string.IsNullOrEmpty(text) || IsRunning) return;
@@ -1962,6 +1986,21 @@ public partial class GoalTileViewModel
                                "before sending.");
             return;
         }
+
+        // Reaching here in a working phase means the tile is in one with nothing working: the guard at
+        // the top of this method returns while IsRunning. The text is handed back rather than
+        // swallowed: there is nothing here to send it to, and losing what somebody typed is its own
+        // small betrayal. A refusal like the ones above, so it is asked before the text is remembered
+        // as sent — it never was.
+        if (CurrentPhase is GoalPhase.Implement or GoalPhase.Review)
+        {
+            InputText = text;
+            await SayOnceAsync("This run is stopped. Click Resume to continue it, or + to start a new goal.");
+            return;
+        }
+
+        // Past every refusal, each of which handed the text back to the box: only now has it been sent.
+        if (echoTyped && typedByUser) RememberSent(text);
 
         // Answering is resuming — everywhere the composer has something to send. Leaving the pause
         // standing meant the run happened and was then thrown away at the first hand-over that asks
@@ -2116,17 +2155,6 @@ public partial class GoalTileViewModel
                     }
                     break;
 
-                case GoalPhase.Implement:
-                case GoalPhase.Review:
-                    // Reaching here means the tile is in a working phase with nothing working: the
-                    // guard at the top of this method returns while IsRunning, so the branch that said
-                    // "AI is working, please wait" was unreachable — and would have been false in the
-                    // one case that does arrive here. The text is handed back rather than swallowed:
-                    // there is nothing here to send it to, and losing what somebody typed is its own
-                    // small betrayal.
-                    InputText = text;
-                    await SayOnceAsync("This run is stopped. Click Resume to continue it, or + to start a new goal.");
-                    break;
             }
         }
         catch (Exception ex)

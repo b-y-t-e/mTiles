@@ -44,6 +44,9 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage);
         ComposerInput.Attach(PlanBox, () => (DataContext as GoalTileViewModel)?.ApproveOrChangeCommand.Execute(null),
             () => IsPickingAFile);
+        ComposerHistoryInput.Attach(InputBox,
+            () => (DataContext as GoalTileViewModel)?.SentFromComposer ?? [],
+            () => IsPickingAFile, HistoryPicker);
 
         // Anywhere on the tile, as on the Agent tile — attached to the composer, never sent.
         ImageDrop.Attach(this, DropHint,

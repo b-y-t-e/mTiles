@@ -37,7 +37,14 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
         ComposerInput.Attach(InputBox, Send, () => IsPickingAFile, Composer,
             bitmap => _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(bitmap, "pasted image")));
+        ComposerHistoryInput.Attach(InputBox, SentMessages, () => IsPickingAFile, HistoryPicker);
     }
+
+    /// <summary>What was sent in this conversation, oldest first.</summary>
+    private IReadOnlyList<string> SentMessages() => _subscribed is null
+        ? []
+        : _subscribed.Timeline.OfType<MessageItemViewModel>().Where(m => m.IsUser && m.HasText)
+            .Select(m => m.Text).ToList();
 
     /// <summary>Reads the conversations as the list is opened.</summary>
     /// <remarks>Here rather than on a timer or on every change: the answer moves only when something is said,

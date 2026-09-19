@@ -662,6 +662,9 @@
                          caret beside it holds the other four ways in. Every entry stays on its own gate — nothing is hidden or greyed out by
                          what is in the box: typed words beside a detection are a scope narrowing it
                          (see docs/GOAL.md), which is a route the menu must not close. -->
+                    <!-- What was sent from here, newest first; Up and Down in the box walk the same list
+                         (ComposerHistoryInput, shared with the Agent tile). Docked after the run button
+                         so it stands to its left. -->
                     <StackPanel DockPanel.Dock="Right"
                                 Classes="run-split"
                                 VerticalAlignment="Bottom">
@@ -708,6 +711,20 @@
                             </Button.Flyout>
                         </Button>
                     </StackPanel>
+                    <p:Picker x:Name="HistoryPicker"
+                              DockPanel.Dock="Right" Margin="0,0,4,0"
+                              VerticalAlignment="Bottom"
+                              Classes="composer-picker"
+                              ShowChevron="False"
+                              IsSearchEnabled="True"
+                              SearchPlaceholder="Search sent messages…"
+                              EmptyText="Nothing sent yet."
+                              DropDownWidth="420"
+                              ToolTip.Tip="Messages sent in this goal (Up/Down in the box walks them)">
+                        <p:Picker.Icon>
+                            <mi:MaterialIcon Kind="History" Width="13" Height="13" />
+                        </p:Picker.Icon>
+                    </p:Picker>
                     <TextBox x:Name="InputBox"
                              Classes="composer-input"
                              Text="{Binding InputText}"

@@ -438,6 +438,21 @@
                                 <mi:MaterialIcon Kind="LockOutline" Width="13" Height="13" />
                             </p:Picker.Icon>
                         </p:Picker>
+                        <!-- What was sent from here, newest first; Up and Down in the box walk the same list
+                             (ComposerHistoryInput, shared with the Goal tile). -->
+                        <p:Picker x:Name="HistoryPicker"
+                                  DockPanel.Dock="Left" Margin="2,0,0,0"
+                                  Classes="composer-picker"
+                                  ShowChevron="False"
+                                  IsSearchEnabled="True"
+                                  SearchPlaceholder="Search sent messages…"
+                                  EmptyText="Nothing sent yet."
+                                  DropDownWidth="420"
+                                  ToolTip.Tip="Messages sent in this conversation (Up/Down in the box walks them)">
+                            <p:Picker.Icon>
+                                <mi:MaterialIcon Kind="History" Width="13" Height="13" />
+                            </p:Picker.Icon>
+                        </p:Picker>
                     </DockPanel>
                 </DockPanel>
             </StackPanel>

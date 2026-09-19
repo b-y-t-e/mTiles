@@ -137,6 +137,104 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
+    public void The_composer_history_outlives_the_goal_it_started()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
+
+            using var vm = NewTile();
+
+            vm.InputText = "make the tile resumable";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of them";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            await vm.ApproveOrChangeCommand.ExecuteAsync(null); // an empty plan box approves as "ok"
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+
+            // A new goal clears the transcript; what was typed before it must still be one Up away.
+            vm.InputText = "now make it pausable";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal(["make the tile resumable", "all of them", "now make it pausable"], vm.SentFromComposer);
+        });
+    }
+
+    [Fact]
+    public void The_composer_history_survives_a_restart()
+    {
+        OnUiThread(async () =>
+        {
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            AnswerWith("Which files?");
+
+            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+            var path = first.FilePath;
+            first.InputText = "make the tile resumable";
+            await first.SubmitCommand.ExecuteAsync(null);
+            first.Dispose();
+
+            using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+
+            Assert.Equal(["make the tile resumable"], second.SentFromComposer);
+        });
+    }
+
+    [Fact]
+    public void Words_handed_back_by_a_stopped_run_are_not_remembered_as_sent()
+    {
+        OnUiThread(async () =>
+        {
+            using var vm = NewTile();
+
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+            {
+                asked++;
+                if (asked == 4) vm.PauseCommand.Execute(null);
+                return Task.FromResult<AiOutput>(asked switch
+                {
+                    1 => "Which files?",
+                    2 => NoMoreQuestions,
+                    3 => "The plan",
+                    _ => "Implemented it",
+                });
+            };
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            Assert.Equal(GoalPhase.Review, vm.CurrentPhase);
+
+            vm.InputText = "also fix the tests";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal("also fix the tests", vm.InputText);
+            Assert.Equal(["a goal", "all of it", "ok"], vm.SentFromComposer);
+        });
+    }
+
+    [Fact]
+    public void A_detected_goal_is_not_something_the_user_sent_but_the_scope_beside_it_is()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", "VERDICT: PASS");
+
+            using var vm = NewTile();
+            File.WriteAllText(Path.Combine(_dir, "pairing.cs"), "// changed");
+
+            vm.InputText = "only the pairing";
+            await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
+
+            Assert.Equal(["only the pairing"], vm.SentFromComposer);
+        });
+    }
+
+    [Fact]
     public void A_goal_runs_through_to_a_summary_when_the_review_passes()
     {
         OnUiThread(async () =>
