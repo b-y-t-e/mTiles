@@ -42,7 +42,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
             .Watch(Badges, BoundsProperty);
 
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
-        ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage);
+        ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage, AttachFilesAsync);
         ComposerInput.Attach(PlanBox, () => (DataContext as GoalTileViewModel)?.ApproveOrChangeCommand.Execute(null),
             () => IsPickingAFile);
         ComposerHistoryInput.Attach(InputBox,

@@ -268,8 +268,9 @@ press Enter) and choosers for the permission mode and the effort. What they offe
 
 ## Images and files
 
-Pasted (Ctrl+V when the clipboard holds no text, Alt+V always), dropped on the composer, or picked with the
-paperclip. Every image is re-encoded as PNG and scaled to at most 1568 px on its long edge
+Pasted (Ctrl+V or Alt+V — see `ComposerPaste` below), dropped on the composer, or picked with the
+paperclip. **Files copied in a file manager** (Explorer, Dolphin, Nautilus, Thunar) paste as attachments,
+exactly as if they had been dropped, and never as the line of paths a Linux file manager puts beside them. Every image is re-encoded as PNG and scaled to at most 1568 px on its long edge
 (`ComposerImages`), refused over 5 MB and beyond ten per message, and once sent shown in the user's message.
 Every session already knew its agent's shape — verified live: Claude Code, codex, opencode and pi each
 answered "Red" for a red square. agy's stream input takes text only, and the message goes without the image
@@ -313,7 +314,11 @@ Both tiles are an agent talking in a column, so the parts they share are one def
 - **Questions** are drawn as the Goal tile's round: a number column, full-width answer rows, a copy button
   per question, "Send answers". The one difference is on purpose: an agent takes its choices as choices (a
   label, several where allowed), so a row is toggled rather than copied into the answer box.
-- **Pasting an image** is `ClipboardImage` for both: Alt+V always, Ctrl+V only when there is no text.
+- **Pasting** is `ComposerPaste` for both, in one order: copied files first, then text, then an image.
+  Ctrl+V (and Ctrl+Shift+V, Shift+Insert — every key the box pastes on) attaches the files, else pastes the text, else takes the image; Alt+V attaches the files, else the
+  image, whatever text is on the clipboard. Ctrl+V is taken from the box in both composers, because they take
+  files — left to the box it would paste the paths beside the attachments — and the box's own paste is called
+  only once the clipboard is known to hold none (`ComposerPasteTests`).
 - **The composer's keys and gestures** are `ComposerInput`: Enter sends, Shift+Enter breaks the line, the
   frame shows the box's focus and a click on it puts the caret in the box. **Enter has to be caught in the
   tunnel**: a multi-line `TextBox` handles Enter itself before a `KeyDown` wired in markup sees it, so both

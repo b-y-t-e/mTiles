@@ -1058,7 +1058,9 @@ same "text wins when the clipboard holds both" rule, that a terminal tile alread
 gesture is the one a user pasting a screenshot at Claude Code already has in their fingers. **Both are
 read here, off Avalonia's clipboard**, which is what makes the pair true on every platform: in a
 terminal tile the second half of it is the agent's to honour, and Claude Code binds `alt+v` on Windows
-and WSL alone. The image is
+and WSL alone. **Files copied in a file manager come before either**: Ctrl+V and Alt+V both attach them,
+as a drop would, rather than pasting the paths a Linux file manager puts on the clipboard beside them —
+the order is `ComposerPaste`'s, shared with the Agent tile. The image is
 written to `.mtiles/goals/images/` (`GoalImageStore`, PNG, never pruned) and a marker — `[Image #1]`,
 `GoalImageMarker`, Claude Code's own spelling — is inserted where the caret was, so the picture is
 referred to in the sentence it belongs to. The run then carries the pair in **every** prompt that

@@ -36,7 +36,8 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
 
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
         ComposerInput.Attach(InputBox, Send, () => IsPickingAFile, Composer,
-            bitmap => _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(bitmap, "pasted image")));
+            bitmap => _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(bitmap, "pasted image")),
+            AttachFilesAsync);
         ComposerHistoryInput.Attach(InputBox, SentMessages, () => IsPickingAFile, HistoryPicker);
     }
 

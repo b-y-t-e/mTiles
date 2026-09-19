@@ -31,14 +31,17 @@ public static class ComposerInput
     /// <param name="isPickingAFile">Whether the <c>@</c> suggestions are open.</param>
     /// <param name="frame">The border drawn round the box, when the box gives up its own: it shows the
     /// box's focus, and a click on it (its padding, the prompt glyph) puts the caret in the box.</param>
-    /// <param name="pasteImage">Takes a pasted image (<see cref="ClipboardImage"/>); null where the box takes
+    /// <param name="pasteImage">Takes a pasted image (<see cref="ComposerPaste"/>); null where the box takes
     /// none.</param>
+    /// <param name="pasteFiles">Takes files copied in a file manager and pasted here; null where the box
+    /// takes none.</param>
     public static void Attach(TextBox box, Action send, Func<bool> isPickingAFile,
-        Border? frame = null, Action<Bitmap>? pasteImage = null)
+        Border? frame = null, Action<Bitmap>? pasteImage = null,
+        Func<IReadOnlyList<Avalonia.Platform.Storage.IStorageItem>, Task>? pasteFiles = null)
     {
         box.AddHandler(InputElement.KeyDownEvent, (_, e) =>
         {
-            if (pasteImage is not null && ClipboardImage.TryPaste(box, e, pasteImage)) return;
+            if (pasteImage is not null && ComposerPaste.TryPaste(box, e, pasteImage, pasteFiles)) return;
             if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None || isPickingAFile()) return;
 
             e.Handled = true;
