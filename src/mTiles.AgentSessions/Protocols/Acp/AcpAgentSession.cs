@@ -186,11 +186,10 @@ public abstract class AcpAgentSession : IAgentSession, IProcessBackedSession
         _turnCancellation = cancellation;
         Sink.Emit(new TurnStarted { TurnId = turnId });
 
-        var prompt = new List<object> { new { type = "text", text = input.Text } };
-        prompt.AddRange(input.Images.Select(image => (object)new
-        {
-            type = "image", data = image.Base64Data, mimeType = image.MimeType,
-        }));
+        // In the order the message says it: ACP's prompt is a list of content blocks.
+        var prompt = input.Blocks<object>(
+            text => new { type = "text", text },
+            image => new { type = "image", data = image.Base64Data, mimeType = image.MimeType });
 
         _ = RunPromptAsync(turnId, PromptParameters(SessionId, prompt), cancellation.Token);
     }

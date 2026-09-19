@@ -166,15 +166,15 @@ public class ConversationSettingsTests
         var huge = new ImageAttachment("image/png", new string('A', (AgentConversationTileViewModel.MaxImageBytes + 1024) * 4 / 3));
 
         vm.AttachImage(huge);
-        Assert.False(vm.HasAttachments);
+        Assert.False(vm.Attachments.HasItems);
         Assert.NotNull(vm.ComposerNotice);
 
         for (var i = 0; i <= AgentConversationTileViewModel.MaxImages; i++) vm.AttachImage(small);
-        Assert.Equal(AgentConversationTileViewModel.MaxImages, vm.Attachments.Count);
+        Assert.Equal(AgentConversationTileViewModel.MaxImages, vm.Attachments.Items.Count);
         Assert.NotNull(vm.ComposerNotice);
 
-        vm.RemoveAttachmentCommand.Execute(vm.Attachments[0]);
-        Assert.Equal(AgentConversationTileViewModel.MaxImages - 1, vm.Attachments.Count);
+        vm.RemoveAttachmentCommand.Execute(vm.Attachments.Items[0]);
+        Assert.Equal(AgentConversationTileViewModel.MaxImages - 1, vm.Attachments.Items.Count);
     }
 
     private static AgentConversationTileViewModel NewTile(TempSettings settings, Action? requestSave)

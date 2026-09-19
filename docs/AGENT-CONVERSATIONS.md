@@ -266,14 +266,39 @@ press Enter) and choosers for the permission mode and the effort. What they offe
 - **Known limit**: the modes offered are the agent's *interactive* list, which for opencode is the TUI's
   (bypass or its own default) although its server could also ask or plan per session.
 
-## Images
+## Images and files
 
 Pasted (Ctrl+V when the clipboard holds no text, Alt+V always), dropped on the composer, or picked with the
 paperclip. Every image is re-encoded as PNG and scaled to at most 1568 px on its long edge
-(`ComposerImages`), refused over 5 MB and beyond ten per message, shown as a thumbnail with a remove button
-and, once sent, in the user's message. Every session already knew its agent's shape — verified live: Claude
-Code, codex, opencode and pi each answered "Red" for a red square. agy's stream input takes text only, and
-the message goes without the image and says so.
+(`ComposerImages`), refused over 5 MB and beyond ten per message, and once sent shown in the user's message.
+Every session already knew its agent's shape — verified live: Claude Code, codex, opencode and pi each
+answered "Red" for a red square. agy's stream input takes text only, and the message goes without the image
+and says so.
+
+**An image stands where the user put it.** Attaching one inserts `[Image #n]` at the caret (`ComposerEdit`,
+the one insertion rule both composers use — padded so a marker or a mention is never welded onto the word
+beside it) and the chip above the box is **read off the text** (`ComposerChips`, `ComposerImageChips.NamedIn`):
+deleting the marker by hand takes the chip, an undo brings it back, and the chip's `×` takes the marker out.
+The image itself waits beside the draft until the message goes, so that undo still has a picture to name.
+Numbers are never reused into a gap while the draft is written — removing `#2` must not rename `#3` under the
+caret — and **renumbered from one when it is sent** (`OutgoingMessage`), with a marker that names no image
+dropped, since it would reach the agent as a picture that is not there.
+
+**The order is the text's, and the protocols carry it** (`ImageMarkers.Interleave`, reached through
+`AgentTurnInput.Blocks`): Claude Code, ACP, codex and opencode all take a list of blocks, so the text is cut
+at each marker and the image goes between the two halves, the marker staying at the end of the text before it
+so the sentence can still name it. A blank piece between two markers is dropped (Anthropic refuses an empty
+text block) unless nothing else would be sent. An image no marker names goes after the text — where every
+image went before markers existed.
+
+**Any other file becomes an `@` mention** at the caret (`ComposerFileReference`), spelled exactly as the `@`
+list spells one — a path, never the contents, because every agent here opens files for itself and pi, agy and
+a Goal prompt carry no file at all. A file inside the workspace is named where it is; one from outside is first
+**copied into `.mtiles/attachments/`** (`AttachmentStore`, ignored by the Git tile's `.mtiles/` rule, never
+pruned) — Claude Code asks before reading outside its directory, codex's sandbox may refuse, and Downloads
+empties itself. Over 20 MB, or when the copy fails, the original's absolute path is used and the composer says
+so. Every mention that names something on disk gets a chip of its own (`ComposerFileScanner`, one disk lookup
+per path rather than per keystroke), removed with its mention by the same `ComposerEdit`.
 
 ## What is the Goal tile's
 

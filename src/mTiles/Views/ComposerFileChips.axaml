@@ -1,0 +1,42 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:mTiles.ViewModels"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:v="using:mTiles.Views"
+             x:Class="mTiles.Views.ComposerFileChips"
+             x:Name="Root">
+    <!-- The files a composer's text names by an @ mention, in the order it names them: the Goal tile and
+         the Agent tile draw the same strip. What the chip carries is the mention's own file - its name,
+         the whole path in the tooltip - and the [x] takes the mention out of the text. -->
+    <ItemsControl ItemsSource="{Binding #Root.Files}">
+        <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="vm:ComposerFile">
+                <Border Margin="0,2,6,2" Padding="6,2,2,2"
+                        CornerRadius="{DynamicResource RadiusSm}"
+                        BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                        Background="{DynamicResource BgElevated}"
+                        ToolTip.Tip="{Binding FullPath}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <mi:MaterialIcon Width="13" Height="13" VerticalAlignment="Center"
+                                         Foreground="{DynamicResource TextMuted}"
+                                         Kind="{Binding IsDirectory, Converter={x:Static v:ComposerFileIcon.Kind}}" />
+                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" MaxWidth="220"
+                                   TextTrimming="CharacterEllipsis"
+                                   FontSize="{DynamicResource FontSm}" />
+                        <Button Classes="tile-btn" VerticalAlignment="Center"
+                                Command="{Binding #Root.RemoveCommand}"
+                                CommandParameter="{Binding}"
+                                ToolTip.Tip="Remove this file from the message">
+                            <mi:MaterialIcon Kind="Close" Width="11" Height="11" />
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </DataTemplate>
+        </ItemsControl.ItemTemplate>
+    </ItemsControl>
+</UserControl>

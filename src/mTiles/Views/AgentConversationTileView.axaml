@@ -306,30 +306,18 @@
              included: what a docked bar must hold is what you act with, not what you read.
 
              Images go in by pasting (Ctrl+V when the clipboard holds no text, Alt+V always), by dropping
-             files on the box, or through the paperclip; each waits above the text with a button that
-             takes it out again. -->
+             files on the box, or through the paperclip. Each leaves an [Image #n] marker where the caret
+             was - the order of pictures in a sentence is part of what it says - and waits above the text,
+             numbered the same, with a button that takes it out, marker and all. Any other file goes in as
+             its path at the caret. -->
         <Border x:Name="Composer" DockPanel.Dock="Bottom" Classes="composer">
             <StackPanel Spacing="4">
-                <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="ev:ImageAttachment">
-                            <Panel Margin="0,0,6,0">
-                                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ImageThumbnailTemplate}" />
-                                <Button Classes="tile-btn" HorizontalAlignment="Right" VerticalAlignment="Top"
-                                        Command="{Binding $parent[UserControl].((ac:AgentConversationTileViewModel)DataContext).RemoveAttachmentCommand}"
-                                        CommandParameter="{Binding}"
-                                        ToolTip.Tip="Remove this image">
-                                    <mi:MaterialIcon Kind="Close" Width="12" Height="12" />
-                                </Button>
-                            </Panel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <v:ComposerImageStrip Images="{Binding Attachments.Items}"
+                                      RemoveCommand="{Binding RemoveAttachmentCommand}"
+                                      IsVisible="{Binding Attachments.HasItems}" />
+                <v:ComposerFileChips Files="{Binding ComposerFiles.Items}"
+                                     RemoveCommand="{Binding RemoveComposerFileCommand}"
+                                     IsVisible="{Binding ComposerFiles.HasItems}" />
                 <TextBlock Classes="ask-why" Text="{Binding ComposerNotice}"
                            IsVisible="{Binding ComposerNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <!-- The box takes the whole width. The buttons that used to stand beside it are on
@@ -345,6 +333,7 @@
                     <TextBox x:Name="InputBox"
                              Classes="composer-input"
                              Text="{Binding Draft}"
+                             CaretIndex="{Binding DraftCaretIndex, Mode=TwoWay}"
                              PlaceholderText="Ask anything, or @ a file"
                              ToolTip.Tip="Enter sends · Shift+Enter starts a new line · @ mentions a file · Alt+V pastes an image · Esc stops the agent"
                              AcceptsReturn="True"
@@ -384,7 +373,7 @@
                     </Button>
                     <Button DockPanel.Dock="Right" Classes="tile-btn" VerticalAlignment="Center"
                             Margin="0,0,4,0"
-                            Click="AttachButton_Click" ToolTip.Tip="Attach images">
+                            Click="AttachButton_Click" ToolTip.Tip="Attach files — a picture goes in as an image, anything else by its path">
                         <mi:MaterialIcon Kind="Paperclip" Width="14" Height="14" />
                     </Button>
 

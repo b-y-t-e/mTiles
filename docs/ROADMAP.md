@@ -459,7 +459,7 @@ order agreed on 2026-09-15. Background and measurements: [`AGENT-CONVERSATIONS.m
 ### 1. Images in the composer — done
 
 **Done 2026-09-15**: paste, drop and pick, thumbnails, sent by every session but agy (text only). See
-[`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md) → *Images*. What follows is what it was.
+[`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md) → *Images and files*. What follows is what it was.
 
 
 **Now:** `SendMessage`, `AgentTurnInput` and every session already carry `ImageAttachment`s, and each

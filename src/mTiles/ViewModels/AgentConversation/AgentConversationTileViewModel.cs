@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using mTiles.AgentSessions;
 using System.Diagnostics;
 using System.Globalization;
 using Avalonia.Threading;
@@ -61,6 +62,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private bool _startRequested;
 
     [ObservableProperty] private string _draft = "";
+
+    /// <summary>Where the caret is in the composer, so an image or a file lands where the user is writing.</summary>
+    [ObservableProperty] private int _draftCaretIndex;
     [ObservableProperty] private string? _launchProblem;
     [ObservableProperty] private bool _isStarting;
     [ObservableProperty] private bool _isWorking;
@@ -212,7 +216,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         // may already have missed — see _startUnderWay.
         isRunning: _host is { HasSession: true } || _startUnderWay,
         isBusy: IsWorking || PendingQuestions is not null || PendingApprovals.Count > 0,
-        hasUnsentWork: Draft.Trim().Length > 0 || Attachments.Count > 0);
+        hasUnsentWork: Draft.Trim().Length > 0 || Attachments.HasItems);
 
     private void Tell() => LaunchNotice = LaunchNotices.With(LaunchNotice, SkillChangePolicy.Notice);
 
@@ -298,10 +302,13 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     public bool HasModeOptions => ModeOptions.Count > 1;
     public bool HasEffortOptions => EffortOptions.Count > 1;
 
-    /// <summary>Images going with the next message.</summary>
-    public ObservableCollection<ImageAttachment> Attachments { get; } = [];
+    /// <summary>Every image pasted since the last message went, whether or not the draft still names it —
+    /// so a marker deleted by accident and brought back by an undo still names its picture.</summary>
+    private readonly List<ComposerImage> _waitingImages = [];
 
-    public bool HasAttachments => Attachments.Count > 0;
+    /// <summary>The images going with the next message: those whose markers <see cref="Draft"/> holds, in
+    /// the order it holds them.</summary>
+    public ComposerChips<ComposerImage> Attachments { get; } = new();
 
     public string KindId => TileKindIds.AgentConversation;
 
@@ -457,24 +464,78 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [RelayCommand(CanExecute = nameof(CanSend))]
     private async Task SendAsync()
     {
-        var text = Draft;
         // Enter in the composer, a paired phone and dictation all call this without asking CanExecute.
-        if (!CanSend() || (string.IsNullOrWhiteSpace(text) && Attachments.Count == 0) || _host is not { } host) return;
-        List<ImageAttachment> images = [.. Attachments];
+        if (!CanSend() || (string.IsNullOrWhiteSpace(Draft) && !Attachments.HasItems) || _host is not { } host) return;
+        var (text, images) = OutgoingMessage();
         // A host with no live agent refuses the message out loud, and the draft stays for the restart.
         if (host.HasSession)
         {
+            _waitingImages.Clear();
             Draft = "";
-            Attachments.Clear();
             _binding.MessageSent();
             LastUsedAgentInstance.Remember(_settings, Instance);
-            OnPropertyChanged(nameof(HasAttachments));
         }
 
         await RunAsync(() => host.ExecuteAsync(new SendMessage(text, images), _lifetime.Token));
     }
 
     private bool CanSend() => !IsStarting && LaunchProblem is null;
+
+    /// <summary>
+    /// The draft as it is sent: markers renumbered from one in the order they are read, the images in that
+    /// same order — which is what <see cref="AgentTurnInput"/> means by its list — and a marker naming no
+    /// image taken out, since it would reach the agent as a picture that is not there.
+    /// </summary>
+    /// <remarks>An image whose marker is gone from the text stays behind: its chip is gone too, so sending
+    /// it would be sending a picture the screen no longer shows.</remarks>
+    internal (string Text, IReadOnlyList<ImageAttachment> Images) OutgoingMessage()
+    {
+        var named = Attachments.Items;
+        var text = ImageMarkers.DropExcept(Draft, [.. named.Select(image => image.Index)]);
+        var renumber = named.Select((image, position) => (image.Index, position)).ToDictionary(p => p.Index, p => p.position + 1);
+        return (ImageMarkers.Renumber(text, renumber), [.. named.Select(image => image.Image)]);
+    }
+
+    /// <summary>Redraws both chip strips from the text: an image leaves when its marker does, a file when
+    /// its mention does.</summary>
+    partial void OnDraftChanged(string value)
+    {
+        Attachments.Show(ComposerImageChips.NamedIn(value, _waitingImages, image => image.Index));
+        ComposerFiles.Show(FileScanner.In(value));
+    }
+
+    /// <summary>Names a file that is not a picture where the caret is — see <see cref="ComposerFileReference"/>.</summary>
+    public async Task AttachFileAsync(string path)
+    {
+        var (mention, notice) = await ComposerFileReference.ForAsync(path, _workingDirectory);
+        InsertIntoDraft(mention);
+        ComposerNotice = notice;
+    }
+
+    private ComposerFileScanner? _fileScanner;
+
+    private ComposerFileScanner FileScanner => _fileScanner ??= new ComposerFileScanner(_workingDirectory);
+
+    /// <summary>The files the draft names, in the order it names them — see <see cref="ComposerFile"/>.</summary>
+    public ComposerChips<ComposerFile> ComposerFiles { get; } = new();
+
+    /// <summary>Takes a file's mention out of the draft, which takes its chip with it.</summary>
+    [RelayCommand]
+    private void RemoveComposerFile(ComposerFile file)
+    {
+        ApplyToDraft(DraftEdit.RemoveFile(file));
+    }
+
+    /// <summary>Puts text into the composer where the caret is — see <see cref="ComposerEdit.Insert"/>.</summary>
+    public void InsertIntoDraft(string text) => ApplyToDraft(DraftEdit.Insert(text));
+
+    private ComposerEdit DraftEdit => new(Draft, DraftCaretIndex);
+
+    private void ApplyToDraft(ComposerEdit edit)
+    {
+        Draft = edit.Text;
+        DraftCaretIndex = edit.Caret;
+    }
 
     /// <summary>The largest image handed to an agent, after the view has scaled it down.</summary>
     /// <remarks>Claude's API refuses an image over 5 MB, and every image is also stored in the conversation;
@@ -494,23 +555,24 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             return;
         }
 
-        if (Attachments.Count >= MaxImages)
+        if (Attachments.Items.Count >= MaxImages)
         {
             ComposerNotice = $"At most {MaxImages} images go with one message.";
             return;
         }
 
         ComposerNotice = null;
-        Attachments.Add(image);
-        OnPropertyChanged(nameof(HasAttachments));
+        // Numbered past every image still waiting, never into a gap: a number is reused only once nothing
+        // in the draft can still mean the image that had it.
+        var composed = new ComposerImage(_waitingImages.Count == 0 ? 1 : _waitingImages.Max(a => a.Index) + 1, image);
+        _waitingImages.Add(composed);
+        InsertIntoDraft(composed.Marker);
     }
 
+    /// <summary>Takes an image's marker out of the text, which takes its chip — and the image — out of the
+    /// message.</summary>
     [RelayCommand]
-    private void RemoveAttachment(ImageAttachment image)
-    {
-        Attachments.Remove(image);
-        OnPropertyChanged(nameof(HasAttachments));
-    }
+    private void RemoveAttachment(ComposerImage image) => ApplyToDraft(DraftEdit.RemoveImage(image.Index));
 
     /// <summary>
     /// Switches the model, mode or effort: kept as this tile's override, handed to the running session, and —

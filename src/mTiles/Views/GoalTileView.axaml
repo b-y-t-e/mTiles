@@ -277,8 +277,7 @@
              left, so the pair reads as a single control with a divider rather than as two buttons that
              happen to touch. The radius is the one every small control here uses; only the two inner
              corners are given up. -->
-        <Style Selector="StackPanel.run-split">
-            <Setter Property="Orientation" Value="Horizontal" />
+        <Style Selector="DockPanel.run-split">
             <Setter Property="Margin" Value="6,0,0,0" />
         </Style>
         <Style Selector="Button.run-primary">
@@ -653,6 +652,91 @@
             <Border x:Name="Composer" Classes="composer"
                     IsVisible="{Binding ShowComposer}">
                 <DockPanel>
+                    <v:ComposerImageStrip DockPanel.Dock="Top" Margin="0,0,0,4"
+                                          Images="{Binding ComposerImages.Items}"
+                                          RemoveCommand="{Binding RemoveComposerImageCommand}"
+                                          IsVisible="{Binding ComposerImages.HasItems}" />
+                    <v:ComposerFileChips DockPanel.Dock="Top" Margin="0,0,0,4"
+                                         Files="{Binding ComposerFiles.Items}"
+                                         RemoveCommand="{Binding RemoveComposerFileCommand}"
+                                         IsVisible="{Binding ComposerFiles.HasItems}" />
+                    <!-- The actions under the box, not beside it - the Agent tile's composer, so the box
+                         keeps the tile's whole width and a narrow column wraps words, not letters. -->
+                    <DockPanel DockPanel.Dock="Bottom" Margin="0,4,0,0">
+                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal"
+                                    VerticalAlignment="Center" Spacing="2">
+                            <Button Classes="tile-btn" VerticalAlignment="Center"
+                                    Click="AttachButton_Click"
+                                    ToolTip.Tip="Attach files — a picture goes in as [Image #n] where the caret is, anything else by its path">
+                                <mi:MaterialIcon Kind="Paperclip" Width="14" Height="14" />
+                            </Button>
+                            <p:Picker x:Name="HistoryPicker"
+                                      VerticalAlignment="Center"
+                                      Classes="composer-picker"
+                                      ShowChevron="False"
+                                      IsSearchEnabled="True"
+                                      SearchPlaceholder="Search sent messages…"
+                                      EmptyText="Nothing sent yet."
+                                      DropDownWidth="420"
+                                      ToolTip.Tip="Messages sent in this goal (Up/Down in the box walks them)">
+                                <p:Picker.Icon>
+                                    <mi:MaterialIcon Kind="History" Width="13" Height="13" />
+                                </p:Picker.Icon>
+                            </p:Picker>
+                        </StackPanel>
+                        <!-- What was sent from here, newest first; Up and Down in the box walk the same list
+                             (ComposerHistoryInput, shared with the Agent tile). Docked after the run button
+                             so it stands to its left. -->
+                        <!-- The fill child, and the one thing on the row that gives way: in a narrow column its
+                             label trims rather than the buttons being drawn over each other. -->
+                        <DockPanel HorizontalAlignment="Right"
+                                    Classes="run-split"
+                                    VerticalAlignment="Center">
+                            <Button Classes="chat-action run-more" DockPanel.Dock="Right"
+                                    IsEnabled="{Binding !IsRunning}"
+                                    ToolTip.Tip="Other ways to start">
+                                <mi:MaterialIcon Kind="ChevronDown" Width="13" Height="13" />
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="TopEdgeAlignedRight">
+                                        <!-- Down with the rest of the menu wherever the composer is
+                                             answering rather than starting: mid-conversation the same
+                                             send is an answer or an approval, and an entry named after
+                                             the goal it does not set would be the label the primary
+                                             segment was corrected away from. -->
+                                        <!-- Three entries, and every one of them reads the box the same
+                                             way: words are the goal, an empty box means read one from the
+                                             changes, and an @ points at a file or a commit either way.
+                                             There used to be five, of which two — Detect goal and Detect
+                                             & run — were the only controls on this composer that ignored
+                                             what had been typed: the sentence was demoted to a hint and
+                                             then replaced by a goal read off the diff, and the run
+                                             variant cleared the box on its way past. So the pairs are
+                                             merged and the label says which half of the box the entry is
+                                             about to read. -->
+                                        <MenuItem Header="{Binding PrimaryActionLabel}"
+                                                  Command="{Binding PrimaryActionCommand}"
+                                                  IsEnabled="{Binding CanSetGoal}"
+                                                  ToolTip.Tip="Adopt the goal — what you typed, or one read from your changes when the box is empty — and go on to the questions about it" />
+                                        <Separator />
+                                        <MenuItem Header="Review"
+                                                  Command="{Binding ReviewCommand}"
+                                                  IsEnabled="{Binding CanDetectGoal}"
+                                                  ToolTip.Tip="Judge the working tree once, against what you typed or against a goal read from your changes. Nothing is changed." />
+                                        <MenuItem Header="{Binding RunActionLabel}"
+                                                  Command="{Binding RunCommand}"
+                                                  IsEnabled="{Binding CanRun}"
+                                                  ToolTip.Tip="Adopt the goal and run the fix loop to the end without stopping" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button Classes="chat-action primary run-primary"
+                                    Command="{Binding PrimaryActionCommand}"
+                                    IsEnabled="{Binding !IsRunning}"
+                                    ToolTip.Tip="{Binding PrimaryActionHint}">
+                                <TextBlock Text="{Binding PrimaryActionLabel}" TextTrimming="CharacterEllipsis" />
+                            </Button>
+                        </DockPanel>
+                    </DockPanel>
                     <TextBlock DockPanel.Dock="Left"
                                Classes="gutter gutter-user"
                                Margin="0,2,0,0" />
@@ -662,69 +746,6 @@
                          caret beside it holds the other four ways in. Every entry stays on its own gate — nothing is hidden or greyed out by
                          what is in the box: typed words beside a detection are a scope narrowing it
                          (see docs/GOAL.md), which is a route the menu must not close. -->
-                    <!-- What was sent from here, newest first; Up and Down in the box walk the same list
-                         (ComposerHistoryInput, shared with the Agent tile). Docked after the run button
-                         so it stands to its left. -->
-                    <StackPanel DockPanel.Dock="Right"
-                                Classes="run-split"
-                                VerticalAlignment="Bottom">
-                        <Button Classes="chat-action primary run-primary"
-                                Command="{Binding PrimaryActionCommand}"
-                                IsEnabled="{Binding !IsRunning}"
-                                Content="{Binding PrimaryActionLabel}"
-                                ToolTip.Tip="{Binding PrimaryActionHint}" />
-                        <Button Classes="chat-action run-more"
-                                IsEnabled="{Binding !IsRunning}"
-                                ToolTip.Tip="Other ways to start">
-                            <mi:MaterialIcon Kind="ChevronDown" Width="13" Height="13" />
-                            <Button.Flyout>
-                                <MenuFlyout Placement="TopEdgeAlignedRight">
-                                    <!-- Down with the rest of the menu wherever the composer is
-                                         answering rather than starting: mid-conversation the same
-                                         send is an answer or an approval, and an entry named after
-                                         the goal it does not set would be the label the primary
-                                         segment was corrected away from. -->
-                                    <!-- Three entries, and every one of them reads the box the same
-                                         way: words are the goal, an empty box means read one from the
-                                         changes, and an @ points at a file or a commit either way.
-                                         There used to be five, of which two — Detect goal and Detect
-                                         & run — were the only controls on this composer that ignored
-                                         what had been typed: the sentence was demoted to a hint and
-                                         then replaced by a goal read off the diff, and the run
-                                         variant cleared the box on its way past. So the pairs are
-                                         merged and the label says which half of the box the entry is
-                                         about to read. -->
-                                    <MenuItem Header="{Binding PrimaryActionLabel}"
-                                              Command="{Binding PrimaryActionCommand}"
-                                              IsEnabled="{Binding CanSetGoal}"
-                                              ToolTip.Tip="Adopt the goal — what you typed, or one read from your changes when the box is empty — and go on to the questions about it" />
-                                    <Separator />
-                                    <MenuItem Header="Review"
-                                              Command="{Binding ReviewCommand}"
-                                              IsEnabled="{Binding CanDetectGoal}"
-                                              ToolTip.Tip="Judge the working tree once, against what you typed or against a goal read from your changes. Nothing is changed." />
-                                    <MenuItem Header="{Binding RunActionLabel}"
-                                              Command="{Binding RunCommand}"
-                                              IsEnabled="{Binding CanRun}"
-                                              ToolTip.Tip="Adopt the goal and run the fix loop to the end without stopping" />
-                                </MenuFlyout>
-                            </Button.Flyout>
-                        </Button>
-                    </StackPanel>
-                    <p:Picker x:Name="HistoryPicker"
-                              DockPanel.Dock="Right" Margin="0,0,4,0"
-                              VerticalAlignment="Bottom"
-                              Classes="composer-picker"
-                              ShowChevron="False"
-                              IsSearchEnabled="True"
-                              SearchPlaceholder="Search sent messages…"
-                              EmptyText="Nothing sent yet."
-                              DropDownWidth="420"
-                              ToolTip.Tip="Messages sent in this goal (Up/Down in the box walks them)">
-                        <p:Picker.Icon>
-                            <mi:MaterialIcon Kind="History" Width="13" Height="13" />
-                        </p:Picker.Icon>
-                    </p:Picker>
                     <TextBox x:Name="InputBox"
                              Classes="composer-input"
                              Text="{Binding InputText}"

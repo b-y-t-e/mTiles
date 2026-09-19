@@ -24,6 +24,21 @@ public static class ComposerImages
     /// <summary>The extensions offered by the file picker and accepted from a drop.</summary>
     public static readonly string[] Extensions = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 
+    /// <summary>Asks for files to attach: any file at all, with pictures offered as a filter of their own.</summary>
+    /// <remarks>Any file, because a composer takes a log or a schema too — by its path, see
+    /// <c>ComposerFileReference</c>. "All files" comes first so it is what the dialog opens on.</remarks>
+    public static Task<IReadOnlyList<IStorageFile>> PickAsync(IStorageProvider storage) =>
+        storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Attach files",
+            AllowMultiple = true,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("All files") { Patterns = ["*"] },
+                new FilePickerFileType("Images") { Patterns = [.. Extensions.Select(extension => $"*.{extension}")] },
+            ],
+        });
+
     public static ImageAttachment FromBitmap(Bitmap bitmap, string? name = null)
     {
         var size = bitmap.PixelSize;
@@ -38,8 +53,26 @@ public static class ComposerImages
         return new ImageAttachment("image/png", Convert.ToBase64String(png.ToArray()), name);
     }
 
-    /// <summary>The image in a file, or null when it is not one this machine can decode.</summary>
-    public static async Task<ImageAttachment?> FromFileAsync(IStorageItem item)
+    /// <summary>
+    /// Hands every file over in the order given: a picture as a decoded bitmap, anything else by its path.
+    /// </summary>
+    /// <remarks>One rule for both composers, so a drop or a pick lands the same way in the Goal tile and the
+    /// Agent tile. A file with a picture's name that will not decode — damaged, or too large — is still
+    /// something the agent can open for itself, so it falls to its path. The bitmap is disposed after
+    /// <paramref name="attachPicture"/> returns.</remarks>
+    public static async Task AttachAllAsync(IEnumerable<IStorageItem> files,
+        Action<Bitmap, string> attachPicture, Func<string, Task> attachPath)
+    {
+        foreach (var file in files)
+        {
+            using var picture = await DecodeAsync(file);
+            if (picture is not null) attachPicture(picture, file.Name);
+            else if (file.TryGetLocalPath() is { } path) await attachPath(path);
+        }
+    }
+
+    /// <summary>The picture in a file, or null when it is not one this machine can decode.</summary>
+    private static async Task<Bitmap?> DecodeAsync(IStorageItem item)
     {
         if (item is not IStorageFile file) return null;
         var name = file.Name;
@@ -48,12 +81,11 @@ public static class ComposerImages
         try
         {
             await using var stream = await file.OpenReadAsync();
-            using var bitmap = new Bitmap(stream);
-            return FromBitmap(bitmap, name);
+            return new Bitmap(stream);
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning($"[AgentConversation] {name} could not be read as an image: {ex.Message}");
+            Trace.TraceWarning($"[Composer] {name} could not be read as an image: {ex.Message}");
             return null;
         }
     }

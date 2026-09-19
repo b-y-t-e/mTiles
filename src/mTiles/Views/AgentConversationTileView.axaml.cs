@@ -148,55 +148,27 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
 
     /// <summary>Takes a drop the way the composer takes one: a picture is attached, anything else is named.</summary>
     /// <remarks>A file this application cannot decode as an image is still something the agent can open
-    /// for itself, so its path goes into the message rather than being dropped on the floor — the same
-    /// answer the terminal tile gives, and never a send.</remarks>
+    /// for itself, so its path goes into the message where the caret is — never a send.</remarks>
     private async Task AttachDroppedAsync(DroppedItems items)
     {
         if (items.Bitmap is { } bitmap)
             using (bitmap) _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(bitmap, "dropped image"));
 
-        var notAttached = await AttachFilesAsync(items.Files);
-        MentionInTheMessage(notAttached);
-    }
-
-    private void MentionInTheMessage(IEnumerable<IStorageItem> files)
-    {
-        var paths = files.Select(file => file.TryGetLocalPath()).OfType<string>();
-        if (DroppedPathText.ForPrompt(paths) is { Length: > 0 } text)
-            _subscribed?.TrySendText(text.TrimEnd(), submit: false);
+        await AttachFilesAsync(items.Files);
     }
 
     private async void AttachButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
-        var files = await storage.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
-        {
-            Title = "Attach images",
-            AllowMultiple = true,
-            FileTypeFilter =
-            [
-                new Avalonia.Platform.Storage.FilePickerFileType("Images")
-                {
-                    Patterns = [.. ComposerImages.Extensions.Select(extension => $"*.{extension}")],
-                },
-            ],
-        });
-        await AttachFilesAsync(files);
+        await AttachFilesAsync(await ComposerImages.PickAsync(storage));
+        InputBox.Focus();
     }
 
-    /// <summary>Attaches every file that decodes as a picture, and answers the ones that did not.</summary>
-    /// <remarks>Answered rather than dropped: a file with a picture's name that cannot be decoded — damaged,
-    /// or too large — is still something the agent can be pointed at by its path.</remarks>
-    private async Task<IReadOnlyList<IStorageItem>> AttachFilesAsync(IEnumerable<IStorageItem> files)
-    {
-        var notAttached = new List<IStorageItem>();
-        foreach (var file in files)
-            if (await ComposerImages.FromFileAsync(file) is { } image)
-                _subscribed?.AttachImageCommand.Execute(image);
-            else
-                notAttached.Add(file);
-        return notAttached;
-    }
+    /// <summary>Attaches every file in the order given — see <see cref="ComposerImages.AttachAllAsync"/>.</summary>
+    private Task AttachFilesAsync(IEnumerable<IStorageItem> files) =>
+        ComposerImages.AttachAllAsync(files,
+            (picture, name) => _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(picture, name)),
+            path => _subscribed?.AttachFileAsync(path) ?? Task.CompletedTask);
 
     protected override void OnDataContextChanged(EventArgs e)
     {

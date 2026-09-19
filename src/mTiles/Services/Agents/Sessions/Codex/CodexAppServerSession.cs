@@ -132,9 +132,10 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
             else _queuedTurns++;
         }
 
-        var items = new List<object> { new { type = "text", text = input.Text } };
-        items.AddRange(input.Images.Select(image =>
-            (object)new { type = "image", url = $"data:{image.MimeType};base64,{image.Base64Data}" }));
+        // In the order the message says it: the turn's input is a list of items.
+        var items = input.Blocks<object>(
+            text => new { type = "text", text },
+            image => new { type = "image", url = $"data:{image.MimeType};base64,{image.Base64Data}" });
 
         string model;
         AiBehaviour behaviour;

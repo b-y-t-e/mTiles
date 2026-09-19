@@ -1,0 +1,55 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:m="using:mTiles.Models"
+             xmlns:ac="using:mTiles.ViewModels.AgentConversation"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:v="using:mTiles.Views"
+             x:Class="mTiles.Views.ComposerImageStrip"
+             x:Name="Root">
+    <!-- The pictures a composer's text names, in the order it names them, each numbered as its marker
+         is: [Image #2] is the second chip's words, so which picture a sentence means is read off the
+         screen. The Goal tile and the Agent tile draw the same strip; only where the thumbnail comes
+         from differs - pasted bytes in one, a stored file in the other - and that is one template each.
+         The [x] takes the marker out of the text, and deleting the marker takes the chip. -->
+    <ItemsControl ItemsSource="{Binding #Root.Images}">
+        <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="m:INumberedImage">
+                <Panel Margin="0,0,6,0">
+                    <StackPanel>
+                        <ContentControl Content="{Binding}">
+                            <ContentControl.DataTemplates>
+                                <DataTemplate DataType="ac:ComposerImage">
+                                    <Border CornerRadius="{DynamicResource RadiusSm}" ClipToBounds="True" Margin="0,2,0,2"
+                                            ToolTip.Tip="{Binding Image.Name}">
+                                        <Image Source="{Binding Image, Converter={x:Static v:AgentConversationGlyphs.Thumbnail}}"
+                                               MaxHeight="96" MaxWidth="160" Stretch="Uniform" />
+                                    </Border>
+                                </DataTemplate>
+                                <DataTemplate DataType="m:GoalImageAttachment">
+                                    <Border CornerRadius="{DynamicResource RadiusSm}" ClipToBounds="True" Margin="0,2,0,2"
+                                            ToolTip.Tip="{Binding Path}">
+                                        <Image Source="{Binding Converter={x:Static v:AgentConversationGlyphs.ThumbnailOfFile}}"
+                                               MaxHeight="96" MaxWidth="160" Stretch="Uniform" />
+                                    </Border>
+                                </DataTemplate>
+                            </ContentControl.DataTemplates>
+                        </ContentControl>
+                        <TextBlock Classes="caption" HorizontalAlignment="Center"
+                                   Text="{Binding Index, StringFormat='#{0}'}" />
+                    </StackPanel>
+                    <Button Classes="tile-btn" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Command="{Binding #Root.RemoveCommand}"
+                            CommandParameter="{Binding}"
+                            ToolTip.Tip="Remove this image">
+                        <mi:MaterialIcon Kind="Close" Width="12" Height="12" />
+                    </Button>
+                </Panel>
+            </DataTemplate>
+        </ItemsControl.ItemTemplate>
+    </ItemsControl>
+</UserControl>

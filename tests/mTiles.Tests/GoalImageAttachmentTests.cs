@@ -285,8 +285,8 @@ public class GoalImageAttachmentTests : IDisposable
             vm.InputCaretIndex = 5;   // between the two spaces
 
             await vm.AttachImageCommand.ExecuteAsync(new byte[] { 1, 2, 3 });
-
-            Assert.Equal("make [Image #1]  green", vm.InputText);
+            // No space of its own after it: the one already there keeps the next word apart.
+            Assert.Equal("make [Image #1] green", vm.InputText);
         });
     }
 }

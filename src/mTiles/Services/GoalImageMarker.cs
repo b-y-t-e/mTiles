@@ -1,6 +1,4 @@
-﻿using System.Text.RegularExpressions;
-
-namespace mTiles.Services;
+﻿namespace mTiles.Services;
 
 /// <summary>
 /// What a pasted image looks like in the text the user is writing.
@@ -10,12 +8,12 @@ namespace mTiles.Services;
 /// then read back out of the goal — <c>GoalWorkflowEngine.StartNewGoal</c> asks which markers the new
 /// goal still refers to. Two spellings of it would drop every image out of the goal that had just been
 /// typed, silently, and the marker would go to the tool naming a file nothing had kept.</para>
-/// <para>The shape is Claude Code's own, and that is the whole of the reasoning: this is what somebody
-/// who pastes a screenshot at an agent already expects to see appear where their caret was.</para>
+/// <para>The spelling itself is <see cref="mTiles.AgentSessions.ImageMarkers"/>'s, which the Agent tile's
+/// composer and every session read too — so a marker means the same thing in both tiles.</para>
 /// </remarks>
-public static partial class GoalImageMarker
+public static class GoalImageMarker
 {
-    public static string For(int index) => $"[Image #{index}]";
+    public static string For(int index) => mTiles.AgentSessions.ImageMarkers.For(index);
 
     /// <summary>
     /// The text with every marker removed whose image is not in <paramref name="keptIndexes"/>.
@@ -31,13 +29,5 @@ public static partial class GoalImageMarker
     /// </para>
     /// </remarks>
     public static string DropMarkersExcept(string text, IReadOnlyCollection<int> keptIndexes) =>
-        string.IsNullOrEmpty(text)
-            ? text
-            : MarkerPattern().Replace(text, match =>
-                int.TryParse(match.Groups[1].Value, out var index) && keptIndexes.Contains(index)
-                    ? match.Value
-                    : "");
-
-    [GeneratedRegex(@"\[Image #(\d+)\] ?")]
-    private static partial Regex MarkerPattern();
+        mTiles.AgentSessions.ImageMarkers.DropExcept(text, keptIndexes);
 }

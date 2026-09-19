@@ -104,12 +104,14 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
             }
         }
 
-        var parts = new List<object> { new { type = "text", text = input.Text } };
-        parts.AddRange(input.Images.Select(image => (object)new
-        {
-            type = "file", mime = image.MimeType, filename = image.Name ?? "image",
-            url = $"data:{image.MimeType};base64,{image.Base64Data}",
-        }));
+        // In the order the message says it: a message is a list of parts.
+        var parts = input.Blocks<object>(
+            text => new { type = "text", text },
+            image => new
+            {
+                type = "file", mime = image.MimeType, filename = image.Name ?? "image",
+                url = $"data:{image.MimeType};base64,{image.Base64Data}",
+            });
 
         var body = new Dictionary<string, object?> { ["parts"] = parts };
         if (ModelReference() is { } model) body["model"] = model;

@@ -51,9 +51,16 @@ public interface IAgentEventSink
 }
 
 /// <summary>What the user sends in one message.</summary>
+/// <remarks>The images are numbered by the <see cref="ImageMarkers"/> in the text: the first is
+/// <c>[Image #1]</c>.</remarks>
 public sealed record AgentTurnInput(string Text, IReadOnlyList<ImageAttachment> Images)
 {
     public static AgentTurnInput FromText(string text) => new(text, []);
+
+    /// <summary>The message in the order it is said, each piece in a protocol's own shape — see
+    /// <see cref="ImageMarkers.Interleave"/>, which also guarantees at least one.</summary>
+    public List<T> Blocks<T>(Func<string, T> text, Func<ImageAttachment, T> image) =>
+        [.. ImageMarkers.Interleave(Text, Images).Select(part => part.Map(text, image))];
 }
 
 /// <summary>A session whose agent runs as a child process of ours.</summary>

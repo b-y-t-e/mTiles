@@ -266,7 +266,7 @@ public partial class GoalTileViewModel
     /// which is the same sentence a clean tree already gets — a dead menu says nothing at all.</para>
     /// </remarks>
     private bool ComposerMayNameACommit =>
-        GoalScopeFilter.Mentions(InputText) is { Count: > 0 } named
+        ScopeMentions(InputText) is { Count: > 0 } named
         && LivePaths(named).Count < named.Count;
 
     /// <summary>Whether the composer holds anything to send. What tells a typed goal from a detected
@@ -467,7 +467,44 @@ public partial class GoalTileViewModel
     {
         OnPropertyChanged(nameof(ApprovalActionLabel));
         RefreshComposerActions();
+        ComposerImages.Show(ComposerImageChips.NamedIn(InputText, _engine.AttachedImages, image => image.Index));
+        ComposerFiles.Show(FileScanner.In(InputText));
     }
+
+    /// <summary>The files the composer's text names, in the order it names them — see <see cref="ComposerFile"/>.</summary>
+    public ComposerChips<ComposerFile> ComposerFiles { get; } = new();
+
+    /// <summary>Takes a file's mention out of the composer, which takes its chip with it.</summary>
+    [RelayCommand]
+    private void RemoveComposerFile(ComposerFile file)
+    {
+        ApplyToComposer(ComposerTextEdit.RemoveFile(file));
+    }
+
+    /// <summary>The images the composer's text names, in the order it names them — a chip each above the box
+    /// (see <see cref="ComposerImageChips.NamedIn"/>).</summary>
+    public ComposerChips<GoalImageAttachment> ComposerImages { get; } = new();
+
+    /// <summary>Takes an image's marker out of the composer, which takes its chip with it.</summary>
+    /// <remarks>The file and the engine's entry stay: a goal already running may still name the same number,
+    /// and <c>StartNewGoal</c> is what prunes the list to what a goal refers to.</remarks>
+    [RelayCommand]
+    private void RemoveComposerImage(GoalImageAttachment image)
+    {
+        ApplyToComposer(ComposerTextEdit.RemoveImage(image.Index));
+    }
+
+    /// <summary>Names a file that is not a picture where the caret is — see <see cref="ComposerFileReference"/>.</summary>
+    public async Task AttachFileAsync(string path)
+    {
+        var (mention, notice) = await ComposerFileReference.ForAsync(path, _workingDirectory);
+        InsertIntoComposer(mention);
+        if (notice is not null) _ = SayOnceAsync(notice);
+    }
+
+    private ComposerFileScanner? _fileScanner;
+
+    private ComposerFileScanner FileScanner => _fileScanner ??= new ComposerFileScanner(_workingDirectory);
 
     /// <summary>What the one button under the composer offers, and what its menu allows. Every one of
     /// them reads the box, the run and the phase, so they move together or not at all.</summary>
@@ -1825,19 +1862,20 @@ public partial class GoalTileViewModel
             return;
         }
 
-        // A trailing space, so the next word the user types is not welded onto the marker — which
-        // would leave the goal saying [Image #1]make instead of naming an image at all.
-        InsertIntoComposer(_engine.AttachImage(path) + " ");
+        InsertIntoComposer(_engine.AttachImage(path));
         SaveStateSoon();
     }
 
-    /// <summary>Puts text into the composer where the caret is, and leaves the caret after it.</summary>
-    private void InsertIntoComposer(string text)
-    {
-        var at = Math.Clamp(InputCaretIndex, 0, InputText.Length);
+    /// <summary>Puts text into the composer where the caret is — see <see cref="ComposerEdit.Insert"/>, which
+    /// is also what keeps the next word typed from being welded onto a marker.</summary>
+    private void InsertIntoComposer(string text) => ApplyToComposer(ComposerTextEdit.Insert(text));
 
-        InputText = InputText.Insert(at, text);
-        InputCaretIndex = at + text.Length;
+    private ComposerEdit ComposerTextEdit => new(InputText, InputCaretIndex);
+
+    private void ApplyToComposer(ComposerEdit edit)
+    {
+        InputText = edit.Text;
+        InputCaretIndex = edit.Caret;
     }
 
     // ── Phase dispatch ──────────────────────────────────
@@ -2036,7 +2074,7 @@ public partial class GoalTileViewModel
                         bool reviewFirst;
                         try
                         {
-                            await ApplyScopeAsync(text, LivePaths(GoalScopeFilter.Mentions(text)));
+                            await ApplyScopeAsync(text, LivePaths(ScopeMentions(text)));
 
                             // Asked here, inside the same guard and before the baseline: it is a read
                             // of HEAD and owes the snapshot nothing, and a pause taken during it is
@@ -4222,8 +4260,18 @@ public partial class GoalTileViewModel
     private (string Guideline, IReadOnlyList<string> Paths) ReadScopeFromComposer()
     {
         var text = GoalImageMarker.DropMarkersExcept(InputText, []).Trim();
-        return (text, LivePaths(GoalScopeFilter.Mentions(text)));
+        return (text, LivePaths(ScopeMentions(text)));
     }
+
+    /// <summary>The composer's <c>@</c> tokens that may narrow the goal — every one but an attachment.</summary>
+    /// <remarks>A file handed over as something to read (<see cref="AttachmentStore.IsContextOnly"/>) is not
+    /// where the work is: made a scope, it narrowed every read of the tree to <c>.mtiles/attachments/</c>,
+    /// which is ignored and never changes, so the review was handed nothing and passed work it never saw.
+    /// Taken out here rather than in <see cref="LivePaths"/>, so it is not offered to git as a commit instead.</remarks>
+    private IReadOnlyList<string> ScopeMentions(string composerText) =>
+        GoalScopeFilter.Mentions(composerText)
+            .Where(mention => !AttachmentStore.IsContextOnly(mention, _workingDirectory))
+            .ToList();
 
     /// <summary>
     /// The named mentions that name something in this workspace.
@@ -4283,7 +4331,7 @@ public partial class GoalTileViewModel
     /// </remarks>
     private async Task<GoalScope> ResolveScopeAsync(string composerText, IReadOnlyList<string> paths)
     {
-        var named = GoalScopeFilter.Mentions(composerText)
+        var named = ScopeMentions(composerText)
             .Where(token => !paths.Contains(token, StringComparer.OrdinalIgnoreCase))
             .ToList();
 

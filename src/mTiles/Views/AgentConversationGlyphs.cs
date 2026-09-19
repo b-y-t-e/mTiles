@@ -82,6 +82,38 @@ public static class AgentConversationGlyphs
         }
     }
 
+    /// <summary>A Goal tile's pasted image — kept as a file — decoded at thumbnail width.</summary>
+    /// <remarks>Cached against the attachment, the way <see cref="Thumbnail"/> is, so the bitmap goes when the
+    /// goal lets go of its image rather than living as long as the process. A file that could not be read is
+    /// not remembered: a paste held open for a moment by an antivirus gets its thumbnail on the next redraw.</remarks>
+    public static readonly FuncValueConverter<mTiles.Models.GoalImageAttachment?, Bitmap?> ThumbnailOfFile = new(image =>
+        image is null ? null : FileThumbnailOf(image));
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<mTiles.Models.GoalImageAttachment, Bitmap> FileThumbnails = new();
+
+    private static Bitmap? FileThumbnailOf(mTiles.Models.GoalImageAttachment image)
+    {
+        if (FileThumbnails.TryGetValue(image, out var cached)) return cached;
+        if (DecodeFile(image.Path) is not { } decoded) return null;
+        FileThumbnails.AddOrUpdate(image, decoded);
+        return decoded;
+    }
+
+    private static Bitmap? DecodeFile(string path)
+    {
+        if (path.Length == 0) return null;
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return Bitmap.DecodeToWidth(stream, 320);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException
+                                       or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     private static IBrush? Brush(string key) =>
         Application.Current?.TryGetResource(key, Application.Current.ActualThemeVariant, out var value) == true
             ? value as IBrush

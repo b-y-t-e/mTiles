@@ -75,18 +75,18 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
     {
         if (_process is null) return;
 
-        var content = new JsonArray();
-        foreach (var image in input.Images)
-            content.Add(new JsonObject
+        // In the order the message says it — text, the image a marker names, the text after it. A slash
+        // command is still read as one: it is the first words of the text, so it is the first block.
+        var content = new JsonArray([.. input.Blocks<JsonNode?>(
+            text => new JsonObject { ["type"] = "text", ["text"] = text },
+            image => new JsonObject
             {
                 ["type"] = "image",
                 ["source"] = new JsonObject
                 {
                     ["type"] = "base64", ["media_type"] = image.MimeType, ["data"] = image.Base64Data,
                 },
-            });
-        // Text last, so a slash command at the start of the text is still read as one.
-        content.Add(new JsonObject { ["type"] = "text", ["text"] = input.Text });
+            })]);
 
         var message = new JsonObject
         {
