@@ -549,6 +549,23 @@
         <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
     </Style>
 
+    <!-- Undo changes on a turn's record. Sized to the row it sits on rather than to the composer's
+         buttons, and quiet until pointed at — it is on every turn that touched a file, and a column of
+         loud buttons down the transcript outshouts the conversation. Pointed at, it takes the danger
+         colour, because what it offers is to overwrite the working tree. -->
+    <Style Selector="Button.chat-action.revert">
+        <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+        <Setter Property="Padding" Value="5,3" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.chat-action.revert:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="TextBlock.Foreground" Value="{DynamicResource DangerText}" />
+    </Style>
+
     <!-- The rail of a block that reports a failure rather than asking for something. -->
     <Style Selector="Border.ask-rail.danger">
     <Setter Property="Background" Value="{DynamicResource DangerText}" />

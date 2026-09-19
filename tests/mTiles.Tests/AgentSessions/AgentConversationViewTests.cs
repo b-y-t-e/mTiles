@@ -136,7 +136,7 @@ public class AgentConversationViewTests
             Assert.Same(vm.FileMentions, FileMentionBehavior.GetMentions(boxes.Single(b => b.Name == "InputBox")));
             Assert.Same(vm.FileMentions, FileMentionBehavior.GetMentions(boxes.Single(b => b.Classes.Contains("ask-field"))));
             Assert.Equal(2, view.GetVisualDescendants().OfType<ToggleButton>().Count(b => b.Classes.Contains("ask-option")));
-            Assert.True(texts.Contains("1 file changed  +1 −1"),
+            Assert.True(texts.Contains("1 file changed") && texts.Contains("+1") && texts.Contains("−1"),
                 "Drawn: " + string.Join(" | ", texts.Where(t => !string.IsNullOrEmpty(t))));
 
             // The waiting row is a Border of its own, and a type selector matches the exact type: without

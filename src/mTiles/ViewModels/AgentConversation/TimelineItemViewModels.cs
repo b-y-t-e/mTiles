@@ -336,13 +336,14 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
     {
         get
         {
-            var entry = (CheckpointEntry)Source!;
-            var added = entry.Files.Sum(f => f.Additions);
-            var removed = entry.Files.Sum(f => f.Deletions);
-            var count = entry.Files.Count;
-            return $"{count} {(count == 1 ? "file" : "files")} changed  +{added} −{removed}";
+            var count = ((CheckpointEntry)Source!).Files.Count;
+            return $"{count} {(count == 1 ? "file" : "files")} changed";
         }
     }
+
+    // The totals are two strings rather than part of the summary so each can wear its own colour.
+    public string Additions => $"+{((CheckpointEntry)Source!).Files.Sum(f => f.Additions)}";
+    public string Deletions => $"−{((CheckpointEntry)Source!).Files.Sum(f => f.Deletions)}";
 
     public override bool CanShow(object entry) => entry is CheckpointEntry;
 
@@ -359,6 +360,8 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
         }
 
         OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(Additions));
+        OnPropertyChanged(nameof(Deletions));
     }
 
     [RelayCommand]
@@ -386,7 +389,8 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
 public sealed class ChangedFileViewModel(ChangedFile file)
 {
     public string Path => file.Path;
-    public string Counts => $"+{file.Additions} −{file.Deletions}";
+    public string Additions => $"+{file.Additions}";
+    public string Deletions => $"−{file.Deletions}";
     public string Marker => file.Kind switch
     {
         FileChangeKind.Added => "A",
