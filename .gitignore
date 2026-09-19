@@ -44,6 +44,3 @@ publish/
 Releases/
 TestResults/
 .mtiles/
-
-# mTiles workspace state
-.claude/skills/mtiles-database/
