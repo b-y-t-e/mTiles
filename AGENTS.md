@@ -1599,6 +1599,22 @@ both are wrong in opposite directions), and what a tile header of an index, a ki
 would take. The user-facing half of the same list is the **Roadmap** section of `README.md`; this one
 carries the reasoning.
 
+## Architecture decision records
+
+Important decisions are recorded as ADRs in `docs/adr/`, one file per decision:
+`NNNN-short-title.md`, numbered in order and never renumbered. Write one whenever a choice is
+non-obvious, costs something, or reverses an earlier one — a default forced on every tile, a
+trade-off against a user-visible feature, a workaround for another program's behaviour. Each ADR says
+what the situation was (**Context**), what was decided (**Decision**), what it costs and gains
+(**Consequences**), and, when the decision replaces earlier ones, their dates (**History**). Link the
+ADR from the code it governs, so the next person to touch that line finds the reason before changing it.
+A decision that is later reversed gets a new ADR; the old one is marked *superseded by NNNN*, not
+deleted.
+
+Recorded so far:
+- [0001](docs/adr/0001-claude-code-fullscreen-renderer.md) — Claude Code runs on its fullscreen
+  renderer in every tile (`CLAUDE_CODE_NO_FLICKER=1`); the classic one breaks the scrollback on resize.
+
 ## Conventions
 
 - **Workspace** (not "project") — working directory with terminal/editor tiles. Right-click on workspace → context menu (Show in Explorer, Remove).

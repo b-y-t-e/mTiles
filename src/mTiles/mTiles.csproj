@@ -72,7 +72,7 @@
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
     <!-- Parakeet, the model Handy recommends, is three ONNX graphs and a greedy loop over them. -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
     <!-- Dictation from a phone. QRCoder is pure managed and carries no native binaries, so it does not
          reach verify-natives.ps1; PngByteQRCode is used rather than the System.Drawing renderer. -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
