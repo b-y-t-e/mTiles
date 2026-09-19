@@ -1,9 +1,10 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using mTiles.Services;
 using mTiles.ViewModels;
@@ -22,6 +23,32 @@ public partial class TerminalTileView : UserControl, IFocusTargetView
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+
+        // A dropped file is typed into the terminal as its path, which is how every agent CLI here takes
+        // an image (and what a shell wants for any file) — see DroppedPathText. A picture with no file
+        // behind it, dragged out of a browser, is written to disk first so there is a path to type.
+        ImageDrop.Attach(this, DropHint,
+            items => TerminalHost.Content is TerminalControl { IsRunning: true }
+                     && (items.HasPicture || items.Files.Any(file => file.TryGetLocalPath() is not null)),
+            TypeDroppedPathsAsync);
+    }
+
+    private async Task TypeDroppedPathsAsync(DroppedItems items)
+    {
+        if (TerminalHost.Content is not TerminalControl terminal) return;
+        if (DataContext is not TerminalTileViewModel vm) return;
+
+        var paths = items.Files.Select(file => file.TryGetLocalPath()).OfType<string>().ToList();
+        if (items.Bitmap is { } bitmap)
+            using (bitmap)
+                if (await Task.Run(() => DroppedImages.Save(bitmap)) is { } saved) paths.Add(saved);
+
+        var text = vm.TypedTextReachesAShell
+            ? DroppedPathText.For(paths, vm.Shell.Shell)
+            : DroppedPathText.ForPrompt(paths);
+        if (text.Length == 0) return;
+        terminal.SendText(text);
+        terminal.Focus();
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

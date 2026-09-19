@@ -752,9 +752,37 @@ public class TerminalAgentTileTests
             const string substitution = "Running Claude Code instead of Codex.";
             tile.LaunchNotice = LaunchNotices.With(substitution, SkillChangePolicy.Notice);
 
-            tile.NoteProcessStarting();
+            tile.NoteProcessStarting(isOneOfTheTilesOwnCommands: true);
 
             Assert.Equal(substitution, tile.LaunchNotice);
+        }
+        finally { tile.Dispose(); }
+    }
+
+    /// <summary>A dropped path is quoted for whatever is running now, and a chain's fallback shell is a
+    /// shell whatever the tile's kind is.</summary>
+    /// <remarks>The chain ends at a plain interactive shell and goes there whenever the CLI exits, so an
+    /// answer given per tile kind hands bash a file called <c>a;calc.png</c> unquoted — a second command
+    /// the moment the user presses Enter.</remarks>
+    [Fact]
+    public void An_agent_tile_running_its_fallback_shell_quotes_a_dropped_path_for_that_shell()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var instance = settings.Service.Settings.AiAgentInstances[0];
+
+        var kind = new TerminalAgentTileKind();
+        var tile = (TerminalAgentTileViewModel)((ITileKind)kind).Create(
+            Context(directory.Path, settings, Guid.NewGuid().ToString()),
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
+
+        try
+        {
+            tile.NoteProcessStarting(isOneOfTheTilesOwnCommands: true);
+            Assert.False(tile.TypedTextReachesAShell);
+
+            tile.NoteProcessStarting(isOneOfTheTilesOwnCommands: false);
+            Assert.True(tile.TypedTextReachesAShell);
         }
         finally { tile.Dispose(); }
     }

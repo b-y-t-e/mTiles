@@ -546,6 +546,8 @@ In startup script `${tileId}` is replaced with the current `TileId` — both on 
 
 **A left-drag no longer always selects locally.** mTiles used to set `SelectionOverridesMouseTracking`; `Terminal.Avalonia` rejects a one-way override (see its `docs/MTERMINAL-COMPAT.md` → *Deliberately not adopted*) because it leaves an application with no way to receive the mouse at all — mc, vim, opencode click targets. Inside a full-screen app that grabbed the mouse, selection now needs **Shift** held: the xterm convention, but a habit users have to learn. Recorded so nobody rediscovers it as a bug.
 
+**Drop from the system** (`Views/ImageDrop.cs`): a no-drop cursor and no `[ImageDrop] Dropped on` line in the log mean Windows never delivered the drag — the process is elevated (UIPI, e.g. Rider as admin). Not fixable in code.
+
 ## Alt-buffer cleanup (TUI apps)
 
 Handled by the control, no app-side code: leaving the alternate screen releases the mouse grab, and **Shift** overrides a grab that is still latched. A TUI killed with Ctrl+C therefore no longer floods the shell with SGR mouse sequences.

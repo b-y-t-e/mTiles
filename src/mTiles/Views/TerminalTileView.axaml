@@ -1,5 +1,6 @@
 ﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:mTiles.Views"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:mi="using:Material.Icons.Avalonia"
              xmlns:v="using:mTiles.Views"
@@ -8,6 +9,7 @@
     <!-- The two banners take a strip off the top rather than floating over the terminal: drawn on top they
          hid the first lines of whatever the tile is running, and with both up the notice covered the problem.
          Docked children come first, so the host stays the fill child. -->
+  <Panel>
     <DockPanel LastChildFill="True">
         <!-- Why nothing was launched. A refused launch leaves an empty tile, and an empty tile with no
              words in it is the silent failure this exists to end. -->
@@ -112,4 +114,7 @@
         <!-- TerminalControl created in code-behind for caching -->
         <ContentControl x:Name="TerminalHost" />
     </DockPanel>
+    <local:FileDropHint x:Name="DropHint" Text="Drop to insert the path"
+                        FontSize="{DynamicResource FontMd}" />
+  </Panel>
 </UserControl>

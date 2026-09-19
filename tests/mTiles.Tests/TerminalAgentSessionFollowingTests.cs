@@ -127,7 +127,7 @@ public sealed class TerminalAgentSessionFollowingTests
             Assert.False(tile.HasLaunchNotice);
             Assert.Equal(SkillChangePolicy.Notice, RestartUrgency(tile));
 
-            tile.NoteProcessStarting();
+            tile.NoteProcessStarting(isOneOfTheTilesOwnCommands: true);
             Assert.Null(RestartUrgency(tile));
         }
         finally { tile.Dispose(); }

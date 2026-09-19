@@ -54,6 +54,10 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// <inheritdoc />
     public override string KindId => TileKindIds.TerminalAgent;
 
+    /// <summary>The commands this tile runs are the AI CLI's, and its prompt is its own — see the base
+    /// member. Only while one of them is running: the chain's fallback shell is still a shell.</summary>
+    protected override bool OwnCommandsReadTheirOwnPrompt => true;
+
     /// <summary>Which configured way of running an agent this tile is. Stored in the layout, looked up
     /// in settings at every launch.</summary>
     /// <remarks>Written only by <see cref="SwitchTo"/>, never by a plain setter: three things have to

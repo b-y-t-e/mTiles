@@ -78,6 +78,16 @@ public static class PrivateFile
         file.Write(bytes);
     }
 
+    /// <summary>Makes a directory only the owner can read, list or write.</summary>
+    /// <remarks>The execute bit is the one that lets a directory be entered at all, so owner-only here
+    /// is a bit wider than <see cref="OwnerOnly"/>. The mode goes on at creation for the reason
+    /// <see cref="WriteAllBytes"/> sets it there — and a directory that already exists is left as it is,
+    /// since narrowing somebody's own directory under them is not this method's decision.</remarks>
+    public static DirectoryInfo CreateDirectory(string path) =>
+        OperatingSystem.IsWindows()
+            ? Directory.CreateDirectory(path)
+            : Directory.CreateDirectory(path, OwnerOnly | UnixFileMode.UserExecute);
+
     /// <summary>Takes an existing file out of reach of other users on this machine.</summary>
     /// <remarks>Best effort: a mode that cannot be set is worth a line in the log and nothing more —
     /// the alternative is losing the write that carries the user's settings.</remarks>

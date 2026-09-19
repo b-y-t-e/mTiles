@@ -46,6 +46,32 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         Assert.True(condition(), "Condition was not met within the timeout.");
     }
 
+    /// <summary>
+    /// Writes a file the engine may still be holding, retrying briefly rather than throwing.
+    /// </summary>
+    /// <remarks>Every rebuild starts a reconcile, and a reconcile reads and writes both files — so a
+    /// test that fails a watcher and then edits a file straight away is racing work it asked for. On a
+    /// quiet machine the reconcile has finished first; on a loaded CI agent it has not, and the write
+    /// lands as <c>the process cannot access the file … because it is being used by another
+    /// process</c>. Retrying is the honest fix: the engine holding its own file for a moment is the
+    /// behaviour under test, not a fault.</remarks>
+    private static async Task WriteWhenFreeAsync(string path, string content, int timeoutMs = 8000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (true)
+        {
+            try
+            {
+                File.WriteAllText(path, content);
+                return;
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(50);
+            }
+        }
+    }
+
     /// <summary>A file held open by an editor, an antivirus or a cloud-sync client cannot be read, and
     /// the event that would have led here has already been consumed — so the reconcile has to ask again
     /// itself, or the two sides quietly disagree until somebody happens to save one of them.</summary>
@@ -437,7 +463,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         _engine.FailWatcher(new ErrorEventArgs(new IOException("watcher broken")));
         Assert.False(_engine.IsRunning);
 
-        File.WriteAllText(Claude, "two");
+        // The three rebuilds each started a reconcile, and one of them may still hold these files.
+        await WriteWhenFreeAsync(Claude, "two");
         await Task.Delay(600); // past the debounce, and nothing is watching to react to the edit
 
         Assert.Equal("one", File.ReadAllText(Agents));

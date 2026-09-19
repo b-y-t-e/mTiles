@@ -1,5 +1,6 @@
 ﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:mTiles.Views"
              xmlns:ac="using:mTiles.ViewModels.AgentConversation"
              xmlns:ev="using:mTiles.AgentSessions.Events"
              xmlns:mi="using:Material.Icons.Avalonia"
@@ -127,6 +128,7 @@
         </DataTemplate>
     </UserControl.Resources>
 
+  <Panel>
     <DockPanel Background="{DynamicResource BgBase}">
 
         <!-- ======== Strip: what state the agent is in, what the context costs, and stop ======== -->
@@ -306,7 +308,7 @@
              Images go in by pasting (Ctrl+V when the clipboard holds no text, Alt+V always), by dropping
              files on the box, or through the paperclip; each waits above the text with a button that
              takes it out again. -->
-        <Border x:Name="Composer" DockPanel.Dock="Bottom" Classes="composer" DragDrop.AllowDrop="True">
+        <Border x:Name="Composer" DockPanel.Dock="Bottom" Classes="composer">
             <StackPanel Spacing="4">
                 <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
                     <ItemsControl.ItemsPanel>
@@ -820,4 +822,7 @@
         </ScrollViewer>
 
     </DockPanel>
+    <local:FileDropHint x:Name="DropHint" Text="Drop to attach"
+                        FontSize="{DynamicResource TermFontMd}" />
+  </Panel>
 </UserControl>

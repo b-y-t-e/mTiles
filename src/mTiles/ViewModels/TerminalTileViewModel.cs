@@ -24,6 +24,22 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     public string WorkingDirectory { get; }
     public ShellInstallation Shell { get; }
 
+    /// <summary>Whether text typed into this tile is read by a shell, or by whatever the tile is running.</summary>
+    /// <remarks><para>A shell's prompt parses a command line, so a dropped path is quoted that shell's way;
+    /// an AI CLI's own prompt does not, and there those quotes are literal characters that stop the path
+    /// being one.</para>
+    /// <para><b>What decides is the process running now, never the kind of tile.</b> Every launch chain
+    /// ends at a plain interactive shell and goes there whenever the CLI exits, so an agent tile is a bash
+    /// or PowerShell prompt for much of its life — and a file called <c>a;calc.png</c> typed into it
+    /// unquoted is a second command the moment the user presses Enter.</para></remarks>
+    public bool TypedTextReachesAShell { get; private set; } = true;
+
+    /// <summary>Whether the commands this tile is configured to run read their own prompt rather than
+    /// handing it to a shell.</summary>
+    /// <remarks>A fact about the tile's kind, and the only half of the question a kind can answer — the
+    /// other half is which of those commands is running, which only the chain knows.</remarks>
+    protected virtual bool OwnCommandsReadTheirOwnPrompt => false;
+
     /// <summary>Where the tile's identity is read from — see <see cref="TileId"/>.</summary>
     private readonly Func<string>? _tileId;
     /// <summary>
@@ -234,10 +250,14 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// is the same placement <c>AgentConversationTileViewModel</c> makes for the same reason: after the
     /// refusals, in front of the process.</para>
     /// </remarks>
-    internal void NoteProcessStarting()
+    /// <param name="isOneOfTheTilesOwnCommands">False for the plain interactive shell a chain falls back
+    /// to, which reads its own input however the tile was configured — see
+    /// <see cref="TypedTextReachesAShell"/>.</param>
+    internal void NoteProcessStarting(bool isOneOfTheTilesOwnCommands)
     {
         if (_disposed) return;
 
+        TypedTextReachesAShell = !(isOneOfTheTilesOwnCommands && OwnCommandsReadTheirOwnPrompt);
         OnLaunchBeginning();
     }
 

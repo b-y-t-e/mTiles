@@ -1083,5 +1083,7 @@
         </ScrollViewer>
     </DockPanel>
 
+    <v:FileDropHint x:Name="DropHint" Text="Drop to attach"
+                    FontSize="{DynamicResource TermFontMd}" />
     </Panel>
 </UserControl>

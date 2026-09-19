@@ -1,10 +1,11 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using mTiles.AgentSessions.Events;
 using mTiles.Controls;
+using Avalonia.Platform.Storage;
 using mTiles.Services;
 using mTiles.ViewModels.AgentConversation;
 
@@ -26,8 +27,12 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         InitializeComponent();
         TeachThePickers();
         FitTheRows();
-        Composer.AddHandler(DragDrop.DragOverEvent, Composer_DragOver);
-        Composer.AddHandler(DragDrop.DropEvent, Composer_Drop);
+        // Anywhere on the tile, not only on the composer: the transcript is most of the card, and a
+        // picture let go over it used to be dropped on the floor. It lands in the composer either way —
+        // attached, never sent.
+        ImageDrop.Attach(this, DropHint,
+            items => _subscribed is not null && (items.HasPicture || items.Files.Count > 0),
+            AttachDroppedAsync);
 
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
         ComposerInput.Attach(InputBox, Send, () => IsPickingAFile, Composer,
@@ -134,14 +139,24 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         if (from(vm).FirstOrDefault(option => option.Id == e.Option.Id) is { } picked) onto(vm, picked);
     }
 
-    private static void Composer_DragOver(object? sender, DragEventArgs e) =>
-        e.DragEffects = e.DataTransfer.TryGetFiles() is { Length: > 0 } ? DragDropEffects.Copy : DragDropEffects.None;
-
-    private async void Composer_Drop(object? sender, DragEventArgs e)
+    /// <summary>Takes a drop the way the composer takes one: a picture is attached, anything else is named.</summary>
+    /// <remarks>A file this application cannot decode as an image is still something the agent can open
+    /// for itself, so its path goes into the message rather than being dropped on the floor — the same
+    /// answer the terminal tile gives, and never a send.</remarks>
+    private async Task AttachDroppedAsync(DroppedItems items)
     {
-        if (e.DataTransfer.TryGetFiles() is not { Length: > 0 } files) return;
-        e.Handled = true;
-        await AttachFilesAsync(files);
+        if (items.Bitmap is { } bitmap)
+            using (bitmap) _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(bitmap, "dropped image"));
+
+        var notAttached = await AttachFilesAsync(items.Files);
+        MentionInTheMessage(notAttached);
+    }
+
+    private void MentionInTheMessage(IEnumerable<IStorageItem> files)
+    {
+        var paths = files.Select(file => file.TryGetLocalPath()).OfType<string>();
+        if (DroppedPathText.ForPrompt(paths) is { Length: > 0 } text)
+            _subscribed?.TrySendText(text.TrimEnd(), submit: false);
     }
 
     private async void AttachButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -162,11 +177,18 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         await AttachFilesAsync(files);
     }
 
-    private async Task AttachFilesAsync(IEnumerable<Avalonia.Platform.Storage.IStorageItem> files)
+    /// <summary>Attaches every file that decodes as a picture, and answers the ones that did not.</summary>
+    /// <remarks>Answered rather than dropped: a file with a picture's name that cannot be decoded — damaged,
+    /// or too large — is still something the agent can be pointed at by its path.</remarks>
+    private async Task<IReadOnlyList<IStorageItem>> AttachFilesAsync(IEnumerable<IStorageItem> files)
     {
+        var notAttached = new List<IStorageItem>();
         foreach (var file in files)
             if (await ComposerImages.FromFileAsync(file) is { } image)
                 _subscribed?.AttachImageCommand.Execute(image);
+            else
+                notAttached.Add(file);
+        return notAttached;
     }
 
     protected override void OnDataContextChanged(EventArgs e)

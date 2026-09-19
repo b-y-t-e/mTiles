@@ -22,6 +22,10 @@ public static class Program
         if (AppPaths.MigrationNote is { } moved)
             Trace.TraceInformation(moved);
 
+        // The same sweep the logs get, and for the same reason: a picture dropped without a file behind
+        // it is kept only so an agent can be handed a path, and nothing else ever comes back to delete it.
+        DroppedImageStore.PruneAll(DateTime.Now);
+
         // Claude Code ≥2.1.89 defaults to "fullscreen rendering": it draws on the
         // alternate screen buffer and captures the mouse, which kills the terminal's
         // native scrollback, drag-selection and select-while-scrolling in tiles.

@@ -110,6 +110,13 @@ public static class AppPaths
         }
     }
 
+    /// <summary>Where an image dropped on a terminal agent tile is written when it arrived as pixels
+    /// rather than as a file — the agent is handed a path, so the picture needs one.</summary>
+    /// <remarks>Here and never in the workspace: a file under the repository would wait in the next
+    /// <c>git status</c>. Pruned by the same retention the logs use.</remarks>
+    public static string GetDroppedImagesDirectory() =>
+        Path.Combine(GetAppDataDirectory(), "dropped-images");
+
     public static string GetLogsDirectory() =>
         Path.Combine(GetAppDataDirectory(), AppDefaults.LogSubdirectory);
 

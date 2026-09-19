@@ -111,16 +111,17 @@ internal static class TileLauncher
         // environment, never in a script typed at a live prompt.
         var environment = vm.LaunchEnvironment;
 
-        // Here rather than where the launch was claimed, and with both refusals above it: a launch that
-        // resolves to a problem, or that has been superseded while it was prepared, starts nothing — and
-        // a tile that answered such a launch took down the line asking for a restart while the process
-        // that restart was meant for went on running with the skills it read at its own start.
-        vm.NoteProcessStarting();
-
         if (scripts.RunsCommandChain)
         {
             try
             {
+                // Here rather than where the launch was claimed, and with both refusals above it: a launch
+                // that resolves to a problem, or that has been superseded while it was prepared, starts
+                // nothing — and a tile that answered such a launch took down the line asking for a restart
+                // while the process that restart was meant for went on running with the skills it read at
+                // its own start.
+                vm.NoteProcessStarting(isOneOfTheTilesOwnCommands: true);
+
                 // The chain starts processes of its own — a relaunch, the next link, the shell it ends
                 // at — and none of them comes back through here, so it is told to say so: what the tile
                 // answers at a launch it must also answer at a start it did not ask for.
@@ -140,11 +141,20 @@ internal static class TileLauncher
                     vm.TileId, ex);
             }
 
+            // The chain never started, so what the tile gets is the plain shell below — announced as
+            // such, or the tile would keep quoting for whatever prompt the failed chain was meant to open.
+            vm.NoteProcessStarting(isOneOfTheTilesOwnCommands: false);
             _ = LaunchShellAsync(terminal, vm, startupScript: null, environment);
             vm.OnLaunched(startedAt);
             return;
         }
 
+        // What is started here is an interactive shell, and the startup script — if there is one — is
+        // typed into it. An agent with no fallback (Grok, a generic binary) runs this way, and when its CLI
+        // exits the user is back at that shell with nothing here watching for it — so the tile is always
+        // told it is a shell. Quoting a path for the shell inside the CLI's prompt costs a pair of quotes;
+        // the other way round, a file called `a;calc.png` is a second command at the next Enter.
+        vm.NoteProcessStarting(isOneOfTheTilesOwnCommands: false);
         _ = LaunchShellAsync(terminal, vm, scripts.Startup, environment);
         vm.OnLaunched(startedAt);
     }

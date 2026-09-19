@@ -44,6 +44,34 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage);
         ComposerInput.Attach(PlanBox, () => (DataContext as GoalTileViewModel)?.ApproveOrChangeCommand.Execute(null),
             () => IsPickingAFile);
+
+        // Anywhere on the tile, as on the Agent tile — attached to the composer, never sent.
+        ImageDrop.Attach(this, DropHint,
+            items => DataContext is GoalTileViewModel && (items.HasPicture || items.Files.Any(IsImageFile)),
+            AttachDroppedAsync);
+    }
+
+    private static bool IsImageFile(Avalonia.Platform.Storage.IStorageItem item) =>
+        item is Avalonia.Platform.Storage.IStorageFile file
+        && ComposerImages.Extensions.Contains(Path.GetExtension(file.Name).TrimStart('.').ToLowerInvariant());
+
+    private async Task AttachDroppedAsync(DroppedItems items)
+    {
+        if (items.Bitmap is { } dropped)
+            using (dropped) AttachImage(dropped);
+        foreach (var file in items.Files.Where(IsImageFile).OfType<Avalonia.Platform.Storage.IStorageFile>())
+        {
+            try
+            {
+                await using var stream = await file.OpenReadAsync();
+                using var bitmap = new Avalonia.Media.Imaging.Bitmap(stream);
+                AttachImage(bitmap);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceWarning($"[GoalTile] {file.Name} could not be read as an image: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>Teaches the strip's four pickers how to read this tile's own lists, and where a pick goes.</summary>
