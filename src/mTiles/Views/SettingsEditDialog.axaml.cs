@@ -1,4 +1,8 @@
-﻿using Avalonia.Controls;
+﻿using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.Linq;
@@ -35,6 +39,41 @@ public partial class SettingsEditDialog : UserControl, OverlayHost.IFocusOnOpen
         // why "contains" is not enough.
         AgentModelBox.ItemFilter = MatchesModel;
         AgentFastModelBox.ItemFilter = MatchesModel;
+
+        // Enter saves, the way it does in every other form here. Bubbling rather than tunnelling, so
+        // a control that means something else by Enter — a completion box choosing from its list, a
+        // multi-line field taking a newline — has already handled it by the time this is asked.
+        AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Bubble);
+    }
+
+    /// <remarks>
+    /// <para>The save button is <b>found</b> rather than named: this one control draws four forms —
+    /// agent, provider, sign-in and manual connection — only one of which is visible at a time, and
+    /// each has a save command of its own. Asking which button is on screen keeps the rule as one
+    /// line however many forms the dialog grows.</para>
+    /// <para>A disabled save is a form that is not valid yet, so Enter does nothing rather than
+    /// closing a dialog the user would have to reopen.</para>
+    /// </remarks>
+    private void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled || e.Key != Key.Enter) return;
+
+        // A field that takes the key itself keeps it: a newline in a description, and a completion
+        // list whose popup is open is answering Enter with the entry the user has highlighted.
+        if (e.Source is TextBox { AcceptsReturn: true }) return;
+        if (e.Source is Visual source
+            && source.FindAncestorOfType<AutoCompleteBox>() is { IsDropDownOpen: true })
+            return;
+
+        var save = this.GetVisualDescendants()
+            .OfType<Button>()
+            .FirstOrDefault(b => b.Classes.Contains("accent")
+                && b.IsEffectivelyVisible
+                && b.IsEffectivelyEnabled);
+        if (save is null) return;
+
+        e.Handled = true;
+        save.Command?.Execute(save.CommandParameter);
     }
 
     private static bool MatchesModel(string? search, object? item) =>
