@@ -43,7 +43,21 @@ public abstract class TileKind<T> : ITileKind where T : ITile
     /// <summary>What to write down. Nothing, unless a kind says otherwise.</summary>
     protected virtual JsonObject? Save(T tile) => null;
 
+    /// <summary>Every key the option carries, answered the same way by what this tile would be saved
+    /// as.</summary>
+    /// <remarks>A subset rather than a whole-state comparison, because an option describes one decision
+    /// and the state carries everything the kind writes down — the agent tile's shell and its captured
+    /// session id are not part of what the card offered. An option that carries no state at all is
+    /// "however this kind starts by default", which nothing here can compare against, so a kind that
+    /// offers one answers for itself.</remarks>
+    protected virtual bool IsCurrentSetup(TileContext context, T tile, TileSetupOption option) =>
+        option.State is { } wanted && Save(tile) is { } saved
+        && wanted.All(pair => JsonNode.DeepEquals(pair.Value, saved[pair.Key]));
+
     ITile ITileKind.Create(TileContext context, JsonObject? state) => Create(context, state);
+
+    bool ITileKind.IsCurrentSetup(TileContext context, ITile tile, TileSetupOption option) =>
+        IsCurrentSetup(context, (T)tile, option);
 
     JsonObject? ITileKind.Save(ITile tile) => Save((T)tile);
 }

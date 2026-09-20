@@ -73,6 +73,15 @@ public interface ITileKind
     IReadOnlyList<TileSetupOption> SetupOptions(TileContext context);
 
     /// <summary>
+    /// Whether a tile of this kind is already set up the way this option would set it up.
+    /// </summary>
+    /// <remarks>Asked only where the kind a tile already is is being picked again — moving a terminal
+    /// to another shell, an agent tile to another CLI — so that the setup it is running now is not
+    /// offered back to it: taking it would end the shell and its process tree, and for a captured
+    /// agent lose the session id, to arrive at exactly the configuration it left.</remarks>
+    bool IsCurrentSetup(TileContext context, ITile tile, TileSetupOption option);
+
+    /// <summary>
     /// Builds a tile, from saved state or from nothing.
     /// </summary>
     /// <remarks>

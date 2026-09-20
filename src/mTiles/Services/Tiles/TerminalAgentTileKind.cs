@@ -57,6 +57,19 @@ public sealed class TerminalAgentTileKind : TileKind<TerminalAgentTileViewModel>
         ];
     }
 
+    /// <summary>Every instance of the agent this tile is already running, and not only the one it is
+    /// configured as.</summary>
+    /// <remarks>Re-picking this kind is how a tile moves to <em>another</em> CLI; moving between two
+    /// configurations of the same one is what the header's own "Run this tile as…" does, and it does it
+    /// far more cheaply — it changes the instance and restarts, keeping the captured conversation
+    /// because the agent has not moved. Rebuilt through the setup step instead, the tile is created from
+    /// a state carrying an instance and an agent id and nothing else, so codex's and agy's captured
+    /// session id is gone for good. Two routes out of one header, one of them silently more expensive,
+    /// is the offer standing down rather than the user being asked to know the difference.</remarks>
+    protected override bool IsCurrentSetup(TileContext context, TerminalAgentTileViewModel tile,
+        TileSetupOption option) =>
+        option.State.String(AgentStateKeys.AgentIdKey) == tile.AgentId;
+
     protected override TerminalAgentTileViewModel Create(TileContext context, JsonObject? state)
     {
         var settings = context.Settings.Settings;

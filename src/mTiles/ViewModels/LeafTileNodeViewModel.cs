@@ -82,8 +82,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         OnPropertyChanged(nameof(CanSwitchAgentInstance));
     }
 
-    /// <summary>The kinds this tile could become - every registered one but the kind it already is.
-    /// </summary>
+    /// <summary>The kinds this tile could become - every registered one, and its own kind too where
+    /// that kind has a setup step to ask (another shell, another agent CLI).</summary>
     /// <remarks>A tile keeps its place in the tree, its id and its activity across the change, so this
     /// is a change to the tile rather than a new tile beside it. Read straight off the registry, so a
     /// kind added later is offered here by being registered - the same list, in the same order, that an
@@ -101,19 +101,48 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// costs about a tile that is holding nothing.</remarks>
     public void RefreshChangeKindOptions()
     {
-        ChangeKindOptions = _disposed || _catalog is null || KindId.Length == 0 || Kind?.IsPermanent == true
+        ChangeKindOptions = _disposed || _catalog is null || _context is null || KindId.Length == 0
+                            || Kind?.IsPermanent == true
             ? []
             :
             [
                 .. _catalog.Entries.Select(entry => entry.Kind)
                     .Where(kind => !kind.IsPermanent)
-                    .Where(kind => !string.Equals(kind.Id, KindId, StringComparison.OrdinalIgnoreCase))
-                    .Select(kind => new TileKindChoice(kind.DisplayName, kind.IconId, kind.AccentKey,
+                    .Where(kind => !IsCurrentKind(kind.Id) || HasSomethingToChoose(kind))
+                    .Select(kind => new TileKindChoice(
+                        IsCurrentKind(kind.Id) ? $"{kind.DisplayName}\u2026" : kind.DisplayName,
+                        kind.IconId, kind.AccentKey,
                         () => BeginChangeKindAsync(kind.Id)))
             ];
 
         OnPropertyChanged(nameof(ChangeKindOptions));
         OnPropertyChanged(nameof(CanChangeKind));
+    }
+
+    private bool IsCurrentKind(string kindId) =>
+        string.Equals(kindId, KindId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether re-picking the kind this tile already is would actually ask something.</summary>
+    /// <remarks>The tile's own kind is offered back only when it has a setup step: that step is the
+    /// whole point of the entry — running this terminal on another shell, this agent tile on another
+    /// CLI — and a kind with nothing to choose would convert a tile into an identical one, which is a
+    /// destroyed shell for no change at all.</remarks>
+    private bool HasSomethingToChoose(ITileKind kind) =>
+        _context is { } context && SetupChoicesFor(kind, context).Count > 0;
+
+    /// <summary>The cards this tile would be shown for a kind — without the one it is already on.
+    /// </summary>
+    /// <remarks>The filtering is only ever about the kind the tile already is: for any other kind every
+    /// card is a change. Picking the setup it is running now would end the shell and its process tree —
+    /// and for codex and agy lose the captured session id, which no new state carries — to arrive at the
+    /// configuration it started from, which is the same reason <c>SwitchAgentInstance</c> stands its own
+    /// current instance down.</remarks>
+    private IReadOnlyList<TileSetupOption> SetupChoicesFor(ITileKind kind, TileContext context)
+    {
+        var options = kind.SetupOptions(context);
+        if (!IsCurrentKind(kind.Id) || Content is not { } content) return options;
+
+        return [.. options.Where(option => !kind.IsCurrentSetup(context, content, option))];
     }
 
     /// <summary>
@@ -126,13 +155,17 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     [RelayCommand]
     private async Task BeginChangeKindAsync(string? kindId)
     {
-        if (kindId is not { Length: > 0 } || kindId == KindId || KindId.Length == 0) return;
+        if (kindId is not { Length: > 0 } || KindId.Length == 0) return;
         if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
         if (kind.IsPermanent || Kind?.IsPermanent == true) return;
 
-        var options = kind.SetupOptions(context);
+        var options = SetupChoicesFor(kind, context);
         if (options.Count == 0)
         {
+            // Re-picking the kind this tile already is only means anything through its setup step, so
+            // without one there is nothing to convert to.
+            if (IsCurrentKind(kindId)) return;
+
             await ConvertToAsync(kindId, state: null);
             return;
         }
@@ -754,13 +787,14 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     }
 
     /// <summary>Gives an empty tile its content, its kind and its name.</summary>
-    private void Adopt(string kindId, JsonObject? state)
+    private void Adopt(string kindId, JsonObject? state, bool keepName = false)
     {
         if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
 
         Content = kind.Create(context, state);
         KindId = kindId;
-        TileName = _nameFactory?.Invoke(kindId) ?? kind.DisplayName;
+        if (!keepName || TileName.Length == 0)
+            TileName = _nameFactory?.Invoke(kindId) ?? kind.DisplayName;
         (Content as IFileContent)?.RenameFile(TileName);
         NotifyLayoutChanged();
     }
@@ -780,7 +814,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// </remarks>
     private async Task ConvertToAsync(string kindId, JsonObject? state)
     {
-        if (_disposed || kindId == KindId) return;
+        if (_disposed || kindId.Length == 0) return;
 
         // A setup step still on screen belongs to a conversion the user has walked away from - the
         // header stays clickable while it is drawn, so Change type can be picked again from under it.
@@ -791,8 +825,15 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // Both guards are Adopt's own, asked here as well: it answers a kind or a context it cannot
         // resolve by doing nothing, which after the swap below would be a tile left holding nothing.
         if (_catalog?.Kind(kindId) is not { } kind || _context is null) return;
+
+        // The tile's own kind again is not a change of kind: what the user picked was the setup step's
+        // answer - another shell, another agent - so the question says that, and the tile keeps the name
+        // it is known by rather than being renumbered for standing still.
+        var samekind = IsCurrentKind(kindId);
         if (ConfirmAction is { } confirm
-            && !await confirm(TileConversion.Warning(KindId, kind.DisplayName)))
+            && !await confirm(samekind
+                ? TileConversion.ReconfigureWarning(KindId, kind.DisplayName)
+                : TileConversion.Warning(KindId, kind.DisplayName)))
             return;
 
         // The question is the one point here where the tile can be closed underneath us: Dispose has
@@ -816,7 +857,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // header's actions and the background are owned by nothing for a moment, and the view is handed
         // a null it clears the host for and then rebuilds - a flicker on every change.
         var previous = Content;
-        Adopt(kindId, state);
+        Adopt(kindId, state, keepName: samekind);
         previous?.Dispose();
 
         // Asked after the swap, because it is a question about the content there is now: a kind that

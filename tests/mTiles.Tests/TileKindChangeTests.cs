@@ -68,6 +68,10 @@ public sealed class TileKindChangeTests : IDisposable
         public ITile Create(TileContext context, JsonObject? state) => new StubTile(Id, state);
 
         public JsonObject? Save(ITile tile) => (tile as StubTile)?.State;
+
+        /// <summary>The card this tile was built from is the one it is already on.</summary>
+        public bool IsCurrentSetup(TileContext context, ITile tile, TileSetupOption option) =>
+            JsonNode.DeepEquals(option.State, (tile as StubTile)?.State);
     }
 
     private const string Plain = "plain";
@@ -112,6 +116,40 @@ public sealed class TileKindChangeTests : IDisposable
 
         Assert.True(tile.CanChangeKind);
         Assert.Equal([Other, Asking], tile.ChangeKindOptions.Select(choice => choice.Label));
+    }
+
+    /// <summary>A kind with a setup step is offered back to a tile that already is that kind.</summary>
+    /// <remarks>Picking it again is how a terminal moves to another shell and an agent tile to another
+    /// CLI — the step is the whole entry, so a kind with nothing to choose is still left out.</remarks>
+    [Fact]
+    public async Task A_kind_that_asks_something_is_offered_to_a_tile_of_its_own_kind()
+    {
+        using var settings = new TempSettings();
+        var context = new TileContext(_directory.Path, settings.Service);
+        var content = new StubTile(Asking, state: null);
+        var tile = new LeafTileNodeViewModel(Asking, content, _directory.Path,
+            new TileActivationScope(), StubCatalog(), context) { TileName = "kept" };
+
+        tile.RefreshChangeKindOptions();
+
+        Assert.Equal([Plain, Other, $"{Asking}\u2026"],
+            tile.ChangeKindOptions.Select(choice => choice.Label));
+
+        await ChangeTo(tile, Asking);
+        Assert.True(tile.IsChoosingSetup);
+        await tile.SelectSetupOptionCommand.ExecuteAsync(tile.SetupOptions[0]);
+
+        Assert.Equal(1, content.Disposals);
+        Assert.Equal(Asking, tile.KindId);
+        Assert.Equal("kept", tile.TileName);
+
+        var replacement = Assert.IsType<StubTile>(tile.Content);
+        Assert.Equal("yes", replacement.State?["chosen"]?.GetValue<string>());
+
+        // And with its one card now the setup the tile is on, the kind stands down again: taking it
+        // would destroy the tile's content to build the very same thing.
+        tile.RefreshChangeKindOptions();
+        Assert.Equal([Plain, Other], tile.ChangeKindOptions.Select(choice => choice.Label));
     }
 
     /// <summary>An empty tile is offered nothing, and refuses the command if it is reached anyway.

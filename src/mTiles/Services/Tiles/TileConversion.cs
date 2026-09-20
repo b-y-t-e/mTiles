@@ -29,6 +29,15 @@ public static class TileConversion
     public static string Warning(string? currentKindId, string targetDisplayName) =>
         $"Change this tile to {targetDisplayName}? {Consequence(currentKindId)}";
 
+    /// <summary>The question to put before a tile is rebuilt as another setup of the kind it already
+    /// is - this terminal on another shell, this agent tile on another CLI.</summary>
+    /// <remarks>Not <see cref="Warning"/> with the same name on both sides: "Change this tile to
+    /// Terminal agent?" asked of a terminal agent tile reads as a menu that did nothing, while what is
+    /// actually about to happen - the shell and everything in it ending - is the half the user has to
+    /// weigh.</remarks>
+    public static string ReconfigureWarning(string? currentKindId, string kindDisplayName) =>
+        $"Run this {kindDisplayName} tile on what you picked? {Consequence(currentKindId)}";
+
     /// <summary>What is ended, and then what is left behind — either half may be all there is to say.
     /// </summary>
     private static string Consequence(string? kindId) =>

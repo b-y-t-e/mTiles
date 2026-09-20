@@ -78,6 +78,18 @@ public sealed class TerminalTileKind : TileKind<TerminalTileViewModel>
         ];
     }
 
+    /// <summary>The card the tile is already on, the default shell included.</summary>
+    /// <remarks>"Default shell" carries no state, so the base rule cannot answer for it — and it has to
+    /// be answered: a tile is saved with the name of the shell it resolved to, so the default card and
+    /// the card of the shell the default resolves to build the same tile, and either of them offered
+    /// back is a shell killed for nothing.</remarks>
+    protected override bool IsCurrentSetup(TileContext context, TerminalTileViewModel tile,
+        TileSetupOption option) =>
+        option.State is null
+            ? tile.Shell.DisplayName
+              == ShellTerminalCatalog.ResolveDefault(context.Settings.Settings, context.Shells).DisplayName
+            : base.IsCurrentSetup(context, tile, option);
+
     protected override TerminalTileViewModel Create(TileContext context, JsonObject? state)
     {
         // A shell that is no longer installed falls through to the default rather than leaving the tile

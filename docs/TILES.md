@@ -599,9 +599,16 @@ The order is the whole of the decision, and it is `LeafTileNodeViewModel.BeginCh
 4. only then is anything destroyed, and the new content is put in place **before** the old is disposed
    of, or the busy light, the header's actions and the background are owned by nothing for a moment.
 
+The list also holds **the kind the tile already is**, where that kind has a setup step to ask — a
+terminal moved to another shell, an agent tile to another CLI. It is then a reconfiguration rather than
+a change of type: the question says so (`TileConversion.ReconfigureWarning`), the tile keeps the name it
+is known by, and the setup it is already running is left out of the step (`ITileKind.IsCurrentSetup`),
+since taking it would kill the shell to arrive back where it started.
+
 Three consequences worth knowing. Keeping the `TileId` means `agent → note → agent` comes back to the
 same conversation, because the session id *is* the tile id — a feature, not a leak. The name is
-generated afresh, so a hand-typed one is lost: there is no "the user renamed this" flag to consult. And
+generated afresh on a change of kind, so a hand-typed one is lost: there is no "the user renamed this"
+flag to consult — a reconfiguration keeps it, because the tile is still what it was. And
 the old kind's state is not remembered, so going back gives a *new* empty tile of that kind — the note's
 file stays on disk, but nothing points at it.
 
