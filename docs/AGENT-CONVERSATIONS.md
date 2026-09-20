@@ -225,6 +225,62 @@ agent as its first message — is [`ROADMAP.md`](ROADMAP.md) §6, and is what tu
 conversation starts nothing and says so; the way past it is to pick or start another conversation, and
 **Delete this conversation** is the one gesture that forgets.
 
+## Which account a stretch of a conversation ran as
+
+**The agent is only half the identity, and the other half is where the CLI keeps its sessions.** A resume
+token lives in the account's own directory (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, a
+sign-in's `agents/<agentId>/<signInId>/`), so the same agent on a second subscription is handed a token
+naming a session that is not there: it starts cold. The transcript is ours and is drawn whatever happens,
+which is exactly what made the loss invisible — an unbroken column of messages over a model that remembers
+none of it, and a notice arriving once the new session had already begun.
+
+Four things follow, and each is one of the four places that used to be silent:
+
+- **`SessionConfigured` carries a `SessionAccount`** — agent id, instance id, the instance's name and the
+  sign-in id — **stamped by the host, never reported by the session**. A session says what its CLI told it;
+  only the host knows the row in Settings it was launched from, which is the thing that decides where the
+  token lives. `AgentConversationHost.StartAsync` takes it and `Stamp` fills it in, so it is one place
+  rather than one per agent. Null on every event written before this existed, and read as *not said*.
+- **The reducer carries it forward and marks every entry with it.** `ConversationState.Account` is the last
+  one said, and `TimelineEntry.Account` is what the conversation was running as when that line happened —
+  stamped in `Append`, the one place a timeline entry is made, so it is a rule rather than something each
+  branch has to remember. Nothing is migrated: an old conversation reads back with nulls.
+- **Opening a conversation puts the tile back on it** (`AdoptStoredSession`). The stored record names only
+  the agent, so a tile opening a conversation from the list took whichever instance of that agent came
+  first — on a machine with two subscriptions, a coin toss, and the losing side resumes nothing. The model,
+  the mode and the effort come back with it. **Only when a conversation is opened, and only what the instance would not answer by
+  itself**: adopted at every start, a session's report of the instance's own values was pinned into the layout
+  as an override nobody chose — freezing a model resolved from `__first_loaded__` and cutting the tile off from
+  every later change in Settings. **The model is only ever one somebody picked** (`SessionModelChosen`,
+  written by the host when a change of model is taken, and `ConversationState.ChosenModel`, dropped when the
+  account moves): what a session reports running is mostly the CLI's resolution of an empty field or an
+  alias into a full id, and restored it would freeze that day's default. **The model goes through `IAiAgent.InstanceModel` and never
+  back as it was reported**: what a session lists is spelled that CLI's way — opencode and pi qualify it
+  with their registry's provider name — so kept as it stands it would be qualified a second time at the next
+  launch, into `openrouter/openrouter/auto`. That is the same round trip a model picked in the strip already
+  takes, so it is that helper and not a second rule. An override the user already chose is never overruled.
+  A switch the user has just confirmed is never adopted away: the host replayed after it still names the
+  stretch before it, so the start that the switch caused skips the adoption, and a model spelled for an
+  account that is not the one about to run is left behind with it — the rule `OverridesSurvivingSwitch`
+  already follows.
+- **The seam is drawn.** The first entry of a new stretch carries a rule with the account's name on it
+  (`TimelineItemViewModel.Seam`, written by `MarkSeams`), so everything above it stays legible as somebody
+  else's work. On the *item* rather than as an item of its own, because `TimelineSync` matches view models
+  to records by position — the reducer only appends — and a separator inserted between them would shift
+  every index after it. Two stretches are the same account **by id and never by name**: a renamed instance
+  is the same account, and two rows seeded with one provider's display name are two identically spelled ones.
+
+**And the switch asks first** (`ConfirmLeavingTheAccountAsync`), which the terminal agent tile has done from
+the start (`TerminalAgentTileViewModel.ConfirmationForSwitchTo`) and this one had never done. Only where the
+login actually moves — another model or another key on the same account resumes perfectly well, and a dialog
+in front of every pick is one nobody reads. **No dialog to ask in is a yes** here, unlike a destructive
+action: nothing is lost that the transcript does not still hold, and refusing would leave a tile with no way
+to change account at all.
+
+What none of this does is *carry the work across* the seam. That is [`ROADMAP.md`](ROADMAP.md) §6 — and it
+is cheaper than it was written to be, because "one conversation, several segments" is now a question the
+events already answer: a segment is the stretch between two `SessionConfigured`s naming different accounts.
+
 ## Switching model, mode and effort inside a conversation
 
 The strip above the conversation holds a model field (pick from what the session lists, or type a name and

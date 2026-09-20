@@ -53,6 +53,17 @@ public sealed record ConversationState
     /// <summary>The agent's own handle on this conversation, as it last reported it.</summary>
     public string? ResumeToken { get; init; }
 
+    /// <summary>Who the conversation is running as now, or null before any session said.</summary>
+    /// <remarks>What the tile reads to put its own chooser back where the conversation left it: the stored
+    /// record names the agent, and only this names the instance and the login inside it.</remarks>
+    public SessionAccount? Account { get; init; }
+
+    /// <summary>The model last picked for this conversation on the account running it, or null where nobody
+    /// picked one.</summary>
+    /// <remarks>What reopening restores, rather than <see cref="Model"/>: that is the CLI's own resolution and
+    /// would freeze its default of the day. See <see cref="SessionModelChosen"/>.</remarks>
+    public string? ChosenModel { get; init; }
+
     /// <summary>The newest checkpoint, which is what the next one is compared against.</summary>
     public string? LatestCheckpointId { get; init; }
 
@@ -102,6 +113,15 @@ public abstract record TimelineEntry(string Id)
 {
     public string? TurnId { get; init; }
     public DateTimeOffset At { get; init; }
+
+    /// <summary>Who the conversation was running as when this happened, or null where nothing had said yet.
+    /// </summary>
+    /// <remarks><b>Stamped rather than stored.</b> Nothing writes this into an event: the reducer carries
+    /// the account forward from the last <see cref="SessionConfigured"/> and marks every entry it appends
+    /// with it, so a conversation recorded before any of this existed reads back with nulls instead of a
+    /// migration — and one recorded since says, line by line, which agent and which login produced it.
+    /// </remarks>
+    public SessionAccount? Account { get; init; }
 }
 
 /// <summary>A message from the user or the assistant.</summary>

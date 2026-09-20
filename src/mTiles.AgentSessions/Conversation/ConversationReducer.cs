@@ -41,7 +41,10 @@ public static class ConversationReducer
                 Mode = c.Mode ?? state.Mode,
                 Effort = c.Effort ?? state.Effort,
                 ResumeToken = c.ResumeToken ?? state.ResumeToken,
+                Account = c.Account ?? state.Account,
+                ChosenModel = MovesAccount(state, c) ? null : state.ChosenModel,
             },
+            SessionModelChosen m => state with { ChosenModel = m.Model },
             SessionOptionsReported o => state with { Options = o },
             TurnStarted t => state with
             {
@@ -335,8 +338,18 @@ public static class ConversationReducer
         return -1;
     }
 
+    /// <summary>Whether a session starts a stretch on another account than the one running until now.</summary>
+    /// <remarks>A model chosen there was spelled for that account's provider, so it goes with it.</remarks>
+    private static bool MovesAccount(ConversationState state, SessionConfigured configured) =>
+        configured.Account is { } account && state.Account is not null && !account.IsSameAs(state.Account);
+
+    /// <summary>Adds an entry, stamped with the account the conversation is running as.</summary>
+    /// <remarks>The one place every timeline entry is made, which is what makes the stamp a rule rather than
+    /// something each branch has to remember. An entry that carries one already keeps it — nothing does yet,
+    /// and a later replay of somebody else's segment must not be re-attributed to whoever is running now.
+    /// </remarks>
     private static ConversationState Append(ConversationState state, TimelineEntry entry) =>
-        state with { Timeline = state.Timeline.Add(entry) };
+        state with { Timeline = state.Timeline.Add(entry.Account is null ? entry with { Account = state.Account } : entry) };
 
     private static ConversationState Numbered(ConversationState state, out string id)
     {

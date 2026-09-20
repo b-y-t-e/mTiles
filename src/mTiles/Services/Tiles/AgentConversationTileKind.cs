@@ -61,7 +61,8 @@ public sealed class AgentConversationTileKind(IConversationStore store, IAgentSe
             context.TileId, SubstitutionFor(requestedInstance, requestedAgent, instance, agent),
             OverridesFrom(state), context.RequestSave, sessionStarter: sessionStarter,
             agentFiles: context.AgentFiles,
-            conversationId: state.String(AgentStateKeys.ConversationIdKey));
+            conversationId: state.String(AgentStateKeys.ConversationIdKey),
+            accountPicked: state.Bool(AccountPickedKey, fallback: false));
     }
 
     /// <summary>The model, mode and effort chosen in this tile over its instance's.</summary>
@@ -72,6 +73,11 @@ public sealed class AgentConversationTileKind(IConversationStore store, IAgentSe
 
     /// <inheritdoc cref="ModelKey"/>
     public const string EffortKey = "effort";
+
+    /// <summary>An account picked in this tile that its conversation has not recorded yet.</summary>
+    /// <remarks>Written only while true, so a tile nobody has switched saves the bytes it always did. Without it
+    /// a switch whose first start failed would be adopted back to the old account at the next run.</remarks>
+    public const string AccountPickedKey = "accountPicked";
 
     /// <summary>What the layout says this tile runs differently from its instance.</summary>
     /// <remarks>Read through the canonical ids, so a mode written by a newer build this one has no name for
@@ -120,6 +126,7 @@ public sealed class AgentConversationTileKind(IConversationStore store, IAgentSe
         // Only once one has been chosen: absent means the tile's own id, so a tile nobody has pointed elsewhere
         // saves exactly the bytes it always did.
         if (tile.StoredConversationId is { } conversation) state[AgentStateKeys.ConversationIdKey] = conversation;
+        if (tile.AccountPickedButUnrecorded) state[AccountPickedKey] = true;
         var overrides = tile.Overrides;
         if (overrides.Model is { } model) state[ModelKey] = model;
         if (overrides.Behaviour is { } mode) state[ModeKey] = SessionSettingOptions.ModeId(mode);

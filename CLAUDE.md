@@ -778,6 +778,27 @@ fail a cold resume in silence, and both are now caught before the first message 
 answers an unknown id with an error. The table is in
 [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) → *Which conversation a tile is showing*.
 
+**A conversation remembers which account each stretch of it ran as, and says so.** The agent is only half
+the identity: a resume token lives in the *account's* own directory, so the same CLI on a second
+subscription starts cold while the transcript — which is ours — goes on being drawn as one unbroken column.
+Four halves of that were silent and are not now. `SessionConfigured` carries a **`SessionAccount`** (agent,
+instance, the instance's name, sign-in), **stamped by the host and never reported by the session** — a
+session says what its CLI told it, and only the host knows the row in Settings it was launched from, which
+is the thing that decides where the token lives; `ConversationReducer` carries it forward and marks **every
+timeline entry** with it in `Append`, the one place an entry is made, so an old conversation needs no
+migration and reads back with nulls. Opening a conversation puts the tile back on that account and on its
+model, mode and effort (`AdoptStoredSession`) — the record names only the agent, so a tile used to take
+whichever instance of it came first, which on a machine with two subscriptions is a coin toss; the model
+comes back **through `IAiAgent.InstanceModel`**, the round trip a model picked in the strip already takes,
+since what a session lists is spelled that CLI's way and opencode and pi would otherwise qualify it a second
+time into `openrouter/openrouter/auto`. The first entry of a new stretch carries a
+rule with the account's name on it (`TimelineItemViewModel.Seam`, `MarkSeams`), drawn on the *item* rather
+than as an item of its own because `TimelineSync` matches view models to records by position. And the switch
+**asks first** (`ConfirmLeavingTheAccountAsync`) — only where the login actually moves, and a missing dialog
+is a yes here, since nothing is lost that the transcript does not still hold. Carrying the *work* across
+that seam is still [`docs/ROADMAP.md`](docs/ROADMAP.md) §6, and is cheaper than it was written to be: a
+segment is now the stretch between two `SessionConfigured`s naming different accounts.
+
 **A change to the workspace's skills reaches the agents already running** (`WorkspaceAgentFiles.SkillsChanged`,
 `SkillChangePolicy`). Ticking a database used to write `SKILL.md` and stop, and a CLI already started reads
 skills only at start-up — and no agent is treated otherwise (`IAiAgent.WatchesSkillsDirectory(AgentSurface)`

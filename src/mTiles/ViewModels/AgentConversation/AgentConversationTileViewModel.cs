@@ -117,6 +117,31 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private SessionOverrides _overrides;
     private bool _restartQueued;
 
+    /// <summary>The account this tile runs as was just picked, so the next start must not adopt the stored one.
+    /// </summary>
+    /// <remarks>A switch is answered by replacing the host, and the state that host replays still names the
+    /// account the <i>previous</i> stretch ran as — adopted unconditionally, it puts the tile straight back on
+    /// the account the user has just been asked about and agreed to leave, and the session starts on the old
+    /// one with no seam ever drawn. Set where the switch is committed and held until the conversation records the
+    /// picked account (<see cref="IsPickedAccountStillUnrecorded"/>) or the tile moves to another conversation
+    /// — and kept in the layout (<see cref="AccountPickedButUnrecorded"/>), because a start that fails before
+    /// the picked account is recorded, followed by closing the application, would otherwise have the next run
+    /// adopt the old stretch and put the tile back on the account the user agreed to leave.
+    /// </remarks>
+    private bool _accountJustPicked;
+
+    /// <summary>A conversation was just opened in this tile, so its next start restores the settings it ran on.
+    /// </summary>
+    /// <remarks>Only then, and never at every start: what a session reports is mostly the instance's own
+    /// answer resolved, and adopted at each restart it would be pinned into the layout as an override nobody
+    /// chose — freezing a model resolved from <c>AiModelChoice.FirstLoaded</c> and taking every later change
+    /// in Settings away from this tile. A tile restored from its layout already carries its own overrides.
+    /// </remarks>
+    private bool _conversationJustOpened;
+
+    /// <summary>The stored-login notice this tile put on its bar, so it can be taken down again, or null.</summary>
+    private string? _storedLoginNotice;
+
     /// <summary>A skill change is waiting to be answered with a start of the agent.</summary>
     private bool _skillRestartWanted;
 
@@ -140,8 +165,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         AiAgentInstance instance, IAiAgent agent, Func<string> tileId, AgentSubstitution? substitution = null,
         SessionOverrides? overrides = null, Action? requestSave = null, Action<Action>? post = null,
         IAgentSessionStarter? sessionStarter = null, string? conversationId = null,
-        WorkspaceAgentFiles? agentFiles = null)
+        WorkspaceAgentFiles? agentFiles = null, bool accountPicked = false)
     {
+        _accountJustPicked = accountPicked;
         _sessionStarter = sessionStarter ?? AgentSessionStarter.Instance;
         _conversationId = conversationId is { Length: > 0 } ? conversationId : null;
         _workingDirectory = workingDirectory;
@@ -292,6 +318,19 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
     /// <summary>What this tile runs differently from its instance — kept in the layout.</summary>
     public SessionOverrides Overrides => _overrides;
+
+    /// <summary>An account was picked in this tile and no session of its conversation has recorded it yet —
+    /// kept in the layout.</summary>
+    public bool AccountPickedButUnrecorded => _accountJustPicked;
+
+    /// <summary>Records whether a picked account still waits to be recorded, saving the layout when that moves.
+    /// </summary>
+    private void MarkAccountPicked(bool picked)
+    {
+        if (_accountJustPicked == picked) return;
+        _accountJustPicked = picked;
+        _requestSave?.Invoke();
+    }
 
     /// <summary>The models the session offers; the model field also takes a name typed by hand.</summary>
     public ObservableCollection<string> ModelOptions { get; } = [];
@@ -750,8 +789,47 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             return;
         }
 
+        if (!await ConfirmLeavingTheAccountAsync(instance, agent))
+        {
+            Chooser.RestoreSelection();
+            return;
+        }
+
         await UnderStartGateAsync(() => CommitSwitchAsync(instance, agent));
     }
+
+    /// <summary>
+    /// Asks before a switch that lands on another login of the same agent.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The loss is silent and comes after the fact.</b> The transcript is ours and is drawn whatever
+    /// happens, but the resume token belongs to the CLI and lives in the account's own directory, so the same
+    /// agent on a second subscription finds nothing to resume and starts cold — and the only thing that ever
+    /// said so was a notice arriving once the new session had already begun. The terminal agent tile has asked
+    /// this question from the start (<c>TerminalAgentTileViewModel.ConfirmationForSwitchTo</c>); this is the
+    /// same question, in the one place it was missing.</para>
+    /// <para>Only when the login actually moves: another model or another key on the same account resumes
+    /// perfectly well, and a dialog in front of every pick is one nobody reads. <b>No dialog to ask in is a
+    /// yes</b> — unlike a destructive action, nothing here is lost that the transcript does not still hold,
+    /// and refusing would leave a tile with no way to change account at all.</para>
+    /// </remarks>
+    private async Task<bool> ConfirmLeavingTheAccountAsync(AiAgentInstance instance, IAiAgent agent)
+    {
+        var moving = agent.Id == Agent.Id && HoldsASessionToResume
+            && !AccountOf(agent, instance).SharesLoginWith(AccountNow(agent));
+        if (!moving || ConfirmAction is null) return true;
+
+        return await ConfirmAction(
+            $"Run this conversation as \"{instance.Name}\"? It is a different account, so {agent.DisplayName} " +
+            "starts a new session — the transcript stays, what the model remembers does not.");
+    }
+
+    /// <summary>Whether the conversation holds a session the CLI could resume, which is what a change of login
+    /// costs.</summary>
+    /// <remarks>A conversation nothing has been said in yet has no token, so the switch loses nothing and the
+    /// dialog's warning would be untrue — the case the terminal agent tile tells apart by
+    /// <c>HoldsASessionIdOfItsOwn</c>.</remarks>
+    private bool HoldsASessionToResume => _host?.ResumeToken is { Length: > 0 };
 
     /// <summary>Takes the switch and replaces the host, under the start gate and with no await between the last
     /// check and the old host being let go.</summary>
@@ -768,6 +846,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         }
 
         TakeInstance(instance, agent, agent.Id != Agent.Id);
+        MarkAccountPicked(true);
         return ReplaceHostAsync();
     }
 
@@ -974,6 +1053,10 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private Task MoveToConversationAsync(string conversationId, string? keepHolding = null)
     {
         _conversationId = conversationId;
+        // A switch belongs to the conversation it was made in; the one opened now is put back on its own account.
+        MarkAccountPicked(false);
+        _conversationJustOpened = true;
+        WithdrawStoredLoginNotice();
         _requestSave?.Invoke();
         OnPropertyChanged(nameof(ConversationId));
         return UnderStartGateAsync(async () =>
@@ -1038,7 +1121,6 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         // Read once: a switch made while this start awaits queues a start of its own, and this one must go on
         // opening, preparing and launching the agent it began with rather than whichever was picked since.
         var agent = Agent;
-        var instance = _overrides.ApplyTo(Instance);
         if (RunsAnotherAgent)
         {
             LaunchProblem = Substitution!.Notice;
@@ -1081,6 +1163,13 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             HoldStoredConversationOf(null);
 
             if (await OpenHostAsync(conversationId, agent) is not { } host) return;
+            // After the host has replayed and before anything is resolved from it: the conversation names the
+            // account and the settings it last ran as, and a tile opening it on whichever instance of this agent
+            // came first would authenticate as somebody else and run on that row's own mode and effort.
+            AdoptStoredSession(host.State, agent, IsPickedAccountStillUnrecorded(host.State, agent),
+                settingsToo: _conversationJustOpened);
+            _conversationJustOpened = false;
+            var instance = _overrides.ApplyTo(Instance);
             var (launch, problem) = await _sessionStarter.PrepareAsync(_settings.Settings, agent, instance,
                 _workingDirectory, conversationId, host.ResumeToken, _lifetime.Token);
             // Closed while preparing: Dispose has already ended this host, and nothing may start on it.
@@ -1109,7 +1198,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             // the session must not wait on a bar, and the answer redraws the gauge when it comes.
             _contextWindow.Settle(launch.Model);
 
-            await host.StartAsync(sink => _sessionStarter.Create(agent, launch, sink), _lifetime.Token);
+            await host.StartAsync(sink => _sessionStarter.Create(agent, launch, sink), AccountNow(agent),
+                _lifetime.Token);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -1123,6 +1213,110 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         {
             IsStarting = false;
         }
+    }
+
+    /// <summary>Whether an account the user picked has not yet been recorded by a session of this conversation.
+    /// </summary>
+    /// <remarks>Held until the conversation itself names the picked account, not until the first start after
+    /// the switch: that start can refuse early or its session can die before reporting, and a flag spent on it
+    /// would let the next start adopt the stretch before the switch — moving the tile back, in silence, onto
+    /// the account the user agreed to leave.</remarks>
+    private bool IsPickedAccountStillUnrecorded(ConversationState state, IAiAgent agent)
+    {
+        if (_accountJustPicked && state.Account is { } recorded && recorded.IsSameAs(AccountNow(agent)))
+            MarkAccountPicked(false);
+        return _accountJustPicked;
+    }
+
+    /// <summary>Who this tile is about to run as, for the host to stamp onto what the session reports.</summary>
+    private SessionAccount AccountNow(IAiAgent agent) => AccountOf(agent, Instance);
+
+    private static SessionAccount AccountOf(IAiAgent agent, AiAgentInstance instance) =>
+        new(agent.Id, instance.Id, instance.Name, instance.SignInId is { Length: > 0 } signIn ? signIn : null);
+
+    /// <summary>
+    /// Puts the tile back on the account and the settings the conversation last ran as.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The record names the agent and only the events name the account.</b> Without this a
+    /// conversation reopened from the list took whichever instance of its agent <see cref="InstanceOf"/>
+    /// found first — on a machine with two subscriptions that is a coin toss, and the losing side resumes
+    /// nothing because the CLI keeps the session in the other account's directory.</para>
+    /// <para><b>The model comes back through <see cref="InstanceModel"/> and never as it was reported.</b>
+    /// What the session said is the model spelled that CLI's way — opencode and pi qualify it with their
+    /// registry's provider name — so laid over the instance as it stands it would be qualified a second time
+    /// at the next launch, into an id no provider has. That is the same round trip a model picked in the
+    /// strip already takes (<see cref="KeepOverride"/>), which is why it is that method's helper and not a
+    /// second rule here. Mode and effort are this application's own canonical ids and need no translation.
+    /// </para>
+    /// <para>Nothing here overrules what the user has already chosen in this tile: an override the layout
+    /// carried, or one picked in the strip, is left exactly as it is.</para>
+    /// <para><b>A picked account is not adopted away.</b> A switch replaces the host, and what that host
+    /// replays still names the account the previous stretch ran as — taken as an instruction it would put the
+    /// tile straight back on the account the user was just asked about and agreed to leave.</para>
+    /// </remarks>
+    /// <param name="accountWasJustPicked">The account is the user's own choice of a moment ago, so only the
+    /// mode and effort of the stored session are worth restoring.</param>
+    /// <param name="settingsToo">The conversation was just opened in this tile, so the model, mode and effort
+    /// it ran on are restored as well; every other start leaves the tile's own overrides as they are.</param>
+    internal void AdoptStoredSession(ConversationState state, IAiAgent agent, bool accountWasJustPicked = false,
+        bool settingsToo = true)
+    {
+        WithdrawStoredLoginNotice();
+        if (!accountWasJustPicked) AdoptStoredAccount(state.Account, agent);
+        if (settingsToo) AdoptStoredSettings(state, agent);
+    }
+
+    /// <summary>Puts the tile back on the instance the conversation last ran as, or says the login moves.
+    /// </summary>
+    /// <remarks>What to do is <see cref="StoredSessionPolicy.DecideAccount"/>'s answer; this only carries it out.
+    /// Said as a notice rather than asked: there is nothing to choose between, only something to know before
+    /// the first message rather than from a seam drawn after it.</remarks>
+    private void AdoptStoredAccount(SessionAccount? account, IAiAgent agent)
+    {
+        var runnable = _settings.Settings.AiAgentInstances.Where(row =>
+            AiAgentCatalog.IsAvailable(row, _settings.Settings));
+        var decision = StoredSessionPolicy.DecideAccount(account, AccountNow(agent), runnable);
+        if (decision.InstanceToTake is { } stored) TakeInstance(stored, agent, otherAgent: false);
+        if (decision.Notice is { } notice) SayStoredLoginMoves(notice);
+    }
+
+    /// <summary>Restores the model, mode and effort the conversation ran on, as far as
+    /// <see cref="StoredSessionPolicy.SettingsToRestore"/> allows.</summary>
+    /// <remarks>The model only where somebody picked it (<see cref="ConversationState.ChosenModel"/>, never the
+    /// one the session reported running, which is the CLI's resolution of the instance's own answer) and only
+    /// where the account it was spelled for is the one about to run: it is an id resolved against that account's
+    /// provider, and laid over another it names a model nobody serves.
+    /// </remarks>
+    private void AdoptStoredSettings(ConversationState state, IAiAgent agent)
+    {
+        var modelStillFits = state.Account is null || state.Account.IsSameAs(AccountNow(agent));
+        var stored = new SessionSettings(InstanceModel(state.ChosenModel), state.Mode, state.Effort);
+        var restored = _overrides.With(
+            StoredSessionPolicy.SettingsToRestore(stored, _overrides, Instance, modelStillFits));
+        if (restored == _overrides) return;
+
+        _overrides = restored;
+        _requestSave?.Invoke();
+        Chooser.Draw();
+    }
+
+    private void SayStoredLoginMoves(string notice)
+    {
+        _storedLoginNotice = notice;
+        LaunchNotice = LaunchNotices.With(LaunchNotice, notice);
+    }
+
+    /// <summary>Takes down what <see cref="SayStoredLoginMoves"/> said, which is only ever true of the
+    /// conversation and the start it was said for.</summary>
+    /// <remarks>Asked at every adoption, so a start that finds the conversation already on the login it now
+    /// runs as clears it, and on moving to another conversation, where it would describe one no longer on
+    /// screen. Only this notice: the skills notice sharing the bar has its own reason to stay.</remarks>
+    private void WithdrawStoredLoginNotice()
+    {
+        if (_storedLoginNotice is null) return;
+        LaunchNotice = LaunchNotices.Without(LaunchNotice, _storedLoginNotice);
+        _storedLoginNotice = null;
     }
 
     /// <summary>Records which other agent's stored conversation stopped this start, so the chooser offers that
@@ -1246,6 +1440,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     internal void Draw(ConversationState state)
     {
         TimelineSync.Sync(Timeline, state.Timeline, CreateItem);
+        MarkSeams(state);
         _binding.Drawn(state);
         SyncApprovals(state);
 
@@ -1286,6 +1481,30 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(IsBoundToItsAgent));
         Chooser.DrawIfBindingChanged();
+    }
+
+    /// <summary>
+    /// Writes the rule above every entry where the work moved to another agent or another login — never for another instance on the same login, which the switch does not ask about either.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The seam is said rather than hidden.</b> A conversation drawn as one unbroken column across
+    /// a change of account claims a continuity the model does not have: the transcript is ours and survives,
+    /// the CLI's memory of it does not. So the entry that begins a new stretch carries the account's name on
+    /// a rule, and everything above it stays legible as somebody else's work.</para>
+    /// <para>Only from the <i>second</i> account onwards, and only where the account is actually named: a
+    /// conversation that never moved carries no rule, and one recorded before any of this was stamped reads
+    /// exactly as it always did rather than growing a seam at the first entry that knows who it was.</para>
+    /// </remarks>
+    private void MarkSeams(ConversationState state)
+    {
+        SessionAccount? running = null;
+        for (var i = 0; i < state.Timeline.Count && i < Timeline.Count; i++)
+        {
+            var account = state.Timeline[i].Account;
+            var moved = account is not null && running is not null && !account.SharesLoginWith(running);
+            Timeline[i].Seam = moved ? StoredSessionPolicy.AccountLabel(account!) : null;
+            if (account is not null) running = account;
+        }
     }
 
     partial void OnModelChanged(string value)
