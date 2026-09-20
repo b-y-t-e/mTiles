@@ -72,6 +72,22 @@ public sealed class TranscriptAnchor
         QueueRestore();
     }
 
+    /// <summary>
+    /// Puts the reader on the end and keeps them there, whatever they were anchored to.
+    /// </summary>
+    /// <remarks>What somebody sending a message has asked for. Reading back through a run and then
+    /// saying something is the one move that means "I am done reading back": the answer is about to
+    /// arrive at the bottom, and following it is the whole of what the transcript does — so the send
+    /// is allowed to move the anchor where nothing else but the reader's own scrolling may. Said as an
+    /// anchor rather than as a scroll of its own, because what has to end at the bottom is not this
+    /// instant but the passes after it, as the message is measured and the answer streams in.</remarks>
+    public void GoToEnd()
+    {
+        _atEnd = true;
+        _chain = [];
+        QueueRestore();
+    }
+
     /// <summary>Whether a reported scroll describes a scroller anybody is looking at.</summary>
     /// <remarks>A scroller with no viewport or no content is one that has been detached, collapsed or
     /// not yet laid out. Its offset is whatever the clamp left there and its elements have no bounds,

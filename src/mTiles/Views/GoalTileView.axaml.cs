@@ -28,10 +28,13 @@ public partial class GoalTileView : UserControl, IFocusTargetView
 
     private GoalTileViewModel? _subscribedVm;
 
+    /// <summary>What keeps the reader in place — and what a send asks for the end of.</summary>
+    private readonly TranscriptAnchor _anchor;
+
     public GoalTileView()
     {
         InitializeComponent();
-        TranscriptAnchor.Attach(ChatScroll);
+        _anchor = TranscriptAnchor.Attach(ChatScroll);
         TeachThePickers();
 
         // One line for the strip, giving up words before width in the order GoalStripLayout writes
@@ -164,6 +167,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         if (_subscribedVm != null)
         {
             _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
+            _subscribedVm.SentByUser -= GoToEnd;
 
             // ConfirmAction too, and for more than tidiness: the closure holds this view, so a view
             // model left with it keeps the view alive — and if that view model ever asks again, the
@@ -175,6 +179,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         if (DataContext is GoalTileViewModel vm)
         {
             _subscribedVm = vm;
+            vm.SentByUser += GoToEnd;
 
             vm.ConfirmAction = async message =>
             {
@@ -253,6 +258,9 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         vm.SendAnswersCommand.Execute(null);
         e.Handled = true;
     }
+
+    /// <summary>Takes the reader to the end because they have just sent something.</summary>
+    private void GoToEnd() => _anchor.GoToEnd();
 
     /// <summary>Enter in the composer.</summary>
     /// <remarks>

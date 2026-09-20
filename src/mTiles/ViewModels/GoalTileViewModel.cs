@@ -1762,6 +1762,7 @@ public partial class GoalTileViewModel
         ApplyScope(scope);
         if (andRun || andReview) ConsumeComposer();
         SyncFromEngine(save: File.Exists(_filePath));
+        AnnounceSent();
         await AddMessageAsync(GoalMessageRole.User, goal, GoalPhase.Goal);
         await CaptureBaselineAsync();
 
@@ -2039,6 +2040,12 @@ public partial class GoalTileViewModel
 
         // Past every refusal, each of which handed the text back to the box: only now has it been sent.
         if (echoTyped && typedByUser) RememberSent(text);
+
+        // A reader half way up the transcript has just spoken, and what answers them arrives at the
+        // bottom. Here rather than beside each Messages.Add below, because the answers to a round of
+        // questions reach the transcript as the assistant's own block and would otherwise be the one
+        // send that left the reader where they were.
+        AnnounceSent();
 
         // Answering is resuming — everywhere the composer has something to send. Leaving the pause
         // standing meant the run happened and was then thrown away at the first hand-over that asks
@@ -4753,6 +4760,19 @@ public partial class GoalTileViewModel
     }
 
     // ── UI helpers ──────────────────────────────────────
+
+    /// <summary>Raised when the reader hands something over, however they asked for it.</summary>
+    /// <remarks>One event for every gesture that sends, because all of them end in an answer arriving
+    /// at the foot of the transcript. Raised from the gestures themselves rather than from
+    /// <see cref="AddMessageAsync"/>: a round of questions is recorded as the assistant's own block
+    /// with the answers written into it, so the send that matters most here adds no user message at
+    /// all — and the reader still asked to be taken to the end.</remarks>
+    public event Action? SentByUser;
+
+    /// <summary>Says the reader has just sent something, on the UI thread every sending gesture is
+    /// already on — what listens is the view's anchor, whose state the UI thread owns.</summary>
+    private void AnnounceSent() => SentByUser?.Invoke();
+
 
     /// <summary>
     /// Adds one message and writes the state out with it.

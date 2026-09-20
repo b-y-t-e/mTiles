@@ -21,10 +21,13 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
 
     private AgentConversationTileViewModel? _subscribed;
 
+    /// <summary>What keeps the reader in place — and what a send asks for the end of.</summary>
+    private readonly TranscriptAnchor _anchor;
+
     public AgentConversationTileView()
     {
         InitializeComponent();
-        TranscriptAnchor.Attach(ChatScroll);
+        _anchor = TranscriptAnchor.Attach(ChatScroll);
         TeachThePickers();
         FitTheRows();
         // Anywhere on the tile, not only on the composer: the transcript is most of the card, and a
@@ -176,12 +179,14 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         base.OnDataContextChanged(e);
         if (_subscribed is not null)
         {
+            _subscribed.SentByUser -= GoToEnd;
             _subscribed.ConfirmAction = null;
             _subscribed = null;
         }
 
         if (DataContext is not AgentConversationTileViewModel vm) return;
         _subscribed = vm;
+        vm.SentByUser += GoToEnd;
         vm.ConfirmAction = message => MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: false);
         if (VisualRoot is not null) vm.EnsureStarted();
     }
@@ -191,6 +196,9 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         base.OnAttachedToVisualTree(e);
         _subscribed?.EnsureStarted();
     }
+
+    /// <summary>Takes the reader to the end because they have just sent something.</summary>
+    private void GoToEnd() => _anchor.GoToEnd();
 
     private void Send()
     {

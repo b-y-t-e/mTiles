@@ -463,6 +463,11 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         // Enter in the composer, a paired phone and dictation all call this without asking CanExecute.
         if (!CanSend() || (string.IsNullOrWhiteSpace(Draft) && !Attachments.HasItems) || _host is not { } host) return;
+
+        // A reader who was half way up the transcript has just said something, and the reply arrives at
+        // the bottom: the view takes this as being asked for the end. Raised before the send rather than
+        // after it, so the message's own arrival is already measured with the transcript following.
+        SentByUser?.Invoke();
         var (text, images) = OutgoingMessage();
         // A host with no live agent refuses the message out loud, and the draft stays for the restart.
         if (host.HasSession)
@@ -477,6 +482,12 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     }
 
     private bool CanSend() => !IsStarting && LaunchProblem is null;
+
+    /// <summary>Raised when the reader hands a message over, however they asked for it.</summary>
+    /// <remarks>On the view model and not on each of the controls that can send: Enter, the button, a
+    /// paired phone and a dictated sentence all arrive at <see cref="SendAsync"/>, and only there is it
+    /// known that something was really sent.</remarks>
+    public event Action? SentByUser;
 
     /// <summary>
     /// The draft as it is sent: markers renumbered from one in the order they are read, the images in that
