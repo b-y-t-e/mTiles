@@ -354,10 +354,13 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
     public string Additions => $"+{((CheckpointEntry)Source!).Files.Sum(f => f.Additions)}";
     public string Deletions => $"−{((CheckpointEntry)Source!).Files.Sum(f => f.Deletions)}";
 
-    /// <summary>Whether anything is open, which is what the summary's own chevron reports.</summary>
-    /// <remarks>Derived from the files rather than kept beside them: with a flag of its own the header
-    /// would go on pointing down after the last file was folded away by its own row.</remarks>
-    public bool IsExpanded => Files.Any(f => f.IsExpanded);
+    /// <summary>Whether the list of changed files is showing. Open, as it always was.</summary>
+    [ObservableProperty] private bool _isExpanded = true;
+
+    /// <summary>What pressing the summary does, said in the words of what is on screen now.</summary>
+    public string FoldTip => IsExpanded
+        ? AnyFileIsOpen ? "Hide the changed files and their diffs" : "Hide the changed files"
+        : "Show the changed files";
 
     public override bool CanShow(object entry) => entry is CheckpointEntry;
 
@@ -385,7 +388,8 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
         OnPropertyChanged(nameof(Summary));
         OnPropertyChanged(nameof(Additions));
         OnPropertyChanged(nameof(Deletions));
-        OnPropertyChanged(nameof(IsExpanded));
+        OnPropertyChanged(nameof(AnyFileIsOpen));
+        OnPropertyChanged(nameof(FoldTip));
     }
 
     /// <summary>Whether the rows on screen are already these very files.</summary>
@@ -398,60 +402,34 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
     private bool FilesAlreadyShow(IReadOnlyList<ChangedFile> files) =>
         Files.Count == files.Count && !Files.Where((row, i) => !row.Describes(files[i])).Any();
 
+    /// <summary>Whether any file under the summary has its diff open.</summary>
+    /// <remarks>What the summary's tooltip says folding the list away would hide. A property rather
+    /// than a count in the markup, because it has to be raised again when a row is folded from its own
+    /// chevron — which is what <see cref="OnFileChanged"/> is for.</remarks>
+    public bool AnyFileIsOpen => Files.Any(f => f.IsExpanded);
+
     private void OnFileChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ChangedFileViewModel.IsExpanded)) OnPropertyChanged(nameof(IsExpanded));
+        if (e.PropertyName != nameof(ChangedFileViewModel.IsExpanded)) return;
+        OnPropertyChanged(nameof(AnyFileIsOpen));
+        OnPropertyChanged(nameof(FoldTip));
     }
 
-    /// <summary>Open every file, or — where anything is already open — fold them all away.</summary>
-    /// <remarks>The turn's whole diff used to be a separate thing the header opened, drawn under a list
-    /// of the same files: two routes to the same lines, and on a turn touching five files the one that
-    /// answered "what happened to this file" was the one that made you scroll. So the header is the
-    /// same question asked of all of them at once, and there is one place a line of a diff is drawn.</remarks>
+    /// <summary>Show or hide the list of changed files. Reads nothing and closes nothing.</summary>
+    /// <remarks>
+    /// <para>A file's own diff stays as it was left: hidden with the list and there again when the list
+    /// comes back. Folding a summary away is a statement about the room on screen, not about what one
+    /// wants to see inside each file.</para>
+    /// <para>It used to open every file's diff at once, which is the trouble with answering two
+    /// questions with one mark: on a turn touching twenty files that is tens of thousands of rows in a
+    /// list that does not virtualise and twenty git processes on one press, so a budget stopped it part
+    /// way down — and then the rows past it were folded for a reason nothing on screen gave. "What
+    /// happened to this file" is the rows' own question, and it is the only one they answer now.</para>
+    /// </remarks>
     [RelayCommand]
-    private async Task ToggleDiffAsync()
-    {
-        if (IsExpanded)
-        {
-            foreach (var file in Files) file.Collapse();
-            return;
-        }
+    private void ToggleDiff() => IsExpanded = !IsExpanded;
 
-        await ExpandFilesWithinBudgetAsync();
-    }
-
-    /// <summary>How many files are read at once, and how many lines one press may draw.</summary>
-    /// <remarks><see cref="DiffLines.MaxLines"/> guards a non-virtualising list and is per file, so
-    /// asked of every file at once it multiplies by the number of files — a turn touching twenty of
-    /// them would draw thirty thousand rows and spawn twenty git processes on one click. The batch
-    /// keeps the round trips few without running the whole turn in parallel, and the budget is the
-    /// same cap the old turn-wide diff had; the files past it stay folded and open one by one from
-    /// their own rows. Reading and showing are two steps for exactly that reason: a batch read in
-    /// parallel and then opened row by row is counted against the budget between files rather than
-    /// between batches, which is what keeps four large files from drawing four times the cap. One
-    /// file may still carry it past the line, because how long a diff is is not known until it has
-    /// been read.</remarks>
-    private const int FilesReadTogether = 4;
-    private const int ExpandAllLineBudget = DiffLines.MaxLines;
-
-    private async Task ExpandFilesWithinBudgetAsync()
-    {
-        var pending = Files.Where(f => !f.IsExpanded).ToList();
-        var drawn = Files.Where(f => f.IsExpanded).Sum(f => f.Diff.Count);
-
-        for (var i = 0; i < pending.Count && drawn < ExpandAllLineBudget; i += FilesReadTogether)
-        {
-            var batch = pending.Skip(i).Take(FilesReadTogether).ToList();
-            await Task.WhenAll(batch.Select(f => f.LoadAsync()));
-
-            foreach (var file in batch)
-            {
-                if (drawn >= ExpandAllLineBudget) break;
-                file.Show();
-                drawn += file.Diff.Count;
-            }
-        }
-    }
+    partial void OnIsExpandedChanged(bool value) => OnPropertyChanged(nameof(FoldTip));
 
     [RelayCommand]
     private Task RestoreAsync() => _restore((CheckpointEntry)Source!);
@@ -505,27 +483,20 @@ public sealed partial class ChangedFileViewModel : ObservableObject
     [RelayCommand]
     private Task ToggleAsync()
     {
-        if (!IsExpanded) return ExpandAsync();
-        Collapse();
-        return Task.CompletedTask;
-    }
+        if (IsExpanded)
+        {
+            IsExpanded = false;
+            return Task.CompletedTask;
+        }
 
-    public void Collapse() => IsExpanded = false;
-
-    /// <summary>Whether this row is showing that very file.</summary>
-    public bool Describes(ChangedFile file) => _file == file;
-
-    /// <summary>Open this file, reading its diff the first time and never again.</summary>
-    /// <remarks>Open first and read second: the row is what the "loading" line is drawn inside, so a
-    /// row opened after its read is a press that does nothing until the diff arrives.</remarks>
-    public Task ExpandAsync()
-    {
-        Show();
+        // Open first and read second: the row is what the "loading" line is drawn inside, so a row
+        // opened after its read is a press that does nothing until the diff arrives.
+        IsExpanded = true;
         return LoadAsync();
     }
 
-    /// <summary>Show what has been read, without reading anything.</summary>
-    public void Show() => IsExpanded = true;
+    /// <summary>Whether this row is showing that very file.</summary>
+    public bool Describes(ChangedFile file) => _file == file;
 
     /// <summary>Read this file's diff, the first time and never again.</summary>
     /// <remarks>A checkpoint's diff is what the turn did and cannot change afterwards, so the read is

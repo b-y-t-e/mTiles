@@ -57,22 +57,46 @@ public class CheckpointFoldTests
         Assert.True(turn.Files[0].IsExpanded);
     }
 
+    /// <summary>
+    /// The summary's chevron folds the list, which is the reading a chevron above a list has. It used
+    /// to open every file's diff instead — tens of thousands of rows and one git process per file on a
+    /// large turn, stopped part way by a budget that nothing on screen accounted for.
+    /// </summary>
     [Fact]
-    public async Task The_header_opens_every_file_and_then_folds_them_all_away()
+    public void The_header_folds_the_list_and_reads_nothing()
     {
         var asked = new List<ChangedFile?>();
         var turn = Build(asked);
 
-        await turn.ToggleDiffCommand.ExecuteAsync(null);
-
-        Assert.Equal(3, asked.Count);
-        Assert.All(turn.Files, f => Assert.True(f.IsExpanded));
         Assert.True(turn.IsExpanded);
 
-        await turn.ToggleDiffCommand.ExecuteAsync(null);
+        turn.ToggleDiffCommand.Execute(null);
 
-        Assert.All(turn.Files, f => Assert.False(f.IsExpanded));
         Assert.False(turn.IsExpanded);
+        Assert.Empty(asked);
+        Assert.All(turn.Files, f => Assert.False(f.IsExpanded));
+
+        turn.ToggleDiffCommand.Execute(null);
+
+        Assert.True(turn.IsExpanded);
+        Assert.Empty(asked);
+    }
+
+    /// <summary>Folding the summary away is about the room on screen, not about each file.</summary>
+    [Fact]
+    public async Task A_file_left_open_is_still_open_when_the_list_comes_back()
+    {
+        var asked = new List<ChangedFile?>();
+        var turn = Build(asked);
+
+        await turn.Files[1].ToggleCommand.ExecuteAsync(null);
+        Assert.True(turn.AnyFileIsOpen);
+
+        turn.ToggleDiffCommand.Execute(null);
+        turn.ToggleDiffCommand.Execute(null);
+
+        Assert.True(turn.Files[1].IsExpanded);
+        Assert.Single(asked);
     }
 
     /// <summary>git applies a pathspec before it looks for renames, so the row has to hand over the file
@@ -115,16 +139,18 @@ public class CheckpointFoldTests
         Assert.Equal(["a.cs"], Paths(asked));
     }
 
-    /// <summary>With a flag of its own the header would point down at a folded-away list.</summary>
+    /// <summary>What the rows say, for the tooltip that explains what folding the list hides.</summary>
     [Fact]
-    public async Task The_header_follows_the_rows()
+    public async Task Any_file_open_follows_the_rows()
     {
         var turn = Build([]);
 
-        await turn.Files[0].ToggleCommand.ExecuteAsync(null);
-        Assert.True(turn.IsExpanded);
+        Assert.False(turn.AnyFileIsOpen);
 
         await turn.Files[0].ToggleCommand.ExecuteAsync(null);
-        Assert.False(turn.IsExpanded);
+        Assert.True(turn.AnyFileIsOpen);
+
+        await turn.Files[0].ToggleCommand.ExecuteAsync(null);
+        Assert.False(turn.AnyFileIsOpen);
     }
 }

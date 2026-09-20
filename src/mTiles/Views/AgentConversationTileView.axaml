@@ -682,10 +682,11 @@
                         <DataTemplate DataType="ac:CheckpointItemViewModel">
                             <StackPanel Margin="10,4,10,4">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <Button Classes="fold" Command="{Binding ToggleDiffCommand}">
+                                    <Button Classes="fold" Command="{Binding ToggleDiffCommand}"
+                                            ToolTip.Tip="{Binding FoldTip}">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <!-- The header folds every file at once, so it wears the same
-                                                 chevron a file row does and reports the same state. -->
+                                            <!-- The chevron stands above the list, so what it folds is
+                                                 the list — the reading every other chevron here has. -->
                                             <mi:MaterialIcon Width="12" Height="12"
                                                              Kind="{Binding IsExpanded, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
                                             <mi:MaterialIcon Kind="FileDocumentEditOutline" Width="12" Height="12" />
@@ -705,9 +706,10 @@
                                 <!-- One row per file, and each opens its own diff under it. The turn's
                                      whole diff used to be drawn under this list instead, which answered
                                      "what did the turn do" and never "what happened to this file" -
-                                     the question a list of file names is read with. The header above
-                                     is the same fold asked of all of them at once. -->
-                                <ItemsControl ItemsSource="{Binding Files}" Margin="18,2,0,0">
+                                     the question a list of file names is read with. The summary above
+                                     folds this list away; what is open inside it stays as it was left. -->
+                                <ItemsControl ItemsSource="{Binding Files}" Margin="18,2,0,0"
+                                              IsVisible="{Binding IsExpanded}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="ac:ChangedFileViewModel">
                                             <StackPanel>
