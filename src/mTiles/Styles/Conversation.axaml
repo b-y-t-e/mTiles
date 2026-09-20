@@ -503,13 +503,19 @@
     <!-- Send: the one accent-filled control in the tile, and round because it is the only thing on that
          row which is an act rather than a setting. Everything beside it is quiet on purpose so that this
          one is findable without being loud. -->
+    <!-- Send: the one accent-filled control in this tile, and a rounded square rather than a disc.
+         The circle was the only one in the application - every other control here is a squircle at
+         RadiusSm, RadiusMd or RadiusLg - so beside the flat paperclip next to it and the card's own
+         8px corners it read as a sticker dropped on the composer rather than as part of it. RadiusLg
+         is the largest radius any control takes, which keeps it the softest thing in the row without
+         making it a different kind of shape from everything around it. -->
     <Style Selector="Button.composer-send">
         <Setter Property="Background" Value="{DynamicResource AccentDefault}" />
         <Setter Property="Foreground" Value="{DynamicResource AccentForeground}" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
         <Setter Property="Width" Value="28" />
-        <Setter Property="Height" Value="28" />
+        <Setter Property="Height" Value="26" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="MinHeight" Value="0" />
         <Setter Property="MinWidth" Value="0" />
@@ -519,7 +525,7 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style Selector="Button.composer-send /template/ ContentPresenter">
-        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusLg}" />
     </Style>
     <Style Selector="Button.composer-send:pointerover /template/ ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource AccentHover}" />
