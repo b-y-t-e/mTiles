@@ -10,6 +10,53 @@ public class ConversationReducerTests
     private static ConversationState Play(params AgentEvent[] events) => ConversationReducer.Replay(events);
 
     [Fact]
+    public void Every_entry_is_stamped_with_the_account_the_conversation_was_running_as()
+    {
+        var pro = new SessionAccount("claude", "instance-pro", "Claude Pro", "sign-in-pro");
+        var max = new SessionAccount("claude", "instance-max", "Claude Max", "sign-in-max");
+
+        var state = Play(
+            new UserMessageAdded("m0", "before anything said who we are", []),
+            new SessionConfigured(null, null, "token-pro") { Account = pro },
+            new UserMessageAdded("m1", "on the first subscription", []),
+            new SessionConfigured(null, null, "token-max") { Account = max },
+            new UserMessageAdded("m2", "on the second", []));
+
+        Assert.Equal([null, pro, max], state.Timeline.Select(entry => entry.Account));
+        Assert.Equal(max, state.Account);
+    }
+
+    [Fact]
+    public void An_event_that_names_no_account_keeps_the_one_already_running()
+    {
+        var account = new SessionAccount("codex", "instance", "Work");
+
+        var state = Play(
+            new SessionConfigured(null, null, null) { Account = account },
+            new SessionConfigured("gpt-5", "Auto", "thread-1"),
+            new UserMessageAdded("m1", "still the same account", []));
+
+        Assert.Equal(account, state.Account);
+        Assert.Equal(account, Assert.Single(state.Timeline).Account);
+        Assert.Equal(("gpt-5", "Auto", "thread-1"), (state.Model, state.Mode, state.ResumeToken));
+    }
+
+    [Fact]
+    public void Two_stretches_are_the_same_account_by_id_and_never_by_name()
+    {
+        var renamed = new SessionAccount("claude", "instance", "Renamed since", "sign-in");
+
+        Assert.True(new SessionAccount("claude", "instance", "Work", "sign-in").IsSameAs(renamed));
+        Assert.False(new SessionAccount("claude", "instance", "Work").IsSameAs(renamed));
+        Assert.False(new SessionAccount("codex", "instance", "Work", "sign-in").IsSameAs(renamed));
+        Assert.False(new SessionAccount("claude", "other", "Work", "sign-in").IsSameAs(renamed));
+        Assert.False(renamed.IsSameAs(null));
+        Assert.True(new SessionAccount("claude", "other", "Key", "sign-in").SharesLoginWith(renamed));
+        Assert.False(new SessionAccount("claude", "instance", "Work").SharesLoginWith(renamed));
+        Assert.False(new SessionAccount("codex", "instance", "Work", "sign-in").SharesLoginWith(renamed));
+    }
+
+    [Fact]
     public void Streamed_text_is_one_message_and_its_completion_replaces_it()
     {
         var state = Play(
@@ -226,6 +273,21 @@ public class ConversationReducerTests
         var notice = Assert.IsType<NoticeEntry>(Assert.Single(state.Timeline));
         Assert.Equal(NoticeLevel.Error, notice.Level);
         Assert.Equal("rate limited", notice.Text);
+    }
+
+    [Fact]
+    public void A_chosen_model_stays_with_its_account_and_is_left_behind_when_the_account_moves()
+    {
+        var pro = new SessionAccount("claude", "a", "Pro", "pro");
+        var max = new SessionAccount("claude", "b", "Max", "max");
+
+        var sameAccount = Play(new SessionConfigured(null, null, "t") { Account = pro }, new SessionModelChosen("opus"),
+            new SessionConfigured("claude-opus-5", null, "t") { Account = pro });
+        var moved = Play(new SessionConfigured(null, null, "t") { Account = pro }, new SessionModelChosen("opus"),
+            new SessionConfigured(null, null, "u") { Account = max });
+
+        Assert.Equal("opus", sameAccount.ChosenModel);
+        Assert.Null(moved.ChosenModel);
     }
 
     [Fact]

@@ -23,6 +23,7 @@ namespace mTiles.AgentSessions.Events;
 [JsonDerivedType(typeof(SessionStateChanged), "session.state")]
 [JsonDerivedType(typeof(SessionConfigured), "session.configured")]
 [JsonDerivedType(typeof(SessionOptionsReported), "session.options")]
+[JsonDerivedType(typeof(SessionModelChosen), "session.model-chosen")]
 [JsonDerivedType(typeof(TurnStarted), "turn.started")]
 [JsonDerivedType(typeof(TurnCompleted), "turn.completed")]
 [JsonDerivedType(typeof(UserMessageAdded), "message.user")]
@@ -81,7 +82,61 @@ public sealed record SessionStateChanged(AgentSessionState State, string? Detail
 /// <param name="Effort">The reasoning effort, as one of the ids <see cref="SessionOptionsReported.Efforts"/>
 /// offers.</param>
 public sealed record SessionConfigured(string? Model, string? Mode, string? ResumeToken, string? Effort = null)
-    : AgentEvent;
+    : AgentEvent
+{
+    /// <summary>Who the agent is running as, stamped by the host rather than reported by the session.</summary>
+    /// <remarks><b>The session cannot answer this and the host can.</b> A session reports what its own CLI
+    /// told it — a model, a mode, an id to resume by — and knows nothing of the row in Settings it was
+    /// launched from, which is precisely the thing that decides where the resume token lives. Null on every
+    /// event written before this existed, which is why every reader treats it as <i>not said</i> rather than
+    /// as a change.</remarks>
+    public SessionAccount? Account { get; init; }
+}
+
+/// <summary>A model somebody picked for this conversation and the session took, written by the host.</summary>
+/// <remarks><b>Not the same thing as <see cref="SessionConfigured.Model"/>.</b> That is what the CLI says it
+/// runs, which is usually its own resolution of the instance's answer — an empty field or an alias come back as
+/// a full id — so restoring it on reopening would pin the CLI's default of that day over every later change in
+/// Settings. This names only a choice.</remarks>
+/// <param name="Model">The model, spelled the way the agent takes it.</param>
+public sealed record SessionModelChosen(string Model) : AgentEvent;
+
+/// <summary>
+/// The agent, the configured instance and the login one stretch of a conversation ran as.
+/// </summary>
+/// <remarks>
+/// <para><b>Why the sign-in is part of the identity and not a detail of the instance.</b> The resume token
+/// is the CLI's own, and where the CLI keeps it is the account's directory — so the same agent on a second
+/// subscription resumes nothing, and a transcript that carries on across that seam is a transcript the
+/// model has never seen. What says two stretches are one session is this triple, not the agent alone.</para>
+/// <para>The name travels with the ids because it is what a row is called on screen, and an instance the
+/// user has since deleted or renamed must still be namable in a conversation that ran on it.</para>
+/// </remarks>
+/// <param name="AgentId">The CLI, as <c>AiAgentCatalog</c> keys it.</param>
+/// <param name="InstanceId">The configured instance, or null where nothing configured it.</param>
+/// <param name="InstanceName">What that instance was called when it ran.</param>
+/// <param name="SignInId">The CLI's own login, or null for its default account.</param>
+public sealed record SessionAccount(
+    string AgentId,
+    string? InstanceId = null,
+    string? InstanceName = null,
+    string? SignInId = null)
+{
+    /// <summary>Whether two stretches of a conversation ran as the same agent, instance and login.</summary>
+    /// <remarks>By id and never by name: a renamed instance is the same account, and two rows seeded with
+    /// one provider's display name are two identically spelled accounts.</remarks>
+    public bool IsSameAs(SessionAccount? other) =>
+        other is not null && other.AgentId == AgentId && other.InstanceId == InstanceId
+        && other.SignInId == SignInId;
+
+    /// <summary>Whether two stretches ran on the same login of the same agent, whatever instance carried it.
+    /// </summary>
+    /// <remarks>The narrower question the seam and the switch confirmation both ask: the resume token lives in
+    /// the login's directory, so another instance on the same login (another key, another model) resumes
+    /// perfectly well and is no break in what the model remembers.</remarks>
+    public bool SharesLoginWith(SessionAccount? other) =>
+        other is not null && other.AgentId == AgentId && other.SignInId == SignInId;
+}
 
 /// <summary>
 /// What this session can be switched to while it runs: models, permission modes and efforts.

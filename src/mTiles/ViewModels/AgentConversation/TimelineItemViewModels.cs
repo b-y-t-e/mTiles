@@ -17,6 +17,18 @@ namespace mTiles.ViewModels.AgentConversation;
 /// </remarks>
 public abstract partial class TimelineItemViewModel : ObservableObject
 {
+    /// <summary>
+    /// What to write on the rule above this item, where the work moved to another account here.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>On the item rather than an item of its own.</b> <see cref="TimelineSync"/> matches view
+    /// models to records by position — the reducer only appends — so a separator inserted between them
+    /// would shift every index after it and redraw the conversation from the seam down.</para>
+    /// <para>Null on all but the first entry of a new stretch, which is what makes it a seam and not a
+    /// label on every line: a conversation that never changed agent or login carries none at all.</para>
+    /// </remarks>
+    [ObservableProperty] private string? _seam;
+
     public string Id { get; protected set; } = "";
 
     /// <summary>The record this was last drawn from.</summary>

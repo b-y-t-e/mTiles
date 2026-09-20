@@ -663,6 +663,14 @@ conversation first and let the terminal be judged on a link that already works.
 
 ### 6. Carrying the work across a change of agent
 
+**Groundwork done 2026-09-19**, which changes what step 5 costs: every `SessionConfigured` now carries a
+`SessionAccount` (agent, instance, sign-in), the reducer marks every timeline entry with it, opening a
+conversation puts the tile back on that account, the seam is drawn where it moves and the switch asks
+first. So "one conversation, several segments" is no longer a change to the store's shape — a segment is
+the stretch between two `SessionConfigured`s naming different accounts, and the events already say it.
+What is left below is the *handover* itself: the brief, the summary turn and what the chooser then offers.
+See [`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md) → *Which account a stretch of a conversation ran as*.
+
 **Now:** the agent is picked in the conversation and settles the moment something is said in it
 (*Which agent holds the conversation* in [`AGENT-CONVERSATIONS.md`](AGENT-CONVERSATIONS.md)). Moving from
 Claude Code to codex halfway through a piece of work therefore means a new conversation and typing the

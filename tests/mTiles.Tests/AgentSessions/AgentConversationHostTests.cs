@@ -31,12 +31,45 @@ public class AgentConversationHostTests : IDisposable
         await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
         var restarts = 0;
         host.RestartRequested += _ => restarts++;
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings("opus", "Plan")), CancellationToken.None);
 
         Assert.Equal(("opus", "Plan"), (host.State.Model, host.State.Mode));
         Assert.Equal(0, restarts);
+    }
+
+    [Fact]
+    public async Task Only_a_model_somebody_picked_is_recorded_as_chosen()
+    {
+        var session = new FakeSession();
+        await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
+
+        // What the CLI reports running is its own resolution of the instance's answer, not a choice.
+        session.Say(new SessionConfigured("claude-opus-5", null, "resume-me"));
+        Assert.Null(host.State.ChosenModel);
+
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings("sonnet")), CancellationToken.None);
+        Assert.Equal("sonnet", host.State.ChosenModel);
+    }
+
+    [Fact]
+    public async Task The_host_stamps_what_the_session_is_running_as_and_never_overrules_what_it_named()
+    {
+        var session = new FakeSession();
+        var account = new SessionAccount("claude", "inst-1", "Work subscription", "signin-1");
+        await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
+        await host.StartAsync(sink => session.Bind(sink), account, CancellationToken.None);
+
+        session.Say(new SessionConfigured("opus", null, "resume-me"));
+        Assert.Equal(account, host.State.Account);
+
+        // An event that already names an account is describing that one: a mapper replaying what a CLI said
+        // about an earlier session must not be re-attributed to whoever is running now.
+        var earlier = new SessionAccount("claude", "inst-2", "Personal", null);
+        session.Say(new SessionConfigured("opus", null, "resume-me") { Account = earlier });
+        Assert.Equal(earlier, host.State.Account);
     }
 
     [Fact]
@@ -46,7 +79,7 @@ public class AgentConversationHostTests : IDisposable
         await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
         List<SessionSettings> restarts = [];
         host.RestartRequested += restarts.Add;
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         session.Say(new TurnStarted { TurnId = "t" });
         await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings(Effort: "Max")), CancellationToken.None);
@@ -66,7 +99,7 @@ public class AgentConversationHostTests : IDisposable
         var reported = 0;
         host.SettingsApplied += _ => reported++;
         host.RestartRequested += _ => reported++;
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings("opsu")), CancellationToken.None);
 
@@ -91,7 +124,7 @@ public class AgentConversationHostTests : IDisposable
         List<SessionSettings> restarts = [];
         host.SettingsApplied += applied.Add;
         host.RestartRequested += restarts.Add;
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings("opus", "Plan", "Max")),
             CancellationToken.None);
@@ -108,7 +141,7 @@ public class AgentConversationHostTests : IDisposable
         var store = new SqliteConversationStore(_path);
         var session = new FakeSession();
         var host = new AgentConversationHost(Record(), store, null);
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         session.Say(new SessionOptionsReported([new SessionOption("opus", "Opus")], [], []));
         session.Say(new AssistantMessageCompleted("m", "done"));
@@ -126,7 +159,7 @@ public class AgentConversationHostTests : IDisposable
         var checkpoints = new FakeCheckpoints();
         var session = new FakeSession();
         var host = new AgentConversationHost(Record(), store, checkpoints);
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         await host.ExecuteAsync(new SendMessage("fix the build"), CancellationToken.None);
         session.Say(new TurnStarted { TurnId = "t" });
@@ -151,7 +184,7 @@ public class AgentConversationHostTests : IDisposable
         var store = new SqliteConversationStore(_path);
         var first = new AgentConversationHost(Record(), store, null);
         var session = new FakeSession();
-        await first.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await first.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         await first.ExecuteAsync(new SendMessage("hello"), CancellationToken.None);
         session.Say(new SessionConfigured(null, null, "token-1"));
         session.Say(new ToolStarted("x", ToolKind.Command, "Bash", "ls", ToolDetail.Empty));
@@ -184,7 +217,7 @@ public class AgentConversationHostTests : IDisposable
 
         var host = new AgentConversationHost(Record(), store, null);
         var session = new FakeSession();
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         await host.ExecuteAsync(new SendMessage("after rollback"), CancellationToken.None);
         await host.DisposeAsync();
 
@@ -206,7 +239,7 @@ public class AgentConversationHostTests : IDisposable
         var store = new SqliteConversationStore(_path);
         var codex = new AgentConversationHost(Record("codex"), store, null);
         var session = new FakeSession();
-        await codex.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await codex.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         await codex.ExecuteAsync(new SendMessage("hi"), CancellationToken.None);
         session.Say(new SessionConfigured(null, null, "codex-thread"));
         await codex.DisposeAsync();
@@ -225,7 +258,7 @@ public class AgentConversationHostTests : IDisposable
         var store = new SqliteConversationStore(_path);
         var host = new AgentConversationHost(Record(), store, null);
         var session = new FakeSession();
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         await host.ExecuteAsync(new SendMessage("old"), CancellationToken.None);
         session.Say(new AssistantTextDelta("m", "still queued"));
 
@@ -244,7 +277,7 @@ public class AgentConversationHostTests : IDisposable
         var checkpoints = new FakeCheckpoints();
         var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), checkpoints);
         var session = new FakeSession();
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         await host.ExecuteAsync(new SendMessage("one"), CancellationToken.None);
         session.Say(new TurnStarted { TurnId = "t1" });
@@ -266,7 +299,7 @@ public class AgentConversationHostTests : IDisposable
         var checkpoints = new FakeCheckpoints { FirstCapture = capture.Task };
         var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), checkpoints);
         var session = new FakeSession();
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         var first = host.ExecuteAsync(new SendMessage("one"), CancellationToken.None);
         var second = host.ExecuteAsync(new SendMessage("two"), CancellationToken.None);
@@ -286,7 +319,7 @@ public class AgentConversationHostTests : IDisposable
     {
         var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), new FakeCheckpoints());
         var session = new FakeSession();
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         session.Say(new SessionStateChanged(AgentSessionState.Failed, "claude exited"));
 
         await host.ExecuteAsync(new SendMessage("still there?"), CancellationToken.None);
@@ -304,7 +337,7 @@ public class AgentConversationHostTests : IDisposable
         var checkpoints = new FakeCheckpoints();
         var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), checkpoints);
         var session = new FakeSession { StaysStarting = true };
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         await host.ExecuteAsync(new SendMessage("too early"), CancellationToken.None);
 
@@ -321,7 +354,7 @@ public class AgentConversationHostTests : IDisposable
         var checkpoints = new FakeCheckpoints();
         var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), checkpoints);
         var session = new FakeSession();
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         session.Say(new TurnStarted { TurnId = "t" });
 
         await host.ExecuteAsync(new RestoreCheckpoint("cp-0"), CancellationToken.None);
@@ -338,7 +371,7 @@ public class AgentConversationHostTests : IDisposable
         var checkpoints = new FakeCheckpoints { FirstCapture = baseline.Task };
         var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), checkpoints);
         var session = new FakeSession();
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         var send = host.ExecuteAsync(new SendMessage("fix the build"), CancellationToken.None);
         var restore = host.ExecuteAsync(new RestoreCheckpoint("cp-0"), CancellationToken.None);
@@ -356,7 +389,7 @@ public class AgentConversationHostTests : IDisposable
         var checkpoints = new FakeCheckpoints();
         var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), checkpoints);
         var session = new FakeSession { FailSend = new TimeoutException("turn/start did not answer") };
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
 
         await Xunit.Record.ExceptionAsync(() => host.ExecuteAsync(new SendMessage("fix the build"), CancellationToken.None));
         await checkpoints.Settled();
@@ -372,7 +405,7 @@ public class AgentConversationHostTests : IDisposable
     {
         var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
 
-        await host.StartAsync(_ => new FakeSession { FailStart = "claude was not found" }, CancellationToken.None);
+        await host.StartAsync(_ => new FakeSession { FailStart = "claude was not found" }, null, CancellationToken.None);
 
         Assert.Equal(AgentSessionState.Failed, host.State.SessionState);
         Assert.Equal("claude was not found", Assert.IsType<NoticeEntry>(host.State.Timeline.Single()).Text);
@@ -385,9 +418,9 @@ public class AgentConversationHostTests : IDisposable
         var store = new SqliteConversationStore(_path);
         var host = new AgentConversationHost(Record(), store, null);
         var replaced = new FakeSession();
-        await host.StartAsync(sink => replaced.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => replaced.Bind(sink), null, CancellationToken.None);
         var running = new FakeSession();
-        await host.StartAsync(sink => running.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => running.Bind(sink), null, CancellationToken.None);
 
         // The old session's exit watcher reports it, after the new one is already ready.
         replaced.Say(new SessionStateChanged(AgentSessionState.Stopped));
@@ -404,7 +437,7 @@ public class AgentConversationHostTests : IDisposable
         var store = new SqliteConversationStore(_path);
         var session = new FakeSession();
         var host = new AgentConversationHost(Record(), store, null);
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         await host.ExecuteAsync(new SendMessage("hello"), CancellationToken.None);
         session.Say(new AssistantMessageCompleted("m", "written before the process left"));
 
@@ -423,7 +456,7 @@ public class AgentConversationHostTests : IDisposable
         var store = new SqliteConversationStore(_path);
         var session = new FakeSession();
         var host = new AgentConversationHost(Record(), store, null);
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         await host.ExecuteAsync(new SendMessage("hello"), CancellationToken.None);
         session.Say(new AssistantMessageCompleted("m", "the closing host's last word"));
 
@@ -443,7 +476,7 @@ public class AgentConversationHostTests : IDisposable
         var store = new RefusingOnceStore(new SqliteConversationStore(_path));
         var host = new AgentConversationHost(Record(), store, null);
         var session = new FakeSession();
-        await host.StartAsync(sink => session.Bind(sink), CancellationToken.None);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
         store.RefuseNextAppend = true;
         await host.ExecuteAsync(new SendMessage("keep me"), CancellationToken.None);
         await store.Refused.Task.WaitAsync(TimeSpan.FromSeconds(10));

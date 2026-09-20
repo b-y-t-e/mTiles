@@ -95,7 +95,7 @@ public class LiveAgentConversationTests(ITestOutputHelper output)
 
         try
         {
-            await host.StartAsync(sink => AgentSessionLauncher.Create(agent, launch!, sink), CancellationToken.None);
+            await host.StartAsync(sink => AgentSessionLauncher.Create(agent, launch!, sink), null, CancellationToken.None);
             Assert.NotEqual(AgentSessionState.Failed, host.State.SessionState);
 
             await host.ExecuteAsync(new SendMessage(
@@ -174,7 +174,7 @@ public class LiveAgentConversationTests(ITestOutputHelper output)
             if (e is TurnCompleted) turnDone.TrySetResult();
         };
 
-        await host.StartAsync(sink => AgentSessionLauncher.Create(agent, launch, sink), CancellationToken.None);
+        await host.StartAsync(sink => AgentSessionLauncher.Create(agent, launch, sink), null, CancellationToken.None);
         var options = host.State.Options;
         Assert.NotNull(options);
         output.WriteLine($"models offered: {options!.Models.Count} ({string.Join(", ", options.Models.Take(5).Select(m => m.Id))})");

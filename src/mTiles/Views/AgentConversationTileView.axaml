@@ -497,6 +497,27 @@
                            Text="{Binding HeaderNote, StringFormat='Talk to {0}. Its tool calls, approvals and file changes appear here.'}" />
 
                 <ItemsControl ItemsSource="{Binding Timeline}">
+                    <!-- The seam where the work moved to another agent or another login. Once, around every
+                         item, rather than in each of the six templates below: TimelineSync matches view models
+                         to records by position — the reducer only appends — so a separator inserted between
+                         them would shift every index after it and redraw the conversation from the seam down.
+                         The inner ContentControl resolves the per-kind template out of ItemsControl.DataTemplates
+                         exactly as the item presenter did. -->
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="ac:TimelineItemViewModel">
+                            <StackPanel>
+                                <Grid ColumnDefinitions="Auto,*" Margin="14,10,14,4"
+                                      IsVisible="{Binding Seam, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <TextBlock Classes="ask-why" Grid.Column="0" Margin="0,0,8,0"
+                                               VerticalAlignment="Center"
+                                               Text="{Binding Seam, StringFormat='continued as {0}'}" />
+                                    <Border Grid.Column="1" Height="1" VerticalAlignment="Center"
+                                            Background="{DynamicResource BorderSubtle}" />
+                                </Grid>
+                                <ContentControl Content="{Binding}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
                     <ItemsControl.DataTemplates>
 
                         <!-- ======== A message ======== -->

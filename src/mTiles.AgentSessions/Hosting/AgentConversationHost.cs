@@ -35,6 +35,7 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
     private readonly SemaphoreSlim _sendOrder = new(1, 1);
 
     private ConversationRecord _record;
+    private SessionAccount? _account;
     private ConversationState _state;
     private bool _recordChanged;
     private long _sequence;
@@ -92,10 +93,16 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
     /// this host has already replaced goes on reporting — its exit watcher says "stopped" whether it was
     /// disposed or died — and that arriving after the new session is ready would leave the host believing
     /// nothing is running while the CLI answers perfectly well.</param>
-    public async Task StartAsync(Func<IAgentEventSink, IAgentSession> createSession, CancellationToken ct)
+    /// <param name="account">Who the agent is running as, stamped onto every <see cref="SessionConfigured"/>
+    /// this session reports. The session knows its CLI and not the row in Settings it came from, so this is
+    /// the one place the two are joined — and it is set before the session starts, because the first thing
+    /// several agents report is the id that resumes them.</param>
+    public async Task StartAsync(
+        Func<IAgentEventSink, IAgentSession> createSession, SessionAccount? account, CancellationToken ct)
     {
         await StopSessionAsync();
         if (IsClosing) return;
+        lock (_gate) _account = account;
         var sink = NewSessionSink();
         var session = createSession(sink);
         if (!TryAttach(session))
@@ -211,7 +218,11 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
             else if (outcome == SettingsChangeOutcome.NeedsRestart) needsRestart = needsRestart.With(setting);
         }
 
-        if (!applied.IsEmpty) SettingsApplied?.Invoke(applied);
+        if (!applied.IsEmpty)
+        {
+            RecordChosenModel(applied);
+            SettingsApplied?.Invoke(applied);
+        }
         if (!needsRestart.IsEmpty) RequestRestart(needsRestart);
     }
 
@@ -224,7 +235,17 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
             return;
         }
 
+        RecordChosenModel(settings);
         RestartRequested?.Invoke(settings);
+    }
+
+    /// <summary>Writes down a model somebody picked, as distinct from the one a session reports running.
+    /// </summary>
+    /// <remarks>Only a change that was taken, and only here: a session's own report is mostly the CLI's
+    /// resolution of the instance's answer, and a viewer restoring that would freeze it.</remarks>
+    private void RecordChosenModel(SessionSettings settings)
+    {
+        if (settings.Model is { Length: > 0 } model) Emit(new SessionModelChosen(model));
     }
 
     /// <summary>The unified diff of one turn, for one file or — with none named — all of them.</summary>
@@ -593,8 +614,16 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
         }
     }
 
-    private AgentEvent Stamp(AgentEvent e) =>
-        e.At == default ? e with { At = _time.GetUtcNow() } : e;
+    /// <summary>Fills in what the host knows and the event did not carry: the time, and the account.</summary>
+    /// <remarks>An event that already names an account keeps it — a mapper replaying what a CLI said about
+    /// an earlier session is describing that session, not this one.</remarks>
+    private AgentEvent Stamp(AgentEvent e)
+    {
+        var stamped = e.At == default ? e with { At = _time.GetUtcNow() } : e;
+        return stamped is SessionConfigured { Account: null } configured && _account is not null
+            ? configured with { Account = _account }
+            : stamped;
+    }
 
     private async Task WriteLoopAsync()
     {
