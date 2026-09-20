@@ -82,4 +82,24 @@ public class TranscriptAnchorTests
         Assert.True(TranscriptAnchor.ReaderMoved(
             offsetDelta: 300, offset: 900, maxOffset: 900, offsetWeWrote: ourScroll.Take()));
     }
+
+    /// <summary>
+    /// A scroller nobody is looking at says nothing about where the reader is.
+    /// </summary>
+    /// <remarks>
+    /// Maximizing a tile, and putting the layout back, detaches this scroller from the visual tree and
+    /// re-attaches it. While it is out its offset is clamped to zero and its elements have no bounds, so
+    /// a pass reported then would either make the top of the conversation the anchor or restore onto
+    /// heights of nothing.
+    /// </remarks>
+    [Theory]
+    [InlineData(600, 2400, true)]
+    // Detached, or collapsed: no viewport.
+    [InlineData(0, 2400, false)]
+    // Attached, not yet laid out: no content.
+    [InlineData(600, 0, false)]
+    [InlineData(0, 0, false)]
+    public void A_pass_counts_only_while_there_is_something_to_measure(
+        double viewport, double extent, bool expected) =>
+        Assert.Equal(expected, TranscriptAnchor.CanBeMeasured(viewport, extent));
 }

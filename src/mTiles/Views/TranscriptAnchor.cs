@@ -44,6 +44,7 @@ public sealed class TranscriptAnchor
     {
         _scroll = scroll;
         scroll.ScrollChanged += OnScrollChanged;
+        scroll.AttachedToVisualTree += (_, _) => QueueRestore();
     }
 
     /// <summary>Starts keeping <paramref name="scroll"/>'s reader in place for as long as it lives.</summary>
@@ -51,6 +52,16 @@ public sealed class TranscriptAnchor
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
+        // A tile taking the whole workspace, or giving it back, is drawn by the splits above it showing
+        // one child: this scroller is detached from the visual tree and put back a moment later. While
+        // it is out there is no viewport and nothing is laid out, so the scroller clamps its offset to
+        // zero and reports a viewport and an extent of nothing — read as the reader moving, that
+        // becomes the anchor and full screen opens at the top of the conversation; acted on as a
+        // restore, the chain's elements have no height to take a share of. Such a pass says nothing
+        // about where anybody is, so the anchor is left exactly as it was and put back on the first
+        // pass that can be measured — which the re-attach raises, since the viewport comes back with it.
+        if (!CanBeMeasured(_scroll.Viewport.Height, _scroll.Extent.Height)) return;
+
         if (ReaderMoved(e.OffsetDelta.Y, _scroll.Offset.Y, MaxOffset(), _ourScroll.Take())) Capture();
 
         // Nothing but the offset moved, which is somebody scrolling: there is nothing to put back.
@@ -58,11 +69,23 @@ public sealed class TranscriptAnchor
 
         // After layout rather than inside it: the elements' own bounds are only final once the pass that
         // raised this has finished, and a late-settling message raises another change that lands here too.
+        QueueRestore();
+    }
+
+    /// <summary>Whether a reported scroll describes a scroller anybody is looking at.</summary>
+    /// <remarks>A scroller with no viewport or no content is one that has been detached, collapsed or
+    /// not yet laid out. Its offset is whatever the clamp left there and its elements have no bounds,
+    /// so neither half of this anchor has anything to read.</remarks>
+    public static bool CanBeMeasured(double viewport, double extent) => viewport > 0 && extent > 0;
+
+    private void QueueRestore()
+    {
         if (_restoreQueued) return;
         _restoreQueued = true;
         Dispatcher.UIThread.Post(() =>
         {
             _restoreQueued = false;
+            if (!CanBeMeasured(_scroll.Viewport.Height, _scroll.Extent.Height)) return;
             Restore();
         }, DispatcherPriority.Loaded);
     }
