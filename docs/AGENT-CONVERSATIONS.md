@@ -322,6 +322,67 @@ press Enter) and choosers for the permission mode and the effort. What they offe
 - **Known limit**: the modes offered are the agent's *interactive* list, which for opencode is the TUI's
   (bypass or its own default) although its server could also ask or plan per session.
 
+## Compacting the context
+
+The context bar under the composer — the one that says `634.9k / 1M tokens` — carries a **Compact** button
+at its right-hand end, where the running agent has a route for it. Pressing it asks the agent to summarise
+what has been said so far and carry on from the summary. **Nothing this application holds is touched**:
+the transcript is ours, the conversation's events are unchanged, and what shrinks is only what the *CLI* is
+still carrying.
+
+**It asks first, and the question opens on Yes.** What that guards is not loss but cost and surprise:
+compaction is a model call on somebody's own budget that then changes what the agent remembers for the
+rest of the conversation, and the control sits a few pixels from the composer everybody types in. So the
+question is a pause rather than an obstacle — Enter takes it — and it is the one confirmation in this
+application where the cautious answer is not the one under the keyboard
+(`MessageDialog.ConfirmAsync(defaultsToYes: true)`, opt-in per call because every other question here
+confirms something that pressing it again will not undo). It is also the one whose **unwired answer is
+yes**: `AgentConversationTileViewModel.ConfirmExpectingYes` is a delegate of its own rather than a flag on
+`ConfirmAction`, precisely so that the rule the rest of the application keeps — a question about throwing
+something away goes unanswered as *no* — cannot be reached for by a later caller who only wanted the
+convenient default. The answer is re-checked after the dialog closes: a turn can have started while it was
+open, and both agents that run this as a turn of their own refuse it then.
+
+**Where it is drawn is a decision.** It is on the bar and not among the composer's pickers because those
+say what the *next message* runs as — settings — while this is an act, and it is the only act there is
+about the figure beside it. It is quieter than anything in the composer (no ground until the pointer is on
+it, no outline, the strip's own monospace face): the composer's one accent belongs to Send, and spending it
+twice leaves neither as the memorable one. Once the window is **80% gone** — `ModelContextWindow`'s own
+margin, so the screen has no second opinion about when a window is nearly full — it takes `WarnText`, and
+the sentence saying why is in its tooltip, the rule `TileAction.Urgency` set for the tile header: a
+coloured control that does not say what the colour means is a mark to be guessed at.
+
+**Three of the six can do it, each by a route of its own, measured 2026-09-20**:
+
+| Agent | How | What comes back |
+|---|---|---|
+| Claude Code | `/compact` as an ordinary text message on the stream-json stdin | `system/status compacting`, a fresh `system/init`, `compact_boundary` with `compact_metadata.trigger` of `manual`, `result` — a turn like any other |
+| codex | `thread/compact/start` with `{threadId}` (0.154.0; with no parameters it answers ``Invalid request: missing field `threadId` ``) | `{}` at once, then a whole turn of its own: `turn/started`, an item of type `contextCompaction`, `turn/completed` |
+| opencode | `POST session/{id}/summarize` with `{providerID, modelID}`, both required | the bare `true`, then busy → a user message and its parts → `session.compacted` → idle |
+| pi, agy, Grok | — | nothing: neither CLI was on the machine this was measured on, and ACP has no compaction in the protocol |
+
+Four things about that are load-bearing:
+
+- **`ICompactingSession` is a separate interface**, the same division `IProcessBackedSession` makes, because
+  it is not true of all of them and because what it costs to be wrong about is a button that is there and
+  does nothing. An agent whose author has measured no route gets no control rather than one that fails.
+- **It is not a `SendMessage` carrying a slash command.** Only one of the three takes it as a message at
+  all, and the host's `SendAsync` writes a `UserMessageAdded` — so `/compact` would stand in the transcript
+  as something the user said, on a tile where two of the three agents would never have produced it. The
+  command is `CompactContext`, and a session with no route is told out loud rather than ignored.
+- **Whether the control is offered is stamped by the host**, not reported by the session
+  (`SessionOptionsReported.CanCompact`, in `AgentConversationHost.Stamp`, beside `SessionConfigured.Account`
+  and for the same reason): the answer is whether the object the host is holding implements the interface,
+  and a session saying it separately is a second copy of one fact that can disagree with the method
+  actually called. It goes down with the session, because the options survive the session that reported
+  them and a button over a stopped agent can only answer that nothing is running.
+- **codex and opencode are asked to compact only between turns.** Both queue or refuse otherwise, and
+  codex's queue counts *messages*, which this is not. The turn is opened by the session in both — codex's
+  own `turn/started` only records its id, and opencode's is the busy/idle rule — so the tile says Working
+  for however long the compaction takes, which is a model call and is not quick. Claude Code needs none of
+  that: it is a message, so `SendAsync`'s bookkeeping is already right, and the summary it injects
+  afterwards arrives as a `user` line, which the mapper reads for tool results only.
+
 ## Images and files
 
 Pasted (Ctrl+V or Alt+V — see `ComposerPaste` below), dropped on the composer, or picked with the

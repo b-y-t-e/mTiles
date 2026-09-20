@@ -807,6 +807,33 @@ is a yes here, since nothing is lost that the transcript does not still hold. Ca
 that seam is still [`docs/ROADMAP.md`](docs/ROADMAP.md) §6, and is cheaper than it was written to be: a
 segment is now the stretch between two `SessionConfigured`s naming different accounts.
 
+**The context bar carries the one act there is about the figure on it** (`ICompactingSession`,
+`CompactContext`, `SessionOptionsReported.CanCompact`). Compact asks the agent to summarise what has been
+said and carry on from the summary; nothing this application holds is touched, but it **asks first and
+the question opens on Yes** — what that guards is not loss but cost and surprise, a model call on
+somebody's budget that changes what the agent remembers, from a control a few pixels from the composer.
+It is the one confirmation here whose default button is the affirmative one
+(`MessageDialog.ConfirmAsync(defaultsToYes: true)`, opt-in per call) and the one whose unwired answer is
+yes — a delegate of its own (`ConfirmExpectingYes`) rather than a flag, so that the rule the rest of the
+application keeps, *an unanswered question about throwing something away is no*, cannot be reached for by
+a later caller who only wanted the convenient default. Three of the six have a route and each is its own, measured 2026-09-20: Claude Code takes
+`/compact` as an ordinary message on its stream-json stdin, codex answers `thread/compact/start` with
+`{threadId}` and runs a turn of its own with a `contextCompaction` item in it, and opencode takes
+`POST session/{id}/summarize` with `{providerID, modelID}` — both required, and the model is the
+session's own, since one the server does not know is a 500. pi, agy and Grok answer nothing and the
+button is not drawn for them: ACP has no compaction at all, and a guessed route is a control that
+reports having done something to somebody's context window when it has not. **Deliberately not a
+`SendMessage` carrying a slash command** — only one of the three reads it as a message, and the host's
+send writes a `UserMessageAdded`, so `/compact` would stand in the transcript as something the user said
+on a tile where two of the three would never have produced it. **Whether it is offered is the host's
+answer and not the session's**, stamped in `Stamp` beside `SessionConfigured.Account`: it is whether the
+object the host holds implements the interface, and a session saying it separately is a second copy of
+one fact that can disagree with the method actually called. On screen it is at the right-hand end of the
+context bar rather than among the composer's pickers — those say what the *next message* runs as, and
+this is an act — quieter than anything in the composer, because that one accent belongs to Send; it
+takes `WarnText` past 80% of the window, which is `ModelContextWindow`'s own margin rather than a second
+opinion, and never without the sentence in its tooltip.
+
 **A change to the workspace's skills reaches the agents already running** (`WorkspaceAgentFiles.SkillsChanged`,
 `SkillChangePolicy`). Ticking a database used to write `SKILL.md` and stop, and a CLI already started reads
 skills only at start-up — and no agent is treated otherwise (`IAiAgent.WatchesSkillsDirectory(AgentSurface)`

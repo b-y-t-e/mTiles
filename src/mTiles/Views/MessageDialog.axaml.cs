@@ -38,7 +38,8 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
         _focusOnOpen = ConfirmButton;
     }
 
-    private MessageDialog(string title, string message, Tone tone, string? confirmText, string cancelText)
+    private MessageDialog(string title, string message, Tone tone, string? confirmText, string cancelText,
+        bool defaultsToYes)
         : this()
     {
         TitleText.Text = title;
@@ -69,8 +70,9 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
             CancelButton.Click += (_, _) => OverlayHost.CloseWith(this, false);
 
             // The safe answer takes the keyboard, so Enter on a keystroke nobody aimed declines:
-            // every one of these confirms something that pressing it again will not undo.
-            _focusOnOpen = CancelButton;
+            // nearly every one of these confirms something that pressing it again will not undo.
+            // `defaultsToYes` is for the ones that do not — see the parameter's own remarks.
+            _focusOnOpen = defaultsToYes ? ConfirmButton : CancelButton;
         }
     }
 
@@ -79,15 +81,22 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
     /// <summary>Asks a yes/no question.</summary>
     /// <param name="whenUnavailable">The answer when there is no window to ask in — see the class
     /// remarks for why this is the caller's decision and not one value.</param>
+    /// <param name="defaultsToYes">Which button takes the keyboard, and therefore what Enter answers.
+    /// <b>Off by default and opt-in per call</b>: the reason the safe answer normally has it is that
+    /// nearly every question here confirms something pressing it again will not undo, and a stray Enter
+    /// must not be the thing that does it. Turn it on only where <em>no</em> is the cautious answer to
+    /// nothing — where saying yes loses nothing the user could want back — so that the question is a
+    /// pause rather than an obstacle. Compacting a conversation's context is the one such call today.
+    /// </param>
     public static Task<bool> ConfirmAsync(Visual owner, string title, string message,
         bool whenUnavailable, Tone tone = Tone.Question,
-        string confirmText = "Yes", string cancelText = "No")
+        string confirmText = "Yes", string cancelText = "No", bool defaultsToYes = false)
     {
         if (OverlayHost.For(owner) is not { } host)
             return Task.FromResult(whenUnavailable);
 
         return host.ShowAsync<bool>(
-            new MessageDialog(title, message, tone, confirmText, cancelText), width: 460);
+            new MessageDialog(title, message, tone, confirmText, cancelText, defaultsToYes), width: 460);
     }
 
     /// <summary>States something and waits for it to be dismissed.</summary>
@@ -97,6 +106,7 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
             return;
 
         await host.ShowAsync<bool>(
-            new MessageDialog(title, message, tone, confirmText: null, cancelText: "OK"), width: 460);
+            new MessageDialog(title, message, tone, confirmText: null, cancelText: "OK", defaultsToYes: false),
+            width: 460);
     }
 }

@@ -31,7 +31,7 @@ namespace mTiles.Services.Agents.Sessions.OpenCode;
 /// the instance passes no behaviour.</para>
 /// </remarks>
 public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, OpenCodeAgent agent, IAgentEventSink sink)
-    : IAgentSession, IProcessBackedSession
+    : IAgentSession, IProcessBackedSession, ICompactingSession
 {
     private readonly PendingReplies<ApprovalDecision> _approvals = new();
     private readonly PendingReplies<IReadOnlyDictionary<string, IReadOnlyList<string>>?> _questions = new();
@@ -134,6 +134,56 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
         if (!response.IsSuccessStatusCode)
             EndTurn(TurnOutcome.Failed, $"opencode refused the message ({(int)response.StatusCode}): " +
                                         await response.Content.ReadAsStringAsync(ct));
+    }
+
+    /// <summary>opencode's own compaction: <c>POST session/{id}/summarize</c>.</summary>
+    /// <remarks>
+    /// <para>Measured live 2026-09-20 against opencode 1.18.x. The body is
+    /// <c>{providerID, modelID}</c> — both required by its own schema — and the answer is the bare JSON
+    /// <c>true</c>. What follows on the event stream is an ordinary turn: the session goes
+    /// <c>busy</c>, a user message and its parts arrive, <c>session.compacted</c> is emitted (which
+    /// <see cref="OpenCodeEventMapper"/> already reads), and then <c>idle</c>. So the turn is opened here
+    /// and closed by the same busy/idle rule every message is closed by.</para>
+    /// <para><b>The model is the session's own and is not optional.</b> Asked with a model this server
+    /// does not serve, the endpoint answers 500 and the session raises
+    /// <c>Model not found</c> — so where <see cref="ModelReference"/> cannot name one, this says so
+    /// rather than sending a request that will fail in a way nobody can read.</para>
+    /// </remarks>
+    public async Task CompactAsync(CancellationToken ct)
+    {
+        if (_http is null || _sessionId is null) return;
+        if (ModelReference() is not { } model)
+        {
+            sink.Emit(new NoticeRaised(NoticeLevel.Warning,
+                "opencode needs a provider and a model to compact with, and this conversation names none."));
+            return;
+        }
+
+        lock (_turnGate)
+        {
+            if (_turnId is not null)
+            {
+                sink.Emit(new NoticeRaised(NoticeLevel.Warning,
+                    "opencode can only compact between turns — stop the one running first."));
+                return;
+            }
+
+            _turnId = $"turn-{Guid.NewGuid():N}";
+            _abortRequested = false;
+            sink.Emit(new TurnStarted { TurnId = _turnId });
+        }
+
+        try
+        {
+            using var response = await _http.PostAsJsonAsync($"session/{_sessionId}/summarize", model, ct);
+            if (!response.IsSuccessStatusCode)
+                EndTurn(TurnOutcome.Failed, $"opencode refused to compact ({(int)response.StatusCode}): " +
+                                            await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (HttpRequestException ex)
+        {
+            EndTurn(TurnOutcome.Failed, $"opencode did not take the request to compact: {ex.Message}");
+        }
     }
 
     public async Task InterruptAsync(CancellationToken ct)

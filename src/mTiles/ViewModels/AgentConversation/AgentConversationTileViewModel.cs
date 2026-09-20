@@ -91,6 +91,13 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <remarks>Null draws no bar rather than an empty one — see <see cref="ContextGauge"/>. The figures
     /// stand either way, which is why they are a separate property from this one.</remarks>
     [ObservableProperty] private double? _contextPercent;
+
+    /// <summary>Whether the agent running now can be asked to compact its own context.</summary>
+    /// <remarks>The session's answer (<see cref="SessionOptionsReported.CanCompact"/>), and not the
+    /// agent's: three of the six have a route for it and three do not, and a control that is drawn and
+    /// then says the agent cannot is worse than one that was never there. False while nothing is
+    /// running, because the options survive the session that reported them.</remarks>
+    [ObservableProperty] private bool _canCompact;
     [ObservableProperty] private QuestionRoundViewModel? _pendingQuestions;
     [ObservableProperty] private TileActivity _activity = TileActivity.Unknown;
     [ObservableProperty] private string _model = "";
@@ -421,6 +428,15 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <summary>Asked before anything is thrown away. Unwired answers no.</summary>
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
 
+    /// <summary>Asked before something whose expected answer is yes. <b>Unwired answers yes.</b></summary>
+    /// <remarks>A separate delegate rather than a flag on <see cref="ConfirmAction"/> because the two
+    /// answer differently when there is no window to ask in, and one of them is a rule this application
+    /// keeps everywhere: a question about throwing something away goes unanswered as <i>no</i>. This one
+    /// takes nothing away — the transcript is ours and is untouched — so its unanswered value is yes, and
+    /// the dialog it reaches opens with Yes under the keyboard. Keeping them apart is what stops a later
+    /// caller reaching for the convenient default on a question where it is the wrong one.</remarks>
+    public Func<string, Task<bool>>? ConfirmExpectingYes { get; set; }
+
     public string HeaderNote => Model.Length > 0 ? $"{Instance.Name} · {Model}" : Instance.Name;
 
     /// <summary>What the strip's model control says at rest.</summary>
@@ -730,6 +746,15 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         if (value) TurnClock.Start();
         else TurnClock.Stop();
+        CompactCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnCanCompactChanged(bool value) => CompactCommand.NotifyCanExecuteChanged();
+
+    partial void OnContextPercentChanged(double? value)
+    {
+        OnPropertyChanged(nameof(IsContextTight));
+        OnPropertyChanged(nameof(CompactTip));
     }
 
     partial void OnSelectedModeChanged(SessionOption? value)
@@ -914,6 +939,50 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [RelayCommand]
     private Task InterruptAsync() =>
         _host is null ? Task.CompletedTask : RunAsync(() => _host.ExecuteAsync(new InterruptTurn(), _lifetime.Token));
+
+    /// <summary>Asks the agent to summarise what has been said and carry on from the summary.</summary>
+    /// <remarks>
+    /// <para><b>It asks first, and the question opens on Yes</b>
+    /// (<see cref="ConfirmExpectingYes"/>). What it protects against is not loss — nothing this
+    /// application holds is touched, and the transcript is unchanged — but cost and surprise: compaction
+    /// is a model call, on somebody's own budget, that then changes what the agent remembers for the rest
+    /// of the conversation, and the control sits a few pixels from the composer everybody types in. So
+    /// the question is a pause rather than an obstacle: Enter takes it, and it is the one confirmation in
+    /// this application where the cautious answer is not the one under the keyboard.</para>
+    /// <para>Asked before the command rather than inside the host, because the host is what a browser
+    /// would drive too and a dialog is this window's business.</para>
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanCompactNow))]
+    private async Task CompactAsync()
+    {
+        if (_host is null) return;
+        if (ConfirmExpectingYes is { } ask && !await ask(
+                "Compact the context? The agent summarises what has been said so far and carries on " +
+                "from the summary. The transcript here is not touched.")) return;
+
+        // Asked and answered, and the tile may have moved on meanwhile — a turn can have started while
+        // the dialog was open, and both agents that run this as a turn of their own refuse it then.
+        if (!CanCompactNow() || _host is not { } host) return;
+        await RunAsync(() => host.ExecuteAsync(new CompactContext(), _lifetime.Token));
+    }
+
+    private bool CanCompactNow() => CanCompact && !IsWorking && CanSend();
+
+    /// <summary>Why the button is worth pressing, and — where it is urgent — why it is coloured.</summary>
+    /// <remarks>The sentence always travels with the colour: a control drawn in <c>WarnText</c> with
+    /// nothing saying what the warning is about is a mark the user has to guess the meaning of, which is
+    /// the rule <c>TileAction.Urgency</c> set for the tile header.</remarks>
+    public string CompactTip => IsContextTight
+        ? "The context window is nearly full. Compact it: the agent summarises what has been said so far " +
+          "and carries on from the summary. The transcript here is not touched."
+        : "Compact the context: the agent summarises what has been said so far and carries on from the " +
+          "summary. The transcript here is not touched.";
+
+    /// <summary>Whether the window is full enough that compacting is the next thing to do.</summary>
+    /// <remarks>80%, which is the margin <c>ModelContextWindow</c> already chose for the point at which
+    /// Claude Code is told to compact on its own — one number for one idea, rather than this screen
+    /// having an opinion of its own about when a window is nearly full.</remarks>
+    public bool IsContextTight => ContextPercent >= 80;
 
     [RelayCommand]
     private Task RestartAsync() => StartAsync();
@@ -1510,6 +1579,12 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
         IsWorking = state.IsWorking;
         Model = state.Model ?? "";
+        // The session that reported the options is the one that would do the compacting, so this goes down
+        // with it: the options themselves survive a session ending, and a button offered over a stopped
+        // agent is one that can only answer that nothing is running.
+        CanCompact = state.Options?.CanCompact is true
+                     && state.SessionState is AgentSessionState.Ready or AgentSessionState.Running
+                         or AgentSessionState.WaitingForUser;
         DrawSettings(state);
         // The window the agent did not name, filled in the same way and in the same order as the terminal
         // agent tile's — see GaugeWindowSources. Claude Code's stream reports the tokens and never the limit, so
@@ -1601,12 +1676,14 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         OnPropertyChanged(nameof(HasLaunchProblem));
         OnPropertyChanged(nameof(IsEmpty));
         SendCommand.NotifyCanExecuteChanged();
+        CompactCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsStartingChanged(bool value)
     {
         OnPropertyChanged(nameof(IsEmpty));
         SendCommand.NotifyCanExecuteChanged();
+        CompactCommand.NotifyCanExecuteChanged();
     }
 
     private TimelineItemViewModel CreateItem(TimelineEntry entry) => entry switch

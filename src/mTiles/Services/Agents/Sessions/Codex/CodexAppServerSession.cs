@@ -22,7 +22,7 @@ namespace mTiles.Services.Agents.Sessions.Codex;
 /// counted and becomes the next turn when the running one completes.</para>
 /// </remarks>
 public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent agent, IAgentEventSink sink)
-    : IAgentSession, IProcessBackedSession
+    : IAgentSession, IProcessBackedSession, ICompactingSession
 {
     // What the next turn runs as. Codex takes all three on every turn/start, so a change is a new value here
     // and nothing is restarted.
@@ -180,6 +180,46 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
         lock (_turnGate)
             if (_queuedTurns > 0) _queuedTurns--;
         sink.Emit(new NoticeRaised(NoticeLevel.Error, $"codex refused the message: {error}"));
+    }
+
+    /// <summary>codex's own compaction: <c>thread/compact/start</c>.</summary>
+    /// <remarks>
+    /// <para>Measured 2026-09-20 against codex-cli 0.154.0. The request takes <c>{threadId}</c> — with no
+    /// parameters it answers <c>Invalid request: missing field `threadId`</c> — and returns <c>{}</c> at
+    /// once, long before the work is done. What follows is a whole turn of codex's own:
+    /// <c>thread/status/changed</c> to active, <c>turn/started</c>, an <c>item/started</c> and
+    /// <c>item/completed</c> of type <c>contextCompaction</c>, then <c>turn/completed</c>.</para>
+    /// <para>So the turn is opened here rather than left to the notification: codex's <c>turn/started</c>
+    /// only records its own id (see <see cref="OnNotification"/>) while <c>turn/completed</c> calls
+    /// <see cref="EndTurn"/>, which does nothing when no turn was opened — and the tile would then say
+    /// nothing at all for however long the compaction took. Compacting while a turn runs is refused out
+    /// loud instead of queued: the queue counts messages, and this is not one.</para>
+    /// </remarks>
+    public async Task CompactAsync(CancellationToken ct)
+    {
+        if (_peer is null || _threadId is null) return;
+
+        lock (_turnGate)
+        {
+            if (_turnId is not null)
+            {
+                sink.Emit(new NoticeRaised(NoticeLevel.Warning,
+                    "codex can only compact between turns — stop the one running first."));
+                return;
+            }
+
+            BeginTurn();
+        }
+
+        try
+        {
+            await _peer.RequestAsync("thread/compact/start", new { threadId = _threadId }, ct,
+                TimeSpan.FromSeconds(60));
+        }
+        catch (Exception ex) when (ex is JsonRpcException or TimeoutException)
+        {
+            EndTurn(TurnOutcome.Failed, $"codex refused to compact: {ex.Message}");
+        }
     }
 
     public async Task InterruptAsync(CancellationToken ct)

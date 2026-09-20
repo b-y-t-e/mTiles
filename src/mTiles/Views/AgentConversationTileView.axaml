@@ -351,6 +351,26 @@
         <Border DockPanel.Dock="Bottom" Classes="context-bar"
                 IsVisible="{Binding UsageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
             <DockPanel>
+                <!-- Compacting is the one act there is about this figure, so it stands at the end of the
+                     line the figure is on rather than among the pickers above, which say what the *next
+                     message* runs as and are settings rather than acts. Quieter than anything in the
+                     composer - no ground until the pointer is on it, no outline, the strip's own face and
+                     size - because the composer's accent belongs to Send and spending it twice makes
+                     neither the memorable one.
+
+                     Drawn only where the running agent has a route for it (three of the six do), and it
+                     turns WarnText once the window is 80% gone, with the reason in the tooltip: a coloured
+                     control that does not say why is a mark to be guessed at. -->
+                <Button DockPanel.Dock="Right" Classes="context-action" Margin="10,0,0,0"
+                        Classes.tight="{Binding IsContextTight}"
+                        IsVisible="{Binding CanCompact}"
+                        Command="{Binding CompactCommand}"
+                        ToolTip.Tip="{Binding CompactTip}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <mi:MaterialIcon Kind="ArrowCollapseVertical" Width="11" Height="11" />
+                        <TextBlock Text="Compact" />
+                    </StackPanel>
+                </Button>
                 <TextBlock DockPanel.Dock="Right" Classes="strip" Margin="8,0,0,0"
                            Text="{Binding UsageText}" />
                 <v:UsageBar Height="6" VerticalAlignment="Center"

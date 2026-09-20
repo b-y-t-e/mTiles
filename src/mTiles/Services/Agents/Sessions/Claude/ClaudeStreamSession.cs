@@ -31,7 +31,7 @@ namespace mTiles.Services.Agents.Sessions.Claude;
 /// either lets the agent implement it or keeps it planning.</para>
 /// </remarks>
 public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agent, IAgentEventSink sink)
-    : IAgentSession, IProcessBackedSession
+    : IAgentSession, IProcessBackedSession, ICompactingSession
 {
     private readonly ClaudeStreamMapper _mapper = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> _controlReplies = new();
@@ -107,6 +107,19 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
 
         await _process.WriteLineAsync(message.ToJsonString(), ct);
     }
+
+    /// <summary>
+    /// <c>/compact</c>, sent as an ordinary message — which is what a slash command is to Claude Code.
+    /// </summary>
+    /// <remarks>Measured 2026-09-20 against the stream-json interface: the CLI answers
+    /// <c>{"type":"system","subtype":"status","status":"compacting"}</c>, then a fresh <c>system/init</c>,
+    /// then <c>compact_boundary</c> with <c>compact_metadata.trigger</c> of <c>manual</c>, then
+    /// <c>result</c> — so it is a turn like any other and the turn bookkeeping is
+    /// <see cref="SendAsync"/>'s unchanged. What it does <em>not</em> go through is the host's own
+    /// <c>SendMessage</c>, which would write "/compact" into the transcript as something the user said.
+    /// The summary Claude Code injects afterwards arrives as a <c>user</c> line, which the mapper reads
+    /// for tool results only, so none of it lands in the conversation either.</remarks>
+    public Task CompactAsync(CancellationToken ct) => SendAsync(AgentTurnInput.FromText("/compact"), ct);
 
     public async Task InterruptAsync(CancellationToken ct)
     {

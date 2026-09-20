@@ -1,4 +1,4 @@
-<Styles xmlns="https://github.com/avaloniaui"
+﻿<Styles xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:mtc="using:mTiles.Controls">
 
@@ -161,6 +161,47 @@
         <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
         <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
         <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- ======== An act on the context bar ========
+         Today only Compact. The bar underneath the composer is a thing to glance at while writing, so
+         what stands on it has to be quieter than everything above it: no ground until the pointer is
+         there, no outline, the strip's own monospace face and size, and TextMuted beside the figure it
+         acts on rather than a colour of its own. Hover is the whole of the affordance, which is enough
+         because the word is spelled out.
+
+         `tight` is the same idea TileAction.Urgency is: the control says it is worth doing now by
+         taking WarnText, and never travels without the sentence in the tooltip that says why. WarnText
+         and not DangerText - a full window is a thing to act on, not a thing that has broken. -->
+    <Style Selector="Button.context-action">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="5,1" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.context-action /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.context-action:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+    </Style>
+    <Style Selector="Button.context-action:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+    </Style>
+    <Style Selector="Button.context-action.tight">
+        <Setter Property="Foreground" Value="{DynamicResource WarnText}" />
+    </Style>
+    <!-- Disabled while a turn runs, and it says so by fading rather than by going: a control that
+         disappears for the length of a turn is one the reader has to find again afterwards. -->
+    <Style Selector="Button.context-action:disabled">
+        <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        <Setter Property="Cursor" Value="Arrow" />
     </Style>
 
     <!-- ======== A button with a word on it ========

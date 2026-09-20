@@ -171,6 +171,15 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
             case InterruptTurn when session is not null:
                 await session.InterruptAsync(ct);
                 break;
+            // Not a SendMessage carrying a slash command: only one of the three agents that can do this
+            // takes it as a message at all, and a "/compact" written into the transcript as something the
+            // user said is a line the other two would never have produced.
+            case CompactContext when session is ICompactingSession compacting:
+                await compacting.CompactAsync(ct);
+                break;
+            case CompactContext when session is not null:
+                Emit(new NoticeRaised(NoticeLevel.Warning, "This agent cannot compact its own context."));
+                break;
             case RespondToApproval approval when session is not null:
                 await session.RespondToApprovalAsync(approval.RequestId, approval.Decision, ct);
                 break;
@@ -620,9 +629,15 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
     private AgentEvent Stamp(AgentEvent e)
     {
         var stamped = e.At == default ? e with { At = _time.GetUtcNow() } : e;
-        return stamped is SessionConfigured { Account: null } configured && _account is not null
-            ? configured with { Account = _account }
-            : stamped;
+        return stamped switch
+        {
+            SessionConfigured { Account: null } configured when _account is not null =>
+                configured with { Account = _account },
+            // The session reports what its CLI can be switched to; whether it can compact is a fact about
+            // the object we are holding, which only the host is looking at.
+            SessionOptionsReported options => options with { CanCompact = _session is ICompactingSession },
+            _ => stamped,
+        };
     }
 
     private async Task WriteLoopAsync()

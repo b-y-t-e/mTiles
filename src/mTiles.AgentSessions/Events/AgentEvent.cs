@@ -150,6 +150,15 @@ public sealed record SessionOptionsReported(
     IReadOnlyList<SessionOption> Modes,
     IReadOnlyList<SessionOption> Efforts) : AgentEvent
 {
+    /// <summary>Whether this session can be asked to compact its own context.</summary>
+    /// <remarks><b>Stamped by the host, not reported by the session</b> — the same division
+    /// <see cref="SessionConfigured.Account"/> makes, and for a plainer reason: the answer is whether the
+    /// object the host is holding implements <see cref="ICompactingSession"/>, so a session saying it
+    /// separately is a second copy of one fact that can disagree with the method that is actually called.
+    /// False on a session that cannot, which is what keeps the control off the three agents nobody has
+    /// measured a route for.</remarks>
+    public bool CanCompact { get; init; }
+
     /// <summary>Never stored: it describes the session running now, and the next one says it again.</summary>
     public override bool IsTransient => true;
 }

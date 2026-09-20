@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.Headless;
@@ -163,6 +163,7 @@ public class AgentConversationViewTests
             Assert.DoesNotContain(scroller, composer.GetVisualAncestors());
             Assert.Equal(Dock.Bottom, DockPanel.GetDock(composer));
 
+
             // What you typed sits on the right, at most three quarters across; what the agent said runs
             // the full width from the left. The column and the span are the whole of it — see
             // Views/BubbleLayout.cs — so they are what is asserted rather than a measured position.
@@ -180,6 +181,30 @@ public class AgentConversationViewTests
             // being ignored, and the one costing a column of a bubble's width is the one to drop.
             Assert.Empty(yours.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.Classes.Contains("gutter") && t.IsVisible));
+
+            // Compact stands at the end of the line the figure is on — on the context bar, not among the
+            // composer's pickers, which say what the next message runs as. Drawn only where the session
+            // has a route for it: this one reports none, so it is there and invisible.
+            var compact = view.GetVisualDescendants().OfType<Button>()
+                .Single(b => b.Classes.Contains("context-action"));
+            var contextBar = view.GetVisualDescendants().OfType<Border>()
+                .Single(b => b.Classes.Contains("context-bar"));
+            Assert.Contains(contextBar, compact.GetVisualAncestors());
+            Assert.DoesNotContain(composer, compact.GetVisualAncestors());
+            Assert.False(compact.IsVisible);
+
+            vm.Draw(ConversationReducer.Replay(
+            [
+                new SessionStateChanged(AgentSessionState.Ready),
+                new SessionOptionsReported([], [], []) { CanCompact = true },
+                new UsageUpdated(new TokenUsage(180_000, 200_000)),
+            ]));
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Assert.True(compact.IsVisible);
+            // The colour never travels without the sentence that says what it means.
+            Assert.True(compact.Classes.Contains("tight"));
+            Assert.Contains("nearly full", (string)ToolTip.GetTip(compact)!);
             }
             finally
             {

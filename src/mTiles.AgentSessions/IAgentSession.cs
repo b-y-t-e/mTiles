@@ -1,4 +1,4 @@
-using mTiles.AgentSessions.Events;
+﻿using mTiles.AgentSessions.Events;
 
 namespace mTiles.AgentSessions;
 
@@ -61,6 +61,39 @@ public sealed record AgentTurnInput(string Text, IReadOnlyList<ImageAttachment> 
     /// <see cref="ImageMarkers.Interleave"/>, which also guarantees at least one.</summary>
     public List<T> Blocks<T>(Func<string, T> text, Func<ImageAttachment, T> image) =>
         [.. ImageMarkers.Interleave(Text, Images).Select(part => part.Map(text, image))];
+}
+
+/// <summary>A session whose agent can be asked to compact its own context.</summary>
+/// <remarks>
+/// <para>Separate from <see cref="IAgentSession"/> because it is not true of all of them, and because
+/// what it costs to be wrong about is a button that is there and does nothing. Three of the six answer
+/// it, each by a route of its own, measured 2026-09-20:</para>
+/// <list type="bullet">
+/// <item><b>Claude Code</b> — <c>/compact</c> as an ordinary text message on the stream-json stdin. It
+/// runs as a turn and comes back as <c>system/status compacting</c>, a <c>compact_boundary</c> whose
+/// <c>compact_metadata.trigger</c> is <c>manual</c>, and a <c>result</c>.</item>
+/// <item><b>codex</b> — <c>thread/compact/start</c> with <c>{threadId}</c>, which answers <c>{}</c> at
+/// once and then runs a whole turn of its own: <c>turn/started</c>, an item of type
+/// <c>contextCompaction</c>, <c>turn/completed</c>.</item>
+/// <item><b>opencode</b> — <c>POST session/{id}/summarize</c> with <c>{providerID, modelID}</c>, which
+/// answers <c>true</c>, takes the session busy and emits <c>session.compacted</c> before going idle.
+/// The model is required and is the session's own: a model the server does not know is a 500 and a
+/// <c>session.error</c>.</item>
+/// </list>
+/// <para><b>pi, agy and Grok answer nothing and the button is not drawn for them.</b> Neither pi's nor
+/// agy's CLI is on the machine this was measured on, and ACP — which Grok speaks — has no compaction in
+/// the protocol at all. A guessed route here is a control that reports having done something to
+/// somebody's context window when it has not.</para>
+/// <para>Whether the button is offered is not asked of this interface by the view: the host stamps the
+/// answer onto <see cref="Events.SessionOptionsReported"/>, so a viewer that is not this window gets it
+/// over the wire like every other thing a session can do.</para>
+/// </remarks>
+public interface ICompactingSession
+{
+    /// <summary>Asks the agent to summarise the conversation so far and carry on from the summary.</summary>
+    /// <remarks>Opens a turn where the agent's own protocol does not announce one, so the tile says
+    /// Working for as long as it takes — compaction is a model call and is not quick.</remarks>
+    Task CompactAsync(CancellationToken ct);
 }
 
 /// <summary>A session whose agent runs as a child process of ours.</summary>

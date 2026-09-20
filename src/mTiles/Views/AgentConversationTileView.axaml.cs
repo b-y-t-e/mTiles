@@ -182,6 +182,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
             _subscribed.SentByUser -= GoToEnd;
             _subscribed.TranscriptOpened -= GoToEnd;
             _subscribed.ConfirmAction = null;
+            _subscribed.ConfirmExpectingYes = null;
             _subscribed = null;
         }
 
@@ -196,6 +197,10 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         // built.
         GoToEnd();
         vm.ConfirmAction = message => MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: false);
+        // The one question here that opens on Yes, and the one whose unasked answer is yes: see
+        // AgentConversationTileViewModel.ConfirmExpectingYes.
+        vm.ConfirmExpectingYes = message => MessageDialog.ConfirmAsync(this, "Compact", message,
+            whenUnavailable: true, defaultsToYes: true);
         if (VisualRoot is not null) vm.EnsureStarted();
     }
 
