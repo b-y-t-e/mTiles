@@ -1,11 +1,14 @@
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.ViewModels;
 
@@ -51,8 +54,39 @@ public partial class WorkspacesPanelView : UserControl, IFocusTargetView
     /// being attached is being opened, and the field takes the keyboard the moment it is.</summary>
     private void TabsFilterField_AttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
-        if (sender is TextBox field)
-            Dispatcher.UIThread.Post(() => field.Focus(), DispatcherPriority.Loaded);
+        if (sender is not TextBox field) return;
+
+        Dispatcher.UIThread.Post(() => field.Focus(), DispatcherPriority.Loaded);
+
+        // Removed first: a flyout keeps its content control and re-attaches it every time it opens,
+        // so subscribing on attach alone adds a handler per opening.
+        field.KeyDown -= TabsFilterField_KeyDown;
+        field.KeyDown += TabsFilterField_KeyDown;
+    }
+
+    /// <summary>The way out of the filter flyout, which a button opens and nothing else closes.</summary>
+    /// <remarks>Enter accepts — the list narrows as you type, so there is nothing left to confirm —
+    /// and Escape clears the filter first and closes on the second press, so the one gesture that
+    /// undoes a filter does not also need the mouse to find the button again.</remarks>
+    private void TabsFilterField_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox field) return;
+        if (e.Key is not (Key.Enter or Key.Escape)) return;
+
+        if (e.Key == Key.Escape && field.Text is { Length: > 0 })
+        {
+            field.Text = string.Empty;
+            e.Handled = true;
+            return;
+        }
+
+        // The field lives in the flyout's own popup, which is a visual root of its own — the popup
+        // is not in anybody's visual tree, so it is reached through the logical one. A press that
+        // finds no popup is left unhandled, so the built-in light dismiss still answers Escape.
+        if (field.FindLogicalAncestorOfType<Popup>() is not { } popup) return;
+
+        popup.IsOpen = false;
+        e.Handled = true;
     }
 
     private void WorkspaceItem_PointerPressed(object? sender, PointerPressedEventArgs e) =>
