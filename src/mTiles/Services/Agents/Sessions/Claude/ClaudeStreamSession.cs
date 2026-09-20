@@ -40,7 +40,6 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
     private readonly Lock _turnGate = new();
     private AgentProcess? _process;
     private string? _turnId;
-    private int _queuedTurns;
     private int _requestCounter;
 
     /// <inheritdoc />
@@ -96,10 +95,14 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
             ["message"] = new JsonObject { ["role"] = "user", ["content"] = content },
         };
 
+        // A message sent while a turn is running is a *steer*, not a second turn: Claude Code folds it
+        // into the loop it is already in and answers the two together with one `result`. Counted as a
+        // turn of its own it was a turn nothing could ever close — the single `result` ended the first
+        // one and opened the phantom, and the tile said Working until the session was restarted. The
+        // whole of the bookkeeping for it is therefore this: a turn is opened only when none is open.
         lock (_turnGate)
         {
             if (_turnId is null) BeginTurn();
-            else _queuedTurns++;
         }
 
         await _process.WriteLineAsync(message.ToJsonString(), ct);
@@ -109,7 +112,6 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
     {
         _approvals.AbandonAll(ApprovalDecision.Cancel);
         _questions.AbandonAll(null);
-        lock (_turnGate) _queuedTurns = 0;
         if (_process is null) return;
 
         try
@@ -289,9 +291,20 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
 
         string? turnId;
         lock (_turnGate) turnId = _turnId;
-        foreach (var e in _mapper.Map(root, turnId)) sink.Emit(e);
 
-        if (root.Str("type") == "result") EndTurn(root);
+        // The end of the turn is not allowed to depend on the rest of the line being understood. A
+        // `result` is the only thing that puts this tile's "Working" down, and mapping it — or storing
+        // what came out — can throw: the pump logs that and reads on, the turn is never closed, and the
+        // tile says Working until the session is restarted, with the agent sitting idle behind it. So
+        // whatever the mapping did, the line that says the turn ended still ends it.
+        try
+        {
+            foreach (var e in _mapper.Map(root, turnId)) sink.Emit(e);
+        }
+        finally
+        {
+            if (ClaudeStreamMapper.EndsTurn(root)) EndTurn(root);
+        }
     }
 
     private void BeginTurn()
@@ -309,16 +322,6 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
             _approvals.AbandonAll(ApprovalDecision.Cancel);
             sink.Emit(new TurnCompleted(outcome, error) { TurnId = _turnId });
             _turnId = null;
-
-            if (_queuedTurns > 0 && outcome != TurnOutcome.Interrupted)
-            {
-                _queuedTurns--;
-                BeginTurn();
-            }
-            else
-            {
-                _queuedTurns = 0;
-            }
         }
     }
 
@@ -506,7 +509,6 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
                     ? new TurnCompleted(TurnOutcome.Interrupted) { TurnId = _turnId }
                     : new TurnCompleted(TurnOutcome.Failed, "Claude Code ended during the turn.") { TurnId = _turnId });
             _turnId = null;
-            _queuedTurns = 0;
         }
 
         var stderr = process.StderrText;

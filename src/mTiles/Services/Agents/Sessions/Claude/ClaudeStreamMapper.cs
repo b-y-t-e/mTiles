@@ -67,6 +67,16 @@ public sealed class ClaudeStreamMapper
         return [.. events.Select(e => e with { TurnId = turnId })];
     }
 
+    /// <summary>Whether this line is the end of the turn the tile is waiting on.</summary>
+    /// <remarks>
+    /// A <c>result</c> is how Claude Code says a turn ended, and it is the only thing that puts the
+    /// tile's "Working" down — but a <c>parent_tool_use_id</c> makes it a sub-agent's: the Task tool runs
+    /// an agent of its own and its lines are interleaved with ours under that one field, which is the
+    /// same reason <see cref="Map"/> refuses to read them as this conversation's.
+    /// </remarks>
+    public static bool EndsTurn(JsonElement line) =>
+        line.Str("type") == "result" && line.Str("parent_tool_use_id") is null;
+
     /// <summary>How a turn's <c>result</c> line ended the turn.</summary>
     public static (TurnOutcome Outcome, string? Error) OutcomeOf(JsonElement result)
     {

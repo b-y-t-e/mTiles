@@ -72,6 +72,18 @@ public class AgentProtocolMapperTests
     public void Claude_Code_s_result_says_how_the_turn_ended(string line, TurnOutcome expected) =>
         Assert.Equal(expected, ClaudeStreamMapper.OutcomeOf(Json(line)).Outcome);
 
+    /// <summary>
+    /// The one line that puts the tile's "Working" down, and the one that looks exactly like it and
+    /// must not: the Task tool runs an agent of its own, and its `result` is interleaved with ours.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"type":"result","subtype":"success"}""", true)]
+    [InlineData("""{"type":"result","subtype":"success","parent_tool_use_id":null}""", true)]
+    [InlineData("""{"type":"result","subtype":"success","parent_tool_use_id":"toolu_1"}""", false)]
+    [InlineData("""{"type":"assistant","message":{"content":[]}}""", false)]
+    public void Only_this_conversation_s_own_result_ends_the_turn(string line, bool ends) =>
+        Assert.Equal(ends, ClaudeStreamMapper.EndsTurn(Json(line)));
+
     [Fact]
     public void Claude_Code_s_permission_denial_is_a_declined_tool_not_a_failed_one()
     {
