@@ -348,7 +348,11 @@
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
         <Setter Property="CornerRadius" Value="{DynamicResource RadiusXl}" />
-        <Setter Property="Padding" Value="12,8" />
+        <!-- The right inset is the bottom one and not the left one. What sits in that corner is the
+             send button, and 12 beside it against 8 under it made the corner read as a misalignment
+             rather than as an inset; the left keeps its 12, where what stands against the border is
+             text and needs the room. -->
+        <Setter Property="Padding" Value="12,8,8,8" />
         <!-- Twice the side margin it had. Docked to the foot of the tile it is no longer a block in a
              column of blocks that all share one left edge — it is the bottom of the card, and four
              pixels there read as a box that had nowhere left to go. -->
