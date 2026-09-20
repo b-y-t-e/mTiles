@@ -1200,8 +1200,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             ? Task.CompletedTask
             : RunAsync(() => _host.ExecuteAsync(new AnswerQuestions(requestId, answers), _lifetime.Token));
 
-    private Task<string> LoadDiffAsync(CheckpointEntry checkpoint, string? path) =>
-        _host?.DiffAsync(checkpoint, path, _lifetime.Token) ?? Task.FromResult("");
+    private Task<string> LoadDiffAsync(CheckpointEntry checkpoint, ChangedFile? file) =>
+        _host?.DiffAsync(checkpoint, file, _lifetime.Token) ?? Task.FromResult("");
 
     private async Task RestoreAsync(CheckpointEntry checkpoint)
     {

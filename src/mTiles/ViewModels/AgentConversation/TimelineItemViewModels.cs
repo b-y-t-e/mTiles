@@ -314,16 +314,13 @@ public sealed record AnsweredQuestion(string Question, string Answer);
 /// <summary>What a turn changed on disk, with its diff on request and a way back.</summary>
 public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
 {
-    private readonly Func<CheckpointEntry, string?, Task<string>> _loadDiff;
+    private readonly Func<CheckpointEntry, ChangedFile?, Task<string>> _loadDiff;
     private readonly Func<CheckpointEntry, Task> _restore;
 
     [ObservableProperty] private bool _restored;
-    [ObservableProperty] private bool _isExpanded;
-    [ObservableProperty] private IReadOnlyList<DiffLine> _diff = [];
-    [ObservableProperty] private bool _isLoadingDiff;
 
     public CheckpointItemViewModel(CheckpointEntry entry,
-        Func<CheckpointEntry, string?, Task<string>> loadDiff, Func<CheckpointEntry, Task> restore)
+        Func<CheckpointEntry, ChangedFile?, Task<string>> loadDiff, Func<CheckpointEntry, Task> restore)
     {
         _loadDiff = loadDiff;
         _restore = restore;
@@ -345,6 +342,11 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
     public string Additions => $"+{((CheckpointEntry)Source!).Files.Sum(f => f.Additions)}";
     public string Deletions => $"−{((CheckpointEntry)Source!).Files.Sum(f => f.Deletions)}";
 
+    /// <summary>Whether anything is open, which is what the summary's own chevron reports.</summary>
+    /// <remarks>Derived from the files rather than kept beside them: with a flag of its own the header
+    /// would go on pointing down after the last file was folded away by its own row.</remarks>
+    public bool IsExpanded => Files.Any(f => f.IsExpanded);
+
     public override bool CanShow(object entry) => entry is CheckpointEntry;
 
     public override void Update(object entry)
@@ -353,31 +355,89 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
         Id = checkpoint.Id;
         Source = checkpoint;
         Restored = checkpoint.Restored;
-        if (Files.Count != checkpoint.Files.Count)
+        if (!FilesAlreadyShow(checkpoint.Files))
         {
+            foreach (var file in Files) file.PropertyChanged -= OnFileChanged;
             Files.Clear();
-            foreach (var file in checkpoint.Files) Files.Add(new ChangedFileViewModel(file));
+            foreach (var file in checkpoint.Files)
+            {
+                // The checkpoint is read at the moment the diff is asked for, not captured here: this
+                // view model is updated in place as the entry is rewritten, and a file row holding the
+                // entry it was built from would go on asking about a checkpoint that has moved on.
+                var row = new ChangedFileViewModel(file, changed => _loadDiff((CheckpointEntry)Source!, changed));
+                row.PropertyChanged += OnFileChanged;
+                Files.Add(row);
+            }
         }
 
         OnPropertyChanged(nameof(Summary));
         OnPropertyChanged(nameof(Additions));
         OnPropertyChanged(nameof(Deletions));
+        OnPropertyChanged(nameof(IsExpanded));
     }
 
+    /// <summary>Whether the rows on screen are already these very files.</summary>
+    /// <remarks>The whole file, not how many there are: this view model is reused for whatever
+    /// checkpoint lands in its place — the same position in another conversation — and two turns
+    /// touching the same number of files would otherwise keep the old rows. Those name the previous
+    /// conversation's paths, and a row still open shows that turn's patch; asked to open, it hands git
+    /// a path this checkpoint has never heard of and comes back with nothing. <see cref="ChangedFile"/>
+    /// is a record, so one comparison covers the path, the kind, the counts and a rename's old name.</remarks>
+    private bool FilesAlreadyShow(IReadOnlyList<ChangedFile> files) =>
+        Files.Count == files.Count && !Files.Where((row, i) => !row.Describes(files[i])).Any();
+
+    private void OnFileChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ChangedFileViewModel.IsExpanded)) OnPropertyChanged(nameof(IsExpanded));
+    }
+
+    /// <summary>Open every file, or — where anything is already open — fold them all away.</summary>
+    /// <remarks>The turn's whole diff used to be a separate thing the header opened, drawn under a list
+    /// of the same files: two routes to the same lines, and on a turn touching five files the one that
+    /// answered "what happened to this file" was the one that made you scroll. So the header is the
+    /// same question asked of all of them at once, and there is one place a line of a diff is drawn.</remarks>
     [RelayCommand]
     private async Task ToggleDiffAsync()
     {
-        IsExpanded = !IsExpanded;
-        if (!IsExpanded || Diff.Count > 0) return;
-
-        IsLoadingDiff = true;
-        try
+        if (IsExpanded)
         {
-            Diff = DiffLines.Parse(await _loadDiff((CheckpointEntry)Source!, null));
+            foreach (var file in Files) file.Collapse();
+            return;
         }
-        finally
+
+        await ExpandFilesWithinBudgetAsync();
+    }
+
+    /// <summary>How many files are read at once, and how many lines one press may draw.</summary>
+    /// <remarks><see cref="DiffLines.MaxLines"/> guards a non-virtualising list and is per file, so
+    /// asked of every file at once it multiplies by the number of files — a turn touching twenty of
+    /// them would draw thirty thousand rows and spawn twenty git processes on one click. The batch
+    /// keeps the round trips few without running the whole turn in parallel, and the budget is the
+    /// same cap the old turn-wide diff had; the files past it stay folded and open one by one from
+    /// their own rows. Reading and showing are two steps for exactly that reason: a batch read in
+    /// parallel and then opened row by row is counted against the budget between files rather than
+    /// between batches, which is what keeps four large files from drawing four times the cap. One
+    /// file may still carry it past the line, because how long a diff is is not known until it has
+    /// been read.</remarks>
+    private const int FilesReadTogether = 4;
+    private const int ExpandAllLineBudget = DiffLines.MaxLines;
+
+    private async Task ExpandFilesWithinBudgetAsync()
+    {
+        var pending = Files.Where(f => !f.IsExpanded).ToList();
+        var drawn = Files.Where(f => f.IsExpanded).Sum(f => f.Diff.Count);
+
+        for (var i = 0; i < pending.Count && drawn < ExpandAllLineBudget; i += FilesReadTogether)
         {
-            IsLoadingDiff = false;
+            var batch = pending.Skip(i).Take(FilesReadTogether).ToList();
+            await Task.WhenAll(batch.Select(f => f.LoadAsync()));
+
+            foreach (var file in batch)
+            {
+                if (drawn >= ExpandAllLineBudget) break;
+                file.Show();
+                drawn += file.Diff.Count;
+            }
         }
     }
 
@@ -385,19 +445,101 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
     private Task RestoreAsync() => _restore((CheckpointEntry)Source!);
 }
 
-/// <summary>One file a turn changed.</summary>
-public sealed class ChangedFileViewModel(ChangedFile file)
+/// <summary>One file a turn changed, with its own diff under it on request.</summary>
+public sealed partial class ChangedFileViewModel : ObservableObject
 {
-    public string Path => file.Path;
-    public string Additions => $"+{file.Additions}";
-    public string Deletions => $"−{file.Deletions}";
-    public string Marker => file.Kind switch
+    private readonly ChangedFile _file;
+    private readonly Func<ChangedFile, Task<string>> _loadDiff;
+
+    [ObservableProperty] private bool _isExpanded;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNothingToShow))]
+    private IReadOnlyList<DiffLine> _diff = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNothingToShow))]
+    private bool _isLoadingDiff;
+
+    /// <summary>Whether the diff has been asked for, whatever came back.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNothingToShow))]
+    private bool _wasRead;
+
+    public ChangedFileViewModel(ChangedFile file, Func<ChangedFile, Task<string>> loadDiff)
+    {
+        _file = file;
+        _loadDiff = loadDiff;
+    }
+
+    /// <summary>Whether the row has been read and has no patch to draw.</summary>
+    /// <remarks>An empty answer is what a git that could not be asked gives back — the checkpoints run
+    /// git without throwing, so a ref that is gone or a repository somebody else has locked comes back
+    /// as no output at all. Drawn as a blank row it is indistinguishable from a file nothing happened
+    /// to, which is the one thing a row in this list promises is not the case.</remarks>
+    public bool HasNothingToShow => WasRead && !IsLoadingDiff && Diff.Count == 0;
+
+    public string Path => _file.Path;
+    public string Additions => $"+{_file.Additions}";
+    public string Deletions => $"−{_file.Deletions}";
+    public string Marker => _file.Kind switch
     {
         FileChangeKind.Added => "A",
         FileChangeKind.Deleted => "D",
         FileChangeKind.Renamed => "R",
         _ => "M",
     };
+
+    [RelayCommand]
+    private Task ToggleAsync()
+    {
+        if (!IsExpanded) return ExpandAsync();
+        Collapse();
+        return Task.CompletedTask;
+    }
+
+    public void Collapse() => IsExpanded = false;
+
+    /// <summary>Whether this row is showing that very file.</summary>
+    public bool Describes(ChangedFile file) => _file == file;
+
+    /// <summary>Open this file, reading its diff the first time and never again.</summary>
+    /// <remarks>Open first and read second: the row is what the "loading" line is drawn inside, so a
+    /// row opened after its read is a press that does nothing until the diff arrives.</remarks>
+    public Task ExpandAsync()
+    {
+        Show();
+        return LoadAsync();
+    }
+
+    /// <summary>Show what has been read, without reading anything.</summary>
+    public void Show() => IsExpanded = true;
+
+    /// <summary>Read this file's diff, the first time and never again.</summary>
+    /// <remarks>A checkpoint's diff is what the turn did and cannot change afterwards, so the read is
+    /// kept: folding a file away and opening it again is free, which is what makes flicking through
+    /// five files bearable.</remarks>
+    public async Task LoadAsync()
+    {
+        // Read once, not "read until something comes back": an empty answer is an answer, and judging
+        // on the lines drawn would spawn a fresh git process every time such a row was folded and
+        // opened again.
+        if (WasRead || IsLoadingDiff) return;
+
+        IsLoadingDiff = true;
+        try
+        {
+            // The file itself, not its path: a rename has two names and only the file knows both.
+            // Numbered: this is git's own patch of the whole file, so the gutter is the file's own
+            // line numbers. A tool's diff is a fragment and is read unnumbered.
+            Diff = DiffLines.ParseFilePatch(await _loadDiff(_file));
+        }
+        finally
+        {
+            IsLoadingDiff = false;
+            WasRead = true;
+        }
+    }
 }
 
 /// <summary>Something said by the session rather than by the agent.</summary>

@@ -44,7 +44,7 @@
         </Style>
         <Style Selector="TextBlock.work">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -65,23 +65,49 @@
         </Style>
         <Style Selector="SelectableTextBlock.code">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
             <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
         </Style>
 
-        <!-- ======== Diff ======== -->
+        <!-- ======== Diff ========
+             A row is a band the whole width of the block, the way the agent's own terminal interface
+             draws one: a number gutter, the one-character marker, and the code. The ground says what
+             happened to the line and the text stays the colour code is read in — the other way round,
+             with green text on the card's own ground, a block of added lines is a paragraph of coloured
+             text and the eye reads the colour instead of the code. -->
+        <Style Selector="Border.diff-row">
+            <Setter Property="Padding" Value="0,0,6,0" />
+        </Style>
+        <Style Selector="Border.diff-row.diff-added">
+            <Setter Property="Background" Value="{DynamicResource DiffAddedBg}" />
+        </Style>
+        <Style Selector="Border.diff-row.diff-removed">
+            <Setter Property="Background" Value="{DynamicResource DiffRemovedBg}" />
+        </Style>
         <Style Selector="TextBlock.diff">
             <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
             <Setter Property="TextWrapping" Value="NoWrap" />
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
         </Style>
-        <Style Selector="TextBlock.diff-added">
+        <!-- The gutter: the line's own number, quieter than anything it stands beside, and a fixed
+             width so the code starts on one edge however far the numbers have run. -->
+        <Style Selector="TextBlock.diff-number">
+            <Setter Property="Foreground" Value="{DynamicResource DiffGutter}" />
+            <Setter Property="TextAlignment" Value="Right" />
+            <Setter Property="MinWidth" Value="34" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+        </Style>
+        <Style Selector="TextBlock.diff-marker">
+            <Setter Property="MinWidth" Value="10" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        </Style>
+        <Style Selector="Border.diff-row.diff-added TextBlock.diff-marker">
             <Setter Property="Foreground" Value="{DynamicResource StatusSuccessText}" />
         </Style>
-        <Style Selector="TextBlock.diff-removed">
+        <Style Selector="Border.diff-row.diff-removed TextBlock.diff-marker">
             <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
         </Style>
         <!-- A turn's line counts, in the diff's own two colours: the same meaning, said the same way. -->
@@ -126,12 +152,18 @@
 
         <!-- One line of a diff, wherever a diff is drawn: a tool's edit, an approval, a turn's checkpoint. -->
         <DataTemplate x:Key="DiffLineTemplate" DataType="ac:DiffLine">
-            <TextBlock Classes="diff"
-                       Classes.diff-added="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Added}}"
-                       Classes.diff-removed="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Removed}}"
-                       Classes.diff-hunk="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Hunk}}"
-                       Classes.diff-header="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Header}}"
-                       Text="{Binding Text}" />
+            <Border Classes="diff-row"
+                    Classes.diff-added="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Added}}"
+                    Classes.diff-removed="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Removed}}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Classes="diff diff-number" Text="{Binding NumberText}" />
+                    <TextBlock Classes="diff diff-marker" Text="{Binding Marker}" />
+                    <TextBlock Classes="diff"
+                               Classes.diff-hunk="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Hunk}}"
+                               Classes.diff-header="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Header}}"
+                               Text="{Binding Text}" />
+                </StackPanel>
+            </Border>
         </DataTemplate>
     </UserControl.Resources>
 
@@ -631,6 +663,10 @@
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Button Classes="fold" Command="{Binding ToggleDiffCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <!-- The header folds every file at once, so it wears the same
+                                                 chevron a file row does and reports the same state. -->
+                                            <mi:MaterialIcon Width="12" Height="12"
+                                                             Kind="{Binding IsExpanded, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
                                             <mi:MaterialIcon Kind="FileDocumentEditOutline" Width="12" Height="12" />
                                             <TextBlock Classes="work" Text="{Binding Summary}" />
                                             <TextBlock Classes="work diff-count-added" Text="{Binding Additions}" />
@@ -645,28 +681,45 @@
                                         <mi:MaterialIcon Kind="Undo" Width="13" Height="13" />
                                     </Button>
                                 </StackPanel>
+                                <!-- One row per file, and each opens its own diff under it. The turn's
+                                     whole diff used to be drawn under this list instead, which answered
+                                     "what did the turn do" and never "what happened to this file" -
+                                     the question a list of file names is read with. The header above
+                                     is the same fold asked of all of them at once. -->
                                 <ItemsControl ItemsSource="{Binding Files}" Margin="18,2,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="ac:ChangedFileViewModel">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Classes="work work-muted" Text="{Binding Marker}" />
-                                                <TextBlock Classes="work" Text="{Binding Path}" />
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Classes="work diff-count-added" Text="{Binding Additions}" />
-                                                    <TextBlock Classes="work diff-count-removed" Text="{Binding Deletions}" />
-                                                </StackPanel>
+                                            <StackPanel>
+                                                <Button Classes="fold" Command="{Binding ToggleCommand}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <mi:MaterialIcon Width="12" Height="12"
+                                                                         Kind="{Binding IsExpanded, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
+                                                        <TextBlock Classes="work work-muted" Text="{Binding Marker}" />
+                                                        <TextBlock Classes="work" Text="{Binding Path}" />
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <TextBlock Classes="work diff-count-added" Text="{Binding Additions}" />
+                                                            <TextBlock Classes="work diff-count-removed" Text="{Binding Deletions}" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Border Classes="detail" IsVisible="{Binding IsExpanded}">
+                                                    <Panel>
+                                                        <TextBlock Classes="work work-muted" Text="Loading the diff…" IsVisible="{Binding IsLoadingDiff}" />
+                                                        <!-- A read that came back with nothing says so: git is run without
+                                                             throwing, so a ref that has gone or a locked repository answers
+                                                             with no patch at all, and a blank row would read as a file
+                                                             nothing happened to. -->
+                                                        <TextBlock Classes="work work-muted" IsVisible="{Binding HasNothingToShow}"
+                                                                   Text="No diff came back for this file." />
+                                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                                            <ItemsControl ItemsSource="{Binding Diff}" ItemTemplate="{StaticResource DiffLineTemplate}" />
+                                                        </ScrollViewer>
+                                                    </Panel>
+                                                </Border>
                                             </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <Border Classes="detail" IsVisible="{Binding IsExpanded}">
-                                    <Panel>
-                                        <TextBlock Classes="work work-muted" Text="Loading the diff…" IsVisible="{Binding IsLoadingDiff}" />
-                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                            <ItemsControl ItemsSource="{Binding Diff}" ItemTemplate="{StaticResource DiffLineTemplate}" />
-                                        </ScrollViewer>
-                                    </Panel>
-                                </Border>
                             </StackPanel>
                         </DataTemplate>
 

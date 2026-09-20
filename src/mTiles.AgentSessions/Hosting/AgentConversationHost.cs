@@ -227,11 +227,18 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
         RestartRequested?.Invoke(settings);
     }
 
-    /// <summary>The unified diff of one turn, for one file or all of them.</summary>
-    public Task<string> DiffAsync(CheckpointEntry checkpoint, string? path, CancellationToken ct) =>
+    /// <summary>The unified diff of one turn, for one file or — with none named — all of them.</summary>
+    /// <remarks>A file is asked for under every name it had in the turn, which for a rename is two: git
+    /// applies the pathspec before it looks for renames, so the new name alone answers with the file as
+    /// though it had just been created.</remarks>
+    public Task<string> DiffAsync(CheckpointEntry checkpoint, ChangedFile? file, CancellationToken ct) =>
         _checkpoints is null
             ? Task.FromResult("")
-            : _checkpoints.DiffAsync(checkpoint.BaseCheckpointId, checkpoint.Id, path, ct);
+            : _checkpoints.DiffAsync(checkpoint.BaseCheckpointId, checkpoint.Id, PathsOf(file), ct);
+
+    private static IReadOnlyList<string>? PathsOf(ChangedFile? file) => file is null
+        ? null
+        : file.OldPath is { Length: > 0 } old ? [old, file.Path] : [file.Path];
 
     /// <summary>Whether a session is attached that a message can be handed to.</summary>
     public bool HasSession => LiveSession is not null;

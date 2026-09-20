@@ -20,8 +20,11 @@ public interface ITurnCheckpoints
     /// <summary>What changed between two photographs, file by file.</summary>
     Task<IReadOnlyList<ChangedFile>> ChangesAsync(string fromCheckpoint, string toCheckpoint, CancellationToken ct);
 
-    /// <summary>The unified diff between two photographs, for one file or for everything.</summary>
-    Task<string> DiffAsync(string fromCheckpoint, string toCheckpoint, string? path, CancellationToken ct);
+    /// <summary>The unified diff between two photographs, for the given paths or — with none — for
+    /// everything. A renamed file is asked for under both of its names, or git, which applies a pathspec
+    /// before it detects renames, answers with the whole file as added lines.</summary>
+    Task<string> DiffAsync(string fromCheckpoint, string toCheckpoint, IReadOnlyList<string>? paths,
+        CancellationToken ct);
 
     /// <summary>Puts the working tree back to how a photograph found it. Files added since are removed;
     /// ignored files are left alone.</summary>

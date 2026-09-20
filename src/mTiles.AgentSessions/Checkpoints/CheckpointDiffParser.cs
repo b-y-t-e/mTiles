@@ -16,7 +16,7 @@ public static class CheckpointDiffParser
 {
     public static IReadOnlyList<ChangedFile> Parse(string numstat, string nameStatus)
     {
-        var kinds = ParseKinds(nameStatus);
+        var (kinds, oldPaths) = ParseKinds(nameStatus);
         var files = new List<ChangedFile>();
         var records = numstat.Split('\0');
 
@@ -36,15 +36,19 @@ public static class CheckpointDiffParser
             }
 
             if (path.Length == 0) continue;
-            files.Add(new ChangedFile(path, kinds.GetValueOrDefault(path, FileChangeKind.Modified), additions, deletions));
+            files.Add(new ChangedFile(path, kinds.GetValueOrDefault(path, FileChangeKind.Modified), additions,
+                deletions, oldPaths.GetValueOrDefault(path)));
         }
 
         return [.. files.OrderBy(f => f.Path, StringComparer.Ordinal)];
     }
 
-    private static Dictionary<string, FileChangeKind> ParseKinds(string nameStatus)
+    /// <summary>The kind of every change, and — for a rename — the name the file had before it.</summary>
+    private static (Dictionary<string, FileChangeKind> Kinds, Dictionary<string, string> OldPaths) ParseKinds(
+        string nameStatus)
     {
         var kinds = new Dictionary<string, FileChangeKind>(StringComparer.Ordinal);
+        var oldPaths = new Dictionary<string, string>(StringComparer.Ordinal);
         var records = nameStatus.Split('\0');
 
         for (var i = 0; i < records.Length; i++)
@@ -61,8 +65,10 @@ public static class CheckpointDiffParser
                     kinds[records[++i]] = FileChangeKind.Deleted;
                     break;
                 case 'R' or 'C' when i + 2 < records.Length:
-                    i++;
-                    kinds[records[++i]] = FileChangeKind.Renamed;
+                    var from = records[++i];
+                    var to = records[++i];
+                    kinds[to] = FileChangeKind.Renamed;
+                    oldPaths[to] = from;
                     break;
                 default:
                     kinds[records[++i]] = FileChangeKind.Modified;
@@ -70,6 +76,6 @@ public static class CheckpointDiffParser
             }
         }
 
-        return kinds;
+        return (kinds, oldPaths);
     }
 }

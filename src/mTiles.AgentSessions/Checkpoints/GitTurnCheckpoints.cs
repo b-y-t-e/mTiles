@@ -76,13 +76,17 @@ public sealed class GitTurnCheckpoints(string workingDirectory, string gitPath =
         return CheckpointDiffParser.Parse(numstat, status);
     }
 
-    public async Task<string> DiffAsync(string fromCheckpoint, string toCheckpoint, string? path, CancellationToken ct)
+    public async Task<string> DiffAsync(string fromCheckpoint, string toCheckpoint, IReadOnlyList<string>? paths,
+        CancellationToken ct)
     {
         // Every argument travels on its own: a file name is anybody's text, and one carrying a quote must
-        // not be able to close the pathspec and hand git an option of its choosing.
+        // not be able to close the pathspec and hand git an option of its choosing. And a path is spelled
+        // `:(literal)`, because git reads a bare pathspec as a glob: a file actually called `Data[1].json`
+        // or `a?b.txt` would not match itself, and the row would open on an empty patch saying nothing.
+        string[] pathspec = paths is { Count: > 0 } ? [.. paths.Select(p => ":(literal)" + p)] : ["."];
         var diff = await RunAsync(
             ["diff", "--patch", "--no-color", "--no-ext-diff", "--no-textconv", "-M", "--relative",
-                fromCheckpoint, toCheckpoint, "--", path ?? "."],
+                fromCheckpoint, toCheckpoint, "--", .. pathspec],
             null, ct, throwOnError: false);
         return diff.Length > MaxDiffBytes ? diff[..MaxDiffBytes] + "\n… (diff truncated)" : diff;
     }

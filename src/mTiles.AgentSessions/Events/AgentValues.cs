@@ -218,4 +218,8 @@ public sealed record TokenUsage(
     decimal? CostUsd = null);
 
 /// <summary>One file a turn changed.</summary>
-public sealed record ChangedFile(string Path, FileChangeKind Kind, int Additions, int Deletions);
+/// <param name="OldPath">Where a renamed file came from, null for every other kind. Kept because git
+/// applies a pathspec <i>before</i> it looks for renames: asked for the new path alone, a rename reads
+/// back as a new file with its whole content added, so the diff of one file needs both of its names.</param>
+public sealed record ChangedFile(string Path, FileChangeKind Kind, int Additions, int Deletions,
+    string? OldPath = null);

@@ -159,9 +159,49 @@ public class GitTurnCheckpointsTests : IDisposable
         Assert.Equal(
         [
             new ChangedFile("img.png", FileChangeKind.Added, 0, 0),
-            new ChangedFile("new.cs", FileChangeKind.Renamed, 0, 0),
+            new ChangedFile("new.cs", FileChangeKind.Renamed, 0, 0, "old.cs"),
             new ChangedFile("src/a.cs", FileChangeKind.Modified, 3, 1),
         ], CheckpointDiffParser.Parse(numstat, nameStatus));
+    }
+
+    /// <summary>A pathspec is applied before git looks for renames, so the new name on its own answers
+    /// with the whole file as added lines. Asked under both names it is the rename it really was.</summary>
+    [Fact]
+    public async Task A_renamed_file_is_asked_for_under_both_of_its_names()
+    {
+        Write("before.txt", "one\ntwo\nthree\n");
+        Git("add -A");
+        Git("commit -m first");
+        var checkpoints = new GitTurnCheckpoints(_root);
+        var before = await checkpoints.CaptureAsync("conv", 0, CancellationToken.None);
+        File.Move(Path.Combine(_root, "before.txt"), Path.Combine(_root, "after.txt"));
+        var after = await checkpoints.CaptureAsync("conv", 1, CancellationToken.None);
+
+        var file = Assert.Single(
+            await checkpoints.ChangesAsync(before!, after!, CancellationToken.None),
+            f => f.Kind == FileChangeKind.Renamed);
+        var diff = await checkpoints.DiffAsync(before!, after!, [file.OldPath!, file.Path], CancellationToken.None);
+
+        Assert.Contains("rename", diff, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("+one", diff);
+    }
+
+    /// <summary>Git reads a bare pathspec as a glob, so a file whose own name holds glob characters
+    /// would not match itself and its row would open on an empty patch.</summary>
+    [Fact]
+    public async Task A_file_whose_name_looks_like_a_glob_is_matched_literally()
+    {
+        Write("Data[1].json", "one\n");
+        Git("add -A");
+        Git("commit -m first");
+        var checkpoints = new GitTurnCheckpoints(_root);
+        var before = await checkpoints.CaptureAsync("conv", 0, CancellationToken.None);
+        Write("Data[1].json", "one\ntwo\n");
+        var after = await checkpoints.CaptureAsync("conv", 1, CancellationToken.None);
+
+        var diff = await checkpoints.DiffAsync(before!, after!, ["Data[1].json"], CancellationToken.None);
+
+        Assert.Contains("+two", diff);
     }
 
     private void Write(string relative, string text)

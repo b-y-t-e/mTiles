@@ -86,6 +86,12 @@
     <!-- Git tags -->
     <SolidColorBrush x:Key="TagColor"      Color="#6DBF8B" />
 
+    <!-- A diff's two grounds and its number gutter. Derived in ThemeBridge; these are what the
+         previewer and a lookup made before the first theme is applied have to find. -->
+    <SolidColorBrush x:Key="DiffAddedBg"   Color="#1b2a20" />
+    <SolidColorBrush x:Key="DiffRemovedBg" Color="#2c1d21" />
+    <SolidColorBrush x:Key="DiffGutter"    Color="#4a4a4e" />
+
     <!-- Status -->
     <SolidColorBrush x:Key="StatusSuccess"       Color="#4a9a6a" />
     <SolidColorBrush x:Key="StatusSuccessSubtle"  Color="#1a2e24" />

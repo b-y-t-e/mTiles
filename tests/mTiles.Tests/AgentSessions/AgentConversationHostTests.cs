@@ -565,7 +565,8 @@ public class AgentConversationHostTests : IDisposable
         public Task<IReadOnlyList<ChangedFile>> ChangesAsync(string fromCheckpoint, string toCheckpoint, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<ChangedFile>>([new ChangedFile("a.cs", FileChangeKind.Modified, 1, 1)]);
 
-        public Task<string> DiffAsync(string fromCheckpoint, string toCheckpoint, string? path, CancellationToken ct) =>
+        public Task<string> DiffAsync(string fromCheckpoint, string toCheckpoint, IReadOnlyList<string>? paths,
+            CancellationToken ct) =>
             Task.FromResult("");
 
         public Task<string> RestoreAsync(string checkpoint, CancellationToken ct)

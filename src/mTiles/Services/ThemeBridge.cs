@@ -117,6 +117,15 @@ public static class ThemeBridge
         Set(app, "DangerText", dangerText);
         Set(app, "TagColor", green);
 
+        // A diff's two grounds. Blended against the surface a diff is actually drawn on rather than
+        // against the terminal's background, or the tint is a shade off wherever the block sits in a
+        // card. Kept faint: the band runs the whole width of the row, which is the longest line colour
+        // is asked to carry anywhere in the application, and at the strength the +/- text uses it
+        // stops being a ground and becomes a highlight the eye cannot read code through.
+        Set(app, "DiffAddedBg", WithAlpha(green, 0.16, bgSurface));
+        Set(app, "DiffRemovedBg", WithAlpha(red, 0.16, bgSurface));
+        Set(app, "DiffGutter", Lerp(textFaint, bgSurface, 0.25));
+
         // A warning is a caution, not an error: ANSI yellow with the same light-theme treatment as the
         // phase markers above, so it stays readable on a pale ground.
         Set(app, "WarnText", Marker(theme.Yellow, theme.IsDark, fg));
