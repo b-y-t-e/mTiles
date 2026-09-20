@@ -179,10 +179,16 @@ public sealed partial class ToolCallItemViewModel : WorkItemViewModel
     [ObservableProperty] private string? _query;
     [ObservableProperty] private string? _input;
     [ObservableProperty] private string _output = "";
-    [ObservableProperty] private IReadOnlyList<DiffLine> _diff = [];
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DiffMarkdown))]
+    private IReadOnlyList<DiffLine> _diff = [];
+
     [ObservableProperty] private bool _isExpanded;
 
     public ToolCallItemViewModel(ToolCallItem tool) => Update(tool);
+
+    /// <summary>The patch as the viewer that draws every message here reads it.</summary>
+    public string DiffMarkdown => AgentConversation.DiffMarkdown.For(Diff);
 
     public bool IsRunning => State == ToolCallState.Running;
     public bool IsFailed => State is ToolCallState.Failed or ToolCallState.Abandoned;
@@ -445,7 +451,11 @@ public sealed partial class ChangedFileViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasNothingToShow))]
+    [NotifyPropertyChangedFor(nameof(DiffMarkdown))]
     private IReadOnlyList<DiffLine> _diff = [];
+
+    /// <summary>The patch as the viewer that draws every message here reads it.</summary>
+    public string DiffMarkdown => AgentConversation.DiffMarkdown.For(Diff);
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasNothingToShow))]
@@ -461,6 +471,13 @@ public sealed partial class ChangedFileViewModel : ObservableObject
         _file = file;
         _loadDiff = loadDiff;
     }
+
+    /// <summary>The patch as git wrote it, for the button that copies the whole of it.</summary>
+    /// <remarks>Kept beside the parsed lines rather than rebuilt from them: the rows on screen have had
+    /// their markers taken off and their header dropped, so putting them back together would produce
+    /// something close to a patch and not one — and what somebody copies a diff for is to apply it or
+    /// to paste it somewhere that reads diffs.</remarks>
+    [ObservableProperty] private string _patchText = "";
 
     /// <summary>Whether the row has been read and has no patch to draw.</summary>
     /// <remarks>An empty answer is what a git that could not be asked gives back — the checkpoints run
@@ -513,9 +530,11 @@ public sealed partial class ChangedFileViewModel : ObservableObject
         try
         {
             // The file itself, not its path: a rename has two names and only the file knows both.
-            // Numbered: this is git's own patch of the whole file, so the gutter is the file's own
-            // line numbers. A tool's diff is a fragment and is read unnumbered.
-            Diff = DiffLines.ParseFilePatch(await _loadDiff(_file));
+            // Read as a file's own patch, so the header naming the file is dropped — the row above it
+            // already says which file this is. A tool's diff is a fragment and keeps its header.
+            var patch = await _loadDiff(_file);
+            PatchText = patch;
+            Diff = DiffLines.ParseFilePatch(patch);
         }
         finally
         {

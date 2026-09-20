@@ -149,7 +149,9 @@ public class AgentConversationViewTests
             var answer = boxes.Single(b => b.Classes.Contains("ask-field"));
             answer.Text = "the third option";
             Dispatcher.UIThread.RunJobs();
-            var copy = view.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("item-copy"));
+            // Not diff-copy, which wears the same class for the same look: a file's patch has one too.
+            var copy = view.GetVisualDescendants().OfType<Button>()
+                .Single(b => b.Classes.Contains("item-copy") && !b.Classes.Contains("diff-copy"));
             Assert.Contains("the third option", CopyButton.GetText(copy));
 
             // The composer does not scroll with the conversation. It is the one place you act from, and

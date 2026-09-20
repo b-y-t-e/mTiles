@@ -27,6 +27,9 @@ public sealed partial class ApprovalRequestViewModel : ObservableObject
     /// <summary>The detail as a diff, where it is one.</summary>
     public IReadOnlyList<DiffLine> Detail { get; }
 
+    /// <summary>The patch as the viewer that draws every message here reads it.</summary>
+    public string DetailMarkdown => DiffMarkdown.For(Detail);
+
     public bool HasDiff => Detail.Count > 0;
     public bool HasText => !string.IsNullOrWhiteSpace(Text);
 

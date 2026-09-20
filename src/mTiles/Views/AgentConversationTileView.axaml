@@ -72,56 +72,101 @@
         </Style>
 
         <!-- ======== Diff ========
-             A row is a band the whole width of the block, the way the agent's own terminal interface
-             draws one: a number gutter, the one-character marker, and the code. The ground says what
-             happened to the line and the text stays the colour code is read in — the other way round,
-             with green text on the card's own ground, a block of added lines is a paragraph of coloured
-             text and the eye reads the colour instead of the code. -->
-        <Style Selector="Border.diff-row">
-            <Setter Property="Padding" Value="0,0,6,0" />
+             A patch is one ```diff block drawn by the same MarkdownViewer as every other message here,
+             which is what lets a selection run through several lines of it at once. The colouring is
+             the viewer's own (MarkdownViewer.HighlightDiff): the ground says what happened to the line
+             and the text stays the colour code is read in — the other way round, with green text on the
+             card's own ground, a block of added lines is a paragraph of coloured text and the eye reads
+             the colour instead of the code. There is no gutter and no marker column: the marker is the
+             first character of the line, where the viewer reads it from. -->
+        <!-- The block a file's patch is drawn in. Not a card: the rule of this application is that a
+             card is a tile, and a surface with a radius inside a surface with a radius inside a tile is
+             a frame around a frame. What says the patch belongs to the row above it is the rail down
+             its left edge, which is also what folds it away — the one structural mark here does the
+             only two jobs there are.
+
+             The rail rather than the block itself is the fold, and that is the whole reason it exists:
+             a click that folds and a click that begins a selection are the same gesture, so a block
+             that folded when clicked would be a block whose text could not be selected. The rail is a
+             two-pixel mark in a slot two characters wide, it runs the full height of the patch, and it
+             is therefore beside you
+             at whatever depth you have scrolled to — which is the thing the chevron on the row above
+             cannot be once the patch is taller than the tile. -->
+        <Style Selector="Border.diff-block">
+            <Setter Property="Margin" Value="18,2,0,6" />
         </Style>
-        <Style Selector="Border.diff-row.diff-added">
-            <Setter Property="Background" Value="{DynamicResource DiffAddedBg}" />
+        <!-- The whole slot is the button, and the mark inside it is two pixels. The hit area and the
+             mark used to be two controls — a Border of two characters carrying the cursor and a Button
+             of nine pixels inside it — so the right-hand half of the slot showed a hand, lit the rail
+             and folded nothing when pressed; and nine pixels is a number, while the slot is measured
+             in characters, so at a small Terminal Font Size the rail outgrew the slot it was inset by.
+             One control sized in characters, with the mark drawn as its content, is both halves at
+             once. -->
+        <Style Selector="Button.diff-rail">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <!-- Against the left edge of its slot, so what is left of the slot is the gap between the
+                 rail and the code. The patch then starts a clear character away from it rather than
+                 appearing to lean on it. -->
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <!-- Held off the patch's own top and bottom edge, so it reads as a handle lying beside the
+                 block rather than as the block's border. -->
+            <Setter Property="Margin" Value="0,1" />
         </Style>
-        <Style Selector="Border.diff-row.diff-removed">
-            <Setter Property="Background" Value="{DynamicResource DiffRemovedBg}" />
+        <!-- A Button paints nothing itself — what is seen is its template's presenter — so the
+             presenter is held transparent at rest and under the pointer alike, and what is seen is the
+             mark the button carries as its content. A rail that lit up its whole two-character slot
+             would be a bar the width of the inset. -->
+        <Style Selector="Button.diff-rail /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
         </Style>
-        <Style Selector="TextBlock.diff">
-            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-            <Setter Property="TextWrapping" Value="NoWrap" />
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Style Selector="Button.diff-rail:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
         </Style>
-        <!-- The gutter: the line's own number, quieter than anything it stands beside, and a fixed
-             width so the code starts on one edge however far the numbers have run. -->
-        <Style Selector="TextBlock.diff-number">
-            <Setter Property="Foreground" Value="{DynamicResource DiffGutter}" />
-            <Setter Property="TextAlignment" Value="Right" />
-            <Setter Property="MinWidth" Value="34" />
-            <Setter Property="Margin" Value="0,0,8,0" />
+        <!-- It speaks the fold chevron's language, not the accent's. This rail folds the very thing
+             the chevron on the row above folds, so the two are one control in two places — and the
+             accent in this application means something else everywhere it appears: the active tile,
+             the selected row, the button that sends. A blue bar down every patch was a third meaning
+             for it, and a pale one read as the card's own edge. -->
+        <Style Selector="Border.diff-rail-mark">
+            <Setter Property="CornerRadius" Value="1" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
         </Style>
-        <Style Selector="TextBlock.diff-marker">
-            <Setter Property="MinWidth" Value="10" />
-            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        <!-- Pointing anywhere at the patch is what says the rail is there; pointing at the rail says
+             it can be pressed. Two steps rather than one, because a 2px line at rest is quiet enough
+             to be missed, and a rail that is always the accent is a coloured bar down every patch in
+             the conversation. -->
+        <Style Selector="Border.diff-block:pointerover Border.diff-rail-mark">
+            <Setter Property="Background" Value="{DynamicResource TextFaint}" />
         </Style>
-        <Style Selector="Border.diff-row.diff-added TextBlock.diff-marker">
-            <Setter Property="Foreground" Value="{DynamicResource StatusSuccessText}" />
+        <!-- Colour and nothing else. A rail that grows under the pointer moves the code beside it,
+             and a control that shifts the text you were reading is one you have to aim at twice. -->
+        <Style Selector="Button.diff-rail:pointerover Border.diff-rail-mark">
+            <Setter Property="Background" Value="{DynamicResource TextMuted}" />
         </Style>
-        <Style Selector="Border.diff-row.diff-removed TextBlock.diff-marker">
-            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        <Style Selector="Border.diff-block:pointerover Button.diff-copy">
+            <Setter Property="Opacity" Value="1" />
         </Style>
+        <!-- Against the patch rather than beside it, so a line it covers is still readable under it. -->
+        <Style Selector="Button.diff-copy">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Margin" Value="0,0,2,0" />
+        </Style>
+
         <!-- A turn's line counts, in the diff's own two colours: the same meaning, said the same way. -->
         <Style Selector="TextBlock.diff-count-added">
             <Setter Property="Foreground" Value="{DynamicResource StatusSuccessText}" />
         </Style>
         <Style Selector="TextBlock.diff-count-removed">
             <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
-        </Style>
-        <Style Selector="TextBlock.diff-hunk">
-            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
-        </Style>
-        <Style Selector="TextBlock.diff-header">
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
 
         <!-- The three styles that drew a refused row - dimmed, with its reason under it - are gone with the
@@ -150,21 +195,6 @@
             </Border>
         </DataTemplate>
 
-        <!-- One line of a diff, wherever a diff is drawn: a tool's edit, an approval, a turn's checkpoint. -->
-        <DataTemplate x:Key="DiffLineTemplate" DataType="ac:DiffLine">
-            <Border Classes="diff-row"
-                    Classes.diff-added="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Added}}"
-                    Classes.diff-removed="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Removed}}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Classes="diff diff-number" Text="{Binding NumberText}" />
-                    <TextBlock Classes="diff diff-marker" Text="{Binding Marker}" />
-                    <TextBlock Classes="diff"
-                               Classes.diff-hunk="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Hunk}}"
-                               Classes.diff-header="{Binding Kind, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static ac:DiffLineKind.Header}}"
-                               Text="{Binding Text}" />
-                </StackPanel>
-            </Border>
-        </DataTemplate>
     </UserControl.Resources>
 
   <Panel>
@@ -609,10 +639,8 @@
                                                                              IsVisible="{Binding Query, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <SelectableTextBlock Classes="code" Text="{Binding Input}"
                                                                              IsVisible="{Binding Input, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
-                                                                      IsVisible="{Binding HasDiff}">
-                                                            <ItemsControl ItemsSource="{Binding Diff}" ItemTemplate="{StaticResource DiffLineTemplate}" />
-                                                        </ScrollViewer>
+                                                        <v:GoalMarkdownView MarkdownText="{Binding DiffMarkdown}"
+                                                                            IsVisible="{Binding HasDiff}" />
                                                         <SelectableTextBlock Classes="code" Text="{Binding Output}" IsVisible="{Binding HasOutput}" />
                                                     </StackPanel>
                                                 </Border>
@@ -725,19 +753,56 @@
                                                         </StackPanel>
                                                     </StackPanel>
                                                 </Button>
-                                                <Border Classes="detail" IsVisible="{Binding IsExpanded}">
-                                                    <Panel>
-                                                        <TextBlock Classes="work work-muted" Text="Loading the diff…" IsVisible="{Binding IsLoadingDiff}" />
-                                                        <!-- A read that came back with nothing says so: git is run without
-                                                             throwing, so a ref that has gone or a locked repository answers
-                                                             with no patch at all, and a blank row would read as a file
-                                                             nothing happened to. -->
-                                                        <TextBlock Classes="work work-muted" IsVisible="{Binding HasNothingToShow}"
-                                                                   Text="No diff came back for this file." />
-                                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                                            <ItemsControl ItemsSource="{Binding Diff}" ItemTemplate="{StaticResource DiffLineTemplate}" />
-                                                        </ScrollViewer>
-                                                    </Panel>
+                                                <Border Classes="diff-block" IsVisible="{Binding IsExpanded}">
+                                                    <DockPanel>
+                                                        <!-- The rail: what says this patch belongs to
+                                                             the row above, and what folds it away. -->
+                                                        <Button DockPanel.Dock="Left" Classes="diff-rail"
+                                                                v:MonospaceWidth.Characters="2"
+                                                                Command="{Binding ToggleCommand}"
+                                                                ToolTip.Tip="Hide this diff">
+                                                            <!-- One character of the two the slot is
+                                                                 wide: the mark scales with Terminal
+                                                                 Font Size the way its slot does, so it
+                                                                 can never outgrow the inset, and the
+                                                                 other character is the gap before the
+                                                                 code. A width in pixels was both wrong
+                                                                 ways round — a hairline at a large font
+                                                                 and wider than its slot at a small one. -->
+                                                            <Border Classes="diff-rail-mark"
+                                                                    v:MonospaceWidth.Characters="1" />
+                                                        </Button>
+                                                        <Panel>
+                                                            <TextBlock Classes="work work-muted" Text="Loading the diff…" IsVisible="{Binding IsLoadingDiff}" />
+                                                            <!-- A read that came back with nothing says so: git is run without
+                                                                 throwing, so a ref that has gone or a locked repository answers
+                                                                 with no patch at all, and a blank row would read as a file
+                                                                 nothing happened to. -->
+                                                            <TextBlock Classes="work work-muted" IsVisible="{Binding HasNothingToShow}"
+                                                                       Text="No diff came back for this file." />
+                                                            <!-- No scroller around it. One measures its
+                                                                 content with infinite width, so the viewer
+                                                                 laid the patch out once and never followed
+                                                                 the tile being resized — and it needs no
+                                                                 scroller anyway, since it wraps a line too
+                                                                 long for the room it was given. -->
+                                                            <v:GoalMarkdownView MarkdownText="{Binding DiffMarkdown}" />
+                                                            <!-- A selection dragged through the viewer spans as many lines
+                                                                 as the reader wants, so this is not the only way out — it is
+                                                                 the whole patch in one press, and as git wrote it (PatchText):
+                                                                 the drawn block has had its header dropped, so copying what is
+                                                                 on screen would give something close to a patch and not one.
+                                                                 Revealed by the block it sits in, the rule every copy button
+                                                                 in this tile already follows. -->
+                                                            <Button Classes="item-copy diff-copy"
+                                                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                                    v:CopyButton.Text="{Binding PatchText}"
+                                                                    IsVisible="{Binding !HasNothingToShow}"
+                                                                    ToolTip.Tip="Copy this file's diff">
+                                                                <mi:MaterialIcon Kind="ContentCopy" Width="12" Height="12" />
+                                                            </Button>
+                                                        </Panel>
+                                                    </DockPanel>
                                                 </Border>
                                             </StackPanel>
                                         </DataTemplate>
@@ -792,9 +857,15 @@
                                         <TextBlock Classes="ask-title" Text="{Binding KindLabel}" />
                                         <TextBlock Classes="ask-question" Text="{Binding Title}" />
                                         <SelectableTextBlock Classes="code" Text="{Binding Text}" IsVisible="{Binding HasText}" />
-                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                        <!-- The one diff with a ceiling: an approval is a question at the
+                                             foot of the conversation, and a patch of a thousand lines would
+                                             put the buttons that answer it off the bottom of the tile. -->
+                                        <!-- Vertical only: sideways it would measure the viewer with
+                                             infinite width, and the patch would stop following the
+                                             tile the moment somebody dragged a splitter. -->
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                                                       MaxHeight="260" IsVisible="{Binding HasDiff}">
-                                            <ItemsControl ItemsSource="{Binding Detail}" ItemTemplate="{StaticResource DiffLineTemplate}" />
+                                            <v:GoalMarkdownView MarkdownText="{Binding DetailMarkdown}" />
                                         </ScrollViewer>
                                         <ItemsControl ItemsSource="{Binding Options}">
                                             <ItemsControl.ItemsPanel>

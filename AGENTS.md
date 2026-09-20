@@ -22,7 +22,8 @@ release. Never a manual `git push` or a hand-written version bump.
   same one-way rule `mTiles.AgentSessions` keeps. It names colours by role through `DynamicResource` and
   defines none of them, so a control drawn here takes this application's theme without being told. Holds
   `Picker` — the trigger-plus-searchable-list that replaced the model field's combo-box-versus-autocomplete
-  dead end — see [`src/mTiles.Controls/README.md`](src/mTiles.Controls/README.md)
+  dead end — see [`src/mTiles.Controls/README.md`](src/mTiles.Controls/README.md) — and `Notepad/`, the
+  vendored `MarkdownViewer`/`NoteEditor` (see [`src/mTiles.Controls/Notepad/README.md`](src/mTiles.Controls/Notepad/README.md))
 - `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
 - `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, SplitFixedSide (which side of a split, if either, is held at a size in pixels rather than a share — never written for a split that has none, so a workspace layout saves byte for byte as before), TileKindIds, TileContentType (closed — see Tiles below), AppSettings, AppDefaults, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, GoalTileState, GoalCommit, GoalFinding, GoalReviewResult, GoalClarifyResult, IGoalParsedBlock (the two members the JSON re-send round reads, so a clarification and a review get one round rather than a copy each), GoalCompletionCriteria, GoalStopReason, GoalImageAttachment, SolidPrinciples, AiBehaviour, AiEffort, AiUsage, AiAgentInstance, AiProviderInstance, AiSignIn, AiModelInfo, ProviderCheck, SessionStrategy, ApiFlavor, InstallPlan, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, WorkspaceAgentFileSyncConfig, SpeechSettings, PhoneSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
@@ -157,8 +158,15 @@ release. Never a manual `git push` or a hand-written version bump.
   that would let the base library satisfy the entry for the dispatcher, so all three would pass on one
   file — the trailing wildcards on the Linux names are safe precisely because they come after the part
   that tells the three apart.
-- **Notepad.Avalonia** — its `MarkdownViewer` renders what the AI tool writes in the Goal tile's
-  transcript. Wrapped in the transcript's own `ScrollViewer` on purpose: the control scrolls itself
+- **Notepad.Avalonia** — **no longer a package**: its sources are in
+  `src/mTiles.Controls/Notepad/` and are built here (MIT, same author — see that folder's `README.md`
+  for what was changed against 0.3.1 and why). Its `MarkdownViewer` renders what the AI tool writes in
+  the Goal tile's transcript **and every patch in the Agent tile**, which is what the vendoring bought:
+  a viewer whose selection spans the whole document is the only thing that lets two lines of a diff be
+  dragged through and copied together, and the package could not colour one — 0.3.1 has no syntax
+  highlighting at all. `MarkdownViewer.HighlightDiff` is the opt-in that colours a ```diff block by
+  line, ground and all, and `GoalMarkdownView` is what asks for it and pushes this application's own
+  diff tokens into it. Wrapped in the transcript's own `ScrollViewer` on purpose: the control scrolls itself
   only when given a finite height and sizes to its content when it is not, which is what a message
   in a list needs. `ColorTheme="None"` is load-bearing — any other value makes it assign its own
   brushes over the tokens, and its default is Light — which is why the wrapper is

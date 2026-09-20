@@ -60,6 +60,12 @@ public sealed class GoalMarkdownView : MarkdownViewer
         OpenLinksInBrowser = false;
         LinkClicked += OnLinkClicked;
 
+        // A ```diff block is a patch and is drawn as one. Asked for here rather than left on by
+        // default in the control, because it is a claim about what the author of the document meant by
+        // a fence, and this is the one place in the application that knows the answer: everything
+        // rendered here was written by an agent this tile is holding.
+        HighlightDiff = true;
+
         ResourcesChanged += (_, _) => ApplyTokens();
     }
 
@@ -100,6 +106,22 @@ public sealed class GoalMarkdownView : MarkdownViewer
         }
 
         if (Brush("BgElevated") is { } elevated) CodeBackground = elevated;
+
+        // The diff's own, from the tokens ThemeBridge derives for every other diff in the
+        // application — so a patch in a conversation and a patch in the git tile are the same green.
+        DiffAddedBackground = Brush("DiffAddedBg");
+        DiffRemovedBackground = Brush("DiffRemovedBg");
+
+        // The ground says what happened to the line and the text stays the colour code is read in.
+        // The other way round — green text on a green band — a block of twenty added lines is a
+        // paragraph of coloured text, and the eye reads the colour instead of the code. Null is how
+        // the control is told to leave the line's own foreground alone.
+        DiffAddedForeground = null;
+        DiffRemovedForeground = null;
+
+        // The exception, and it is the one line with no ground of its own: a hunk header or a
+        // `diff --git` is machinery between two pieces of code, so it is said by being quieter.
+        DiffMetaForeground = Brush("TextFaint");
         if (Brush("BorderSubtle") is { } subtle)
         {
             RuleBrush = subtle;
@@ -122,6 +144,11 @@ public sealed class GoalMarkdownView : MarkdownViewer
 
         if (Token("TermFontBase") is double points and > 0)
             DefaultFontSize = points;
+
+        // One size on this surface. Everything here is already set in the terminal's face, so a code
+        // block eight per cent smaller than the sentence above it is not a decision anybody reads as
+        // one — it is a patch that looks slightly wrong beside the tool row that introduced it.
+        CodeFontScale = 1;
 
         // Nothing behind it: the row already has whatever background its role calls for, and a viewer
         // painting its own would put a rectangle over the user's band.

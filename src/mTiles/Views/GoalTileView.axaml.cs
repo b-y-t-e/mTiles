@@ -181,6 +181,11 @@ public partial class GoalTileView : UserControl, IFocusTargetView
             _subscribedVm = vm;
             vm.SentByUser += GoToEnd;
 
+            // The transcript is read off disk in this view model's own constructor, long before any
+            // view is bound to it, so there is no event to wait for: what is on screen at this moment
+            // is a whole run that somebody has just opened, and its end is what they came for.
+            GoToEnd();
+
             vm.ConfirmAction = async message =>
             {
                 // No window to ask in means no, the same answer the Settings dialog gives. The view

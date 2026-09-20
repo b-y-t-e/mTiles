@@ -56,10 +56,20 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private string? _conversationId;
     private AgentConversationHost? _host;
     private ConversationState? _waitingToDraw;
+    /// <summary>Which conversation <see cref="_waitingToDraw"/> is of, so a state raised by the host
+    /// being replaced is not drawn as the conversation being opened.</summary>
+    private string? _waitingToDrawConversation;
+    /// <summary>The handler the live host's <c>Changed</c> is subscribed with, which carries that host's
+    /// own conversation id — the event itself names no sender, and <c>_conversationId</c> has already
+    /// moved on by the time the outgoing host's last state is drawn.</summary>
+    private Action<ConversationState, AgentEvent>? _hostChanged;
     private bool _drawScheduled;
     private PlanUpdated? _drawnPlan;
     private bool _disposed;
     private bool _startRequested;
+
+    /// <summary>Which conversation the timeline on screen is of. See <see cref="TranscriptOpened"/>.</summary>
+    private string? _drawnConversation;
 
     [ObservableProperty] private string _draft = "";
 
@@ -521,6 +531,19 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     }
 
     private bool CanSend() => !IsStarting && LaunchProblem is null;
+
+    /// <summary>Raised when a whole transcript arrives at once, rather than a line at a time.</summary>
+    /// <remarks>
+    /// <para>Opening a conversation is being handed the end of it — what somebody wants to see is what
+    /// was last said, the way every messaging window in the world opens. A transcript replayed out of
+    /// the store arrives as one change to the timeline, and the anchor has no way to tell that from a
+    /// reader who had scrolled: it keeps where they were, which for a conversation nobody has opened
+    /// yet is the top.</para>
+    /// <para>Raised on the conversation *changing*, which covers the tile's first draw, the picker, a
+    /// new conversation and one adopted from the layout — rather than on each of those gestures, where
+    /// the one that was forgotten is the one that would be found by somebody months later.</para>
+    /// </remarks>
+    public event Action? TranscriptOpened;
 
     /// <summary>Raised when the reader hands a message over, however they asked for it.</summary>
     /// <remarks>On the view model and not on each of the controls that can send: Enter, the button, a
@@ -1106,12 +1129,17 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _host = null;
         if (previous is not null)
         {
-            previous.Changed -= OnChanged;
+            if (_hostChanged is not null) previous.Changed -= _hostChanged;
+            _hostChanged = null;
             previous.RestartRequested -= OnRestartRequested;
             previous.SettingsApplied -= OnSettingsApplied;
             await previous.DisposeAsync();
             // The next host numbers its own events, so a state kept from this one must not outrank them.
-            lock (_drawGate) _waitingToDraw = null;
+            lock (_drawGate)
+            {
+                _waitingToDraw = null;
+                _waitingToDrawConversation = null;
+            }
         }
     }
 
@@ -1359,10 +1387,11 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
         _host = host;
         _binding.Opened(agent.Id);
-        host.Changed += OnChanged;
+        _hostChanged = (state, _) => ScheduleDraw(state, host.ConversationId);
+        host.Changed += _hostChanged;
         host.RestartRequested += OnRestartRequested;
         host.SettingsApplied += OnSettingsApplied;
-        Draw(host.State);
+        Draw(host.State, host.ConversationId);
         // So the strip names the conversation rather than calling it empty until somebody opens the list: the
         // chooser is built before anything has been read, and what it holds until then is a placeholder row.
         _ = Conversations.RefreshAsync();
@@ -1409,16 +1438,19 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         await RunAsync(() => _host.ExecuteAsync(new RestoreCheckpoint(checkpoint.BaseCheckpointId), _lifetime.Token));
     }
 
-    private void OnChanged(ConversationState state, AgentEvent _) => ScheduleDraw(state);
-
     /// <summary>Draws <paramref name="state"/> on the UI thread, folding every state raised before that
     /// draw runs into the latest of them.</summary>
-    private void ScheduleDraw(ConversationState state)
+    private void ScheduleDraw(ConversationState state, string? conversationId)
     {
         lock (_drawGate)
         {
             // Two threads can raise this at once; the state numbered later wins whichever arrives last.
-            if (_waitingToDraw is null || state.LastSequence >= _waitingToDraw.LastSequence) _waitingToDraw = state;
+            if (_waitingToDraw is null || state.LastSequence >= _waitingToDraw.LastSequence)
+            {
+                _waitingToDraw = state;
+                _waitingToDrawConversation = conversationId;
+            }
+
             if (_drawScheduled) return;
             _drawScheduled = true;
         }
@@ -1426,19 +1458,34 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _post(() =>
         {
             ConversationState? latest;
+            string? conversation;
             lock (_drawGate)
             {
                 latest = _waitingToDraw;
+                conversation = _waitingToDrawConversation;
                 _drawScheduled = false;
             }
 
-            if (!_disposed && latest is not null) Draw(latest);
+            if (!_disposed && latest is not null) Draw(latest, conversation);
         });
     }
 
-    /// <summary>Brings every bound collection and property into step with one state.</summary>
-    internal void Draw(ConversationState state)
+    /// <summary>Brings every bound collection and property into step with one state of the conversation
+    /// the tile is on.</summary>
+    internal void Draw(ConversationState state) => Draw(state, ConversationId);
+
+    /// <summary>Brings every bound collection and property into step with one state of
+    /// <paramref name="conversationId"/>.</summary>
+    /// <remarks>The conversation is named by the caller rather than read off <see cref="ConversationId"/>,
+    /// which the picker moves on before the outgoing host has closed: a state that host raised meanwhile
+    /// would otherwise be taken for the new conversation's first draw, and the transcript actually opened
+    /// a moment later would arrive without <see cref="TranscriptOpened"/> — the reader left wherever the
+    /// previous conversation had been scrolled to.</remarks>
+    private void Draw(ConversationState state, string? conversationId)
     {
+        var opened = _drawnConversation != conversationId;
+        _drawnConversation = conversationId;
+
         TimelineSync.Sync(Timeline, state.Timeline, CreateItem);
         MarkSeams(state);
         _binding.Drawn(state);
@@ -1456,6 +1503,10 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             foreach (var step in state.Plan?.Steps ?? []) PlanSteps.Add(step);
             OnPropertyChanged(nameof(HasPlan));
         }
+
+        // After the timeline, so what the view is taken to the end of is this conversation and not the
+        // last one still on screen.
+        if (opened) TranscriptOpened?.Invoke();
 
         IsWorking = state.IsWorking;
         Model = state.Model ?? "";
@@ -1616,7 +1667,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// which properties a redraw touches.</remarks>
     private void RedrawAgainstTheWindow()
     {
-        if (!_disposed && _host is { } live) ScheduleDraw(live.State);
+        if (!_disposed && _host is { } live) ScheduleDraw(live.State, live.ConversationId);
     }
 
     /// <summary>What to count this conversation's tokens against, when the agent did not say — in the
@@ -1653,7 +1704,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         TurnClock.Dispose();
         if (_host is { } host)
         {
-            host.Changed -= OnChanged;
+            if (_hostChanged is not null) host.Changed -= _hostChanged;
             host.RestartRequested -= OnRestartRequested;
             host.SettingsApplied -= OnSettingsApplied;
             ConversationClosings.Close(host);

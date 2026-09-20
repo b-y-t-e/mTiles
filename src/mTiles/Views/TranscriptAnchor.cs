@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
@@ -39,13 +41,65 @@ public sealed class TranscriptAnchor
     private List<(Visual Element, double Fraction)> _chain = [];
     private bool _restoreQueued;
     private readonly ScrollWeMade _ourScroll = new();
+    private bool _gesture;
+    private IPointer? _held;
 
     private TranscriptAnchor(ScrollViewer scroll)
     {
         _scroll = scroll;
         scroll.ScrollChanged += OnScrollChanged;
         scroll.AttachedToVisualTree += (_, _) => QueueRestore();
+
+        // A reader who moved did it with their hand. Everything else that moves an offset — a layout
+        // settling, a bring-into-view, this anchor's own restore — is somebody else's, and the offset
+        // it leaves behind is indistinguishable from theirs: a transcript opened at the end and then
+        // laid out again as its markdown views found their final heights reported a move nobody made,
+        // which became the anchor and left the reader part way up a conversation they had not touched.
+        // Tunnelled and handledEventsToo, because the scroller's own handling of a wheel is what marks
+        // the event handled before it would bubble back here.
+        scroll.AddHandler(InputElement.PointerWheelChangedEvent, OnGesture,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        scroll.AddHandler(InputElement.PointerPressedEvent, OnPressed,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        scroll.AddHandler(InputElement.KeyDownEvent, OnGesture,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+
+        // A press that is still held is a hand still on the scroller. The scrollbar's thumb captures
+        // the pointer, so a drag is one press and then nothing but offsets until the button comes back
+        // up: spent like a wheel, the gesture would account for the drag's first pixel and every offset
+        // after it would be read as somebody else's, so a message arriving mid-drag restored the anchor
+        // taken where the drag began and threw the reader back there.
+        scroll.AddHandler(InputElement.PointerReleasedEvent, OnReleased,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
     }
+
+    /// <summary>The reader has touched something. See the constructor.</summary>
+    private void OnGesture(object? sender, RoutedEventArgs e) => _gesture = true;
+
+    /// <summary>A button is down: this pass is the reader's, and so is every pass until it comes up.</summary>
+    private void OnPressed(object? sender, PointerPressedEventArgs e)
+    {
+        _gesture = true;
+        _held = e.Pointer;
+    }
+
+    /// <summary>The hand is off. The release's own pass is still theirs, hence the gesture left owing.</summary>
+    private void OnReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _gesture = true;
+        _held = null;
+    }
+
+    /// <summary>Whether the hand that pressed is still on the scroller.</summary>
+    /// <remarks>Asked of the pointer itself rather than remembered as a flag a release puts down.
+    /// <c>PointerCaptureLost</c> is a direct event, raised on the element that held the capture — the
+    /// scrollbar's thumb — so a handler on the scroller never runs, and a drag that ends without a
+    /// release (a dialog opening, the window deactivating, Alt+Tab) left the flag latched: from then on
+    /// every layout pass counted as a gesture and the anchor was taken on passes nobody made, which is
+    /// the very fault this reads the pointer to avoid. A thumb drag holds the capture for as long as the
+    /// button is down and gives it up however the drag ends, so the capture is the state itself rather
+    /// than a report of it going away.</remarks>
+    private bool IsHeld => _held?.Captured is not null;
 
     /// <summary>Starts keeping <paramref name="scroll"/>'s reader in place for as long as it lives.</summary>
     public static TranscriptAnchor Attach(ScrollViewer scroll) => new(scroll);
@@ -62,7 +116,11 @@ public sealed class TranscriptAnchor
         // pass that can be measured — which the re-attach raises, since the viewport comes back with it.
         if (!CanBeMeasured(_scroll.Viewport.Height, _scroll.Extent.Height)) return;
 
-        if (ReaderMoved(e.OffsetDelta.Y, _scroll.Offset.Y, MaxOffset(), _ourScroll.Take())) Capture();
+        // Taken here rather than left standing: the gesture accounts for the pass it arrived in, and a
+        // wheel turned once must not excuse every layout pass after it.
+        var gesture = _gesture || IsHeld;
+        _gesture = false;
+        if (gesture && ReaderMoved(e.OffsetDelta.Y, _scroll.Offset.Y, MaxOffset(), _ourScroll.Take())) Capture();
 
         // Nothing but the offset moved, which is somebody scrolling: there is nothing to put back.
         if (e.ExtentDelta == default && e.ViewportDelta == default) return;
@@ -85,6 +143,9 @@ public sealed class TranscriptAnchor
     {
         _atEnd = true;
         _chain = [];
+        // Whatever the reader last touched is spent: this is a fresh transcript or a message just sent,
+        // and a gesture still owed from before it would be answered by the first layout pass after.
+        _gesture = false;
         QueueRestore();
     }
 
@@ -115,6 +176,9 @@ public sealed class TranscriptAnchor
     /// <param name="offsetWeWrote">Where this anchor put it in the scroll this pass reports, or null
     /// when the pass has no scroll of ours to account for.</param>
     /// <remarks>
+    /// <para>Asked only of a pass the reader's own hand reached — a wheel, a press, a key. This rule
+    /// tells three <em>offset changes</em> apart and cannot tell a move nobody made from one somebody
+    /// did, so the gesture is the question asked before it.</para>
     /// <para>A reader scrolling in the same pass the layout changed — a wheel turned while a message
     /// streams in — has made a move of their own, and it becomes the anchor, or the restore would pull
     /// them back. Two other things arrive looking exactly like it and neither is theirs.</para>

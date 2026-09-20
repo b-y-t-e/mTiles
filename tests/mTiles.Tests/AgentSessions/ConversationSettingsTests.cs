@@ -177,13 +177,39 @@ public class ConversationSettingsTests
         Assert.Equal(AgentConversationTileViewModel.MaxImages - 1, vm.Attachments.Items.Count);
     }
 
+    /// <summary>
+    /// Opening a conversation is being handed the end of it. A transcript replayed out of the store
+    /// arrives as one change to the timeline, and the anchor cannot tell that from a reader who had
+    /// scrolled — so the view model says which of the two it was.
+    /// </summary>
+    [Fact]
+    public void A_transcript_that_has_only_now_arrived_says_so_once()
+    {
+        using var settings = new TempSettings();
+        using var vm = NewTile(settings, null);
+        var opened = 0;
+        vm.TranscriptOpened += () => opened++;
+
+        vm.Draw(ConversationReducer.Replay([new UserMessageAdded("m1", "hello", [])]));
+        Assert.Equal(1, opened);
+
+        // Every line after it is the same conversation carrying on, and the reader is left where
+        // they were.
+        vm.Draw(ConversationReducer.Replay(
+            [new UserMessageAdded("m1", "hello", []), new UserMessageAdded("m2", "again", [])]));
+        Assert.Equal(1, opened);
+    }
+
     private static AgentConversationTileViewModel NewTile(TempSettings settings, Action? requestSave)
     {
         var agent = AiAgentCatalog.Find("claude")!;
+        // One id for the life of the tile, which is what a tile's id is: asked again for a fresh guid,
+        // ConversationId names a different conversation every time anybody reads it.
+        var tileId = Guid.NewGuid().ToString();
         return new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
             new mTiles.AgentSessions.Storage.SqliteConversationStore(
                 Path.Combine(Path.GetTempPath(), $"mtiles-settings-{Guid.NewGuid():N}.db")),
-            AiAgentCatalog.SeedInstanceFor(agent), agent, () => Guid.NewGuid().ToString(),
+            AiAgentCatalog.SeedInstanceFor(agent), agent, () => tileId,
             requestSave: requestSave, post: action => action());
     }
 }

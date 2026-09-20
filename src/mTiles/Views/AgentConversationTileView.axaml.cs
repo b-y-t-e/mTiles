@@ -180,6 +180,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         if (_subscribed is not null)
         {
             _subscribed.SentByUser -= GoToEnd;
+            _subscribed.TranscriptOpened -= GoToEnd;
             _subscribed.ConfirmAction = null;
             _subscribed = null;
         }
@@ -187,6 +188,13 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         if (DataContext is not AgentConversationTileViewModel vm) return;
         _subscribed = vm;
         vm.SentByUser += GoToEnd;
+        vm.TranscriptOpened += GoToEnd;
+
+        // And once for the transcript that is already there. A view model drawn before this view was
+        // bound to it has raised TranscriptOpened into nothing — which is the ordinary case after a
+        // restart, where the conversation is replayed out of the store while the window is still being
+        // built.
+        GoToEnd();
         vm.ConfirmAction = message => MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: false);
         if (VisualRoot is not null) vm.EnsureStarted();
     }
@@ -197,7 +205,8 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         _subscribed?.EnsureStarted();
     }
 
-    /// <summary>Takes the reader to the end because they have just sent something.</summary>
+    /// <summary>Takes the reader to the end — because they have just sent something, or because the
+    /// transcript they are looking at has only now arrived.</summary>
     private void GoToEnd() => _anchor.GoToEnd();
 
     private void Send()

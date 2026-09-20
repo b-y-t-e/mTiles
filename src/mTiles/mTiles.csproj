@@ -59,7 +59,6 @@
     <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="Terminal.Avalonia" Version="0.4.0" />
     <PackageReference Include="TodoList.Avalonia" Version="0.2.10" />
-    <PackageReference Include="Notepad.Avalonia" Version="0.3.1" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.*" />
     <PackageReference Include="AvaloniaEdit.TextMate" Version="12.0.*" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />

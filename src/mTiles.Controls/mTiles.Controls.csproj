@@ -24,4 +24,8 @@
     <PackageReference Include="Avalonia" Version="12.1.*" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="mTiles.Tests" />
+  </ItemGroup>
+
 </Project>

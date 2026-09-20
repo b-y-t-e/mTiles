@@ -4,9 +4,9 @@ using mTiles.ViewModels.AgentConversation;
 namespace mTiles.Tests.AgentSessions;
 
 /// <summary>
-/// The gutter a diff row is drawn with. Pure, and worth pinning because the two counters are the one
-/// part of it that cannot be seen to be right by looking at a screenshot: a removed line is numbered in
-/// the file it left and everything else in the file as it now stands.
+/// What a line of a patch is, and what the patch becomes when it is handed to the viewer. Pure, and
+/// worth pinning because the one thing that cannot be seen to be right in a screenshot is where a hunk
+/// begins and ends: inside one, the characters the format uses for its own headers are somebody's code.
 /// </summary>
 public class DiffLinesTests
 {
@@ -20,36 +20,13 @@ public class DiffLinesTests
         """;
 
     [Fact]
-    public void A_hunk_header_sets_both_counters()
-    {
-        var lines = DiffLines.ParseFilePatch(Diff);
-
-        Assert.Equal(DiffLineKind.Header, lines[0].Kind);
-        Assert.Null(lines[0].Number);
-        Assert.Null(lines[1].Number);                       // the hunk header itself
-
-        Assert.Equal(12, lines[2].Number);                  // context, numbered in the new file
-        Assert.Equal(11, lines[3].Number);                  // removed, numbered in the old one
-        Assert.Equal(13, lines[4].Number);
-        Assert.Equal(14, lines[5].Number);
-    }
-
-    [Fact]
     public void The_marker_column_is_taken_out_of_the_text()
     {
         var lines = DiffLines.ParseFilePatch(Diff);
 
-        Assert.Equal(("keep", ""), (lines[2].Text, lines[2].Marker));
-        Assert.Equal(("gone", "-"), (lines[3].Text, lines[3].Marker));
-        Assert.Equal(("added", "+"), (lines[4].Text, lines[4].Marker));
-    }
-
-    [Fact]
-    public void A_header_this_cannot_read_numbers_from_one_rather_than_throwing()
-    {
-        var lines = DiffLines.ParseFilePatch("@@ what @@\n+first");
-
-        Assert.Equal(1, lines[1].Number);
+        Assert.Equal(("keep", ""), (lines[1].Text, lines[1].Marker));
+        Assert.Equal(("gone", "-"), (lines[2].Text, lines[2].Marker));
+        Assert.Equal(("added", "+"), (lines[3].Text, lines[3].Marker));
     }
 
     [Fact]
@@ -58,57 +35,47 @@ public class DiffLinesTests
         var lines = DiffLines.ParseFilePatch("@@ -1 +1 @@\n+");
 
         Assert.Equal(string.Empty, lines[1].Text);
-        Assert.Equal(1, lines[1].Number);
-    }
-    [Fact]
-    public void The_function_context_after_the_closing_markers_is_not_read_as_a_line_number()
-    {
-        var lines = DiffLines.ParseFilePatch("@@ -10,3 +12,4 @@ x = -12\n-gone\n+added");
-
-        Assert.Equal(10, lines[1].Number);
-        Assert.Equal(12, lines[2].Number);
+        Assert.Equal(DiffLineKind.Added, lines[1].Kind);
     }
 
     /// <summary>A removed "--" is written "---", where the patch's own file header lives.</summary>
     [Fact]
     public void A_removed_line_of_two_dashes_is_a_removal_and_not_a_header()
     {
-        var lines = DiffLines.ParseFilePatch("@@ -5,2 +5,1 @@\n---\n keep");
+        var lines = DiffLines.Parse("@@ -5,2 +5,1 @@\n---\n keep");
 
         Assert.Equal(DiffLineKind.Removed, lines[1].Kind);
-        Assert.Equal(5, lines[1].Number);
         Assert.Equal("--", lines[1].Text);
-        Assert.Equal(5, lines[2].Number);   // context, numbered in the new file
+        Assert.Equal(DiffLineKind.Context, lines[2].Kind);
     }
 
     [Fact]
     public void An_added_line_of_two_pluses_is_an_addition_and_not_a_header()
     {
-        var lines = DiffLines.ParseFilePatch("@@ -5,1 +5,2 @@\n+++\n keep");
+        var lines = DiffLines.Parse("@@ -5,1 +5,2 @@\n+++\n keep");
 
         Assert.Equal(DiffLineKind.Added, lines[1].Kind);
         Assert.Equal("++", lines[1].Text);
     }
 
-    /// <summary>The no-newline marker belongs to neither side, so it takes no number and moves neither
-    /// counter — and it does not end the hunk it sits in.</summary>
+    /// <summary>The no-newline marker belongs to neither side, and it does not end the hunk it sits
+    /// in.</summary>
     [Fact]
-    public void The_no_newline_marker_is_not_counted_as_a_line()
+    public void The_no_newline_marker_is_a_line_of_the_format()
     {
-        var lines = DiffLines.ParseFilePatch("@@ -1,2 +1,2 @@\n-gone\n\\ No newline at end of file\n+added\n keep");
+        var lines = DiffLines.Parse("@@ -1,2 +1,2 @@\n-gone\n\\ No newline at end of file\n+added\n keep");
 
         Assert.Equal(DiffLineKind.Header, lines[2].Kind);
-        Assert.Null(lines[2].Number);
-        Assert.Equal(1, lines[3].Number);
-        Assert.Equal(2, lines[4].Number);
+        Assert.Equal(DiffLineKind.Added, lines[3].Kind);
+        Assert.Equal(DiffLineKind.Context, lines[4].Kind);
     }
 
     /// <summary>A patch of two files: the second file's own headers end the first one's hunk, so they
-    /// are headers again and the second file's lines are numbered from its own <c>@@</c>.</summary>
+    /// are headers again rather than lines of the first file.</summary>
     [Fact]
-    public void A_second_file_in_one_patch_starts_its_own_numbering()
+    public void A_second_file_in_one_patch_opens_with_headers_again()
     {
-        var lines = DiffLines.ParseFilePatch(string.Join('\n',
+        var lines = DiffLines.Parse(string.Join('\n',
             "diff --git a/a.cs b/a.cs",
             "--- a/a.cs",
             "+++ b/a.cs",
@@ -124,9 +91,7 @@ public class DiffLinesTests
         Assert.Equal(DiffLineKind.Header, lines[6].Kind);   // diff --git of the second file
         Assert.Equal(DiffLineKind.Header, lines[7].Kind);   // --- /dev/null
         Assert.Equal(DiffLineKind.Header, lines[8].Kind);   // +++ b/b.cs
-        Assert.All(lines.Skip(6).Take(3), l => Assert.Null(l.Number));
         Assert.Equal(DiffLineKind.Added, lines[10].Kind);
-        Assert.Equal(40, lines[10].Number);
     }
 
     /// <summary>Several patches concatenated with nothing but their own <c>---</c>/<c>+++</c> pair
@@ -135,7 +100,7 @@ public class DiffLinesTests
     [Fact]
     public void A_file_header_pair_ends_the_hunk_before_it()
     {
-        var lines = DiffLines.ParseFilePatch(string.Join('\n',
+        var lines = DiffLines.Parse(string.Join('\n',
             "--- a/a.cs",
             "+++ b/a.cs",
             "@@ -1,1 +1,1 @@",
@@ -148,19 +113,150 @@ public class DiffLinesTests
 
         Assert.Equal(DiffLineKind.Header, lines[5].Kind);
         Assert.Equal(DiffLineKind.Header, lines[6].Kind);
-        Assert.All(lines.Skip(5).Take(2), line => Assert.Null(line.Number));
-        Assert.Equal(40, lines[8].Number);
+        Assert.Equal(DiffLineKind.Added, lines[8].Kind);
     }
 
-    /// <summary>A fragment — an Edit tool's old and new text — is numbered from its own first line,
-    /// which is not where it sits in the file, so it is drawn with no numbers at all.</summary>
+    /// <summary>
+    /// The patch's own header names the file, and the file is the row this patch is drawn under. Four
+    /// lines of machinery above two lines of content is what it came to on a small change.
+    /// </summary>
     [Fact]
-    public void A_patch_nobody_can_number_is_read_without_numbers()
+    public void A_file_s_patch_is_drawn_without_the_lines_that_name_the_file()
     {
-        var lines = DiffLines.Parse(Diff);
+        Assert.DoesNotContain(DiffLines.ParseFilePatch(Diff), l => l.Kind == DiffLineKind.Header);
 
-        Assert.All(lines, line => Assert.Null(line.Number));
-        Assert.Equal(DiffLineKind.Removed, lines[3].Kind);
-        Assert.Equal("gone", lines[3].Text);
+        // The fragment parse keeps them: nothing above it says which file it is.
+        Assert.Contains(DiffLines.Parse(Diff), l => l.Kind == DiffLineKind.Header);
+    }
+
+    /// <summary>
+    /// Git's extended header lines — the mode a new file was created with, the two names of a rename —
+    /// are the file's header too, and left in they are drawn as unchanged lines of its content.
+    /// </summary>
+    [Fact]
+    public void A_file_s_patch_drops_the_extended_header_a_creation_or_a_rename_adds()
+    {
+        var created = DiffLines.ParseFilePatch(
+            "diff --git a/x b/x\nnew file mode 100644\nindex 0000000..e69de29\n--- /dev/null\n+++ b/x\n@@ -0,0 +1 @@\n+hello");
+
+        Assert.Equal([DiffLineKind.Hunk, DiffLineKind.Added], created.Select(l => l.Kind));
+
+        var renamed = DiffLines.ParseFilePatch(
+            "diff --git a/a b/b\nsimilarity index 90%\nrename from a\nrename to b\nindex 1111111..2222222 100644\n@@ -1 +1 @@\n-old\n+new");
+
+        // Everything but the one line saying what the file used to be called: the row above the patch
+        // draws the new path only, so dropped it too there is nowhere the old name is said at all.
+        Assert.Equal(
+            ["rename from a", "@@ -1 +1 @@", "old", "new"],
+            renamed.Select(l => l.Text));
+    }
+
+    /// <summary>A copy's source is kept for the same reason a rename's is.</summary>
+    [Fact]
+    public void A_file_s_patch_keeps_the_name_a_copy_came_from()
+    {
+        var copied = DiffLines.ParseFilePatch(
+            "diff --git a/a b/b\nsimilarity index 90%\ncopy from a\ncopy to b\nindex 1111111..2222222 100644\n@@ -1 +1 @@\n-old\n+new");
+
+        Assert.Equal(["copy from a", "@@ -1 +1 @@", "old", "new"], copied.Select(l => l.Text));
+    }
+
+    /// <summary>A patch with no hunk under the header is one whose header is the whole change — a
+    /// rename, a copy, a mode change — so nothing is dropped and the row has something to show.</summary>
+    [Fact]
+    public void A_patch_that_is_only_a_header_keeps_it()
+    {
+        var renamed = DiffLines.ParseFilePatch(
+            "diff --git a/a b/b\nsimilarity index 100%\nrename from a\nrename to b");
+
+        Assert.Equal(
+            ["diff --git a/a b/b", "similarity index 100%", "rename from a", "rename to b"],
+            renamed.Select(l => l.Text));
+
+        var chmod = DiffLines.ParseFilePatch(
+            "diff --git a/s b/s\nold mode 100644\nnew mode 100755");
+
+        Assert.Equal(["diff --git a/s b/s", "old mode 100644", "new mode 100755"], chmod.Select(l => l.Text));
+
+        var copied = DiffLines.ParseFilePatch(
+            "diff --git a/a b/b\nsimilarity index 100%\ncopy from a\ncopy to b");
+
+        Assert.Equal(4, copied.Count);
+    }
+
+    /// <summary>What git writes in place of a hunk is the only content there is, so it stays.</summary>
+    [Fact]
+    public void A_binary_change_keeps_the_one_line_that_says_so()
+    {
+        var lines = DiffLines.ParseFilePatch("diff --git a/x b/x\nindex 111..222 100644\nBinary files a/x and b/x differ");
+
+        Assert.Equal(["Binary files a/x and b/x differ"], lines.Select(l => l.Text));
+    }
+
+    /// <summary>Inside a hunk, the one header there is is git's no-newline marker — the only line saying
+    /// the change is to the file's last character — so dropping the file's own header leaves it.</summary>
+    [Fact]
+    public void A_file_s_patch_keeps_the_no_newline_marker()
+    {
+        var lines = DiffLines.ParseFilePatch(
+            "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n-gone\n\\ No newline at end of file\n+added");
+
+        Assert.Equal(
+            [DiffLineKind.Hunk, DiffLineKind.Removed, DiffLineKind.Header, DiffLineKind.Added],
+            lines.Select(l => l.Kind));
+        Assert.Equal("\\ No newline at end of file", lines[2].Text);
+    }
+
+    /// <summary>
+    /// The patch is handed to the viewer that draws every message in the tile, so it is markdown — and
+    /// a fence of three closes on the first fence of three inside it, which a patch of a markdown file
+    /// carries as content.
+    /// </summary>
+    [Fact]
+    public void A_patch_carrying_a_fence_is_wrapped_in_a_longer_one()
+    {
+        var markdown = DiffMarkdown.For(DiffLines.ParseFilePatch("@@ -1,1 +1,1 @@\n+```diff"));
+
+        Assert.StartsWith("````diff\n", markdown);
+        Assert.EndsWith("\n````", markdown);
+        Assert.Contains("+```diff", markdown);
+    }
+
+    [Fact]
+    public void An_ordinary_patch_takes_the_usual_fence_and_keeps_its_markers()
+    {
+        var markdown = DiffMarkdown.For(DiffLines.ParseFilePatch(Diff));
+
+        Assert.Equal("""
+            ```diff
+            @@ -10,3 +12,4 @@ class A
+             keep
+            -gone
+            +added
+            +also
+            ```
+            """.ReplaceLineEndings("\n"), markdown);
+    }
+
+    /// <summary>The hunk headers are what the viewer tells a removed <c>--</c> by, so the markdown
+    /// keeps them even though the file header goes.</summary>
+    [Fact]
+    public void The_markdown_keeps_the_hunk_header_that_says_where_the_code_begins()
+    {
+        var markdown = DiffMarkdown.For(DiffLines.ParseFilePatch("@@ -5,2 +5,1 @@\n---\n keep"));
+
+        Assert.Equal("""
+            ```diff
+            @@ -5,2 +5,1 @@
+            ---
+             keep
+            ```
+            """.ReplaceLineEndings("\n"), markdown);
+    }
+
+    [Fact]
+    public void Nothing_to_draw_is_no_block_at_all()
+    {
+        Assert.Equal("", DiffMarkdown.For(DiffLines.ParseFilePatch("")));
     }
 }
