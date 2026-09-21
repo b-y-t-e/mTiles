@@ -20,6 +20,11 @@ namespace mTiles.Views;
 /// the way past it, as it is in a terminal tile — and here it is the way past it <em>everywhere</em>, because
 /// the clipboard is read on this side. In a terminal tile that gesture is only as good as the agent's own
 /// keymap, and Claude Code binds it on Windows and WSL alone.</para>
+/// <para><b>A long text is folded into a note</b> rather than pasted into the box
+/// (<see cref="mTiles.Services.PastedNote"/>): a pasted review or stack trace otherwise fills a composer
+/// three lines tall and pushes the sentence around it off the screen. <b>Ctrl+Shift+V is the way past
+/// it</b> and pastes whatever is on the clipboard as it stands — the one difference between the three
+/// paste keys, which are otherwise one gesture.</para>
 /// <para>The bitmap is handed over decoded; what each tile turns it into (PNG bytes, a scaled attachment) is
 /// its own business.</para>
 /// </remarks>
@@ -27,8 +32,8 @@ public static class ComposerPaste
 {
     /// <summary>Pastes into <paramref name="box"/> off its window's clipboard; see the overload below.</summary>
     public static bool TryPaste(TextBox box, KeyEventArgs e, Action<Bitmap> takeImage,
-        Func<IReadOnlyList<IStorageItem>, Task>? takeFiles = null) =>
-        TryPaste(new AvaloniaComposerClipboard(box), e, box.Paste, takeImage, takeFiles);
+        Func<IReadOnlyList<IStorageItem>, Task>? takeFiles = null, Func<string, Task>? takeLongText = null) =>
+        TryPaste(new AvaloniaComposerClipboard(box), e, box.Paste, takeImage, takeFiles, takeLongText);
 
     /// <summary>
     /// Takes the clipboard's files, text or image for Alt+V or Ctrl+V; answers whether the key was one of the two.
@@ -45,7 +50,8 @@ public static class ComposerPaste
     /// because the image is taken only when there is no text.</para>
     /// </remarks>
     public static bool TryPaste(IComposerClipboard clipboard, KeyEventArgs e, Action pasteText,
-        Action<Bitmap> takeImage, Func<IReadOnlyList<IStorageItem>, Task>? takeFiles = null)
+        Action<Bitmap> takeImage, Func<IReadOnlyList<IStorageItem>, Task>? takeFiles = null,
+        Func<string, Task>? takeLongText = null)
     {
         if (e is { Key: Key.V, KeyModifiers: KeyModifiers.Alt })
         {
@@ -56,20 +62,33 @@ public static class ComposerPaste
 
         if (!IsTextPaste(e)) return false;
 
-        if (takeFiles is null)
+        // Ctrl+Shift+V is the way past the folding, so it is the plain paste whatever else this box takes.
+        if (IsRawTextPaste(e)) takeLongText = null;
+
+        if (takeFiles is null && takeLongText is null)
         {
             _ = TakeImageUnlessTextAsync(clipboard, takeImage);
             return true;
         }
 
         e.Handled = true;
-        _ = PasteAsync(clipboard, pasteText, takeImage, takeFiles);
+        _ = PasteAsync(clipboard, pasteText, takeImage, takeFiles, takeLongText);
         return true;
     }
 
     /// <summary>
-    /// The keys a <see cref="TextBox"/> pastes on — Ctrl+V, Ctrl+Shift+V and Shift+Insert. All three are the
-    /// same paste, so files copied in a file manager arrive as attachments whichever one was pressed.
+    /// Ctrl+Shift+V alone — the one key that pastes what is on the clipboard as it stands, folding nothing
+    /// into a note (<see cref="mTiles.Services.PastedNote"/>).
+    /// </summary>
+    /// <remarks>The one thing that tells the three paste keys apart: everything else they do is the same,
+    /// which is why this is asked separately rather than spelled into <see cref="IsTextPaste"/>.</remarks>
+    private static bool IsRawTextPaste(KeyEventArgs e) =>
+        e is { Key: Key.V, KeyModifiers: KeyModifiers.Control | KeyModifiers.Shift };
+
+    /// <summary>
+    /// The keys a <see cref="TextBox"/> pastes on — Ctrl+V, Ctrl+Shift+V and Shift+Insert. All three take
+    /// files copied in a file manager as attachments, so that much is one paste whichever was pressed; they
+    /// differ only over the folding, which <see cref="IsRawTextPaste"/> is what names.
     /// </summary>
     private static bool IsTextPaste(KeyEventArgs e) => e switch
     {
@@ -87,12 +106,41 @@ public static class ComposerPaste
         await TakeImageAsync(clipboard, takeImage);
     }
 
-    /// <summary>Ctrl+V where the box takes files: the files, else the text, else the image.</summary>
+    /// <summary>Ctrl+V where the box takes files or folds a long text: the files, else the text, else the
+    /// image.</summary>
+    /// <remarks>The text is read here rather than left to the box only where it may have to be folded; a
+    /// short one is pasted by the box itself, which is what keeps the undo stack and the caret the box's
+    /// own business.</remarks>
     private static async Task PasteAsync(IComposerClipboard clipboard, Action pasteText, Action<Bitmap> takeImage,
-        Func<IReadOnlyList<IStorageItem>, Task> takeFiles)
+        Func<IReadOnlyList<IStorageItem>, Task>? takeFiles, Func<string, Task>? takeLongText)
     {
         if (await TryTakeFilesAsync(clipboard, takeFiles)) return;
-        if (await clipboard.HasTextAsync())
+
+        if (takeLongText is not null)
+        {
+            var text = await clipboard.TextAsync();
+            if (mTiles.Services.PastedNote.IsLong(text))
+            {
+                try
+                {
+                    await takeLongText(text!);
+                }
+                catch (Exception ex)
+                {
+                    // Folding is a convenience; a paste that could not be folded is still a paste.
+                    System.Diagnostics.Trace.TraceWarning($"Folding a long paste into a note failed: {ex.Message}");
+                    pasteText();
+                }
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(text))
+            {
+                pasteText();
+                return;
+            }
+        }
+        else if (await clipboard.HasTextAsync())
         {
             pasteText();
             return;

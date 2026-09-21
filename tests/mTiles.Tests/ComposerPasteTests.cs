@@ -19,7 +19,7 @@ public class ComposerPasteTests
     [Fact]
     public void Ctrl_V_attaches_copied_files_instead_of_pasting_their_paths() => OnUiThread(() =>
     {
-        var paste = new Paste(new FakeClipboard { Files = [AFile()], HasText = true });
+        var paste = new Paste(new FakeClipboard { Files = [AFile()], Text = "a word" });
 
         var e = paste.Press(KeyModifiers.Control);
 
@@ -31,7 +31,7 @@ public class ComposerPasteTests
     [Fact]
     public void Ctrl_V_pastes_text_when_there_are_no_files_and_leaves_the_image() => OnUiThread(() =>
     {
-        var paste = new Paste(new FakeClipboard { HasText = true, Image = Picture() });
+        var paste = new Paste(new FakeClipboard { Text = "a word", Image = Picture() });
 
         var e = paste.Press(KeyModifiers.Control);
 
@@ -54,7 +54,7 @@ public class ComposerPasteTests
     [Fact]
     public void Ctrl_V_is_left_to_the_box_where_the_box_takes_no_files() => OnUiThread(() =>
     {
-        var paste = new Paste(new FakeClipboard { HasText = true, Image = Picture() }, takesFiles: false);
+        var paste = new Paste(new FakeClipboard { Text = "a word", Image = Picture() }, takesFiles: false);
 
         var e = paste.Press(KeyModifiers.Control);
 
@@ -66,8 +66,8 @@ public class ComposerPasteTests
     [Fact]
     public void Alt_V_attaches_files_first_and_otherwise_the_image_over_any_text() => OnUiThread(() =>
     {
-        var withFiles = new Paste(new FakeClipboard { Files = [AFile()], HasText = true, Image = Picture() });
-        var withImage = new Paste(new FakeClipboard { HasText = true, Image = Picture() });
+        var withFiles = new Paste(new FakeClipboard { Files = [AFile()], Text = "a word", Image = Picture() });
+        var withImage = new Paste(new FakeClipboard { Text = "a word", Image = Picture() });
 
         Assert.True(withFiles.Press(KeyModifiers.Alt).Handled);
         Assert.True(withImage.Press(KeyModifiers.Alt).Handled);
@@ -80,7 +80,7 @@ public class ComposerPasteTests
     [Fact]
     public void Shift_V_is_not_a_paste() => OnUiThread(() =>
     {
-        var paste = new Paste(new FakeClipboard { Files = [AFile()], HasText = true });
+        var paste = new Paste(new FakeClipboard { Files = [AFile()], Text = "a word" });
 
         var e = paste.Press(KeyModifiers.Shift);
 
@@ -93,7 +93,7 @@ public class ComposerPasteTests
     [InlineData(Key.Insert, KeyModifiers.Shift)]
     public void Every_paste_key_of_the_box_attaches_copied_files(Key key, KeyModifiers modifiers) => OnUiThread(() =>
     {
-        var paste = new Paste(new FakeClipboard { Files = [AFile()], HasText = true });
+        var paste = new Paste(new FakeClipboard { Files = [AFile()], Text = "a word" });
 
         var e = paste.Press(modifiers, key);
 
@@ -101,18 +101,81 @@ public class ComposerPasteTests
         Assert.Equal((1, 0, 0), (paste.FilesTaken, paste.TextPasted, paste.ImagesTaken));
     });
 
-    private sealed class Paste(IComposerClipboard clipboard, bool takesFiles = true)
+
+    [Fact]
+    public void A_long_paste_is_folded_into_a_note_and_never_reaches_the_box() => OnUiThread(() =>
+    {
+        var paste = new Paste(new FakeClipboard { Text = ALongPaste }, foldsLongText: true);
+
+        var e = paste.Press(KeyModifiers.Control);
+
+        Assert.True(e.Handled);
+        Assert.Equal(ALongPaste, paste.Folded);
+        Assert.Equal(0, paste.TextPasted);
+    });
+
+    [Fact]
+    public void A_short_paste_is_still_the_boxs_own() => OnUiThread(() =>
+    {
+        var paste = new Paste(new FakeClipboard { Text = "two words" }, foldsLongText: true);
+
+        paste.Press(KeyModifiers.Control);
+
+        Assert.Null(paste.Folded);
+        Assert.Equal(1, paste.TextPasted);
+    });
+
+    /// <summary>Ctrl+Shift+V is the way past the folding, which is the one thing that tells the three
+    /// paste keys apart.</summary>
+    [Fact]
+    public void Ctrl_Shift_V_pastes_a_long_text_as_it_stands() => OnUiThread(() =>
+    {
+        var paste = new Paste(new FakeClipboard { Text = ALongPaste }, foldsLongText: true);
+
+        paste.Press(KeyModifiers.Control | KeyModifiers.Shift);
+
+        Assert.Null(paste.Folded);
+        Assert.Equal(1, paste.TextPasted);
+    });
+
+    /// <summary>A note that could not be taken is still a paste: it goes into the box rather than nowhere.</summary>
+    [Fact]
+    public void A_fold_that_fails_falls_back_to_pasting_the_text() => OnUiThread(() =>
+    {
+        var paste = new Paste(new FakeClipboard { Text = ALongPaste }, foldsLongText: true, foldThrows: true);
+
+        paste.Press(KeyModifiers.Control);
+
+        Assert.Equal(1, paste.TextPasted);
+    });
+
+    [Fact]
+    public void Files_still_come_before_a_long_text() => OnUiThread(() =>
+    {
+        var paste = new Paste(new FakeClipboard { Files = [AFile()], Text = ALongPaste }, foldsLongText: true);
+
+        paste.Press(KeyModifiers.Control);
+
+        Assert.Equal(1, paste.FilesTaken);
+        Assert.Null(paste.Folded);
+    });
+
+    private static readonly string ALongPaste = new('x', mTiles.Services.PastedNote.LongEnoughCharacters + 1);
+
+    private sealed class Paste(IComposerClipboard clipboard, bool takesFiles = true, bool foldsLongText = false,
+        bool foldThrows = false)
     {
         public int FilesTaken { get; private set; }
         public int TextPasted { get; private set; }
         public int ImagesTaken { get; private set; }
+        public string? Folded { get; private set; }
 
         /// <summary>Every answer of the fake is already complete, so the paste has run by the time this returns.</summary>
         public KeyEventArgs Press(KeyModifiers modifiers, Key key = Key.V)
         {
             var e = new KeyEventArgs { Key = key, KeyModifiers = modifiers };
             ComposerPaste.TryPaste(clipboard, e, () => TextPasted++, _ => ImagesTaken++,
-                takesFiles ? TakeFiles : null);
+                takesFiles ? TakeFiles : null, foldsLongText ? TakeLongText : null);
             return e;
         }
 
@@ -121,16 +184,25 @@ public class ComposerPasteTests
             FilesTaken++;
             return Task.CompletedTask;
         }
+
+        private Task TakeLongText(string text)
+        {
+            if (foldThrows) throw new IOException("no room");
+            Folded = text;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeClipboard : IComposerClipboard
     {
         public IReadOnlyList<IStorageItem> Files { get; init; } = [];
-        public bool HasText { get; init; }
+        public string? Text { get; init; }
+        public bool HasText => !string.IsNullOrEmpty(Text);
         public Bitmap? Image { get; init; }
 
         public Task<IReadOnlyList<IStorageItem>> FilesAsync() => Task.FromResult(Files);
         public Task<bool> HasTextAsync() => Task.FromResult(HasText);
+        public Task<string?> TextAsync() => Task.FromResult(Text);
         public Task<Bitmap?> BitmapAsync() => Task.FromResult(Image);
     }
 

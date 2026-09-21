@@ -46,7 +46,8 @@ public partial class GoalTileView : UserControl, IFocusTargetView
             .Watch(Badges, BoundsProperty);
 
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
-        ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage, AttachFilesAsync);
+        ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage,
+            AttachFilesAsync, PasteLongTextAsync);
         ComposerInput.Attach(PlanBox, () => (DataContext as GoalTileViewModel)?.ApproveOrChangeCommand.Execute(null),
             () => IsPickingAFile);
         ComposerHistoryInput.Attach(InputBox,
@@ -72,6 +73,10 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         await AttachFilesAsync(await ComposerImages.PickAsync(storage));
         InputBox.Focus();
     }
+
+    /// <summary>A paste too long for the composer, folded into a note — see <c>PastedNote</c>.</summary>
+    private Task PasteLongTextAsync(string text) =>
+        DataContext is GoalTileViewModel vm ? vm.AttachPastedTextAsync(text) : Task.CompletedTask;
 
     /// <summary>Attaches every file in the order given — the Agent tile's rule, see
     /// <see cref="ComposerImages.AttachAllAsync"/>.</summary>

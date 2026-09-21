@@ -240,10 +240,19 @@ two tiles disagree on this one point on purpose rather than by drift.
 ## What is folded, and what the round of questions is allowed to take
 
 **Everything the agent did folds itself away, and so does the list of files a turn changed.** A work
-group is open only while it is the live turn's own (`WorkGroupItemViewModel.FollowTurn`) and a
-checkpoint's file list starts folded: the line above it already says how many files changed and by how
-much, and on a turn of thirty paths the unfolded list stands between the reply and whatever was said
-next. Opening either is one press and what the user opens by hand stays as they left it.
+group is folded — the live turn's own included — and a checkpoint's file list starts folded: the line
+above it already says how many files changed and by how much, and on a turn of thirty paths the
+unfolded list stands between the reply and whatever was said next. Opening either is one press and what
+the user opens by hand stays as they left it.
+
+**A folded group says what the agent is doing now** (`WorkGroupItemViewModel.Headline`, told which turn
+is live by `FollowTurn`): while the turn runs, the line carries the last tool started and not finished;
+the moment nothing is running it falls back to the tally ("3 commands · 2 edits"). Unfolding the live
+turn's work instead was the earlier rule and is the worse one — thirty rows appearing under the reader
+push the reply the turn is working towards off the screen, and then fold themselves when the turn ends,
+so the one thing somebody was reading moves twice for reasons they did not ask for. The line is only
+the fold's: an open group draws the running tool as a row of its own, and saying it again above is two
+marks for one fact.
 
 **A round of questions is the one block drawn edge to edge** (`Border.ask.wide`, no accent rail). Every
 answer it offers is a full-width row carrying a sentence or three, so the rail and the side margins that
@@ -536,6 +545,12 @@ Both tiles are an agent talking in a column, so the parts they share are one def
   image, whatever text is on the clipboard. Ctrl+V is taken from the box in both composers, because they take
   files — left to the box it would paste the paths beside the attachments — and the box's own paste is called
   only once the clipboard is known to hold none (`ComposerPasteTests`).
+  **A long text is not pasted into the box at all**: it is written as a note into `.mtiles/attachments/`
+  and named where the caret is, as an `@` mention with a chip saying how many words it was
+  (`PastedNote`, `ComposerFile.Label`). A composer is three lines tall, so a pasted review or stack
+  trace otherwise fills it and pushes the sentence around it off the screen. **Ctrl+Shift+V is the way
+  past it** and pastes whatever is on the clipboard as it stands — the one thing that tells the three
+  paste keys apart. A note that could not be written is pasted into the box rather than lost.
 - **The composer's keys and gestures** are `ComposerInput`: Enter sends, Shift+Enter breaks the line, the
   frame shows the box's focus and a click on it puts the caret in the box. **Enter has to be caught in the
   tunnel**: a multi-line `TextBox` handles Enter itself before a `KeyDown` wired in markup sees it, so both

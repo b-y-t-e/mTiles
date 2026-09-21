@@ -41,7 +41,9 @@ public static class AttachmentStore
             if (new FileInfo(path).Length > MaxCopyBytes)
                 return (path, $"{name} is larger than {MaxCopyBytes / (1024 * 1024)} MB, so the agent is pointed at the original rather than a copy.");
 
-            var target = FreeCopyPath(CopiesDirectory(workspaceDirectory), name);
+            var directory = CopiesDirectory(workspaceDirectory);
+            Directory.CreateDirectory(directory);
+            var target = FreePath(directory, name);
             File.Copy(path, target);
             return (target, null);
         }
@@ -52,9 +54,11 @@ public static class AttachmentStore
         }
     }
 
-    private static string FreeCopyPath(string directory, string name)
+    /// <summary>A free path in <paramref name="directory"/> for a file called <paramref name="name"/>.</summary>
+    /// <remarks>Shared with <see cref="PastedNote"/>: a copied file and a written note land in the same
+    /// directory under the same rule, so one of them cannot silently overwrite the other.</remarks>
+    internal static string FreePath(string directory, string name)
     {
-        Directory.CreateDirectory(directory);
         var target = Path.Combine(directory, $"{DateTime.Now:yyyyMMdd-HHmmss}-{name}");
         for (var n = 2; File.Exists(target); n++)
             target = Path.Combine(directory, $"{DateTime.Now:yyyyMMdd-HHmmss}-{n}-{name}");

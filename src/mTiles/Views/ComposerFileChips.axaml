@@ -24,8 +24,8 @@
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <mi:MaterialIcon Width="13" Height="13" VerticalAlignment="Center"
                                          Foreground="{DynamicResource TextMuted}"
-                                         Kind="{Binding IsDirectory, Converter={x:Static v:ComposerFileIcon.Kind}}" />
-                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" MaxWidth="220"
+                                         Kind="{Binding Converter={x:Static v:ComposerFileIcon.Kind}}" />
+                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" MaxWidth="220"
                                    TextTrimming="CharacterEllipsis"
                                    FontSize="{DynamicResource FontSm}" />
                         <Button Classes="tile-btn" VerticalAlignment="Center"

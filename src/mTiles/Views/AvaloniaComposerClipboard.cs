@@ -25,6 +25,9 @@ public sealed class AvaloniaComposerClipboard(Visual view) : IComposerClipboard
     public Task<bool> HasTextAsync() => ReadAsync("text", false,
         async clipboard => await clipboard.TryGetTextAsync() is { Length: > 0 });
 
+    public Task<string?> TextAsync() => ReadAsync<string?>("text", null,
+        async clipboard => await clipboard.TryGetTextAsync());
+
     public Task<Bitmap?> BitmapAsync() => ReadAsync<Bitmap?>("an image", null,
         async clipboard => await clipboard.TryGetBitmapAsync());
 

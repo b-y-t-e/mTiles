@@ -40,9 +40,13 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
         ComposerInput.Attach(InputBox, Send, () => IsPickingAFile, Composer,
             bitmap => _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(bitmap, "pasted image")),
-            AttachFilesAsync);
+            AttachFilesAsync, PasteLongTextAsync);
         ComposerHistoryInput.Attach(InputBox, SentMessages, () => IsPickingAFile, HistoryPicker);
     }
+
+    /// <summary>A paste too long for the composer, folded into a note — see <c>PastedNote</c>.</summary>
+    private Task PasteLongTextAsync(string text) =>
+        _subscribed is null ? Task.CompletedTask : _subscribed.AttachPastedTextAsync(text);
 
     /// <summary>What was sent in this conversation, oldest first.</summary>
     private IReadOnlyList<string> SentMessages() => _subscribed is null

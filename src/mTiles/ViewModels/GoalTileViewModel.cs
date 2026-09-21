@@ -502,6 +502,22 @@ public partial class GoalTileViewModel
         if (notice is not null) _ = SayOnceAsync(notice);
     }
 
+
+    /// <summary>Folds a paste too long for the box into a note beside the workspace's other attachments, and
+    /// names it where the caret is — see <see cref="PastedNote"/>.</summary>
+    /// <remarks>A note that could not be written goes into the box as it stands: folding is a convenience,
+    /// and a paste that is lost because a disk refused is not.</remarks>
+    public async Task AttachPastedTextAsync(string text)
+    {
+        if (await PastedNote.WriteAsync(text, _workingDirectory) is not { } path)
+        {
+            InsertIntoComposer(text);
+            return;
+        }
+
+        await AttachFileAsync(path);
+    }
+
     private ComposerFileScanner? _fileScanner;
 
     private ComposerFileScanner FileScanner => _fileScanner ??= new ComposerFileScanner(_workingDirectory);

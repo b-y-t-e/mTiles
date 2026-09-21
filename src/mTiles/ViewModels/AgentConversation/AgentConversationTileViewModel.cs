@@ -620,6 +620,22 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         ComposerNotice = notice;
     }
 
+
+    /// <summary>Folds a paste too long for the box into a note beside the workspace's other attachments, and
+    /// names it where the caret is — see <see cref="PastedNote"/>.</summary>
+    /// <remarks>A note that could not be written goes into the box as it stands: folding is a convenience,
+    /// and a paste that is lost because a disk refused is not.</remarks>
+    public async Task AttachPastedTextAsync(string text)
+    {
+        if (await PastedNote.WriteAsync(text, _workingDirectory) is not { } path)
+        {
+            InsertIntoDraft(text);
+            return;
+        }
+
+        await AttachFileAsync(path);
+    }
+
     private ComposerFileScanner? _fileScanner;
 
     private ComposerFileScanner FileScanner => _fileScanner ??= new ComposerFileScanner(_workingDirectory);
@@ -1875,11 +1891,14 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         Chooser.DrawIfBindingChanged();
     }
 
-    /// <summary>The work of the turn that is still going stays open; everything else is folded.</summary>
-    /// <remarks>Only the conversation knows which turn is running, and a group cannot answer even
-    /// whether it is busy: between two tools nothing is running, and a tool fast enough to start and
-    /// finish between two draws never runs at all as far as any one draw can see. Which group is the
-    /// live turn's is <see cref="LiveTurnWork"/>.</remarks>
+    /// <summary>Tells each group whether its turn is still going, which is what decides the line a folded
+    /// group shows (<see cref="WorkGroupItemViewModel.Headline"/>).</summary>
+    /// <remarks><b>Nothing here opens or folds anything</b> — every group is folded until the user opens
+    /// it. What the answer buys is the running turn's group saying what the agent is doing now instead of
+    /// tallying what it has done. Only the conversation knows which turn is running, and a group cannot
+    /// work it out for itself: between two tools nothing is running, so a group judging on its own tools
+    /// would fall back to the tally in every gap of a turn that is still going. Which group is the live
+    /// turn's is <see cref="LiveTurnWork"/>.</remarks>
     private void FollowTurn(ConversationState state)
     {
         foreach (var group in Timeline.OfType<WorkGroupItemViewModel>())

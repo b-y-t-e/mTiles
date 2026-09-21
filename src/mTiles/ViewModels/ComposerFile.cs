@@ -11,6 +11,15 @@ namespace mTiles.ViewModels;
 /// </remarks>
 public sealed record ComposerFile(int Start, int Length, string Mention, string FullPath, bool IsDirectory)
 {
+    /// <summary>What the chip says: "125 words" for a pasted note, the file's own name for anything else.</summary>
+    /// <remarks>A note is a paste the composer was too small to hold (<see cref="PastedNote"/>), so its
+    /// name — which is the agent's whole account of it — is not what the person who pasted it wants to read
+    /// back. How many words it was is.</remarks>
+    public string Label => PastedNote.LabelFor(Name) ?? Name;
+
+    /// <summary>Whether this mention is a paste folded into a note.</summary>
+    public bool IsPastedNote => PastedNote.LabelFor(Name) is not null;
+
     public string Name => Path.GetFileName(FullPath.TrimEnd('/', '\\')) is { Length: > 0 } name ? name : FullPath;
 
     /// <summary>The text with this mention taken out, with the one space after it.</summary>

@@ -35,13 +35,16 @@ public static class ComposerInput
     /// none.</param>
     /// <param name="pasteFiles">Takes files copied in a file manager and pasted here; null where the box
     /// takes none.</param>
+    /// <param name="pasteLongText">Takes a paste too long for the box (<see cref="mTiles.Services.PastedNote"/>);
+    /// null where the box takes every paste as it comes.</param>
     public static void Attach(TextBox box, Action send, Func<bool> isPickingAFile,
         Border? frame = null, Action<Bitmap>? pasteImage = null,
-        Func<IReadOnlyList<Avalonia.Platform.Storage.IStorageItem>, Task>? pasteFiles = null)
+        Func<IReadOnlyList<Avalonia.Platform.Storage.IStorageItem>, Task>? pasteFiles = null,
+        Func<string, Task>? pasteLongText = null)
     {
         box.AddHandler(InputElement.KeyDownEvent, (_, e) =>
         {
-            if (pasteImage is not null && ComposerPaste.TryPaste(box, e, pasteImage, pasteFiles)) return;
+            if (pasteImage is not null && ComposerPaste.TryPaste(box, e, pasteImage, pasteFiles, pasteLongText)) return;
             if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None || isPickingAFile()) return;
 
             e.Handled = true;
