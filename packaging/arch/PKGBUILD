@@ -1,11 +1,11 @@
 # Maintainer: Andrzej Ból <andrzej.bol@gmail.com>
 #
-# Generated from PKGBUILD.in by .github/workflows/arch-repo.yml — 0.4.106 and 5bc970706c5b700646067476ce160fcf135111ff2fa179f6707081e3906d3b47
+# Generated from PKGBUILD.in by .github/workflows/arch-repo.yml — 0.4.107 and 0165a862b9b2ab79f6df53e60ae87e694c8c13d0a1e85f8cc8756c2ae4edd173
 # are substituted per release. The committed PKGBUILD beside this file is the rendered
 # result of the newest release, so `makepkg -si` in this directory works without CI.
 
 pkgname=mtiles-bin
-pkgver=0.4.106
+pkgver=0.4.107
 pkgrel=1
 pkgdesc="Tiling terminal manager with AI agent tiles — .NET 10 + Avalonia"
 arch=('x86_64')
@@ -71,7 +71,7 @@ options=('!strip' '!debug' '!lto')
 
 _tarball="mTiles-${pkgver}-linux-x64"
 source=("${_tarball}.tar.gz::${url}/releases/download/v${pkgver}/mTiles-linux-x64.tar.gz")
-sha256sums=('5bc970706c5b700646067476ce160fcf135111ff2fa179f6707081e3906d3b47')
+sha256sums=('0165a862b9b2ab79f6df53e60ae87e694c8c13d0a1e85f8cc8756c2ae4edd173')
 
 package() {
     # /opt rather than /usr/lib: 426 files of somebody else's runtime, versioned as one unit.
