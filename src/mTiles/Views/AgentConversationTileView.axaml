@@ -348,8 +348,7 @@
              two bars anywhere in this application are compared by counting rather than by measuring,
              and any spending at all lights the first cell. No tick on it - that mark is where the
              *clock* is, and a context window does not refill with time. -->
-        <Border DockPanel.Dock="Bottom" Classes="context-bar"
-                IsVisible="{Binding UsageText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+        <Border DockPanel.Dock="Bottom" Classes="context-bar">
             <DockPanel>
                 <!-- Compacting is the one act there is about this figure, so it stands at the end of the
                      line the figure is on rather than among the pickers above, which say what the *next
@@ -363,7 +362,7 @@
                      control that does not say why is a mark to be guessed at. -->
                 <Button DockPanel.Dock="Right" Classes="context-action" Margin="10,0,0,0"
                         Classes.tight="{Binding IsContextTight}"
-                        IsVisible="{Binding CanCompact}"
+                        IsVisible="{Binding ShowsCompact}"
                         Command="{Binding CompactCommand}"
                         ToolTip.Tip="{Binding CompactTip}">
                     <StackPanel Orientation="Horizontal" Spacing="4">
@@ -372,7 +371,7 @@
                     </StackPanel>
                 </Button>
                 <TextBlock DockPanel.Dock="Right" Classes="strip" Margin="8,0,0,0"
-                           Text="{Binding UsageText}" />
+                           Text="{Binding ContextBarText}" />
                 <v:UsageBar Height="6" VerticalAlignment="Center"
                             UsedPercent="{Binding ContextPercent}"
                             IsVisible="{Binding ContextPercent, Converter={x:Static ObjectConverters.IsNotNull}}"

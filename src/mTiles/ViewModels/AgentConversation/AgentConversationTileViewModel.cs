@@ -82,7 +82,28 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
     /// <summary>Which colour the status word takes — decided with the word, so the two cannot disagree.</summary>
     [ObservableProperty] private AgentStatusTone _statusTone = AgentStatusTone.Quiet;
+    [NotifyPropertyChangedFor(nameof(HasUsageReading))]
+    [NotifyPropertyChangedFor(nameof(ContextBarText))]
+    [NotifyPropertyChangedFor(nameof(ShowsCompact))]
     [ObservableProperty] private string _usageText = "";
+
+    /// <summary>Whether the agent has said anything about its context yet.</summary>
+    public bool HasUsageReading => UsageText.Length > 0;
+
+    /// <summary>What the foot of the tile reads, said even before the first figure arrives.</summary>
+    /// <remarks><b>The bar is always there.</b> It used to appear with the first reading, so a tile that
+    /// had not spoken yet was a composer with nothing under it and then, one message later, a row that
+    /// pushed the whole conversation up. What it says while nothing is known says exactly that — the
+    /// context is not known yet and nothing has been spent — rather than inventing a window or a
+    /// percentage, which is the rule <see cref="ContextGauge"/> keeps for the bar itself.</remarks>
+    public string ContextBarText => HasUsageReading ? UsageText : "context not known yet · $0.00";
+
+    /// <summary>Whether Compact is drawn at all.</summary>
+    /// <remarks>Drawn where the running agent has a route for it, and — before anything is known — drawn
+    /// and <b>disabled</b>, so the row has the shape it will keep instead of growing a button when the
+    /// first reading lands. It is never enabled here: <c>CanCompactNow</c> still decides that, and an
+    /// agent with no route for compaction simply never becomes pressable.</remarks>
+    public bool ShowsCompact => CanCompact || !HasUsageReading;
 
     /// <summary>What the agent is doing, beside the thinking dots. See <see cref="TurnStage"/>.</summary>
     [ObservableProperty] private string _turnStageText = "";
@@ -749,7 +770,11 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         CompactCommand.NotifyCanExecuteChanged();
     }
 
-    partial void OnCanCompactChanged(bool value) => CompactCommand.NotifyCanExecuteChanged();
+    partial void OnCanCompactChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowsCompact));
+        CompactCommand.NotifyCanExecuteChanged();
+    }
 
     partial void OnContextPercentChanged(double? value)
     {
