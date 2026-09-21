@@ -1,4 +1,4 @@
-using mTiles.AgentSessions.Conversation;
+﻿using mTiles.AgentSessions.Conversation;
 using mTiles.AgentSessions.Events;
 using Xunit;
 
@@ -49,6 +49,26 @@ public class ConversationHandoverTests
         Assert.Contains("another assistant", brief);
     }
 
+    /// <remarks>Measured: handed a description of unfinished work, every agent read it as an instruction
+    /// to finish it and went straight to running commands and proposing the next commit. The work has been
+    /// handed over so that the user can then say what to do with it, which is not the same as asking for it
+    /// to be carried on — so the brief says that first and last, where an instruction is obeyed.</remarks>
+    [Fact]
+    public void It_asks_the_arriving_agent_to_confirm_and_do_nothing_else()
+    {
+        var brief = ConversationHandover.Write(ConversationReducer.Replay([
+            new UserMessageAdded("m1", "Fix the crash on startup.", []),
+            new PlanUpdated(null, [new PlanStep("Half of it", PlanStepStatus.InProgress)]),
+        ]));
+
+        Assert.Contains("This is context, not a request", brief);
+        Assert.Contains("## What to do now", brief);
+        Assert.Contains("Context loaded, ready to work.", brief);
+        // Last, because that is where an instruction is obeyed — and what sits above it is a description of
+        // unfinished work, which is the most instruction-shaped thing a model can be handed.
+        Assert.EndsWith("wait for what is asked next.", brief.TrimEnd());
+    }
+
     /// <remarks>A turn that was undone is not in the tree; named here, it sends the arriving agent looking
     /// for edits that are not there — and the files it does find will disagree with the brief, which is
     /// worse than the brief being silent about them.</remarks>
@@ -66,15 +86,23 @@ public class ConversationHandoverTests
 
     /// <remarks>The rule the whole budget exists for: what a handover is worth is the thing that was asked
     /// for, so the fold gives up the middle of the conversation before it gives up the first line of it.
-    /// </remarks>
+    /// <para>The budget is <b>measured</b> rather than typed, because the fold can only ever drop messages:
+    /// what the brief says about itself is fixed cost, so a figure written here as a number is one that
+    /// stops arguing the rule the day that wording changes — it did, and the fold started dropping the
+    /// newest message the test exists to keep.</para></remarks>
     [Fact]
     public void Fitting_a_brief_drops_the_middle_and_says_so_while_the_goal_survives()
     {
-        var events = new List<AgentEvent> { new UserMessageAdded("m0", "The goal, which must survive.", []) };
+        var goalOnly = new UserMessageAdded("m0", "The goal, which must survive.", []);
+        var events = new List<AgentEvent> { goalOnly };
         for (var i = 1; i <= 12; i++)
             events.Add(new UserMessageAdded($"m{i}", $"Then this, number {i}, and some words after it.", []));
 
-        var brief = ConversationHandover.Write(ConversationReducer.Replay(events), budget: 900);
+        // Everything a brief costs before a single one of the messages that can be dropped, plus room for
+        // one or two of them: enough for the newest, not enough for all twelve.
+        var budget = ConversationHandover.Write(ConversationReducer.Replay([goalOnly])).Length + 200;
+
+        var brief = ConversationHandover.Write(ConversationReducer.Replay(events), budget);
 
         Assert.Contains("The goal, which must survive.", brief);
         Assert.Contains("left out of this brief to fit.", brief);

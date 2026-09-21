@@ -137,20 +137,42 @@ public static class ConversationHandover
 
         AppendFiles(brief, state);
         AppendWhereItStopped(brief, state);
+        brief.Append(Closing);
         return brief.ToString();
     }
 
     /// <summary>What the brief says about itself, before anything of the work.</summary>
-    /// <remarks>It has to be read by whichever agent is arriving, so it says three things and no more: this
-    /// is somebody else's work, the tree is the shared state, and asking is better than guessing. Anything
-    /// longer competes with the brief for the attention the brief is for.</remarks>
+    /// <remarks><b>It says "this is not a task" first, and it has to.</b> A brief that opens by describing
+    /// a piece of unfinished work reads as an instruction to finish it, and every agent measured did
+    /// exactly that: arriving on a handover, it went straight to running commands and proposing the next
+    /// commit before anybody had asked it for anything. The user is handing the work over so that they can
+    /// then say what to do with it, which is a different thing from asking for it to be carried on.
+    /// </remarks>
     private const string Preamble = """
         # Handover
 
-        The work described below was begun with another assistant, in a session you cannot see. You are
-        taking it over. This brief and the working tree are everything there is: that assistant's reasoning,
-        its reads of the tree and whatever it was in the middle of are gone. Read the files before changing
-        them, and ask rather than guess where this leaves the next step ambiguous.
+        **This is context, not a request. Do not do any work in response to it.**
+
+        The work described below was begun with another assistant, in a session you cannot see, and has
+        been handed to you. This brief and the working tree are everything there is: that assistant's
+        reasoning, its reads of the tree and whatever it was in the middle of are gone.
+
+        """;
+
+    /// <summary>The last thing the brief says, which is what to do with it.</summary>
+    /// <remarks><b>At the end because that is where an instruction is obeyed.</b> The preamble says the
+    /// same thing, and saying it twice is deliberate: what sits between the two is a description of
+    /// unfinished work, which is the most instruction-shaped thing a model can be handed. The example
+    /// answer is there because "acknowledge" on its own was answered with a summary of the brief, which is
+    /// a turn spent saying back what the user has just read.</remarks>
+    private const string Closing = """
+
+        ## What to do now
+
+        Nothing. Do not run commands, read files, change anything or propose a next step — the work has
+        only been handed to you, not asked for. Answer with one short line saying you have the context and
+        are ready, in the language the messages above are written in — "Context loaded, ready to work." —
+        and then wait for what is asked next.
 
         """;
 
