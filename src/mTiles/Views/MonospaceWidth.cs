@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using mTiles.Models;
 using System.Globalization;
 
 namespace mTiles.Views;
@@ -19,8 +20,9 @@ namespace mTiles.Views;
 /// here may assume that name is monospaced at all — a space is measured in the font that is actually
 /// going to be drawn.</para>
 /// <para>Re-measured when the resources change, which is what a theme or a font-size change raises.
-/// A face that cannot be measured leaves the width alone: an element at its natural size is a
-/// misalignment, and an element at zero is one nobody can find.</para>
+/// A face the resources do not name is measured against the application's own defaults rather than
+/// left alone: an element at its natural size is a misalignment, and an element at zero is one nobody
+/// can find.</para>
 /// </remarks>
 public static class MonospaceWidth
 {
@@ -62,14 +64,36 @@ public static class MonospaceWidth
         var characters = GetCharacters(element);
         if (characters <= 0) return;
 
-        if (Resource(element, "TerminalFontFamily") is not FontFamily family) return;
-        if (Resource(element, "TermFontBase") is not double size || size <= 0) return;
+        element.Width = CellWidth(element) * characters;
+    }
 
-        var space = new FormattedText(" ", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+    /// <summary>The width of one character of the face this element's text is actually drawn in.</summary>
+    /// <remarks>
+    /// <para>A digit, not a space. <c>FormattedText.Width</c> is the width <i>excluding trailing
+    /// whitespace</i>, so measuring <c>" "</c> answers 0 however large the font is — and a rail whose
+    /// width came back as zero is an element nobody can find, which is exactly what the fold handle
+    /// beside every patch was. In a monospaced face every glyph is the same width, and in a
+    /// proportional one a digit is at least a glyph that was drawn.</para>
+    /// <para>The resources are the answer where there are any, and the application's own defaults
+    /// where there are not — never <i>no answer</i>. <c>TerminalFontFamily</c> and <c>TermFontBase</c>
+    /// are written into the application's resources by <c>App.ApplyFontResources</c> at startup, so a
+    /// lookup made before that first write, in the XAML previewer, or in a headless test that hosts
+    /// this view on its own finds nothing — and an element left at its natural size is the zero-width
+    /// handle over again, because the mark this slot carries is measured the same way.</para>
+    /// </remarks>
+    private static double CellWidth(StyledElement element)
+    {
+        var family = Resource(element, "TerminalFontFamily") as FontFamily
+            ?? new FontFamily(AppDefaults.TerminalFontFamily);
+        var size = Resource(element, "TermFontBase") is double resolved && resolved > 0
+            ? resolved
+            : AppDefaults.FontSize;
+
+        var cell = new FormattedText("0", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
             new Typeface(family), size, Brushes.Transparent).Width;
-        if (space <= 0) return;
-
-        element.Width = space * characters;
+        // A face that measures to nothing at all is not one this can line up with; half the type size
+        // is the proportion a monospaced cell keeps, and any floor at all beats a width of zero.
+        return cell > 0 ? cell : size / 2;
     }
 
     private static object? Resource(StyledElement element, string key) =>

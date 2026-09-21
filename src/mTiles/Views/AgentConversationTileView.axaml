@@ -118,6 +118,25 @@
             <!-- Held off the patch's own top and bottom edge, so it reads as a handle lying beside the
                  block rather than as the block's border. -->
             <Setter Property="Margin" Value="0,1" />
+            <Setter Property="DockPanel.Dock" Value="Left" />
+            <Setter Property="ToolTip.Tip" Value="Hide this" />
+            <!-- Two characters of the terminal's own face, so the slot scales with Terminal Font Size
+                 rather than with nothing. -->
+            <Setter Property="v:MonospaceWidth.Characters" Value="2" />
+            <!-- The mark lives here and nowhere else: a patch, a tool's own block and a reasoning
+                 block are one gesture in three places, so they are one definition. A Template rather
+                 than a Border written into the setter, since a control instance in a style would be
+                 one element trying to stand in three parents. -->
+            <Setter Property="Content">
+                <Template>
+                    <!-- A quarter of a character — two pixels at the ordinary size — in a slot two
+                         characters wide: the mark scales the way its slot does, so it can never
+                         outgrow the inset, and the rest of the slot is the gap before the code. A
+                         width in pixels was both wrong ways round — a hairline at a large font and
+                         wider than its slot at a small one. -->
+                    <Border Classes="diff-rail-mark" v:MonospaceWidth.Characters="0.25" />
+                </Template>
+            </Setter>
         </Style>
         <!-- A Button paints nothing itself — what is seen is its template's presenter — so the
              presenter is held transparent at rest and under the pointer alike, and what is seen is the
@@ -139,11 +158,13 @@
             <Setter Property="VerticalAlignment" Value="Stretch" />
             <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
         </Style>
-        <!-- Pointing anywhere at the patch is what says the rail is there; pointing at the rail says
+        <!-- Pointing anywhere at the block is what says the rail is there; pointing at the rail says
              it can be pressed. Two steps rather than one, because a 2px line at rest is quiet enough
              to be missed, and a rail that is always the accent is a coloured bar down every patch in
-             the conversation. -->
-        <Style Selector="Border.diff-block:pointerover Border.diff-rail-mark">
+             the conversation. Both grounds a rail stands on are named: a file's patch (diff-block) and
+             a tool's own block (detail), or the first of the two steps would exist at the patch alone
+             and the handle would be as visible as the card's edge in the other two places. -->
+        <Style Selector="Border.diff-block:pointerover Border.diff-rail-mark, Border.detail:pointerover Border.diff-rail-mark">
             <Setter Property="Background" Value="{DynamicResource TextFaint}" />
         </Style>
         <!-- Colour and nothing else. A rail that grows under the pointer moves the code beside it,
@@ -649,7 +670,12 @@
                                                     </DockPanel>
                                                 </Button>
                                                 <Border Classes="detail" IsVisible="{Binding IsExpanded}">
-                                                    <StackPanel Spacing="4">
+                                                    <DockPanel>
+                                                        <!-- The same rail a file's patch carries: what
+                                                             says this block belongs to the row above,
+                                                             and what folds it away. -->
+                                                        <Button Classes="diff-rail" Command="{Binding ToggleCommand}" />
+                                                        <StackPanel Spacing="4">
                                                         <SelectableTextBlock Classes="code" Text="{Binding Command, StringFormat='$ {0}'}"
                                                                              IsVisible="{Binding Command, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <SelectableTextBlock Classes="code" Text="{Binding Paths}"
@@ -661,7 +687,8 @@
                                                         <v:GoalMarkdownView MarkdownText="{Binding DiffMarkdown}"
                                                                             IsVisible="{Binding HasDiff}" />
                                                         <SelectableTextBlock Classes="code" Text="{Binding Output}" IsVisible="{Binding HasOutput}" />
-                                                    </StackPanel>
+                                                        </StackPanel>
+                                                    </DockPanel>
                                                 </Border>
                                             </StackPanel>
                                         </DataTemplate>
@@ -674,7 +701,13 @@
                                                     </StackPanel>
                                                 </Button>
                                                 <Border Classes="detail" IsVisible="{Binding IsExpanded}">
-                                                    <SelectableTextBlock Classes="code" Text="{Binding Text}" />
+                                                    <DockPanel>
+                                                        <!-- The same rail a file's patch carries: what
+                                                             says this block belongs to the row above,
+                                                             and what folds it away. -->
+                                                        <Button Classes="diff-rail" Command="{Binding ToggleCommand}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Text}" />
+                                                    </DockPanel>
                                                 </Border>
                                             </StackPanel>
                                         </DataTemplate>
@@ -776,21 +809,8 @@
                                                     <DockPanel>
                                                         <!-- The rail: what says this patch belongs to
                                                              the row above, and what folds it away. -->
-                                                        <Button DockPanel.Dock="Left" Classes="diff-rail"
-                                                                v:MonospaceWidth.Characters="2"
-                                                                Command="{Binding ToggleCommand}"
-                                                                ToolTip.Tip="Hide this diff">
-                                                            <!-- One character of the two the slot is
-                                                                 wide: the mark scales with Terminal
-                                                                 Font Size the way its slot does, so it
-                                                                 can never outgrow the inset, and the
-                                                                 other character is the gap before the
-                                                                 code. A width in pixels was both wrong
-                                                                 ways round — a hairline at a large font
-                                                                 and wider than its slot at a small one. -->
-                                                            <Border Classes="diff-rail-mark"
-                                                                    v:MonospaceWidth.Characters="1" />
-                                                        </Button>
+                                                        <Button Classes="diff-rail" Command="{Binding ToggleCommand}"
+                                                                ToolTip.Tip="Hide this diff" />
                                                         <Panel>
                                                             <TextBlock Classes="work work-muted" Text="Loading the diff…" IsVisible="{Binding IsLoadingDiff}" />
                                                             <!-- A read that came back with nothing says so: git is run without
