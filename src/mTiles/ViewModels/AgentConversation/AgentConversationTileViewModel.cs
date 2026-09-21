@@ -1581,6 +1581,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _drawnConversation = conversationId;
 
         TimelineSync.Sync(Timeline, state.Timeline, CreateItem);
+        FollowTurn(state);
         MarkSeams(state);
         _binding.Drawn(state);
         SyncApprovals(state);
@@ -1632,6 +1633,17 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(IsBoundToItsAgent));
         Chooser.DrawIfBindingChanged();
+    }
+
+    /// <summary>The work of the turn that is still going stays open; everything else is folded.</summary>
+    /// <remarks>Only the conversation knows which turn is running, and a group cannot answer even
+    /// whether it is busy: between two tools nothing is running, and a tool fast enough to start and
+    /// finish between two draws never runs at all as far as any one draw can see. Which group is the
+    /// live turn's is <see cref="LiveTurnWork"/>.</remarks>
+    private void FollowTurn(ConversationState state)
+    {
+        foreach (var group in Timeline.OfType<WorkGroupItemViewModel>())
+            group.FollowTurn(LiveTurnWork.IsLive(group.Source as WorkGroupEntry, state));
     }
 
     /// <summary>

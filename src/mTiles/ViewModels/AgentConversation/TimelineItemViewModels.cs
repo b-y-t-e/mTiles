@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.AgentSessions.Conversation;
@@ -88,16 +88,15 @@ public sealed partial class MessageItemViewModel : TimelineItemViewModel
 /// Everything the agent did between two messages — the unit that collapses.
 /// </summary>
 /// <remarks>
-/// <para>Open while anything in it is still running, and closed once it has all finished, which is
+/// <para>Open for the whole of the turn it belongs to and folded once that turn is over, which is
 /// t3code's rule and the one that keeps a long turn readable: the reply is what is read, and the work
-/// behind it is one line until somebody asks for it. A group the user opened or closed by hand stays as
-/// they left it.</para>
+/// behind it is one line until somebody asks for it. The turn is the conversation's answer, so it is
+/// told (<see cref="FollowTurn"/>). A group the user opened or closed by hand stays as they left it.</para>
 /// </remarks>
 public sealed partial class WorkGroupItemViewModel : TimelineItemViewModel
 {
     [ObservableProperty] private bool _isExpanded = true;
     [ObservableProperty] private string _summary = "";
-    [ObservableProperty] private bool _isRunning;
     private bool _userChoseExpansion;
 
     public WorkGroupItemViewModel(WorkGroupEntry entry) => Update(entry);
@@ -113,10 +112,21 @@ public sealed partial class WorkGroupItemViewModel : TimelineItemViewModel
         Source = group;
         TimelineSync.Sync(Items, group.Items, WorkItemViewModel.Create);
 
-        var tools = group.Items.OfType<ToolCallItem>().ToList();
-        IsRunning = tools.Any(tool => tool.State == ToolCallState.Running);
         Summary = SummaryOf(group.Items);
-        if (!_userChoseExpansion) IsExpanded = IsRunning;
+    }
+
+    /// <summary>Open for as long as this group is the work of a turn that is still going.</summary>
+    /// <remarks>Whether a turn is still going is the conversation's answer and never this group's, which
+    /// is why it is told rather than worked out from the tools in it: nothing is running between one
+    /// tool finishing and the next being started, and a tool fast enough to start and finish between two
+    /// draws is a group that never has a running tool at all — read that way, both fold the list shut
+    /// and open again under the reader in the middle of a turn. A group the user opened or closed by
+    /// hand is left as they left it, and a group replayed out of the store is folded, because no turn of
+    /// this session is holding it open.</remarks>
+    public void FollowTurn(bool isTheLiveTurnsWork)
+    {
+        if (_userChoseExpansion) return;
+        IsExpanded = isTheLiveTurnsWork;
     }
 
     [RelayCommand]
