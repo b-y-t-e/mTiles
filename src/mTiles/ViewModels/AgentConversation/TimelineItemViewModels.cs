@@ -88,16 +88,42 @@ public sealed partial class MessageItemViewModel : TimelineItemViewModel
 /// Everything the agent did between two messages — the unit that collapses.
 /// </summary>
 /// <remarks>
-/// <para>Open for the whole of the turn it belongs to and folded once that turn is over, which is
-/// t3code's rule and the one that keeps a long turn readable: the reply is what is read, and the work
-/// behind it is one line until somebody asks for it. The turn is the conversation's answer, so it is
-/// told (<see cref="FollowTurn"/>). A group the user opened or closed by hand stays as they left it.</para>
+/// <para>Folded always, the live turn's own work included, which is what keeps a long turn readable:
+/// the reply is what is read, and the work behind it is one line until somebody asks for it. What that
+/// one line says is the only thing the turn decides — what the agent is doing now while it runs, what
+/// the work came to once it is over (<see cref="Headline"/>, told by <see cref="FollowTurn"/>). A group
+/// the user opened by hand stays open.</para>
 /// </remarks>
 public sealed partial class WorkGroupItemViewModel : TimelineItemViewModel
 {
-    [ObservableProperty] private bool _isExpanded;
-    [ObservableProperty] private string _summary = "";
-    private bool _userChoseExpansion;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Headline))]
+    private bool _isExpanded;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Headline))]
+    private string _summary = "";
+
+    /// <summary>The tool running right now, or null — see <see cref="Headline"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Headline))]
+    private string? _running;
+
+    private bool _isTheLiveTurnsWork;
+
+    /// <summary>
+    /// The one line a folded group shows: what the agent is doing at this moment, and what the work came to
+    /// once it is not doing anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>A folded group is the ordinary case now (<see cref="FollowTurn"/>), so the fold's own line is
+    /// the only account of a turn while it runs — and "8 commands" is a tally, not an answer to the one
+    /// question somebody watching has, which is what it is doing <em>now</em>. The tally comes back the
+    /// moment nothing is running, which is when it becomes the better of the two.</para>
+    /// <para>Only while folded: an open group draws the running tool as a row of its own, and the line above
+    /// it saying the same thing twice is two marks for one fact.</para>
+    /// </remarks>
+    public string Headline => !IsExpanded && Running is { Length: > 0 } running ? running : Summary;
 
     public WorkGroupItemViewModel(WorkGroupEntry entry) => Update(entry);
 
@@ -113,28 +139,41 @@ public sealed partial class WorkGroupItemViewModel : TimelineItemViewModel
         TimelineSync.Sync(Items, group.Items, WorkItemViewModel.Create);
 
         Summary = SummaryOf(group.Items);
+        RefreshRunning(group);
     }
 
-    /// <summary>Open for as long as this group is the work of a turn that is still going.</summary>
-    /// <remarks>Whether a turn is still going is the conversation's answer and never this group's, which
-    /// is why it is told rather than worked out from the tools in it: nothing is running between one
-    /// tool finishing and the next being started, and a tool fast enough to start and finish between two
-    /// draws is a group that never has a running tool at all — read that way, both fold the list shut
-    /// and open again under the reader in the middle of a turn. A group the user opened or closed by
-    /// hand is left as they left it, and a group replayed out of the store is folded, because no turn of
-    /// this session is holding it open.</remarks>
+    /// <summary>
+    /// Tells this group whether it is the work of a turn that is still going — which decides what its
+    /// folded line says (<see cref="Headline"/>) and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>It no longer opens the group.</b> Every group is folded, the live turn's included: a turn
+    /// of thirty tools unfolding under the reader pushes the reply it is working towards off the screen,
+    /// and then folds itself the moment the turn ends — so the one thing somebody was reading moves twice
+    /// for reasons they did not ask for. What they want from a running turn is one line saying what it is
+    /// doing, which is what the fold's own line now carries.</para>
+    /// <para>Whether a turn is still going is the conversation's answer and never this group's, which is
+    /// why it is told rather than worked out from the tools in it: nothing is running between one tool
+    /// finishing and the next being started. A group the user opened by hand stays open.</para>
+    /// </remarks>
     public void FollowTurn(bool isTheLiveTurnsWork)
     {
-        if (_userChoseExpansion) return;
-        IsExpanded = isTheLiveTurnsWork;
+        _isTheLiveTurnsWork = isTheLiveTurnsWork;
+        RefreshRunning(Source as WorkGroupEntry);
     }
 
+    /// <summary>What the agent is doing now: the last tool this group has started and not finished.</summary>
+    /// <remarks>The <b>last</b> one, because an agent that runs several at once has started them in that
+    /// order and the newest is the one that has just changed. Nothing at all once the turn is over, however
+    /// the tools were left — a group replayed out of the store holds whatever state its last draw wrote,
+    /// and a tool reported as running for ever would leave a finished turn claiming to be at work.</remarks>
+    private void RefreshRunning(WorkGroupEntry? group) =>
+        Running = _isTheLiveTurnsWork
+            ? group?.Items.OfType<ToolCallItem>().LastOrDefault(t => t.State is ToolCallState.Running)?.Title
+            : null;
+
     [RelayCommand]
-    private void Toggle()
-    {
-        _userChoseExpansion = true;
-        IsExpanded = !IsExpanded;
-    }
+    private void Toggle() => IsExpanded = !IsExpanded;
 
     /// <summary>"3 commands · 2 edits · 1 failed" — what the work was, in the fewest words.</summary>
     internal static string SummaryOf(IEnumerable<WorkItem> items)

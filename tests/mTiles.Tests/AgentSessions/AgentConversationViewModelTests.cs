@@ -101,34 +101,39 @@ public class AgentConversationViewModelTests
     }
 
     [Fact]
-    public void A_group_is_open_for_the_whole_turn_and_folds_when_it_ends_unless_somebody_chose()
+    public void A_group_stays_folded_and_its_line_says_what_the_turn_is_doing_now()
     {
         var state = ConversationReducer.Replay([new ToolStarted("t", ToolKind.Command, "Bash", "build", ToolDetail.Empty)]);
         var group = new WorkGroupItemViewModel((WorkGroupEntry)state.Timeline[0]);
         group.FollowTurn(isTheLiveTurnsWork: true);
-        Assert.True(group.IsExpanded);
 
-        // Between two tools nothing is running, and that is not the turn finishing: folded here, the
-        // list shuts and opens again on every gap in a long turn.
+        // Folded, live turn or not: what a running turn owes the reader is one line, not thirty rows.
+        Assert.False(group.IsExpanded);
+        Assert.Equal("build", group.Headline);
+
+        // Between two tools nothing is running, so the line falls back to what the work came to.
         state = ConversationReducer.Apply(state, new ToolCompleted("t", ToolStatus.Completed));
         group.Update(state.Timeline[0]);
         group.FollowTurn(isTheLiveTurnsWork: true);
-        Assert.True(group.IsExpanded);
+        Assert.Equal(group.Summary, group.Headline);
 
-        // And a tool that starts and finishes between two draws never shows as running at all.
+        // The newest running tool is the one shown: an agent that runs several started them in that order.
         state = ConversationReducer.Apply(state, new ToolStarted("t2", ToolKind.FileRead, "Read", "a", ToolDetail.Empty));
-        state = ConversationReducer.Apply(state, new ToolCompleted("t2", ToolStatus.Completed));
+        state = ConversationReducer.Apply(state, new ToolStarted("t3", ToolKind.Command, "Bash", "test", ToolDetail.Empty));
         group.Update(state.Timeline[0]);
         group.FollowTurn(isTheLiveTurnsWork: true);
-        Assert.True(group.IsExpanded);
+        Assert.Equal("test", group.Headline);
 
-        // The turn ending is the tile's answer, not the group's.
+        // The turn ending is the tile's answer, not the group's - and nothing is running afterwards,
+        // however the tools were left.
         group.FollowTurn(isTheLiveTurnsWork: false);
-        Assert.False(group.IsExpanded);
+        Assert.Equal(group.Summary, group.Headline);
 
+        // Opened by hand, the running tool is a row of its own, so the line above is the tally again.
         group.ToggleCommand.Execute(null);
-        group.FollowTurn(isTheLiveTurnsWork: false);
+        group.FollowTurn(isTheLiveTurnsWork: true);
         Assert.True(group.IsExpanded);
+        Assert.Equal(group.Summary, group.Headline);
     }
 
     /// <summary>Which group the tile holds open — the running turn's own work, never whichever group
@@ -161,10 +166,10 @@ public class AgentConversationViewModelTests
         Assert.True(LiveTurnWork.IsLive(groups[1], second));
     }
 
-    /// <summary>The tile is what tells a group the turn is over, and that wiring is the whole feature:
-    /// without it a group never opens during its turn and never folds after it.</summary>
+    /// <summary>The tile is what tells a group whether its turn is still going, and that wiring is the
+    /// whole feature: without it a folded group never says what the agent is doing.</summary>
     [Fact]
-    public void Drawing_holds_the_running_turns_work_open_and_folds_it_when_the_turn_ends()
+    public void Drawing_tells_a_group_whether_its_turn_is_still_going()
     {
         using var settings = new TempSettings();
         var agent = mTiles.Services.Agents.AiAgentCatalog.Find("claude")!;
@@ -179,14 +184,17 @@ public class AgentConversationViewModelTests
             new UserMessageAdded("m1", "build it", []) { TurnId = "turn-1" },
             new TurnStarted { TurnId = "turn-1" },
             new ToolStarted("t", ToolKind.Command, "Bash", "build", ToolDetail.Empty) { TurnId = "turn-1" },
-            new ToolCompleted("t", ToolStatus.Completed) { TurnId = "turn-1" },
         ]);
         vm.Draw(running);
-        Assert.True(vm.Timeline.OfType<WorkGroupItemViewModel>().Single().IsExpanded);
+        var group = vm.Timeline.OfType<WorkGroupItemViewModel>().Single();
+        Assert.False(group.IsExpanded);
+        Assert.Equal("build", group.Headline);
 
-        var finished = ConversationReducer.Apply(running, new TurnCompleted(TurnOutcome.Completed) { TurnId = "turn-1" });
+        var finished = ConversationReducer.Apply(running, new ToolCompleted("t", ToolStatus.Completed) { TurnId = "turn-1" });
+        finished = ConversationReducer.Apply(finished, new TurnCompleted(TurnOutcome.Completed) { TurnId = "turn-1" });
         vm.Draw(finished);
-        Assert.False(vm.Timeline.OfType<WorkGroupItemViewModel>().Single().IsExpanded);
+        group = vm.Timeline.OfType<WorkGroupItemViewModel>().Single();
+        Assert.Equal(group.Summary, group.Headline);
     }
 
     [Fact]

@@ -660,7 +660,10 @@
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <mi:MaterialIcon Width="12" Height="12"
                                                          Kind="{Binding IsExpanded, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
-                                        <TextBlock Classes="work work-muted" Text="{Binding Summary}" />
+                                        <!-- What it is doing now while the turn runs, what the work came
+                                             to once it is over - see WorkGroupItemViewModel.Headline. -->
+                                        <TextBlock Classes="work work-muted" Text="{Binding Headline}"
+                                                   TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                 </Button>
                                 <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding IsExpanded}">
