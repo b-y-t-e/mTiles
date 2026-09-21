@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using mTiles.AgentSessions.Events;
@@ -107,9 +107,19 @@ public sealed partial class QuestionViewModel : ObservableObject
     public string CopyText => string.Join(Environment.NewLine, new[]
     {
         Header, Text,
-        Options.Count > 0 ? string.Join(" / ", Options.Select(o => o.Label)) : null,
-        Answer() is { Count: > 0 } answer ? "> " + string.Join(", ", answer) : null,
-    }.Where(line => !string.IsNullOrWhiteSpace(line)));
+    }
+        .Concat(Options.Select(Offered))
+        .Append(Answer() is { Count: > 0 } answer ? "> " + string.Join(", ", answer) : null)
+        .Where(line => !string.IsNullOrWhiteSpace(line)));
+
+    /// <summary>One offered answer, on a line of its own, with the reason under it.</summary>
+    /// <remarks>The labels used to be joined with slashes, which is fine for "yes / no" and loses the
+    /// whole content of the question whenever a tool answers with three sentences — which is what it
+    /// does whenever the decision is about behaviour. The description is the part nothing else on the
+    /// clipboard carries: it cannot be selected on screen, because an offered answer is a button.
+    /// </remarks>
+    private static string Offered(QuestionChoiceViewModel option) =>
+        option.HasDescription ? $"- {option.Label}: {option.Description}" : $"- {option.Label}";
 
     public string Text => Question.Text;
     public string? Header => Question.Header;

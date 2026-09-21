@@ -757,7 +757,12 @@
                                         <Grid Classes="asked" ColumnDefinitions="Auto,*">
                                             <TextBlock Grid.Column="0" Classes="ask-marker" Text="?" />
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Classes="ask-question" Text="{Binding Question}" />
+                                                <!-- Selectable for the same reason the round being
+                                                     asked is: the answer beside it always was, and a
+                                                     question that stops being selectable the moment it
+                                                     is answered is the one half of the exchange a
+                                                     reader cannot take away. -->
+                                                <SelectableTextBlock Classes="ask-question" Text="{Binding Question}" />
                                                 <DockPanel Margin="0,5,0,0">
                                                     <TextBlock DockPanel.Dock="Left" Classes="ans-marker" Text="&#x276F;" />
                                                     <SelectableTextBlock Classes="msg" Text="{Binding Answer}" />
@@ -975,10 +980,9 @@
                      per question. What differs is only what an offered answer does: an agent takes its
                      choices as choices (a label it can match, several where the question allows), so a row
                      is picked rather than copied into the field. -->
-                <Border Classes="ask" IsVisible="{Binding PendingQuestions, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <Border Classes="ask wide" IsVisible="{Binding PendingQuestions, Converter={x:Static ObjectConverters.IsNotNull}}">
                     <DockPanel>
-                        <Border DockPanel.Dock="Left" Classes="ask-rail" />
-                        <StackPanel Margin="10,6,10,8" DataContext="{Binding PendingQuestions}"
+                        <StackPanel Margin="8,6,8,8" DataContext="{Binding PendingQuestions}"
                                     x:DataType="ac:QuestionRoundViewModel">
                             <TextBlock Classes="ask-title" Margin="0,0,0,6" Text="The agent asks" />
                             <ItemsControl ItemsSource="{Binding Questions}">
@@ -987,9 +991,18 @@
                                         <Grid Classes="asking" ColumnDefinitions="Auto,*,Auto">
                                             <TextBlock Grid.Column="0" Classes="ask-marker" Text="{Binding Marker}" />
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Classes="ask-why" Margin="0,0,0,2"
-                                                           Text="{Binding Header}" IsVisible="{Binding HasHeader}" />
-                                                <TextBlock Classes="ask-question" Text="{Binding Text}" />
+                                                <!-- The question and its heading are selectable: a
+                                                     reader takes half a sentence out of a round as
+                                                     often as the whole of one, and the copy button
+                                                     beside it can only ever hand over all of it. The
+                                                     offered answers below are not, and that is the
+                                                     trade: a selectable block takes the press for
+                                                     itself, and these are buttons whose whole job is
+                                                     to be pressed - what they say travels in the copy
+                                                     button's text instead. -->
+                                                <SelectableTextBlock Classes="ask-why" Margin="0,0,0,2"
+                                                                     Text="{Binding Header}" IsVisible="{Binding HasHeader}" />
+                                                <SelectableTextBlock Classes="ask-question" Text="{Binding Text}" />
                                                 <ItemsControl ItemsSource="{Binding Options}" Margin="0,5,0,0">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate DataType="ac:QuestionChoiceViewModel">

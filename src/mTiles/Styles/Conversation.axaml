@@ -90,6 +90,13 @@
     <Style Selector="Grid.asked:pointerover Button.item-copy">
         <Setter Property="Opacity" Value="1" />
     </Style>
+    <!-- A question being asked keeps its copy button on screen: the round is the one block here a
+         reader takes somewhere else - into a terminal, into a note - and a button that appears under
+         the pointer is one nobody finds until they happen to pass over it. Quiet, and full strength
+         under the pointer like every other. -->
+    <Style Selector="Grid.asking Button.item-copy">
+        <Setter Property="Opacity" Value="0.55" />
+    </Style>
     <Style Selector="Grid.asking:pointerover Button.item-copy">
         <Setter Property="Opacity" Value="1" />
     </Style>
@@ -258,6 +265,14 @@
         <Setter Property="Margin" Value="4,10,4,4" />
     </Style>
 
+    <!-- A round of questions is the widest thing this tile ever draws: every answer it offers is a
+         full-width row carrying a sentence or three, so the rail and the margins that mark a short
+         block as an aside were costing the text the room it needs. Here the block *is* the tile -
+         edge to edge, no rail, and the title above it is what says whose words these are. -->
+    <Style Selector="Border.ask.wide">
+        <Setter Property="Margin" Value="0,10,0,4" />
+    </Style>
+
     <!-- One question, being asked or already answered — the space that separates it from the next.
          It is on every one of them, the last included, and that is deliberate rather than an
          oversight: these sit in an ItemsControl, so each is the only child of its own container and
@@ -281,7 +296,7 @@
         <Setter Property="Width" Value="2" />
         <Setter Property="Background" Value="{DynamicResource AccentDefault}" />
     </Style>
-    <Style Selector="TextBlock.ask-title">
+    <Style Selector=":is(TextBlock).ask-title">
         <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
         <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
@@ -290,14 +305,14 @@
     <!-- The number lives in its own column, so a question that wraps keeps its indent instead of
          returning to column zero under its own marker. That is the whole reason these are controls
          and not a paragraph: it is unreadable at three questions and this is why. -->
-    <Style Selector="TextBlock.ask-marker">
+    <Style Selector=":is(TextBlock).ask-marker">
         <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
         <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
         <Setter Property="VerticalAlignment" Value="Top" />
         <Setter Property="Margin" Value="0,1,8,0" />
     </Style>
-    <Style Selector="TextBlock.ask-question">
+    <Style Selector=":is(TextBlock).ask-question">
         <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
@@ -306,7 +321,7 @@
     <!-- The reason under a question, at the question's own size: it is a sentence about the same
          thing, and setting it smaller made one thought look like two kinds of text. The colour is
          the whole of the difference, and it is enough. -->
-    <Style Selector="TextBlock.ask-why">
+    <Style Selector=":is(TextBlock).ask-why">
         <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
         <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
