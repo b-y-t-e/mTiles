@@ -220,9 +220,15 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
     }
 
     /// <summary>Escape stops a working agent; everything else the composer answers to is ComposerInput's.</summary>
+    /// <remarks>Asked through <c>CanExecute</c> rather than executed outright, exactly as <see cref="Send"/>
+    /// is: the command is held for the double-click window after a send, and <c>Execute</c> alone does not
+    /// consult that — so the keyboard, which is the route people actually press, would walk past the one
+    /// guard the phone's own route keeps. A press that is refused is also left unhandled, so nothing
+    /// swallows an Escape this tile has just declined to act on.</remarks>
     private void InputBox_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape || _subscribed is not { IsWorking: true } vm) return;
+        if (!vm.InterruptCommand.CanExecute(null)) return;
         e.Handled = true;
         vm.InterruptCommand.Execute(null);
     }

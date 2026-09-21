@@ -532,7 +532,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             case TileKey.Enter:
                 _ = SendAsync();
                 return true;
-            case TileKey.Escape when IsWorking:
+            case TileKey.Escape when IsWorking && CanInterrupt:
                 _ = InterruptAsync();
                 return true;
             default:
@@ -554,6 +554,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         // the bottom: the view takes this as being asked for the end. Raised before the send rather than
         // after it, so the message's own arrival is already measured with the transcript following.
         SentByUser?.Invoke();
+        HoldTheStopButton();
         var (text, images) = OutgoingMessage();
         // A host with no live agent refuses the message out loud, and the draft stays for the restart.
         if (host.HasSession)
@@ -1147,7 +1148,36 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     private async Task<bool> ConfirmInterruptingTurnAsync(string question) =>
         !IsWorking || (ConfirmAction is not null && await ConfirmAction(question));
 
-    [RelayCommand]
+    /// <summary>Whether the agent can be stopped right now.</summary>
+    /// <remarks>False for half a second after a message is sent. Send and Stop are one slot — the
+    /// button becomes the other the moment the turn begins — so a second press landing where the first
+    /// one did is a turn started and stopped before the agent has said a word, and nothing on screen
+    /// explains what happened. The window is the double-click one and no longer: stopping is the thing
+    /// somebody wants *urgently*, and a guard long enough to be felt is worse than the accident it
+    /// prevents. Escape is gated by the same answer, since it reaches the same command.</remarks>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(InterruptCommand))]
+    private bool _canInterrupt = true;
+
+    /// <summary>Keeps Stop from being pressed by the click that sent the message.</summary>
+    internal void HoldTheStopButton()
+    {
+        CanInterrupt = false;
+        var sending = ++_sendNumber;
+        _ = Task.Delay(StopButtonHold).ContinueWith(_ => _post(() =>
+        {
+            // Only the send that armed it releases it: two messages in quick succession would
+            // otherwise have the first one's timer unlock the button under the second.
+            if (sending == _sendNumber) CanInterrupt = true;
+        }), TaskScheduler.Default);
+    }
+
+    /// <summary>How long Stop is held after a send — the double-click window and nothing more.</summary>
+    internal static readonly TimeSpan StopButtonHold = TimeSpan.FromMilliseconds(500);
+
+    private int _sendNumber;
+
+    [RelayCommand(CanExecute = nameof(CanInterrupt))]
     private Task InterruptAsync() =>
         _host is null ? Task.CompletedTask : RunAsync(() => _host.ExecuteAsync(new InterruptTurn(), _lifetime.Token));
 
