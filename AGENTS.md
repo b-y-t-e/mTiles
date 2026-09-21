@@ -340,6 +340,32 @@ something that looked wrong on screen.
   (`LeafTileView.ApplyHeaderWidth`).
 - **A modal takes the keyboard when it opens.** Focus the first field, or the first thing a user does
   after asking for a new entry is reach for the mouse.
+- **Every answer a dialog offers has a key, and the key is underlined on the button.** Escape cancels
+  (once, in `OverlayHost`), Enter presses whatever holds the focus — which in `MessageDialog` is the
+  *safe* answer, not the confirming one — and each button answers to the bare letter underlined in its
+  own label: `Y`, `N`, `D` for Discard. The letter is **derived from the label**
+  (`Views/AccessKeyLabel.cs`, pure and argued in a table test), because `ConfirmAsync` takes both words
+  from the caller and today's callers say Discard, Delete, Unload and OK as often as Yes — a fixed
+  `Y`/`N` pair would be wrong on half the dialogs. The second button takes the first letter the first
+  one left free, since two buttons offering one key is Avalonia cycling between them rather than
+  pressing either.
+  **The bare letter is refused for `MessageDialog.DefaultSettlingTime` after the dialog opens** — a window each dialog carries as its own, never a static a test moves under the other test classes running beside it. These appear
+  *under* somebody's typing — a discard asked for from the git tile, with a terminal a keystroke away —
+  so a letter already on its way to the keyboard would answer a question nobody has read. Enter, Escape
+  and Alt+letter are aimed at a dialog and work from the first frame; only the one-finger shortcut
+  waits. Removing that window is how a stray `D` comes to discard somebody's working tree.
+  **The label is an `AccessText` and not a string** (`MessageDialog.Label`), which was measured rather
+  than assumed: a `ContentPresenter` turns `"_Yes"` into an `AccessText` only where its template asks
+  for it, and Avalonia 12's Fluent Button theme does not — so the string reached the screen as a plain
+  `TextBlock` reading `_Yes`, underscore and all, with no access key registered anywhere. The underline
+  also shows from the start rather than only while Alt is held, since the bare letter answers too and a
+  mark nobody sees is a shortcut nobody knows about.
+- **A popup is driven from the keyboard or it is a mouse-only control.** Down steps into the list,
+  the arrows browse it, Enter takes the entry and Escape leaves — and a list must not commit on
+  `SelectionChanged`, which the arrows raise too: the git tile's commit suggestions did, so the
+  first Down key *was* the whole gesture and the list could not be read through at all. A context
+  menu built in code gets the platform's own gesture for opening one (the Menu key, Shift+F10) on
+  the row that holds the selection, or every action in it needs a mouse.
 - **Name a class for what it is, not where it sat.** `add-row` described a button's old position; when
   the position changed the name became a trap for the next reader. It is `choice-row` (a full-width
   option) and `header-action` (something a heading row does to its list).
