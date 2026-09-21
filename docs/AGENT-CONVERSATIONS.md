@@ -237,6 +237,32 @@ rather than shown. **The Goal tile deliberately does the opposite** for its own 
 template says so in as many words — "nor is your own text, where an asterisk is one you typed"), so the
 two tiles disagree on this one point on purpose rather than by drift.
 
+## What is folded, and what the round of questions is allowed to take
+
+**Everything the agent did folds itself away, and so does the list of files a turn changed.** A work
+group is open only while it is the live turn's own (`WorkGroupItemViewModel.FollowTurn`) and a
+checkpoint's file list starts folded: the line above it already says how many files changed and by how
+much, and on a turn of thirty paths the unfolded list stands between the reply and whatever was said
+next. Opening either is one press and what the user opens by hand stays as they left it.
+
+**A round of questions is the one block drawn edge to edge** (`Border.ask.wide`, no accent rail). Every
+answer it offers is a full-width row carrying a sentence or three, so the rail and the side margins that
+mark a short block as an aside were being paid for out of the text's own room. What says whose words
+these are is the title above it.
+
+**The question and its heading are selectable; the answers it offers are not.** An offered answer is a
+button, and a `SelectableTextBlock` inside one takes the press for itself — which would leave the round
+readable and unanswerable. So what those rows say travels by the copy button beside the question
+instead, descriptions included (`QuestionViewModel.CopyText`), and that button stays on screen for a
+round being asked rather than appearing under the pointer.
+
+**Stop is held for half a second after a send** (`AgentConversationTileViewModel.StopButtonHold`). Send
+and Stop are one slot — the button becomes the other the moment the turn begins — so a double click is a
+turn started and stopped before the agent has said a word, with nothing on screen explaining what
+happened. The window is the double-click one and no longer: stopping is the thing somebody wants
+*urgently*, and a guard long enough to be felt is worse than the accident it prevents. Escape is gated by
+the same answer, since it reaches the same command.
+
 ## Handing the work to another agent
 
 **What moves is the work, never the session.** The transcript is this application's and the working tree is
