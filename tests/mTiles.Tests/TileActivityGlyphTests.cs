@@ -1,4 +1,5 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -16,6 +17,9 @@ namespace mTiles.Tests;
 /// The mark on a tile's own header: what it is doing, in the slot its kind's icon usually has.
 /// </summary>
 /// <remarks>
+/// <para>Working is a drawn arc and blocked is a glyph, which is why the two are asked about
+/// separately: a filled icon has no stroke to thicken, and at 13px the turning mark has to carry
+/// weight or it is not seen at all.</para>
 /// The same class of failure <c>DictationIndicatorTests</c> was written for — a glyph that never
 /// changes, or one that stays turning after the work has stopped, both compile and both leave a tile
 /// lying about itself. The workspace row already had its mark tested one layer up; this is the half a
@@ -30,7 +34,7 @@ public class TileActivityGlyphTests
             .GetAwaiter().GetResult();
     }
 
-    private static (Content Tile, MaterialIcon Glyph) Build()
+    private static (Content Tile, MaterialIcon Glyph, Arc Arc) Build()
     {
         var content = new Content();
         var leaf = new LeafTileNodeViewModel(TileKindIds.Note, content, "", new TileActivationScope());
@@ -43,19 +47,21 @@ public class TileActivityGlyphTests
         });
         window.Show();
 
-        return (content, view.FindControl<MaterialIcon>("TileTypeGlyph")!);
+        return (content, view.FindControl<MaterialIcon>("TileTypeGlyph")!,
+            view.FindControl<Arc>("TileBusyArc")!);
     }
 
     /// <summary>An idle tile wears its kind, which is the state it is in nearly all the time.</summary>
     [Fact]
     public void A_tile_with_nothing_to_report_shows_its_kind() => OnUiThread(() =>
     {
-        var (tile, glyph) = Build();
+        var (tile, glyph, arc) = Build();
 
         tile.Report(TileActivity.Idle);
 
-        Assert.NotEqual(MaterialIconKind.Loading, glyph.Kind);
-        Assert.DoesNotContain("spinning", glyph.Classes);
+        Assert.False(arc.IsVisible);
+        Assert.True(glyph.IsVisible);
+        Assert.NotEqual(MaterialIconKind.AlertCircleOutline, glyph.Kind);
     });
 
     /// <summary>Working turns; blocked does not, and says so in the danger colour.</summary>
@@ -66,15 +72,20 @@ public class TileActivityGlyphTests
     [Fact]
     public void Working_turns_and_blocked_stands_still() => OnUiThread(() =>
     {
-        var (tile, glyph) = Build();
+        var (tile, glyph, arc) = Build();
 
         tile.Report(TileActivity.Working);
-        Assert.Equal(MaterialIconKind.Loading, glyph.Kind);
-        Assert.Contains("spinning", glyph.Classes);
+        Assert.True(arc.IsVisible);
+        Assert.False(glyph.IsVisible);
+        Assert.Contains("spinning", arc.Classes);
 
         tile.Report(TileActivity.Blocked);
+        Assert.False(arc.IsVisible);
+        Assert.True(glyph.IsVisible);
         Assert.Equal(MaterialIconKind.AlertCircleOutline, glyph.Kind);
-        Assert.DoesNotContain("spinning", glyph.Classes);
+        // Taken off as well as hidden: an infinite animation left matching a hidden arc still ticks,
+        // once per tile, for the life of the window.
+        Assert.DoesNotContain("spinning", arc.Classes);
     });
 
     /// <summary>And it goes back to the kind when the work stops.</summary>
@@ -84,16 +95,17 @@ public class TileActivityGlyphTests
     [Fact]
     public void The_mark_goes_when_the_work_does() => OnUiThread(() =>
     {
-        var (tile, glyph) = Build();
+        var (tile, glyph, arc) = Build();
 
         tile.Report(TileActivity.Working);
-        Assert.Contains("spinning", glyph.Classes);
+        Assert.True(arc.IsVisible);
 
         tile.Report(TileActivity.Idle);
 
-        Assert.NotEqual(MaterialIconKind.Loading, glyph.Kind);
+        Assert.False(arc.IsVisible);
+        Assert.True(glyph.IsVisible);
         Assert.NotEqual(MaterialIconKind.AlertCircleOutline, glyph.Kind);
-        Assert.DoesNotContain("spinning", glyph.Classes);
+        Assert.DoesNotContain("spinning", arc.Classes);
     });
 
     /// <summary>Content whose activity the test drives.</summary>

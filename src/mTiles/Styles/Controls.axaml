@@ -511,10 +511,31 @@
     <Style Selector="mi|MaterialIcon.workspace-busy.blocked">
         <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
     </Style>
-    <!-- The turning itself is its own class, worn by the workspace row's spinner and by a tile
-         header's own glyph, which becomes this while the tile is working. One animation, so the two
-         marks that report the same thing turn at the same rate. -->
-    <Style Selector="mi|MaterialIcon.spinning">
+    <!-- ======== THE TURNING ARC ITSELF ========
+         Drawn rather than lettered. It was MaterialIconKind.Loading, whose geometry is a hairline at
+         the 11–13px this is worn at — a mark you have to look for beside a name you are already
+         reading. A MaterialIcon fills a path and has no stroke to thicken, so the only way to give
+         the arc weight at that size is to draw it: an Arc has a StrokeThickness, and the round cap
+         is what keeps a 2px stroke from ending in two hard corners. Sized by whoever wears it, since
+         the row and the tile header ask for different sizes and the geometry is the same either way.
+         The colour is the accent, as the glyph's was, and the blocked mark stays a MaterialIcon —
+         that one is a sign, not a shape, and it does not turn. -->
+    <Style Selector="Arc.busy-arc">
+        <Setter Property="Stroke" Value="{DynamicResource AccentDefault}" />
+        <Setter Property="StrokeThickness" Value="2" />
+        <Setter Property="StrokeLineCap" Value="Round" />
+        <Setter Property="StartAngle" Value="0" />
+        <Setter Property="SweepAngle" Value="280" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- The turning itself is its own class, worn by the arc above - on the workspace row and in a
+         tile header's leading slot, which shows the arc in place of its kind's icon while the tile
+         is working. It still names MaterialIcon as well, because a glyph that has to turn can wear
+         it without a second animation: one, so every mark reporting the same thing turns at the
+         same rate. Not that the busy mark is a glyph any more - it is the arc, and a MaterialIcon
+         given this class would be the hairline the arc was drawn to replace. -->
+    <Style Selector="mi|MaterialIcon.spinning, Arc.spinning">
         <Style.Animations>
             <Animation Duration="0:0:1.1" IterationCount="INFINITE" Easing="LinearEasing">
                 <KeyFrame Cue="0%">

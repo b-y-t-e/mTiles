@@ -337,17 +337,29 @@ public partial class LeafTileView : UserControl, ITileDropTarget
         {
             var working = leaf.Activity is TileActivity.Working;
 
-            TileTypeGlyph.Kind = working
-                ? MaterialIconKind.Loading
-                : MaterialIconKind.AlertCircleOutline;
-            TileTypeGlyph.Classes.Set("spinning", working);
-            TileTypeGlyph.Bind(MaterialIcon.ForegroundProperty,
-                TileTypeGlyph.GetResourceObservable(working ? "AccentDefault" : "DangerText"));
-            ToolTip.SetTip(TileTypeGlyph, ActivityDisplay.Tip(leaf.Activity));
+            // Working is the drawn arc, blocked is the glyph: one is a movement and the other a sign,
+            // and the arc is what gives the turning mark a stroke thick enough to be seen at 13px.
+            TileBusyArc.IsVisible = working;
+            // The animation is switched with the mark rather than left matching always: an infinite
+            // one on a hidden arc still ticks, once per tile, for the life of the window.
+            TileBusyArc.Classes.Set("spinning", working);
+            TileTypeGlyph.IsVisible = !working;
+            ToolTip.SetTip(TileBusyArc, ActivityDisplay.Tip(leaf.Activity));
+
+            if (!working)
+            {
+                TileTypeGlyph.Kind = MaterialIconKind.AlertCircleOutline;
+                TileTypeGlyph.Bind(MaterialIcon.ForegroundProperty,
+                    TileTypeGlyph.GetResourceObservable("DangerText"));
+                ToolTip.SetTip(TileTypeGlyph, ActivityDisplay.Tip(leaf.Activity));
+            }
+
             return;
         }
 
-        TileTypeGlyph.Classes.Set("spinning", false);
+        TileBusyArc.IsVisible = false;
+        TileBusyArc.Classes.Set("spinning", false);
+        TileTypeGlyph.IsVisible = true;
         ToolTip.SetTip(TileTypeGlyph, null);
 
         var kind = leaf.Kind;

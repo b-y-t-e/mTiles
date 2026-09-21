@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:m="using:mTiles.Models"
@@ -140,14 +140,14 @@
                                                              IsVisible="{Binding IsBlocked}"
                                                              ToolTip.Placement="Right"
                                                              ToolTip.Tip="{Binding ActivityTip}" />
-                                            <mi:MaterialIcon DockPanel.Dock="Right"
-                                                             Kind="Loading"
-                                                             Classes="workspace-busy"
-                                                             Classes.spinning="{Binding IsWorking}"
-                                                             Margin="4,0"
-                                                             IsVisible="{Binding IsWorking}"
-                                                             ToolTip.Placement="Right"
-                                                             ToolTip.Tip="{Binding ActivityTip}" />
+                                            <Arc DockPanel.Dock="Right"
+                                                 Classes="busy-arc"
+                                                 Classes.spinning="{Binding IsWorking}"
+                                                 Width="11" Height="11"
+                                                 Margin="4,0"
+                                                 IsVisible="{Binding IsWorking}"
+                                                 ToolTip.Placement="Right"
+                                                 ToolTip.Tip="{Binding ActivityTip}" />
                                             <!-- The colour is a class and not a local value, because a
                                                  workspace nobody has opened is drawn a shade back and
                                                  one writer per property is the rule: a Foreground set
@@ -338,11 +338,11 @@
                                                      Classes="workspace-busy blocked"
                                                      IsVisible="{Binding IsBlocked}"
                                                      ToolTip.Tip="{Binding ActivityTip}" />
-                                    <mi:MaterialIcon Kind="Loading"
-                                                     Classes="workspace-busy"
-                                                     Classes.spinning="{Binding IsWorking}"
-                                                     IsVisible="{Binding IsWorking}"
-                                                     ToolTip.Tip="{Binding ActivityTip}" />
+                                    <Arc Classes="busy-arc"
+                                         Classes.spinning="{Binding IsWorking}"
+                                         Width="11" Height="11"
+                                         IsVisible="{Binding IsWorking}"
+                                         ToolTip.Tip="{Binding ActivityTip}" />
                                     <mi:MaterialIcon Kind="Star"
                                                      Width="11" Height="11"
                                                      Foreground="{DynamicResource TextFaint}"

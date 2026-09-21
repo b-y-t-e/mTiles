@@ -514,6 +514,12 @@ braille block U+2800–U+28FF — rather than a phrase, because the spinner is t
 beside it have moved twice. pi and `GenericAgent` answer `Unknown` to both, deliberately, and a test
 asserts it so that a table added later is added with a measurement.
 
+**The turning mark is drawn, not lettered** (`Arc.busy-arc` in `Controls.axaml`, worn by the tile header
+and by the workspace row). It was `MaterialIconKind.Loading`, whose geometry is a hairline at the 11–13px
+it is worn at — a mark you have to go looking for beside a name you are already reading. A `MaterialIcon`
+fills a path and has no stroke to thicken, so the only way to give the arc weight at that size is to draw
+it. The blocked mark stays a glyph: it is a sign rather than a shape, and it does not turn.
+
 **The tile says it too, in its header's leading slot** (`LeafTileView.UpdateTypeGlyph`). The marks are
 the workspace row's — a turning arc while it works, a still `AlertCircleOutline` in `DangerText` while
 it waits for an answer, the words in a tooltip from one place (`ActivityDisplay.Tip`) — so the panel and

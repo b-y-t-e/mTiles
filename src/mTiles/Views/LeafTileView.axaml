@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:mi="using:Material.Icons.Avalonia"
@@ -275,6 +275,21 @@
                                          Width="13" Height="13"
                                          VerticalAlignment="Center"
                                          Margin="2,0,6,0" />
+
+                        <!-- While the tile is working, the arc takes that same slot: a drawn stroke
+                             rather than a filled glyph, because at 13px the icon's hairline is a mark
+                             you have to go looking for. Two controls in one place rather than one with
+                             its shape bound, since each is a different kind of thing to draw - and the
+                             slot is one width, so nothing beside it moves whichever is showing.
+                             The turning is a class the code-behind puts on and takes off, never a
+                             static one: an infinite animation matched here would tick on the hidden
+                             arc of every tile in every workspace for the whole session. -->
+                        <Arc x:Name="TileBusyArc"
+                             DockPanel.Dock="Left"
+                             Classes="busy-arc"
+                             Width="13" Height="13"
+                             IsVisible="False"
+                             Margin="2,0,6,0" />
 
                         <!-- One Panel as the DockPanel's last child, so this is what fills. The
                              editor used to hold that position while being invisible, which makes the
