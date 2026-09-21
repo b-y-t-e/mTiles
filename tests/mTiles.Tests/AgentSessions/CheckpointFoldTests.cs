@@ -1,4 +1,4 @@
-using mTiles.AgentSessions.Conversation;
+﻿using mTiles.AgentSessions.Conversation;
 using mTiles.AgentSessions.Events;
 using mTiles.ViewModels.AgentConversation;
 using Xunit;
@@ -68,17 +68,19 @@ public class CheckpointFoldTests
         var asked = new List<ChangedFile?>();
         var turn = Build(asked);
 
-        Assert.True(turn.IsExpanded);
+        // Folded to begin with: the line already says how many files changed and by how much, and a
+        // turn of thirty paths otherwise stands between the reply and whatever was said next.
+        Assert.False(turn.IsExpanded);
 
         turn.ToggleDiffCommand.Execute(null);
 
-        Assert.False(turn.IsExpanded);
+        Assert.True(turn.IsExpanded);
         Assert.Empty(asked);
         Assert.All(turn.Files, f => Assert.False(f.IsExpanded));
 
         turn.ToggleDiffCommand.Execute(null);
 
-        Assert.True(turn.IsExpanded);
+        Assert.False(turn.IsExpanded);
         Assert.Empty(asked);
     }
 

@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Threading;
@@ -85,7 +85,11 @@ public class FoldRailTests
                 // Opened by hand rather than through the command: the command also reads the patch out
                 // of git, which this temporary directory is not, and the read then fails as the window
                 // closes. What is under test is the rail, not the diff.
-                var file = vm.Timeline.OfType<CheckpointItemViewModel>().Single().Files.Single();
+                var turn = vm.Timeline.OfType<CheckpointItemViewModel>().Single();
+                // The list of changed files is folded until somebody asks for it, so the rail under
+                // it has nothing to stand beside until the turn is opened.
+                turn.ToggleDiffCommand.Execute(null);
+                var file = turn.Files.Single();
                 file.IsExpanded = true;
                 Layout();
 

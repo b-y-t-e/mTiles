@@ -95,7 +95,7 @@ public sealed partial class MessageItemViewModel : TimelineItemViewModel
 /// </remarks>
 public sealed partial class WorkGroupItemViewModel : TimelineItemViewModel
 {
-    [ObservableProperty] private bool _isExpanded = true;
+    [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string _summary = "";
     private bool _userChoseExpansion;
 
@@ -370,8 +370,11 @@ public sealed partial class CheckpointItemViewModel : TimelineItemViewModel
     public string Additions => $"+{((CheckpointEntry)Source!).Files.Sum(f => f.Additions)}";
     public string Deletions => $"−{((CheckpointEntry)Source!).Files.Sum(f => f.Deletions)}";
 
-    /// <summary>Whether the list of changed files is showing. Open, as it always was.</summary>
-    [ObservableProperty] private bool _isExpanded = true;
+    /// <summary>Whether the list of changed files is showing. Folded, until somebody asks.</summary>
+    /// <remarks>It used to open itself, which on a turn of thirty files put a page of paths between
+    /// the reply and whatever was said next — and the line above it already says how many files
+    /// changed and by how much, which is the whole of what most readers want from it.</remarks>
+    [ObservableProperty] private bool _isExpanded;
 
     /// <summary>What pressing the summary does, said in the words of what is on screen now.</summary>
     public string FoldTip => IsExpanded
