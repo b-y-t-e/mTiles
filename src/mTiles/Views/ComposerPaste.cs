@@ -31,7 +31,7 @@ namespace mTiles.Views;
 public static class ComposerPaste
 {
     /// <summary>Pastes into <paramref name="box"/> off its window's clipboard; see the overload below.</summary>
-    public static bool TryPaste(TextBox box, KeyEventArgs e, Action<Bitmap> takeImage,
+    public static bool TryPaste(TextBox box, KeyEventArgs e, Action<Bitmap>? takeImage,
         Func<IReadOnlyList<IStorageItem>, Task>? takeFiles = null, Func<string, Task>? takeLongText = null) =>
         TryPaste(new AvaloniaComposerClipboard(box), e, box.Paste, takeImage, takeFiles, takeLongText);
 
@@ -48,13 +48,17 @@ public static class ComposerPaste
     /// clipboard is asynchronous, and the key has been dispatched long before the answer comes back. Where no
     /// files are accepted Ctrl+V is left unmarked, the box pastes the text itself, and the two stay exclusive
     /// because the image is taken only when there is no text.</para>
+    /// <para><b>A box may take none of the three</b> - the Goal tile's plan field takes no image and no
+    /// file and still folds a long paste. Each is asked for by being passed, and a key nothing here wants
+    /// is left unmarked for the box to answer as it always did.</para>
     /// </remarks>
     public static bool TryPaste(IComposerClipboard clipboard, KeyEventArgs e, Action pasteText,
-        Action<Bitmap> takeImage, Func<IReadOnlyList<IStorageItem>, Task>? takeFiles = null,
+        Action<Bitmap>? takeImage, Func<IReadOnlyList<IStorageItem>, Task>? takeFiles = null,
         Func<string, Task>? takeLongText = null)
     {
         if (e is { Key: Key.V, KeyModifiers: KeyModifiers.Alt })
         {
+            if (takeImage is null && takeFiles is null) return false;
             e.Handled = true;
             _ = AttachAsync(clipboard, takeImage, takeFiles);
             return true;
@@ -67,6 +71,7 @@ public static class ComposerPaste
 
         if (takeFiles is null && takeLongText is null)
         {
+            if (takeImage is null) return false;
             _ = TakeImageUnlessTextAsync(clipboard, takeImage);
             return true;
         }
@@ -99,7 +104,7 @@ public static class ComposerPaste
     };
 
     /// <summary>Alt+V: the files, else the image.</summary>
-    private static async Task AttachAsync(IComposerClipboard clipboard, Action<Bitmap> takeImage,
+    private static async Task AttachAsync(IComposerClipboard clipboard, Action<Bitmap>? takeImage,
         Func<IReadOnlyList<IStorageItem>, Task>? takeFiles)
     {
         if (await TryTakeFilesAsync(clipboard, takeFiles)) return;
@@ -111,7 +116,7 @@ public static class ComposerPaste
     /// <remarks>The text is read here rather than left to the box only where it may have to be folded; a
     /// short one is pasted by the box itself, which is what keeps the undo stack and the caret the box's
     /// own business.</remarks>
-    private static async Task PasteAsync(IComposerClipboard clipboard, Action pasteText, Action<Bitmap> takeImage,
+    private static async Task PasteAsync(IComposerClipboard clipboard, Action pasteText, Action<Bitmap>? takeImage,
         Func<IReadOnlyList<IStorageItem>, Task>? takeFiles, Func<string, Task>? takeLongText)
     {
         if (await TryTakeFilesAsync(clipboard, takeFiles)) return;
@@ -174,9 +179,9 @@ public static class ComposerPaste
     }
 
     /// <summary>Hands the clipboard's image to <paramref name="takeImage"/>, and disposes it afterwards.</summary>
-    private static async Task TakeImageAsync(IComposerClipboard clipboard, Action<Bitmap> takeImage)
+    private static async Task TakeImageAsync(IComposerClipboard clipboard, Action<Bitmap>? takeImage)
     {
-        if (await clipboard.BitmapAsync() is not { } bitmap) return;
+        if (takeImage is null || await clipboard.BitmapAsync() is not { } bitmap) return;
         try
         {
             using (bitmap) takeImage(bitmap);

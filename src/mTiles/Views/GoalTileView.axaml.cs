@@ -48,8 +48,10 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
         ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage,
             AttachFilesAsync, PasteLongTextAsync);
+        // The plan field is the same text in a second box - both are bound to InputText and to its caret -
+        // so a long paste is folded there too: it is the one place a review's worth of notes gets pasted.
         ComposerInput.Attach(PlanBox, () => (DataContext as GoalTileViewModel)?.ApproveOrChangeCommand.Execute(null),
-            () => IsPickingAFile);
+            () => IsPickingAFile, pasteLongText: PasteLongTextAsync);
         ComposerHistoryInput.Attach(InputBox,
             () => (DataContext as GoalTileViewModel)?.SentFromComposer ?? [],
             () => IsPickingAFile, HistoryPicker);

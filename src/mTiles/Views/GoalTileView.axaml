@@ -1103,6 +1103,7 @@
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  MaxHeight="120"
+                                 CaretIndex="{Binding InputCaretIndex, Mode=TwoWay}"
                                  v:FileMentionBehavior.Mentions="{Binding FileMentions}" />
 
                         <Button HorizontalAlignment="Right"

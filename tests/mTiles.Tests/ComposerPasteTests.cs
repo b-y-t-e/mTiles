@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
@@ -160,10 +160,46 @@ public class ComposerPasteTests
         Assert.Null(paste.Folded);
     });
 
+    /// <summary>The Goal tile's plan field: no image, no files, and a long paste still folded.</summary>
+    [Fact]
+    public void A_box_that_takes_neither_files_nor_images_still_folds_a_long_paste() => OnUiThread(() =>
+    {
+        var paste = new Paste(new FakeClipboard { Text = ALongPaste }, takesFiles: false, foldsLongText: true);
+
+        var e = paste.Press(KeyModifiers.Control);
+
+        Assert.True(e.Handled);
+        Assert.Equal(ALongPaste, paste.Folded);
+        Assert.Equal(0, paste.TextPasted);
+    });
+
+    /// <summary>And a key nothing there wants is left to the box, as it always was.</summary>
+    [Fact]
+    public void Alt_V_is_not_taken_from_a_box_that_takes_neither() => OnUiThread(() =>
+    {
+        var paste = new Paste(new FakeClipboard { Image = Picture() }, takesFiles: false, foldsLongText: true,
+            takesImages: false);
+
+        Assert.False(paste.Press(KeyModifiers.Alt).Handled);
+        Assert.Equal(0, paste.ImagesTaken);
+    });
+
+    /// <summary>A box that takes only files still gets them, so nothing decides that a second time.</summary>
+    [Fact]
+    public void A_box_that_takes_only_files_takes_them() => OnUiThread(() =>
+    {
+        var paste = new Paste(new FakeClipboard { Files = [AFile()] }, takesImages: false);
+
+        var e = paste.Press(KeyModifiers.Control);
+
+        Assert.True(e.Handled);
+        Assert.Equal(1, paste.FilesTaken);
+    });
+
     private static readonly string ALongPaste = new('x', mTiles.Services.PastedNote.LongEnoughCharacters + 1);
 
     private sealed class Paste(IComposerClipboard clipboard, bool takesFiles = true, bool foldsLongText = false,
-        bool foldThrows = false)
+        bool foldThrows = false, bool takesImages = true)
     {
         public int FilesTaken { get; private set; }
         public int TextPasted { get; private set; }
@@ -174,7 +210,8 @@ public class ComposerPasteTests
         public KeyEventArgs Press(KeyModifiers modifiers, Key key = Key.V)
         {
             var e = new KeyEventArgs { Key = key, KeyModifiers = modifiers };
-            ComposerPaste.TryPaste(clipboard, e, () => TextPasted++, _ => ImagesTaken++,
+            ComposerPaste.TryPaste(clipboard, e, () => TextPasted++,
+                takesImages ? _ => ImagesTaken++ : null,
                 takesFiles ? TakeFiles : null, foldsLongText ? TakeLongText : null);
             return e;
         }

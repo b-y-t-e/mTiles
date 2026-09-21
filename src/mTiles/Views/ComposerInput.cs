@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -44,7 +44,9 @@ public static class ComposerInput
     {
         box.AddHandler(InputElement.KeyDownEvent, (_, e) =>
         {
-            if (pasteImage is not null && ComposerPaste.TryPaste(box, e, pasteImage, pasteFiles, pasteLongText)) return;
+            // What a box takes is said by what was passed, and ComposerPaste is the one place that reads
+            // it: a box that takes none of the three leaves every paste key unmarked for the box itself.
+            if (ComposerPaste.TryPaste(box, e, pasteImage, pasteFiles, pasteLongText)) return;
             if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None || isPickingAFile()) return;
 
             e.Handled = true;
