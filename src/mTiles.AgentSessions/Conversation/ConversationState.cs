@@ -109,6 +109,7 @@ public enum ToolCallState
 [JsonDerivedType(typeof(QuestionsEntry), "questions")]
 [JsonDerivedType(typeof(CheckpointEntry), "checkpoint")]
 [JsonDerivedType(typeof(NoticeEntry), "notice")]
+[JsonDerivedType(typeof(HandoverEntry), "handover")]
 public abstract record TimelineEntry(string Id)
 {
     public string? TurnId { get; init; }
@@ -159,6 +160,13 @@ public sealed record CheckpointEntry(
 
 /// <summary>Something said to the user by the session rather than by the agent.</summary>
 public sealed record NoticeEntry(string Id, NoticeLevel Level, string Text) : TimelineEntry(Id);
+
+/// <summary>Where the work was handed to another agent or another login, and what it was handed with.</summary>
+/// <remarks>Stamped with the account that was <i>leaving</i>, like every entry before it: the handover is the
+/// last thing that happened in that stretch, and the seam is drawn above the first entry of the next one.
+/// </remarks>
+public sealed record HandoverEntry(string Id, SessionAccount? From, SessionAccount To, string Brief)
+    : TimelineEntry(Id);
 
 /// <summary>One thing inside a <see cref="WorkGroupEntry"/>.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]

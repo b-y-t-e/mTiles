@@ -15,8 +15,9 @@ namespace mTiles.ViewModels.AgentConversation;
 /// <para>It decides nothing about the conversation. What runs, which agent holds the conversation and what a
 /// pick then does are the tile's, handed in as questions and a callback, so a change to how the list looks and
 /// a change to the binding rule land in two different classes.</para>
-/// <para><b>Nothing is left out of the list.</b> An instance of another agent stops being pickable once the
-/// conversation has something in it, and says why, rather than vanishing from under the pointer.</para>
+/// <para><b>Nothing is left out of the list.</b> An instance this machine cannot run is offered dimmed with
+/// the reason under it rather than vanishing from under the pointer, and an instance of another agent is
+/// offered as what it now is: a handover, said on the row before the dialog says it.</para>
 /// </remarks>
 public sealed partial class AgentInstanceChooser : ObservableObject, IDisposable
 {
@@ -150,7 +151,8 @@ public sealed partial class AgentInstanceChooser : ObservableObject, IDisposable
                 .Concat(settings.AiSignIns.Select(s => s.Id)));
     }
 
-    /// <summary>One entry: pickable, or dimmed with the reason it is refused.</summary>
+    /// <summary>One entry: pickable, or dimmed with the reason it is refused — and noting where picking it
+    /// would hand the work over rather than carry on with it.</summary>
     private AgentInstanceOption OptionFor(AiAgentInstance instance, string? heldAgentId)
     {
         var agentName = AgentName(instance.AgentId);
@@ -158,10 +160,14 @@ public sealed partial class AgentInstanceChooser : ObservableObject, IDisposable
             return new AgentInstanceOption(instance, agentName, IsPickable: false,
                 AgentAvailability.Problem(instance, _settings.Settings));
 
+        // Another agent is picked, not refused: it hands the work over rather than continuing the session,
+        // and the entry says so before the dialog does. The refusal it replaced was right about the
+        // mechanism — no CLI can resume another's session — and wrong about the user, who was left with a
+        // new conversation and the state of the work to type again.
         return heldAgentId is null || instance.AgentId == heldAgentId
             ? new AgentInstanceOption(instance, agentName, IsPickable: true, Reason: null)
-            : new AgentInstanceOption(instance, agentName, IsPickable: false,
-                $"This conversation is held with {AgentName(heldAgentId)}. Start a new conversation to switch agent.");
+            : new AgentInstanceOption(instance, agentName, IsPickable: true, Reason: null,
+                Note: $"hands the work over from {AgentName(heldAgentId)}");
     }
 
     private static string AgentName(string agentId) => AiAgentCatalog.Find(agentId)?.DisplayName ?? agentId;

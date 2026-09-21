@@ -161,7 +161,8 @@ release. Never a manual `git push` or a hand-written version bump.
 - **Notepad.Avalonia** — **no longer a package**: its sources are in
   `src/mTiles.Controls/Notepad/` and are built here (MIT, same author — see that folder's `README.md`
   for what was changed against 0.3.1 and why). Its `MarkdownViewer` renders what the AI tool writes in
-  the Goal tile's transcript **and every patch in the Agent tile**, which is what the vendoring bought:
+  the Goal tile's transcript **and every message and patch in the Agent tile — the user's own included**,
+  which is what the vendoring bought:
   a viewer whose selection spans the whole document is the only thing that lets two lines of a diff be
   dragged through and copied together, and the package could not colour one — 0.3.1 has no syntax
   highlighting at all. `MarkdownViewer.HighlightDiff` is the opt-in that colours a ```diff block by
@@ -805,12 +806,40 @@ knowing: **"New conversation" no longer forgets and always asks** (a button besi
 conversation* is what takes it), **a conversation is one tile's at a time** (`OpenConversations` — two hosts
 of one conversation number their events from the same starting point and the store keeps whichever landed
 last), and **the agent comes with the conversation** rather than the other way round, because a resume token
-is only ever handed back to the CLI that issued it. What the picker cannot promise is that the *agent*
+is only ever handed back to the CLI that issued it — which is also why picking *another* agent is a
+**handover** rather than a switch (below). What the picker cannot promise is that the *agent*
 remembers what the transcript shows — but it can promise to **say so** when it does not: pi and agy used to
 fail a cold resume in silence, and both are now caught before the first message (`ResumeCheck` — pi's
 `get_state` `messageCount`, agy's `init` naming another id; measured live 2026-09-17), while Grok 1.0.34
 answers an unknown id with an error. The table is in
 [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) → *Which conversation a tile is showing*.
+
+**Another agent is picked, and the work is handed to it.** No CLI can continue another's session, and that
+was read for a long time as a refusal: another agent was offered dimmed, with a sentence saying to start a
+new conversation. Right about the mechanism, wrong about the user — the transcript is ours and the working
+tree is on disk, so the *work* moves perfectly well even though the session cannot. What travels is a brief
+folded out of what this application already recorded (`ConversationHandover`, pure, in
+`mTiles.AgentSessions`): the first message verbatim, the answered rounds of questions, the plan with its
+statuses, the files each turn changed — minus any turn that was undone, since those edits are not in the
+tree — and where it stopped, fitted to a budget that drops the middle of the work oldest-first and **says
+how much it dropped**, since a brief that quietly loses the middle reads as a complete account of a smaller
+task. Nothing is asked of any CLI for it, which is what makes a handover possible when the outgoing agent
+has crashed — the usual reason somebody switches. The seam is written between the two hosts
+(`HandoverWriter`, called with the old host disposed and the new one not yet built): the record moves onto
+the new agent, `HandoverRecorded(From, To, Brief)` is appended, and **the resume token is cleared** — the
+half that costs a conversation if it is wrong, because `codex resume <unknown>` opens an interactive picker
+a launch waits on for ever and `agy --conversation <unknown>` warns, starts a *new* conversation and exits
+0, so the tile cannot tell a resumed session from a lost one. The brief is then **sent rather than recorded
+as a message** (`SendMessage(Recorded: false)`, its one caller): the timeline already carries it, folded, on
+the handover entry, and written again as something the user said it would stand above the new agent's first
+answer as their own words. **The mode and the effort travel, the model does not** — they are this
+application's own canonical scale and `AiProcessRunner.Fit` already narrows them to the arriving agent's
+lists at every launch, while a model is spelled for the provider behind the account that is leaving;
+dropped instead, a switch quietly put somebody working in `bypass` back on the tool's own asking, which is
+a change of permissions nobody was told about, so bypass travels too and the confirmation says so in a
+sentence of its own. **Undo changes still works across the seam**, because `ITurnCheckpoints` is keyed by
+the conversation and knows nothing of agents — the working tree is the shared state. The one refusal left
+is `RefusalFor`'s: an agent this machine cannot run has nothing to hand the work to.
 
 **A conversation remembers which account each stretch of it ran as, and says so.** The agent is only half
 the identity: a resume token lives in the *account's* own directory, so the same CLI on a second
@@ -1697,6 +1726,9 @@ deleted.
 Recorded so far:
 - [0001](docs/adr/0001-claude-code-fullscreen-renderer.md) — Claude Code runs on its fullscreen
   renderer in every tile (`CLAUDE_CODE_NO_FLICKER=1`); the classic one breaks the scrollback on resize.
+- [0002](docs/adr/0002-handing-work-across-a-change-of-agent.md) — picking another agent hands the work
+  over with a brief instead of being refused; the resume token is cleared at the seam, and the permission
+  mode travels with the work, bypass included.
 
 ## Conventions
 

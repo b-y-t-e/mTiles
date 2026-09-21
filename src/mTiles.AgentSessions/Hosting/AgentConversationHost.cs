@@ -387,7 +387,10 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
         try
         {
             claim = ClaimTurnBaseline();
-            Emit(new UserMessageAdded($"user-{Guid.NewGuid():N}", send.Text.Trim(), send.Images ?? []));
+            // The checkpoint above is taken either way: a handover brief starts a turn that edits files like
+            // any other, and a turn with no baseline is a turn with no Undo.
+            if (send.Recorded)
+                Emit(new UserMessageAdded($"user-{Guid.NewGuid():N}", send.Text.Trim(), send.Images ?? []));
             if (claim is not null) await CaptureTurnBaselineAsync(claim, ct);
             await session.SendAsync(new AgentTurnInput(send.Text.Trim(), send.Images ?? []), ct);
         }

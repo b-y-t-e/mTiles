@@ -9,31 +9,43 @@ namespace mTiles.Tests.AgentSessions;
 /// </summary>
 public class AgentInstanceChooserTests
 {
+    /// <remarks>It used to be refused here, with a sentence saying to start a new conversation. The refusal
+    /// was right that no CLI can resume another's session and wrong that nothing could move: the transcript
+    /// is ours and the tree is on disk, so the row says what picking it does and the tile asks before it
+    /// does it.</remarks>
     [Fact]
-    public void Another_agent_is_listed_refused_with_its_reason_while_the_conversation_is_held()
+    public void Another_agent_is_offered_as_a_handover_while_the_conversation_is_held()
     {
         using var settings = new TempSettings();
         var claude = Instance(settings, "claude");
         var codex = Instance(settings, "codex");
         using var chooser = Chooser(settings, claude, heldAgentId: "claude", picked: _ => { });
 
-        var refused = chooser.Options.Single(o => o.Instance.Id == codex.Id);
+        var offered = chooser.Options.Single(o => o.Instance.Id == codex.Id);
 
-        Assert.False(refused.IsPickable);
-        Assert.Contains("new conversation", refused.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.True(offered.IsPickable);
+        Assert.Null(offered.Reason);
+        Assert.Contains("hands the work over", offered.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(claude.Id, chooser.Selected?.Instance.Id);
     }
 
+    /// <remarks>What is still refused is an instance this machine cannot run at all — and the reason under
+    /// it is the only thing that says why, so the entry is offered dimmed rather than left out.</remarks>
     [Fact]
-    public void A_refused_entry_is_not_handed_to_the_tile_and_the_selection_goes_back()
+    public void An_instance_that_cannot_run_here_is_refused_and_never_handed_to_the_tile()
     {
         using var settings = new TempSettings();
         var claude = Instance(settings, "claude");
-        var codex = Instance(settings, "codex");
+        var broken = Instance(settings, "codex");
+        broken.ApiAccountId = "a-provider-that-is-not-configured";
         AiAgentInstance? handed = null;
         using var chooser = Chooser(settings, claude, heldAgentId: "claude", picked: i => handed = i);
 
-        chooser.Selected = chooser.Options.Single(o => o.Instance.Id == codex.Id);
+        var refused = chooser.Options.Single(o => o.Instance.Id == broken.Id);
+        Assert.False(refused.IsPickable);
+        Assert.NotNull(refused.Reason);
+
+        chooser.Selected = refused;
 
         Assert.Null(handed);
         Assert.Equal(claude.Id, chooser.Selected?.Instance.Id);

@@ -313,6 +313,31 @@ public class ConversationPickerTests
         Assert.Equal("codex", tile.Instance.AgentId);
     }
 
+    /// <summary>A mode picked in the strip is an answer about a piece of work, so it stays with the work it
+    /// was picked for.</summary>
+    /// <remarks>Only a handover carries the mode onto another agent, and it asks first and names bypass in
+    /// its own sentence. Opening somebody else's conversation asks nothing, so carrying it there would start
+    /// codex editing without asking because the user had granted that to Claude Code in a conversation they
+    /// have just left.</remarks>
+    [Fact]
+    public async Task Picking_another_agents_conversation_leaves_this_ones_permission_mode_behind()
+    {
+        using var settings = new TempSettings();
+        var claude = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
+        var store = TestTiles.ConversationStore();
+        Record(store, "codex-one", "codex", Path.GetTempPath(), "Held by codex", DateTimeOffset.UtcNow);
+
+        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
+        tile.KeepOverride(new SessionSettings(Mode: "BypassPermissions", Effort: "Max"));
+
+        await tile.SwitchConversationAsync(store.List(Path.GetTempPath()).Single(c => c.Id == "codex-one"));
+
+        Assert.Equal("codex", tile.Agent.Id);
+        Assert.Null(tile.Overrides.Behaviour);
+        Assert.Null(tile.Overrides.Effort);
+    }
+
     // ---- Two tiles, one conversation ------------------------------------------------------------
 
     /// <summary>A tile refused a conversation because another tile holds it still names that conversation,

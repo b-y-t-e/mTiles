@@ -88,7 +88,7 @@
              The rail rather than the block itself is the fold, and that is the whole reason it exists:
              a click that folds and a click that begins a selection are the same gesture, so a block
              that folded when clicked would be a block whose text could not be selected. The rail is a
-             two-pixel mark in a slot two characters wide, it runs the full height of the patch, and it
+             mark one character wide in a slot two characters wide, it runs the full height of the patch, and it
              is therefore beside you
              at whatever depth you have scrolled to — which is the thing the chevron on the row above
              cannot be once the patch is taller than the tile. -->
@@ -129,12 +129,15 @@
                  one element trying to stand in three parents. -->
             <Setter Property="Content">
                 <Template>
-                    <!-- A quarter of a character — two pixels at the ordinary size — in a slot two
-                         characters wide: the mark scales the way its slot does, so it can never
-                         outgrow the inset, and the rest of the slot is the gap before the code. A
-                         width in pixels was both wrong ways round — a hairline at a large font and
-                         wider than its slot at a small one. -->
-                    <Border Classes="diff-rail-mark" v:MonospaceWidth.Characters="0.25" />
+                    <!-- One character of the terminal's own face — seven or eight pixels at the
+                         ordinary size — in a slot two characters wide, so the mark takes half the slot
+                         and the other half is the gap before the code. The mark scales the way its
+                         slot does, so it can never outgrow the inset; a width in pixels was both wrong
+                         ways round — a hairline at a large font and wider than its slot at a small
+                         one. It was a quarter of a character, which is two pixels: correct for a patch
+                         of four lines and invisible down the side of a folded block of twenty, which
+                         is the length it is most often drawn at. -->
+                    <Border Classes="diff-rail-mark" v:MonospaceWidth.Characters="1.0" />
                 </Template>
             </Setter>
         </Style>
@@ -156,11 +159,14 @@
         <Style Selector="Border.diff-rail-mark">
             <Setter Property="CornerRadius" Value="1" />
             <Setter Property="VerticalAlignment" Value="Stretch" />
-            <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
+            <!-- BorderStrong rather than BorderSubtle, which is the rule a control's edge already
+                 follows: BorderSubtle is the hairline of the card this stands *on*, so a rail drawn in
+                 it reads as part of the ground rather than as something to press. -->
+            <Setter Property="Background" Value="{DynamicResource BorderStrong}" />
         </Style>
         <!-- Pointing anywhere at the block is what says the rail is there; pointing at the rail says
-             it can be pressed. Two steps rather than one, because a 2px line at rest is quiet enough
-             to be missed, and a rail that is always the accent is a coloured bar down every patch in
+             it can be pressed. Two steps rather than one, because the line at rest is quiet enough to
+             be missed, and a rail that is always the accent is a coloured bar down every patch in
              the conversation. Both grounds a rail stands on are named: a file's patch (diff-block) and
              a tool's own block (detail), or the first of the two steps would exist at the patch alone
              and the handle would be as visible as the card's edge in the other two places. -->
@@ -292,8 +298,9 @@
                 </Button>
 
                 <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
-                     a conversation with nothing in it is bound to nobody yet. An agent it cannot be moved
-                     to is drawn dimmed with the reason beneath it, never left out of the list and never
+                     a conversation with nothing in it is bound to nobody yet. Another agent is offered as a
+                     handover, with what that means beside the CLI's name; one this machine cannot run at all
+                     is drawn dimmed with the reason beneath it, never left out of the list and never
                      disabled - a disabled item is out of the hit test, and the reason would go with it.
                      Last to give way: which agent holds the conversation is said nowhere else here. -->
                 <p:Picker x:Name="AgentPicker"
@@ -625,17 +632,21 @@
                                                 </ItemsPanelTemplate>
                                             </ItemsControl.ItemsPanel>
                                         </ItemsControl>
-                                        <Panel>
-                                            <SelectableTextBlock Classes="msg" Text="{Binding Text}">
-                                                <SelectableTextBlock.IsVisible>
-                                                    <MultiBinding Converter="{x:Static BoolConverters.And}">
-                                                        <Binding Path="IsUser" />
-                                                        <Binding Path="HasText" />
-                                                    </MultiBinding>
-                                                </SelectableTextBlock.IsVisible>
-                                            </SelectableTextBlock>
-                                            <v:GoalMarkdownView MarkdownText="{Binding Text}" IsVisible="{Binding IsAssistant}" />
-                                        </Panel>
+                                        <!-- One control for both sides of the conversation. Yours used to be a
+                                             SelectableTextBlock and the agent's a markdown view, and the pair of
+                                             them is what a message being cut off came down to: a text block sized
+                                             to its own text has no slack, so a width lost to rounding — which is
+                                             every layout pass at a fractional desktop scale — drops the last word
+                                             to a second line the row is not tall enough to show. The markdown view
+                                             is what the agent's replies have always been drawn with, at every
+                                             width, without ever being cut.
+
+                                             It costs the literal reading of what you typed: `code`, *stars* and a
+                                             leading # are now rendered rather than shown. That is the same thing
+                                             every chat client does with what you type, and it is the same view
+                                             the reply under it is drawn with, so the two now match. -->
+                                        <v:GoalMarkdownView MarkdownText="{Binding Text}"
+                                                            IsVisible="{Binding HasText}" />
                                     </StackPanel>
                                 </DockPanel>
                             </Border>
@@ -848,6 +859,33 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </StackPanel>
+                        </DataTemplate>
+
+                        <!-- ======== Where the work was handed to another agent ========
+                             The brief is folded: it is a page of Markdown nobody wants between two messages
+                             every time they scroll past, and it is also the only account of what the next
+                             agent was told, so it stays reachable from the conversation rather than a log.
+                             Drawn as an "ask" block rather than a notice — a notice is something that
+                             happened to the session, and this is something the user did. -->
+                        <DataTemplate DataType="ac:HandoverItemViewModel">
+                            <Border Classes="ask">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                                    <StackPanel Margin="10,6,10,8" Spacing="4">
+                                        <TextBlock Classes="ask-title" Text="Handed over" />
+                                        <TextBlock Classes="ask-why" TextWrapping="Wrap" Text="{Binding Headline}" />
+                                        <Button Classes="fold" Command="{Binding ToggleBriefCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <mi:MaterialIcon Width="12" Height="12"
+                                                                 Kind="{Binding IsBriefShown, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
+                                                <TextBlock Classes="work work-muted" Text="{Binding ToggleLabel}" />
+                                            </StackPanel>
+                                        </Button>
+                                        <v:GoalMarkdownView MarkdownText="{Binding Brief}"
+                                                            IsVisible="{Binding IsBriefShown}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
                         </DataTemplate>
 
                         <!-- ======== A notice ======== -->

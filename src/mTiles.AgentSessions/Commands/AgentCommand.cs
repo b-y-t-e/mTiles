@@ -24,7 +24,14 @@ public abstract record AgentCommand;
 public sealed record ChangeSessionSettings(SessionSettings Settings) : AgentCommand;
 
 /// <summary>Send a message.</summary>
-public sealed record SendMessage(string Text, IReadOnlyList<ImageAttachment>? Images = null) : AgentCommand;
+/// <param name="Recorded">Whether the transcript gets a message from the user for it.</param>
+/// <remarks><b>False has exactly one caller and needs a reason every time it gains another.</b> The handover
+/// brief is text the agent must read and is not something the user said: written into the transcript as
+/// theirs, a page of Markdown they never typed would stand above the first answer of the new agent and read
+/// as their own words. It is not lost either — <see cref="Events.HandoverRecorded"/> carries the same text
+/// and the timeline draws it folded, which is where an account of what the agent was told belongs.</remarks>
+public sealed record SendMessage(string Text, IReadOnlyList<ImageAttachment>? Images = null, bool Recorded = true)
+    : AgentCommand;
 
 /// <summary>Stop the running turn.</summary>
 public sealed record InterruptTurn : AgentCommand;

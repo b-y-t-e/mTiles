@@ -578,3 +578,44 @@ public sealed partial class NoticeItemViewModel : TimelineItemViewModel
         OnPropertyChanged(nameof(IsWarning));
     }
 }
+
+/// <summary>Where the work was handed to another agent, with what it was handed shown on request.</summary>
+/// <remarks>
+/// <para><b>The brief is folded, not hidden.</b> It is a page of Markdown nobody wants between two messages
+/// every time they scroll past — and it is also the only account there is of what the next agent was
+/// actually told, so it has to be reachable from the conversation rather than from a log.</para>
+/// <para>Not drawn as a notice: a notice says something went wrong or is worth knowing, and this is a thing
+/// the user did. It is also the one entry whose own account differs from the account of everything after
+/// it, which is what the seam below it is drawn from.</para>
+/// </remarks>
+public sealed partial class HandoverItemViewModel : TimelineItemViewModel
+{
+    [ObservableProperty] private string _headline = "";
+    [ObservableProperty] private string _brief = "";
+    [ObservableProperty] private bool _isBriefShown;
+
+    public HandoverItemViewModel(HandoverEntry entry) => Update(entry);
+
+    public string ToggleLabel => IsBriefShown ? "Hide what it was told" : "Show what it was told";
+
+    public override bool CanShow(object entry) => entry is HandoverEntry;
+
+    public override void Update(object entry)
+    {
+        var handover = (HandoverEntry)entry;
+        Id = handover.Id;
+        Source = handover;
+        Headline = handover.From is { } from
+            ? $"The work was handed from {StoredSessionPolicy.AccountLabel(from)} to " +
+              $"{StoredSessionPolicy.AccountLabel(handover.To)}."
+            : $"The work was handed to {StoredSessionPolicy.AccountLabel(handover.To)}.";
+        Brief = handover.Brief;
+    }
+
+    [RelayCommand]
+    private void ToggleBrief()
+    {
+        IsBriefShown = !IsBriefShown;
+        OnPropertyChanged(nameof(ToggleLabel));
+    }
+}

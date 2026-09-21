@@ -108,7 +108,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
             {
                 Id = agent.Instance.Id,
                 Title = agent.Instance.Name,
-                Detail = agent.AgentName,
+                Detail = agent.Detail,
                 IsEnabled = agent.IsPickable,
                 DisabledReason = agent.Reason,
             };

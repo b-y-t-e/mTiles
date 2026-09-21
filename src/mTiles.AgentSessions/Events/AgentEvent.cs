@@ -43,6 +43,7 @@ namespace mTiles.AgentSessions.Events;
 [JsonDerivedType(typeof(CheckpointCaptured), "checkpoint.captured")]
 [JsonDerivedType(typeof(CheckpointRestored), "checkpoint.restored")]
 [JsonDerivedType(typeof(NoticeRaised), "notice")]
+[JsonDerivedType(typeof(HandoverRecorded), "handover")]
 public abstract record AgentEvent
 {
     /// <summary>Position in the conversation, from 1, assigned by the store. Zero until appended.</summary>
@@ -267,3 +268,24 @@ public sealed record CheckpointRestored(string CheckpointId) : AgentEvent;
 
 /// <summary>Something worth telling the user that is none of the above — a retry, a warning, an error.</summary>
 public sealed record NoticeRaised(NoticeLevel Level, string Text) : AgentEvent;
+
+/// <summary>
+/// The work was handed to another agent, or to another login, together with the brief it was handed with.
+/// </summary>
+/// <remarks>
+/// <para><b>The seam is recorded rather than hidden.</b> A conversation drawn as one unbroken column across
+/// a change of agent claims a continuity that does not exist: the transcript is ours and survives, the
+/// outgoing CLI's memory of it does not. This is the event that says where the cut is, and it carries the
+/// brief so that what the next agent was actually told can be read back — by the user now, and by whoever
+/// is working out later why the second agent believed what it did.</para>
+/// <para><b>It is also the one thing that invalidates the resume token.</b> The token is the issuing CLI's
+/// and means nothing to the agent arriving; handed on, codex would be given a Claude session id, which
+/// opens an interactive picker no launch chain can answer, and agy would warn, silently start a fresh
+/// conversation and exit 0. So the reducer clears the token here, and the host clears it on the record.
+/// </para>
+/// </remarks>
+/// <param name="From">The account the work was done as, or null where nothing had said.</param>
+/// <param name="To">The account it was handed to.</param>
+/// <param name="Brief">What the next agent was told, verbatim — <see cref="Conversation.ConversationHandover"/>
+/// folds it out of what this application recorded, and anything the outgoing agent added is in it too.</param>
+public sealed record HandoverRecorded(SessionAccount? From, SessionAccount To, string Brief) : AgentEvent;

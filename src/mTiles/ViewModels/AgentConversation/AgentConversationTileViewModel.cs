@@ -714,7 +714,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _ = StartAsync();
     }
 
-    private void KeepOverride(SessionSettings change)
+    internal void KeepOverride(SessionSettings change)
     {
         _overrides = _overrides.With(change with { Model = InstanceModel(change.Model) });
         _requestSave?.Invoke();
@@ -808,15 +808,21 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
     /// <summary>
     /// Points this conversation at another configured instance: the same agent on another account or model
-    /// restarts the session and keeps everything, and another agent is only taken while nothing has been said.
+    /// restarts the session and keeps everything, and another agent is handed the work with a brief.
     /// </summary>
     /// <remarks>
-    /// <para><b>The agent is locked once the conversation has something in it</b> — t3code's rule and ours for
-    /// the same reason: the resume token belongs to the CLI that issued it, and the stored conversation is
-    /// that agent's. Such a switch is refused here rather than hidden, and the chooser says why.</para>
-    /// <para>Switching agent onto a tile that already holds another agent's stored conversation starts nothing
-    /// and says so (<see cref="StartAsync"/>), so the history is never thrown away behind a chooser: "Delete
-    /// this conversation" is the one gesture that forgets.</para>
+    /// <para><b>The session is settled once the conversation has something in it, and the work is not</b> — the
+    /// resume token belongs to the CLI that issued it and the stored conversation is that agent's, so no other
+    /// agent can <i>continue</i> it. That was read for a long time as a refusal; the transcript is ours and the
+    /// working tree is on disk, so picking another agent now asks (<see cref="ConfirmHandoverAsync"/>) and hands
+    /// the work over, rather than sending the user off to type the state of it again into a fresh conversation.
+    /// </para>
+    /// <para>Which agent holds the conversation is asked of the store as well as of the screen, because a tile
+    /// restored from a layout or substituted onto another agent has not read the store yet.</para>
+    /// <para><b>A declined handover throws nothing away</b>: the conversation goes on belonging to whoever holds
+    /// it, said out loud rather than left to be rediscovered, and "Delete this conversation" is still the one
+    /// gesture that forgets. The refusal that remains is <see cref="RefusalFor"/>'s — an agent this machine
+    /// cannot run at all has nothing to hand the work to.</para>
     /// </remarks>
     public async Task SwitchInstanceAsync(AiAgentInstance instance)
     {
@@ -840,24 +846,27 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         if (IsRunning(instance)) return;
         if (AiAgentCatalog.Find(instance.AgentId) is not { } agent) return;
 
-        if (IsHeldByAnotherAgent(agent))
+        // Asked before anything is committed, and of the store as well as of the screen: a tile substituted
+        // or still starting has not read the store yet, and a switch that becomes the last-used instance or
+        // the layout's would have the next tile and this one's next launch open on an agent that never ran
+        // here. The drawn answer outranks it, since that is the agent whose host is writing now.
+        var heldBy = ConversationAgentId ?? await _binding.StoredAgentAsync(ConversationId);
+        var handingOver = heldBy is not null && heldBy != agent.Id;
+
+        if (!await ConfirmInterruptingTurnAsync(handingOver
+                ? "Hand the work over now? The agent is working, and this stops what it is doing."
+                : "Switch agent now? The agent is working, and restarting the session stops what it is doing."))
         {
             Chooser.RestoreSelection();
             return;
         }
-        // Asked before anything is committed, and for another instance of the same agent too: a tile substituted
-        // or still starting has not read the store yet, and a refused switch must not become the last-used
-        // instance or the layout's, or the next tile and this one's next launch would open on an agent that
-        // never ran here.
-        if (await _binding.StoredAgentAsync(ConversationId) is { } stored && stored != agent.Id)
+
+        if (handingOver && !await ConfirmHandoverAsync(instance, agent, heldBy!))
         {
-            HoldStoredConversationOf(stored);
-            Chooser.RestoreSelection();
-            return;
-        }
-        if (!await ConfirmInterruptingTurnAsync(
-                "Switch agent now? The agent is working, and restarting the session stops what it is doing."))
-        {
+            // Declined: the conversation goes on belonging to whoever holds it, said out loud rather than
+            // left to be rediscovered — this is often the first time the tile has learnt it, since a tile
+            // restored from a layout knows nothing until its start has read the store.
+            HoldStoredConversationOf(heldBy);
             Chooser.RestoreSelection();
             return;
         }
@@ -868,7 +877,46 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             return;
         }
 
-        await UnderStartGateAsync(() => CommitSwitchAsync(instance, agent));
+        await UnderStartGateAsync(() => CommitSwitchAsync(instance, agent, handingOver));
+    }
+
+    /// <summary>
+    /// Asks before the work is handed to another agent, naming what travels and what does not.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>This used to be a refusal</b>, and the refusal was right about the mechanism and wrong about
+    /// the user: a resume token belongs to the CLI that issued it, so no other agent can continue the
+    /// session — but the transcript is ours, the working tree is on disk, and both survive. What the
+    /// conversation could not do was <i>say</i> that, so the only routes out were a new conversation and
+    /// typing the state of the work again.</para>
+    /// <para><b>It names the loss before the gain</b>, because the gain is the part the user can see for
+    /// themselves a moment later. The brief is written from what this application recorded, so the question
+    /// can be answered without asking either CLI anything — which is what makes it available when the
+    /// outgoing agent has already crashed, the case somebody switches in most often.</para>
+    /// <para><b>The permission mode travels, and where it is bypass the question says so.</b> Carrying it is
+    /// what the user asked for — a switch that silently dropped them back to the tool's own asking is a
+    /// change of permissions nobody was told about — but bypass reached this way is a grant given for one
+    /// agent arriving at another, so it is said out loud rather than inherited in silence.</para>
+    /// <para><b>No dialog to ask in is a no here</b>, unlike a change of account on the same agent: that one
+    /// loses nothing the transcript does not still hold, while this starts a different CLI in somebody's
+    /// repository on a brief nobody has read.</para>
+    /// <para>The refusal that remains is <see cref="RefusalFor"/>'s: an agent this machine cannot run at all
+    /// has nothing to hand the work to.</para>
+    /// </remarks>
+    private async Task<bool> ConfirmHandoverAsync(AiAgentInstance instance, IAiAgent agent, string heldBy)
+    {
+        if (ConfirmAction is null) return false;
+
+        var leaving = AiAgentCatalog.Find(heldBy)?.DisplayName ?? heldBy;
+        var bypass = BehaviourNow == AiBehaviour.BypassPermissions
+            ? $" It starts in bypass mode, as {leaving} was running, so it edits without asking."
+            : "";
+
+        return await ConfirmAction(
+            $"Hand this work over to \"{instance.Name}\"? {leaving} cannot be resumed by {agent.DisplayName}, " +
+            $"so {agent.DisplayName} starts cold and is given a written brief instead: what was asked for, " +
+            "what was decided, the plan as it stands and which files have changed. The transcript here stays, " +
+            $"and the permission mode and effort travel with the work.{bypass}");
     }
 
     /// <summary>
@@ -910,27 +958,111 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// earlier start holds the gate, and a message sent meanwhile binds the conversation to the agent it was sent
     /// to. Committed before the old host is gone, a message could still reach it and leave the tile, the last-used
     /// instance and the layout on an agent whose start then refuses that conversation.</remarks>
-    private Task CommitSwitchAsync(AiAgentInstance instance, IAiAgent agent)
+    private async Task CommitSwitchAsync(AiAgentInstance instance, IAiAgent agent, bool handingOver)
     {
-        if (IsHeldByAnotherAgent(agent))
+        if (!handingOver && IsHeldByAnotherAgent(agent))
         {
             Chooser.RestoreSelection();
-            return Task.CompletedTask;
+            return;
         }
 
-        TakeInstance(instance, agent, agent.Id != Agent.Id);
+        // Folded before anything is torn down: the brief is written from what the outgoing host replayed,
+        // and a host disposed first would leave nothing to write it from.
+        var handedOver = handingOver ? await ConversationToHandOverAsync() : null;
+        var brief = handedOver is null ? null : ConversationHandover.Write(handedOver);
+        var from = handedOver?.Account;
+
+        // The seam before the tile moves: taking the instance saves the layout, and a layout naming the new
+        // agent over a conversation the store still says belongs to the old one is a tile that refuses to
+        // start until somebody works out which of the two is lying.
+        if (brief is not null && !await RecordHandoverAsync(from, AccountOf(agent, instance), brief))
+        {
+            // The seam is what makes the move true; without it the tile must stay exactly where it was, and
+            // the picker with it, or it would show an agent that is not running here.
+            Chooser.RestoreSelection();
+            await ReplaceHostAsync();
+            return;
+        }
+
+        TakeInstance(instance, agent,
+            handingOver ? InstanceSwitch.HandingTheWorkOver : InstanceSwitch.SameConversation);
         MarkAccountPicked(true);
-        return ReplaceHostAsync();
+        await ReplaceHostAsync();
+    }
+
+    /// <summary>Writes the seam, between the two hosts, and keeps the brief for the session about to start.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The old host goes first.</b> The seam is numbered off the store, so it must be written when
+    /// nothing else is writing — and the next host refuses to open at all while the stored row still names
+    /// the agent that is leaving, which is the check this is on the other side of.</para>
+    /// <para>A conversation with no stored row is one no session ever started: there is nothing to hand over
+    /// and nothing that would refuse the new agent, so the switch is an ordinary one.</para>
+    /// <para><b>A write that fails is answered, not logged.</b> Everything here runs under
+    /// <see cref="RunAsync"/>, which turns an exception into a line in the log: the tile would go on running
+    /// the agent that is leaving while the picker showed the one arriving, and the user would be told
+    /// nothing. So the failure comes back as an answer, the caller stays where it was, and the sentence goes
+    /// on the tile's own bar — <c>HandoverWriter</c> puts the stored row back, so what is left behind is the
+    /// conversation exactly as it was rather than a row and a transcript naming two different agents.</para>
+    /// </remarks>
+    /// <returns>Whether the seam was written and the conversation has moved.</returns>
+    private async Task<bool> RecordHandoverAsync(SessionAccount? from, SessionAccount to, string brief)
+    {
+        await DisposeHostAsync();
+        var conversationId = ConversationId;
+        try
+        {
+            await Task.Run(() =>
+            {
+                if (_store.Find(conversationId) is { } record)
+                    HandoverWriter.Write(_store, record, from, to, brief);
+            });
+            // A retry that works takes its own sentence down: left standing, the bar would go on saying the
+            // work "stays with the agent it was already running" over a conversation that has just moved.
+            LaunchNotice = LaunchNotices.Without(LaunchNotice, HandoverNotWrittenNotice);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"[AgentConversation] the handover could not be written: {ex}");
+            LaunchNotice = LaunchNotices.With(LaunchNotice, HandoverNotWrittenNotice);
+            return false;
+        }
+    }
+
+    /// <summary>What the tile says when the seam could not be stored.</summary>
+    internal const string HandoverNotWrittenNotice =
+        "The work could not be handed over — this conversation's record could not be written, so it stays " +
+        "with the agent it was already running. Try again in a moment.";
+
+    /// <summary>The conversation the brief is folded out of.</summary>
+    /// <remarks><b>The store answers where no host does.</b> A tile whose start was refused — its stored
+    /// conversation belonging to another agent, which is exactly the state a handover is asked for in — a
+    /// tile substituted onto another agent, and a tile restored from a layout all reach the switch with no
+    /// host at all. Folded from an empty state, the brief would come out as the preamble alone: a handover
+    /// recorded, a token cleared and an arriving agent told that there is work it is taking over and not one
+    /// sentence of what it is.</remarks>
+    private async Task<ConversationState> ConversationToHandOverAsync()
+    {
+        if (_host is { } host) return host.State;
+
+        var conversationId = ConversationId;
+        return await Task.Run(() => ConversationReducer.Replay(_store.ReadEvents(conversationId)));
     }
 
     /// <summary>Moves the tile onto an instance: what a picked agent and a picked conversation both do, so the
     /// two cannot come to disagree about what a switch leaves behind.</summary>
-    private void TakeInstance(AiAgentInstance instance, IAiAgent agent, bool otherAgent)
+    private void TakeInstance(AiAgentInstance instance, IAiAgent agent,
+        InstanceSwitch switching = InstanceSwitch.SameConversation)
     {
+        // Worked out before the instance moves: what travels is what this tile was actually running, and half
+        // of that is the outgoing instance's own answer.
+        var surviving = OverridesSurvivingSwitch(switching);
+
         Instance = instance;
         Agent = agent;
         Substitution = null;
-        _overrides = OverridesSurvivingSwitch(otherAgent);
+        _overrides = surviving;
 
         LastUsedAgentInstance.Remember(_settings, Instance);
         _requestSave?.Invoke();
@@ -941,12 +1073,66 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         Chooser.Draw();
     }
 
+    /// <summary>Why the tile is moving onto another instance, which is what decides what its own picks are
+    /// still about.</summary>
+    /// <remarks><b>Three answers and not a flag</b>: opening somebody else's conversation and handing this
+    /// one's work over both change the agent, and they want opposite things from the mode the user picked —
+    /// one is a different piece of work, the other is this one continuing. Told apart by a bool, the second
+    /// spoke for the first and a picked conversation quietly inherited a <c>bypass</c> nobody was asked
+    /// about on it.</remarks>
+    private enum InstanceSwitch
+    {
+        /// <summary>The conversation stays and the agent may too: another account, another model, or the
+        /// account a stored conversation names.</summary>
+        SameConversation,
+
+        /// <summary>The tile is moving onto a conversation that is somebody else's work.</summary>
+        AnotherConversation,
+
+        /// <summary>This conversation's work is being handed to another agent.</summary>
+        HandingTheWorkOver,
+    }
+
     /// <summary>What the chooser's overrides keep across a switch of instance.</summary>
-    /// <remarks>The model never survives it: it is spelled for the provider behind the old instance, and another
-    /// account does not serve it. Mode and effort are the application's own scale and stay with the same agent;
-    /// another agent has never heard of any of them.</remarks>
-    private SessionOverrides OverridesSurvivingSwitch(bool otherAgent) =>
-        otherAgent ? SessionOverrides.None : _overrides with { Model = null };
+    /// <remarks>
+    /// <para>The model never survives it: it is spelled for the provider behind the old instance, and another
+    /// account does not serve it.</para>
+    /// <para><b>Nothing survives onto another conversation.</b> A mode and an effort are answers about a piece
+    /// of work, and the conversation being opened is a different one — with a mode of its own, which
+    /// <see cref="AdoptStoredSettings"/> then restores. Carried over instead, a tile working in bypass would
+    /// start the agent of every conversation the user merely looked at in bypass as well, with no dialog
+    /// anywhere naming the grant.</para>
+    /// <para><b>The mode and the effort survive even onto another agent</b>, which they did not before. They
+    /// are this application's own canonical scale rather than any CLI's words, so they mean the same thing
+    /// wherever they land, and the narrowing is already done where it belongs: every launch fits them to the
+    /// arriving agent's own lists through <c>AiProcessRunner.Fit</c> — rounded down for a mode it lacks,
+    /// to the nearest for an effort. Dropped here instead, a switch quietly put a user who was working in
+    /// bypass back on the tool's own asking, which is a change of permissions nobody was told about.</para>
+    /// <para><b>A handover carries the mode and the effort as values, not as the overrides that produced
+    /// them.</b> An override is what the tile runs <i>differently from its instance</i>, so a tile whose
+    /// picker was never touched has none at all and runs on the outgoing instance's own defaults — carried
+    /// as overrides, that tile hands the arriving agent nothing and it starts on <i>its</i> instance's
+    /// defaults instead. Both directions of that are a change of permissions nobody was told about, and one
+    /// of them is a CLI silently starting in bypass. So what travels is <see cref="BehaviourNow"/> and
+    /// <see cref="EffortNow"/> — what this tile is actually running, which is also what the confirmation
+    /// names.</para>
+    /// </remarks>
+    private SessionOverrides OverridesSurvivingSwitch(InstanceSwitch switching) => switching switch
+    {
+        InstanceSwitch.HandingTheWorkOver => new SessionOverrides(Behaviour: BehaviourNow, Effort: EffortNow),
+        InstanceSwitch.AnotherConversation => SessionOverrides.None,
+        _ => _overrides with { Model = null },
+    };
+
+    /// <summary>The permission mode this tile is actually running in: its own pick, or its instance's answer
+    /// where nobody has picked one.</summary>
+    /// <remarks>The same reading <c>SessionOverrides.ApplyTo</c> makes at every launch, and the one a
+    /// handover has to carry and say out loud — an unset override is not "no mode", it is the instance's.
+    /// </remarks>
+    private AiBehaviour BehaviourNow => _overrides.Behaviour ?? Instance.DefaultBehaviour;
+
+    /// <inheritdoc cref="BehaviourNow"/>
+    private AiEffort EffortNow => _overrides.Effort ?? Instance.DefaultEffort;
 
     /// <summary>Whether something has been said in this conversation with an agent other than this one.</summary>
     private bool IsHeldByAnotherAgent(IAiAgent agent) => ConversationAgentId is { } held && agent.Id != held;
@@ -1120,7 +1306,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
                     return;
                 }
 
-                TakeInstance(instance, AiAgentCatalog.Find(summary.AgentId)!, otherAgent: true);
+                TakeInstance(instance, AiAgentCatalog.Find(summary.AgentId)!, InstanceSwitch.AnotherConversation);
             }
 
             await MoveToConversationAsync(summary.Id);
@@ -1322,6 +1508,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
             await host.StartAsync(sink => _sessionStarter.Create(agent, launch, sink), AccountNow(agent),
                 _lifetime.Token);
+            await DeliverHandoverBriefAsync(host);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -1335,6 +1522,29 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         {
             IsStarting = false;
         }
+    }
+
+    /// <summary>
+    /// Gives the session that has just started the brief the work was handed over with.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Sent rather than recorded as a message.</b> The transcript already carries it, folded, on the
+    /// handover entry; written a second time as something the user said, a page of Markdown they never typed
+    /// would stand above the new agent's first answer as their own words.</para>
+    /// <para><b>Kept when the start did not reach a live session.</b> A launch that failed told the agent
+    /// nothing, so the brief is still owed and the next start delivers it — the alternative is a conversation
+    /// whose transcript says the work was handed over to an agent that was never told anything about it. The
+    /// debt is read back off the conversation (<see cref="ConversationHandover.BriefOwedIn"/>) rather than
+    /// held on this tile, so it survives the tile being closed, the application being shut down and a send
+    /// that threw — all of which a field would lose while the seam stayed in the store.</para>
+    /// </remarks>
+    private async Task DeliverHandoverBriefAsync(AgentConversationHost host)
+    {
+        if (ConversationHandover.BriefOwedIn(host.State) is not { Length: > 0 } brief) return;
+        if (host.State.SessionState is not (AgentSessionState.Ready or AgentSessionState.Running
+            or AgentSessionState.WaitingForUser)) return;
+
+        await host.ExecuteAsync(new SendMessage(brief, null, Recorded: false), _lifetime.Token);
     }
 
     /// <summary>Whether an account the user picked has not yet been recorded by a session of this conversation.
@@ -1399,7 +1609,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         var runnable = _settings.Settings.AiAgentInstances.Where(row =>
             AiAgentCatalog.IsAvailable(row, _settings.Settings));
         var decision = StoredSessionPolicy.DecideAccount(account, AccountNow(agent), runnable);
-        if (decision.InstanceToTake is { } stored) TakeInstance(stored, agent, otherAgent: false);
+        if (decision.InstanceToTake is { } stored) TakeInstance(stored, agent);
         if (decision.Notice is { } notice) SayStoredLoginMoves(notice);
     }
 
@@ -1731,6 +1941,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         QuestionsEntry round => new QuestionsRecordItemViewModel(round),
         CheckpointEntry checkpoint => new CheckpointItemViewModel(checkpoint, LoadDiffAsync, RestoreAsync),
         NoticeEntry notice => new NoticeItemViewModel(notice),
+        HandoverEntry handover => new HandoverItemViewModel(handover),
         _ => new NoticeItemViewModel(new NoticeEntry(entry.Id, NoticeLevel.Info, entry.GetType().Name)),
     };
 

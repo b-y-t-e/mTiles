@@ -95,6 +95,7 @@ public static class ConversationReducer
             CheckpointRestored r => OnRestored(state, r),
             NoticeRaised n => Append(Numbered(state, out var noticeId),
                 new NoticeEntry(noticeId, n.Level, n.Text) { TurnId = n.TurnId, At = n.At }),
+            HandoverRecorded h => OnHandover(state, h),
             _ => state,
         };
 
@@ -284,6 +285,25 @@ public static class ConversationReducer
         return Append(Numbered(state with { Timeline = timeline }, out var id),
             new NoticeEntry(id, NoticeLevel.Info, "Files were restored to how they were before that turn.") { At = r.At });
     }
+
+    /// <summary>
+    /// The work moved to another agent or another login: the seam is written down, and everything that
+    /// belonged to the stretch that is ending stops being true.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The token above all.</b> It is the outgoing CLI's own handle, and handed to the agent
+    /// arriving it is not merely useless — <c>codex resume &lt;unknown&gt;</c> opens an interactive picker
+    /// that a launch waits on for ever, and <c>agy --conversation &lt;unknown&gt;</c> warns, starts a fresh
+    /// conversation and exits 0, so the tile cannot tell a resumed session from a lost one.</para>
+    /// <para>The chosen model goes with it for the reason <see cref="MovesAccount"/> already gives, and the
+    /// plan goes because it was the outgoing agent's own account of its work: kept, it would be drawn as the
+    /// new agent's to-do list before that agent has said anything at all. It is not lost — the brief carries
+    /// it, which is what a handover is for.</para>
+    /// </remarks>
+    private static ConversationState OnHandover(ConversationState state, HandoverRecorded h) =>
+        Append(
+            Numbered(state, out var id) with { ResumeToken = null, ChosenModel = null, Plan = null },
+            new HandoverEntry(id, h.From ?? state.Account, h.To, h.Brief) { TurnId = h.TurnId, At = h.At });
 
     private static TokenUsage Merge(TokenUsage? old, TokenUsage newer) =>
         old is null

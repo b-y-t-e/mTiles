@@ -15,8 +15,9 @@ namespace mTiles.Tests.AgentSessions;
 /// </summary>
 /// <remarks>It used to ask first, the way a terminal tile asks for a shell — the wrong question for a
 /// conversation, which is bound to nobody until something is said in it. What replaced the step is the
-/// chooser in the strip, and the rule t3code keeps: another agent is refused on a started conversation,
-/// because the resume token and the stored events are the holding agent's.</remarks>
+/// chooser in the strip. Another agent on a started conversation is a <i>handover</i>: the resume token and
+/// the stored events are the holding agent's and no other CLI can continue that session, but the work can
+/// move, so the pick asks rather than being refused.</remarks>
 public class AgentPickedInTheConversationTests
 {
     [Fact]
@@ -42,8 +43,12 @@ public class AgentPickedInTheConversationTests
         Assert.Equal(second.Id, tile.Instance.Id);
     }
 
+    /// <remarks>Nothing said yet: the conversation belongs to nobody, so another agent is simply taken and
+    /// no question is worth asking. Once something has been said, the same pick hands the work over — and a
+    /// tile with no dialog to ask in takes that as a no, unlike a change of account: a handover starts
+    /// another CLI on somebody's repository with a brief they have not read.</remarks>
     [Fact]
-    public async Task Another_agent_is_taken_while_nothing_has_been_said_and_refused_afterwards()
+    public async Task Another_agent_is_taken_while_nothing_has_been_said_and_asked_about_afterwards()
     {
         using var settings = new TempSettings();
         var claude = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
@@ -62,9 +67,17 @@ public class AgentPickedInTheConversationTests
         await tile.SwitchInstanceAsync(claude);
         Assert.Equal(codex.Id, tile.Instance.Id);
         Assert.True(tile.IsBoundToItsAgent);
-        var refused = tile.Chooser.Options.Single(o => o.Instance.Id == claude.Id);
-        Assert.False(refused.IsPickable);
-        Assert.Contains("new conversation", refused.Reason, StringComparison.OrdinalIgnoreCase);
+
+        string? asked = null;
+        tile.ConfirmAction = message =>
+        {
+            asked = message;
+            return Task.FromResult(true);
+        };
+        await tile.SwitchInstanceAsync(claude);
+
+        Assert.Contains("brief", asked ?? "", StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(claude.Id, tile.Instance.Id);
     }
 
     [Fact]
@@ -103,8 +116,11 @@ public class AgentPickedInTheConversationTests
         Assert.True(tile.IsBoundToItsAgent);
         Assert.Equal(claude.Id, tile.Instance.Id);
         Assert.NotEqual(codex.Id, settings.Service.Settings.LastAgentInstanceId);
-        Assert.DoesNotContain("held with", tile.Chooser.Options.Single(o => o.Instance.Id == claude.Id).Reason ?? "");
-        Assert.Contains("held with Claude", tile.Chooser.Options.Single(o => o.Instance.Id == codex.Id).Reason ?? "");
+        // The row that would hand the work over says so; the agent that holds it says nothing of the kind.
+        Assert.DoesNotContain("hands the work over",
+            tile.Chooser.Options.Single(o => o.Instance.Id == claude.Id).Detail);
+        Assert.Contains("hands the work over from Claude",
+            tile.Chooser.Options.Single(o => o.Instance.Id == codex.Id).Detail);
     }
 
     [Fact]

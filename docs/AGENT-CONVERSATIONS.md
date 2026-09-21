@@ -206,24 +206,98 @@ conversation with nothing in it is bound to nobody, so the agent is picked in th
 A new tile opens on the instance the last one was pointed at (`AppSettings.LastAgentInstanceId`), and on the
 first available one before there is such a thing.
 
-**Once the conversation has something in it, the agent is settled** (`IsBoundToItsAgent`) — t3code's rule
-(`ProviderCommandReactor` refuses `thread.turn.start` across drivers) and ours for the same reason: the
-resume token belongs to the CLI that issued it and the stored events are that agent's. Another agent is
-offered, dimmed and carrying the sentence saying to start a new conversation (dimmed rather than disabled —
-a disabled item is out of Avalonia's hit test, so the reason would never be read); another instance of the *same*
-agent — another account, another model — is taken, and restarts the session on the same conversation.
-"Something in it" is read from the store as well as from the screen: a restored tile is empty until its start
-has read the store, and another agent's stored conversation keeps that agent pickable and the picked one refused.
-A stored record alone binds nobody — a host writes one as its session starts — so it is a stored user message
-that counts, and a switch is refused before it is remembered as last used or saved into the layout.
-"Last used" is written whenever a message is sent, not only when the chooser moves.
+**Once the conversation has something in it, the session is settled and the work is not.** The resume token
+belongs to the CLI that issued it and the stored events are that agent's, so no other agent can *continue*
+the session — t3code's rule (`ProviderCommandReactor` refuses `thread.turn.start` across drivers) and ours.
+What that used to mean here was a refusal: another agent was offered dimmed, with a sentence saying to start
+a new conversation. It was right about the mechanism and wrong about the user, who was left typing the state
+of the work again into a fresh conversation. Picking another agent now **hands the work over** (see below);
+another instance of the *same* agent — another account, another model — is taken as before, and restarts the
+session on the same conversation. "Something in it" is read from the store as well as from the screen: a
+restored tile is empty until its start has read the store, and the stored answer is what a switch is judged
+against when the screen has none. A stored record alone binds nobody — a host writes one as its session
+starts — so it is a stored user message that counts. "Last used" is written whenever a message is sent, not
+only when the chooser moves.
 
-Carrying the work across that seam — a brief built from what this application recorded, handed to the new
-agent as its first message — is [`ROADMAP.md`](ROADMAP.md) §6, and is what turns the refusal into a choice.
+**Nothing is thrown away by a chooser.** A handover keeps every event of the stretch that is ending, and
+**Delete this conversation** is still the one gesture that forgets.
 
-**Nothing is thrown away by a chooser.** Switching onto a tile that still holds another agent's stored
-conversation starts nothing and says so; the way past it is to pick or start another conversation, and
-**Delete this conversation** is the one gesture that forgets.
+## Both sides of a message are drawn by one control
+
+**A message of the user's is rendered with the same `GoalMarkdownView` as the agent's reply.** It used to
+be a `SelectableTextBlock`, and that pair is what "my message is cut off mid-phrase" came down to: the
+user's bubble is sized to its own text and so carries no slack, and at a fractional desktop scale (125%,
+150%) a width lost to layout rounding drops the last word onto a second line the row is not tall enough to
+show. The agent's replies are drawn across the full width, have slack, and were never cut at any width —
+which is the measurement that settled it, after a repair aimed at the layout itself failed to change
+anything in the running application.
+
+What it costs is the literal reading of what was typed: backticks, `*` and a leading `#` are rendered
+rather than shown. **The Goal tile deliberately does the opposite** for its own transcript (its markdown
+template says so in as many words — "nor is your own text, where an asterisk is one you typed"), so the
+two tiles disagree on this one point on purpose rather than by drift.
+
+## Handing the work to another agent
+
+**What moves is the work, never the session.** The transcript is this application's and the working tree is
+on disk; both survive a change of agent. The CLI's memory of them does not, and no flag of anybody's is
+guessed for one — nothing here reaches into `~/.claude` or a rollout file to replay one vendor's transcript
+into another's model.
+
+- **The brief is a fold, not a turn** (`ConversationHandover`, pure, in `mTiles.AgentSessions`). What was
+  asked for — the first message verbatim, because intent is the one thing no summary may paraphrase — what
+  was decided in answered `QuestionsAsked` rounds, the plan with its statuses, which files changed
+  (a turn that was undone is left out: its edits are not in the tree), and where it stopped. Nothing is
+  asked of any CLI, which is what makes it work when the outgoing agent has crashed — the usual reason
+  somebody switches. A summary written by the outgoing agent is an *addition* still to come
+  ([`ROADMAP.md`](ROADMAP.md) §6), never the thing this depends on.
+- **The budget comes from outside and what it drops is said.** Characters, not tokens; this assembly has no
+  tokenizer and every agent counts differently. The middle of the work goes first, oldest message first, and
+  the brief says how many were left out — a brief that quietly loses the middle reads as a complete account
+  of a smaller task.
+- **Somebody's own words are quoted.** A message can carry a `#` at the start of a line, and the brief is
+  read as Markdown by whatever it is handed to: unquoted, their heading becomes one of our sections.
+- **The seam is written between the two hosts** (`HandoverWriter`, called with the old host disposed and the
+  new one not yet built — which is also what lets it work when the outgoing session is dead). It moves the
+  record onto the new agent, **clears the resume token**, and appends `HandoverRecorded(From, To, Brief)`.
+  Clearing the token is the load-bearing half: `codex resume <unknown>` opens an interactive picker a launch
+  waits on for ever, and `agy --conversation <unknown>` warns, starts a *new* conversation and exits 0 — so
+  the tile could not tell a resumed session from a lost one. The reducer clears it too, because the record is
+  what a launch reads and the state is what a viewer reads; the outgoing agent's plan goes with it, or it
+  would be drawn as the arriving agent's to-do list before that agent has said anything.
+- **The brief is sent, not recorded as a message** (`SendMessage(Recorded: false)`, its one caller). The
+  timeline already carries it, folded, on the handover entry; written a second time as something the user
+  said, a page of Markdown they never typed would stand above the new agent's first answer as their own
+  words. A start that never reached a live session keeps the brief owed, so the next start delivers it — and what
+  says it is owed is the conversation itself (`ConversationHandover.BriefOwedIn`: the seam with nothing but
+  notices after it), never a field on the tile, so the debt survives the tile being closed, the application
+  being shut down and a send that threw. The brief is folded off the store where no host is alive, which is
+  the state a tile refused its start, substituted onto another agent or restored from a layout arrives in.
+- **The mode and the effort travel; the model does not.** Mode and effort are this application's own
+  canonical scale and mean the same thing wherever they land, and every launch already narrows them to the
+  arriving agent's own lists through `AiProcessRunner.Fit`. Dropped instead, a switch quietly put somebody
+  working in `bypass` back on the tool's own asking — a change of permissions nobody was told about. What
+  travels is the mode and effort the tile was **actually running** — its own pick, or the outgoing
+  instance's own answer where the picker was never touched — and never the overrides that produced them: an
+  override is what a tile runs *differently* from its instance, so carried as overrides a tile nobody had
+  touched handed over nothing and the arriving agent started on *its* instance's defaults, which on a row
+  configured for bypass is a CLI editing without asking under a dialog that said nothing of it. Bypass
+  therefore travels too, and the confirmation says so in its own sentence: it is a grant given for one agent
+  arriving at another, so it is read rather than inherited. The model is spelled for the provider behind the
+  account that is leaving, so it never travels. **They travel with the work and not with the tile**: opening
+  somebody else's conversation moves the tile onto another agent too, and asks nothing, so it starts on that
+  conversation's own mode rather than on this one's — carried there, a bypass granted to one agent for one
+  piece of work would be given to every agent whose conversation the user merely looked at.
+- **A seam that cannot be written is not a handover.** The record and the event are one move, so an append
+  that fails puts the row back (`HandoverWriter`) and the tile stays exactly where it was, with the sentence
+  on its own bar. Everything on this path runs under the tile's catch-and-log, and left to it the picker
+  showed the agent arriving while the tile went on running the agent leaving, with nothing said anywhere.
+- **It asks first, naming the loss before the gain**, and the refusal that remains is `RefusalFor`'s: an
+  agent this machine cannot run at all has nothing to hand the work to.
+- **The checkpoints carry on unbroken**, because they are ours: `ITurnCheckpoints` is keyed by the
+  conversation and knows nothing of agents. *Undo changes* on a turn the previous agent made therefore works
+  after a handover, deliberately — the working tree is the shared state, and a gesture that works is worth
+  more than a symmetry.
 
 ## Which account a stretch of a conversation ran as
 

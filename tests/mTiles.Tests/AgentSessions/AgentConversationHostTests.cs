@@ -152,6 +152,34 @@ public class AgentConversationHostTests : IDisposable
         Assert.Contains(store.ReadEvents("tile-1"), e => e is AssistantMessageCompleted);
     }
 
+    /// <remarks>The handover brief is text the agent must read and is not something the user said: written
+    /// into the transcript as theirs, a page of Markdown they never typed would stand above the first answer
+    /// of the new agent as their own words. The turn is a turn like any other, though — it edits files, so
+    /// it is bracketed by the same two checkpoints or <i>Undo changes</i> has nothing to go back to.</remarks>
+    [Fact]
+    public async Task A_message_sent_unrecorded_reaches_the_agent_without_standing_in_the_transcript()
+    {
+        var store = new SqliteConversationStore(_path);
+        var checkpoints = new FakeCheckpoints();
+        var session = new FakeSession();
+        var host = new AgentConversationHost(Record(), store, checkpoints);
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
+
+        await host.ExecuteAsync(new SendMessage("# Handover: the brief.", null, Recorded: false),
+            CancellationToken.None);
+        session.Say(new TurnStarted { TurnId = "t" });
+        session.Say(new AssistantMessageCompleted("m", "Carrying on."));
+        session.Say(new TurnCompleted(TurnOutcome.Completed) { TurnId = "t" });
+        await checkpoints.Settled();
+        await host.DisposeAsync();
+
+        Assert.Equal(["# Handover: the brief."], session.Sent);
+        Assert.DoesNotContain(store.ReadEvents("tile-1"), e => e is UserMessageAdded);
+        Assert.DoesNotContain(host.State.Timeline,
+            e => e is MessageEntry { Role: MessageRole.User });
+        Assert.Equal(2, checkpoints.Captured);
+    }
+
     [Fact]
     public async Task A_message_is_recorded_by_the_host_and_a_turn_is_bracketed_by_two_checkpoints()
     {
