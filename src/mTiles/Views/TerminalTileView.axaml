@@ -99,7 +99,9 @@
                 DataContext="{Binding ContextGauge}"
                 IsVisible="{Binding IsDrawn, FallbackValue=False}">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0"
+                <!-- Held a pixel off each edge: the Agent tile's Compact button and the Goal tile's
+                     status carry the same pixel, so all three bars are one height. -->
+                <TextBlock DockPanel.Dock="Right" Margin="8,1,0,1"
                            VerticalAlignment="Center"
                            FontSize="{DynamicResource TermFontSm}"
                            FontFamily="{DynamicResource TerminalFontFamily}"

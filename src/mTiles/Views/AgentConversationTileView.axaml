@@ -398,7 +398,9 @@
                         <TextBlock Text="Compact" />
                     </StackPanel>
                 </Button>
-                <TextBlock DockPanel.Dock="Right" Classes="strip" Margin="8,0,0,0"
+                <!-- A pixel off each edge, the Compact button's own, so the bar keeps its height on an
+                     agent that draws no Compact - and matches the Goal and terminal agent tiles'. -->
+                <TextBlock DockPanel.Dock="Right" Classes="strip" Margin="8,1,0,1"
                            Text="{Binding ContextBarText}" />
                 <v:UsageBar Height="6" VerticalAlignment="Center"
                             UsedPercent="{Binding ContextPercent}"
