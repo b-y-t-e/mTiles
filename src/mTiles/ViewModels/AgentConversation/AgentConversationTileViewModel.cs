@@ -96,7 +96,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// pushed the whole conversation up. What it says while nothing is known says exactly that — the
     /// context is not known yet and nothing has been spent — rather than inventing a window or a
     /// percentage, which is the rule <see cref="ContextGauge"/> keeps for the bar itself.</remarks>
-    public string ContextBarText => HasUsageReading ? UsageText : "context not known yet · $0.00";
+    public string ContextBarText =>
+        HasUsageReading ? UsageText : ContextGaugeViewModel.NothingKnownYet + " · $0.00";
 
     /// <summary>Whether Compact is drawn at all.</summary>
     /// <remarks>Drawn where the running agent has a route for it, and — before anything is known — drawn

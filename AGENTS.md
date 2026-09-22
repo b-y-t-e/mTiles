@@ -1798,7 +1798,12 @@ Recorded so far:
   **It draws the Agent tile's context bar** (`ContextGaugeViewModel`, one class for both kinds, and
   `Border.context-bar` in `Controls.axaml`): the same figure about the same conversation, differing only
   in where it is read from — the Agent tile is told it by the protocol it drives, this one reads it out
-  of the CLI's own store. The bar and the figures are hidden separately, because four of the five CLIs
+  of the CLI's own store. **The row is there from the first frame**, reading `context not known yet`
+  wherever a reading can ever arrive (`ContextGaugeViewModel.KeepsItsPlace`, asked of the agent's own
+  `SessionLog`) — the Agent tile's rule, and here it is about the terminal rather than the figure: a row
+  that appears with the first reading pushes the terminal up one line mid-turn, which remeasures the
+  cell grid and reflows the shell. An agent whose CLI keeps nothing readable (agy, Grok) draws no bar
+  at all, since the sentence would otherwise stand there for the life of the session. The bar and the figures are hidden separately, because four of the five CLIs
   that count tokens never name the window and the denominator then comes from the provider
   (the instance's own `MaxContextTokens` first, then `ModelContextWindow.ContextOfAsync` — deliberately
   ungated, unlike `ResolveAsync`, which asks what to put in *Claude Code's environment* — and then the

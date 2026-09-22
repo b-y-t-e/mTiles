@@ -24,6 +24,34 @@ namespace mTiles.ViewModels;
 /// </remarks>
 public sealed partial class ContextGaugeViewModel : ObservableObject
 {
+    /// <summary>What the bar reads before the first figure has arrived.</summary>
+    /// <remarks>A constant here because the Agent tile says it too, with its own cost figure after it:
+    /// that tile is told what the conversation has spent and this one is told only what some CLIs
+    /// write down, so the shared half is the sentence and the cost is not. Saying it here rather than
+    /// in the markup keeps the two tiles from drifting into two spellings of one state.</remarks>
+    public const string NothingKnownYet = "context not known yet";
+
+    /// <summary>
+    /// Whether the bar stands there saying nothing is known yet, instead of not being drawn.
+    /// </summary>
+    /// <remarks>
+    /// <para>The Agent tile's rule, and it is about layout rather than about the figure: a row that
+    /// appears with the first reading pushes everything above it up one line, which in a terminal is
+    /// not a nudge — the cell grid is remeasured and the shell reflows, in the middle of the first
+    /// thing the user asked the agent to do.</para>
+    /// <para><b>Off unless the tile can ever get a reading.</b> An agent whose CLI keeps no store this
+    /// application can read (agy, Grok) would otherwise wear "context not known yet" for the life of
+    /// the session — a line that never resolves, which is a worse answer than the honest blank the
+    /// absent bar already gives.</para>
+    /// </remarks>
+    public bool KeepsItsPlace { get; init; }
+
+    /// <summary>Whether the bar is drawn at all.</summary>
+    public bool IsDrawn => HasAnythingToSay || KeepsItsPlace;
+
+    /// <summary>What the bar actually reads — the figures, or that there are none yet.</summary>
+    public string BarText => HasAnythingToSay ? Text : NothingKnownYet;
+
     /// <summary>How much of the window is gone, 0 to 100, or null when it cannot be said.</summary>
     /// <remarks>Null hides the bar and leaves the figures, which is the whole reason it is a property of
     /// its own rather than something derived in the view from <see cref="Text"/>.</remarks>
@@ -31,6 +59,8 @@ public sealed partial class ContextGaugeViewModel : ObservableObject
 
     /// <summary>"106.8k / 1M tokens · $1.15" — whatever of it was actually said.</summary>
     [NotifyPropertyChangedFor(nameof(HasAnythingToSay))]
+    [NotifyPropertyChangedFor(nameof(IsDrawn))]
+    [NotifyPropertyChangedFor(nameof(BarText))]
     [ObservableProperty] private string _text = "";
 
     /// <summary>Whether there is anything to draw at all.</summary>

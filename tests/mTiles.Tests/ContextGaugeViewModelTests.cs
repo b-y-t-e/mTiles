@@ -66,6 +66,53 @@ public class ContextGaugeViewModelTests
     }
 
     [Fact]
+    public void A_tile_that_will_get_a_reading_keeps_the_row_and_says_nothing_is_known()
+    {
+        // The row is there from the first frame, so the first turn does not also push the terminal up a
+        // line — which is not a nudge here: the cell grid is remeasured and the shell reflows.
+        var gauge = new ContextGaugeViewModel { KeepsItsPlace = true };
+
+        Assert.True(gauge.IsDrawn);
+        Assert.False(gauge.HasAnythingToSay);
+        Assert.Equal("context not known yet", gauge.BarText);
+        Assert.Null(gauge.UsedPercent);
+
+        gauge.Show(used: 500, window: 1000, cost: null);
+
+        Assert.Equal("500 / 1k tokens", gauge.BarText);
+
+        // And back to the sentence when the tile leaves the conversation, rather than to the last
+        // figure or to nothing where the row had been.
+        gauge.Clear();
+
+        Assert.True(gauge.IsDrawn);
+        Assert.Equal("context not known yet", gauge.BarText);
+    }
+
+    [Fact]
+    public void A_tile_that_can_never_get_one_draws_no_row_at_all()
+    {
+        // agy and Grok keep nothing this application can read, so the sentence would stand there for the
+        // life of the session. A blank is the honest answer; a line that never resolves is not.
+        var gauge = new ContextGaugeViewModel();
+
+        Assert.False(gauge.IsDrawn);
+    }
+
+    /// <summary>Both tiles say the waiting state in the same words.</summary>
+    /// <remarks>The Agent tile puts its own cost after it — it is told what the conversation spent,
+    /// while this one is told only what some CLIs write down — so what is shared is the sentence, and
+    /// the difference is the half that is a real figure there and a guess here.</remarks>
+    [Fact]
+    public void Both_agent_tiles_say_that_nothing_is_known_the_same_way()
+    {
+        Assert.StartsWith(ContextGaugeViewModel.NothingKnownYet,
+            new ContextGaugeViewModel { KeepsItsPlace = true }.BarText, StringComparison.Ordinal);
+        Assert.Equal("context not known yet · $0.00",
+            ContextGaugeViewModel.NothingKnownYet + " · $0.00");
+    }
+
+    [Fact]
     public void A_cost_of_nothing_is_not_reported_as_free()
     {
         // claude and codex record no price at all, and opencode writes 0 for a turn on a subscription.

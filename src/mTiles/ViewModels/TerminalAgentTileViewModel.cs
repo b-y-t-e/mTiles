@@ -153,6 +153,7 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         _agentFiles = agentFiles;
         if (_agentFiles is not null) _agentFiles.SkillsChanged += OnSkillsChanged;
         _agent = agent;
+        Gauge = new ContextGaugeViewModel { KeepsItsPlace = agent.SessionLog is not null };
         _settings = settingsService;
         _requestSave = requestSave;
         _conversation = new ConversationFollower(agent.SessionLog, WorkingDirectory,
@@ -195,7 +196,11 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
 
     /// <summary>The gauge itself, held so this class can write to it without going through a nullable.
     /// </summary>
-    private ContextGaugeViewModel Gauge { get; } = new();
+    /// <remarks><see cref="ContextGaugeViewModel.KeepsItsPlace"/> is asked of the agent's own store:
+    /// a tile that will get a reading keeps the row from the first frame, so the first turn does not
+    /// also reflow the shell, while one whose CLI writes nothing readable draws no bar at all rather
+    /// than a sentence that can never stop being true.</remarks>
+    private ContextGaugeViewModel Gauge { get; }
 
     /// <summary>Follows the CLI's own record of which conversation this tile is in and what it has
     /// spent.</summary>

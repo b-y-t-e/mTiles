@@ -76,10 +76,14 @@
              pseudo-terminal.
 
              Docked below the terminal rather than drawn over it: the terminal is the tile's content and
-             something floating in its bottom corner sits on top of whatever the agent is printing. It
-             takes a strip only while there is something to say — a plain shell answers null, and so does
-             an agent whose CLI keeps no readable store (agy), so neither loses a line to a bar that
-             would always be empty.
+             something floating in its bottom corner sits on top of whatever the agent is printing.
+
+             It takes its strip from the first frame, saying that nothing is known yet, wherever a
+             reading can ever arrive (ContextGaugeViewModel.KeepsItsPlace). Appearing with the first
+             figure instead would push the terminal up one line mid-turn, which here is not a nudge:
+             the cell grid is remeasured and the shell reflows. A plain shell answers null, and so does
+             an agent whose CLI keeps no readable store (agy, Grok) — neither loses a line to a sentence
+             that would never stop being true.
 
              The bar itself is hidden separately from the figures: four of the five CLIs that count
              tokens never name the window, so until a provider supplies one there is a count to show and
@@ -93,14 +97,14 @@
         <Border DockPanel.Dock="Bottom" Classes="context-bar"
                 Margin="-6,0,-6,-6"
                 DataContext="{Binding ContextGauge}"
-                IsVisible="{Binding HasAnythingToSay, FallbackValue=False}">
+                IsVisible="{Binding IsDrawn, FallbackValue=False}">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0"
                            VerticalAlignment="Center"
                            FontSize="{DynamicResource TermFontSm}"
                            FontFamily="{DynamicResource TerminalFontFamily}"
                            Foreground="{DynamicResource TextMuted}"
-                           Text="{Binding Text}" />
+                           Text="{Binding BarText}" />
                 <v:UsageBar Height="6" VerticalAlignment="Center"
                             UsedPercent="{Binding UsedPercent}"
                             IsVisible="{Binding UsedPercent, Converter={x:Static ObjectConverters.IsNotNull}}"
