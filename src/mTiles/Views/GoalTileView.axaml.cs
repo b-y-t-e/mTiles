@@ -87,26 +87,32 @@ public partial class GoalTileView : UserControl, IFocusTargetView
             (picture, _) => AttachImage(picture),
             path => DataContext is GoalTileViewModel vm ? vm.AttachFileAsync(path) : Task.CompletedTask);
 
-    /// <summary>Teaches the strip's four pickers how to read this tile's own lists, and where a pick goes.</summary>
-    /// <remarks>The rows are the view model's lists as they stand — agent choices and the words of the two
-    /// scales — so nothing is kept in step. The mode and effort rows carry the vocabulary's own sentence, the
-    /// one the Agent tile's composer shows, so the two tiles explain a mode in the same words. A pick is
-    /// written through the view model's own setters, which is where bypass is asked about.</remarks>
+    /// <summary>Teaches this tile's five pickers how to read its own lists, and where a pick goes.</summary>
+    /// <remarks>The rows are the view model's lists as they stand — agent choices and the words of the
+    /// two scales — so nothing is kept in step. The mode row carries the vocabulary's own sentence, the
+    /// one the Agent tile's composer shows, so the two tiles explain a mode in the same words; the
+    /// effort row carries the three levels its one word stands for, which is what lets the strip offer
+    /// an effort per role from a single control. A pick is written through the view model's own
+    /// setters, which is where bypass is asked about.</remarks>
     private void TeachThePickers()
     {
         ExecutionAgentPicker.OptionSelector = item => item is GoalAgentChoice agent
             ? new PickerOption { Id = agent.InstanceId, Title = agent.Label, Detail = agent.Agent.DisplayName }
             : null;
-        ReviewAgentPicker.OptionSelector = item => item is GoalReviewerChoice reviewer
+        ReviewAgentPicker.OptionSelector = item => item is GoalAgentSlotChoice reviewer
             ? new PickerOption { Id = reviewer.InstanceId, Title = reviewer.Label }
             : null;
         PermissionModePicker.OptionSelector = item => item is string label ? SettingPickerRows.Mode(label) : null;
-        EffortPicker.OptionSelector = item => item is string label ? SettingPickerRows.Effort(label) : null;
+        EffortPicker.OptionSelector = item => item is string label ? SettingPickerRows.EffortPreset(label) : null;
+        PlanningAgentPicker.OptionSelector = item => item is GoalAgentSlotChoice planner
+            ? new PickerOption { Id = planner.InstanceId, Title = planner.Label }
+            : null;
 
         ExecutionAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ExecutionAgentInstanceId = e.Option.Id);
         ReviewAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ReviewAgentInstanceId = e.Option.Id);
         PermissionModePicker.SelectionRequested += (_, e) => WithVm(vm => vm.PermissionModeLabel = e.Option.Id);
-        EffortPicker.SelectionRequested += (_, e) => WithVm(vm => vm.EffortLabel = e.Option.Id);
+        EffortPicker.SelectionRequested += (_, e) => WithVm(vm => vm.EffortPresetLabel = e.Option.Id);
+        PlanningAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.PlanningAgentInstanceId = e.Option.Id);
     }
 
     private void WithVm(Action<GoalTileViewModel> apply)

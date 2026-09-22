@@ -156,6 +156,18 @@ public sealed class SettingsService
             changed = true;
         }
 
+        // The Goal tile's one effort level became a preset over four roles. A stored level is read
+        // once, in the direction it was typed, and dropped — except that the old *default* is not a
+        // decision at all, which is why GoalRoles.FromLegacyEffort answers the new default for it
+        // rather than "high everywhere". Nothing is written back, so a file that never carried the key
+        // simply keeps the new default.
+        if (Settings.LegacyGoalEffort is { } level)
+        {
+            Settings.GoalEffortPreset = GoalRoles.FromLegacyEffort(level);
+            Settings.LegacyGoalEffort = null;
+            changed = true;
+        }
+
         changed |= AdoptEmbeddedFont();
         changed |= DropCustomShell();
         changed |= ReportUnknownDefaultShell();

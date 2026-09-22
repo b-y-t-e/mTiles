@@ -109,6 +109,21 @@ public sealed class GoalTileState
     }
     private string _executionAgentInstanceId = "";
 
+    /// <summary>Which configured agent works the goal out and plans it, or empty for the one that
+    /// carries it out.</summary>
+    /// <remarks>Empty is the default and a real answer — "the same agent" — exactly as
+    /// <see cref="ReviewAgentInstanceId"/> is, so a goal file written before this existed opens with
+    /// the behaviour it always had. The planning phases write nothing (<c>AiUsage.MayOnlyRead</c>), so
+    /// a second agent here costs the run nothing the way a second <em>writer</em> would: the worktree
+    /// <c>GoalBaseline</c> photographed once is still only ever touched by the execution agent.
+    /// </remarks>
+    public string PlanningAgentInstanceId
+    {
+        get => _planningAgentInstanceId;
+        set => _planningAgentInstanceId = value ?? "";
+    }
+    private string _planningAgentInstanceId = "";
+
     /// <summary>Which configured agent reviews the work, or empty for the one that did it.</summary>
     /// <remarks>Empty is a real answer and the default one — "the same agent" — rather than an absent
     /// setting, which is why the strip spells it out. A second agent is what makes a review something

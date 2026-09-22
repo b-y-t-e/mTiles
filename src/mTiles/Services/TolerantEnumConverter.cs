@@ -133,6 +133,20 @@ internal sealed class TolerantAiInstanceBehaviourConverter : TolerantEnumOrDefau
     protected override AiBehaviour Fallback => AiBehaviour.ToolDefault;
 }
 
+/// <summary>
+/// A Goal effort preset this build has never heard of reads as
+/// <see cref="GoalEffortPreset.Balanced"/> — the default.
+/// </summary>
+/// <remarks>The default rather than the cheapest or the dearest: an unreadable answer must claim
+/// nothing about what somebody wanted, and this is the preset a file nobody has touched carries. The
+/// stakes are the settings file's, so the fallback matters for the same reason
+/// <see cref="TolerantAiBehaviourConverter"/>'s does — a word written by a newer build and read after a
+/// Velopack rollback must not quarantine the provider keys beside it.</remarks>
+internal sealed class TolerantGoalEffortPresetConverter : TolerantEnumOrDefaultConverter<GoalEffortPreset>
+{
+    protected override GoalEffortPreset Fallback => GoalEffortPreset.Balanced;
+}
+
 /// <summary>An effort level this build has never heard of reads as <see cref="AiEffort.High"/> — the
 /// default — rather than costing the whole settings file, which also holds the profiles, the tool paths
 /// and the encrypted database passwords.</summary>

@@ -704,7 +704,7 @@ public sealed partial class GoalWorkflowEngine
         : "";
 
     public GoalTileState ToState(List<GoalMessage> messages, string executionAgentInstanceId,
-        string reviewAgentInstanceId) => new()
+        string reviewAgentInstanceId, string planningAgentInstanceId = "") => new()
     {
         OriginalGoal = OriginalGoal,
         ScopePaths = [..ScopePaths],
@@ -720,6 +720,7 @@ public sealed partial class GoalWorkflowEngine
         CurrentPhase = CurrentPhase,
         ExecutionAgentInstanceId = executionAgentInstanceId,
         ReviewAgentInstanceId = reviewAgentInstanceId,
+        PlanningAgentInstanceId = planningAgentInstanceId,
         IterationCount = IterationCount,
         LastStopReason = LastStopReason,
         BaselineRef = BaselineRef,

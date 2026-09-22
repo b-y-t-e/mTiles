@@ -135,6 +135,7 @@ public partial class GoalTileViewModel
 
     private string _executionAgentInstanceId = "";
     private string _reviewAgentInstanceId = "";
+    private string _planningAgentInstanceId = "";
 
     /// <summary>Which configured agent carries the goal out. An <c>AiAgentInstance.Id</c>, not a
     /// name.</summary>
@@ -177,6 +178,26 @@ public partial class GoalTileViewModel
             _reviewAgentInstanceId = id;
             OnPropertyChanged();
             OnReviewAgentInstanceIdChanged(id);
+        }
+    }
+
+    /// <summary>Which configured agent works the goal out and plans it, or empty for the one that
+    /// carries it out.</summary>
+    /// <remarks>The same question <see cref="ReviewAgentInstanceId"/> asks, and the same default: empty
+    /// means "the agent doing the work", which is what a goal does unless somebody asks for a second
+    /// head. Null is normalised to it for the reason <see cref="ExecutionAgentInstanceId"/> gives.
+    /// </remarks>
+    public string PlanningAgentInstanceId
+    {
+        get => _planningAgentInstanceId;
+        set
+        {
+            var id = value ?? "";
+            if (id == _planningAgentInstanceId) return;
+
+            _planningAgentInstanceId = id;
+            OnPropertyChanged();
+            OnPlanningAgentInstanceIdChanged(id);
         }
     }
 
@@ -840,7 +861,14 @@ public partial class GoalTileViewModel
     /// <remarks>Its own type rather than a null in the agent list: the empty id is a real option and the
     /// default one, and a null row in a bound list is an empty line the user reads as a broken entry.
     /// </remarks>
-    public ObservableCollection<GoalReviewerChoice> ReviewAgentChoices { get; } = [];
+    public ObservableCollection<GoalAgentSlotChoice> ReviewAgentChoices { get; } = [];
+
+    /// <summary>What the "planned by" chooser offers: the same agents, plus "the one doing the work".
+    /// </summary>
+    /// <remarks>A second collection rather than the same one bound twice: each picker writes its own
+    /// selection back, and two controls sharing one <c>ItemsSource</c> is one list with two ideas about
+    /// which row is current.</remarks>
+    public ObservableCollection<GoalAgentSlotChoice> PlanningAgentChoices { get; } = [];
 
     /// <summary>The permission modes the strip offers, as words.</summary>
     /// <remarks>
@@ -874,31 +902,43 @@ public partial class GoalTileViewModel
         }
     }
 
-    /// <summary>The effort levels the strip offers.</summary>
-    public IReadOnlyList<string> AvailableEfforts => AiEfforts.Labels;
+    /// <summary>The effort presets the strip offers.</summary>
+    public IReadOnlyList<string> AvailableEffortPresets => GoalRoles.Labels;
 
     /// <summary>
-    /// How hard the tool is asked to think, as the strip shows it.
+    /// How hard the tools are asked to think, as the strip shows it: one word standing for a level per
+    /// role.
     /// </summary>
     /// <remarks>
-    /// A setting rather than a per-goal criterion, beside the permission mode and for the same reasons:
-    /// it is about this machine and this tool rather than about the branch, and a goal file travels with
-    /// a branch. No confirmation of any kind — unlike <c>bypass</c>, the worst this can do is cost time
-    /// and tokens, both of which are visible while they are being spent.
+    /// <para>A preset and not a level, because the levels differ by role — see
+    /// <see cref="GoalRoles.EffortFor"/>. One picker in the strip is the whole reason it can: the three
+    /// levels are spelled out in the row's own description, where somebody opening the list reads them
+    /// and nobody else has to.</para>
+    /// <para>A setting rather than a per-goal criterion, beside the permission mode and for the same
+    /// reasons: it is about this machine and these tools rather than about the branch, and a goal file
+    /// travels with a branch. No confirmation of any kind — unlike <c>bypass</c>, the worst this can do
+    /// is cost time and tokens, both of which are visible while they are being spent.</para>
     /// </remarks>
-    public string EffortLabel
+    public string EffortPresetLabel
     {
-        get => AiEfforts.Label(_settingsService.Settings.GoalEffort);
+        get => GoalRoles.Label(_settingsService.Settings.GoalEffortPreset);
         set
         {
-            var effort = AiEfforts.FromLabel(value);
-            if (effort == _settingsService.Settings.GoalEffort) return;
+            var preset = GoalRoles.FromLabel(value);
+            if (preset == _settingsService.Settings.GoalEffortPreset) return;
 
-            _settingsService.Settings.GoalEffort = effort;
+            _settingsService.Settings.GoalEffortPreset = preset;
             _settingsService.DebouncedSave();
             OnPropertyChanged();
         }
     }
+
+    /// <summary>What the run this tile is about to make will ask a given role for.</summary>
+    /// <remarks>Read at the moment of the run rather than when the tile was built, the rule the
+    /// permission mode already follows: somebody who changes the preset because a run was too shallow
+    /// expects the next attempt to use the new one.</remarks>
+    private AiEffort EffortFor(GoalRole role) =>
+        GoalRoles.EffortFor(_settingsService.Settings.GoalEffortPreset, role);
 
     /// <summary>
     /// How much the tool may do without asking, read from and written straight back to settings.
@@ -1156,21 +1196,23 @@ public partial class GoalTileViewModel
             AvailableAgents.Add(choice);
 
         ReviewAgentChoices.Clear();
+        PlanningAgentChoices.Clear();
         // "The agent doing the work" first: it is the default, and a default below five other rows is
         // one the user has to go looking for.
-        ReviewAgentChoices.Add(GoalReviewerChoice.SameAsExecution);
+        ReviewAgentChoices.Add(GoalAgentSlotChoice.SameAsExecution);
+        PlanningAgentChoices.Add(GoalAgentSlotChoice.SameAsExecution);
         foreach (var choice in _availableAgents)
-            ReviewAgentChoices.Add(GoalReviewerChoice.For(choice));
+        {
+            ReviewAgentChoices.Add(GoalAgentSlotChoice.For(choice));
+            PlanningAgentChoices.Add(GoalAgentSlotChoice.For(choice));
+        }
 
         // Only when nothing has been chosen. A goal reopened on a machine where its agent is missing
         // keeps naming the agent it was planned with, which is what lets the tile say so.
         if (ExecutionAgentInstanceId.Length == 0 && _availableAgents.Count > 0)
             ExecutionAgentInstanceId = _availableAgents[0].InstanceId;
 
-        OnPropertyChanged(nameof(ExecutionAgent));
-        OnPropertyChanged(nameof(ReviewAgent));
-        OnPropertyChanged(nameof(ReviewAgentLabel));
-        AnnounceOfferedBehaviours();
+        AnnounceAgents();
     }
 
     /// <summary>
@@ -1191,16 +1233,14 @@ public partial class GoalTileViewModel
             foreach (var choice in found.Where(c => AvailableAgents.All(a => a.InstanceId != c.InstanceId)))
             {
                 AvailableAgents.Add(choice);
-                ReviewAgentChoices.Add(GoalReviewerChoice.For(choice));
+                ReviewAgentChoices.Add(GoalAgentSlotChoice.For(choice));
+                PlanningAgentChoices.Add(GoalAgentSlotChoice.For(choice));
             }
 
             if (ExecutionAgentInstanceId.Length == 0 && found.Count > 0)
                 ExecutionAgentInstanceId = found[0].InstanceId;
 
-            OnPropertyChanged(nameof(ExecutionAgent));
-            OnPropertyChanged(nameof(ReviewAgent));
-            OnPropertyChanged(nameof(ReviewAgentLabel));
-            AnnounceOfferedBehaviours();
+            AnnounceAgents();
         });
     }
 
@@ -1219,53 +1259,95 @@ public partial class GoalTileViewModel
             ? ExecutionAgent
             : GoalAgents.WithId(_availableAgents, ReviewAgentInstanceId);
 
+    /// <summary>The agent working the goal out and planning it: the one chosen for it, or the one
+    /// doing the work.</summary>
+    /// <remarks>The same rule <see cref="ReviewAgent"/> follows, including the part that matters: an id
+    /// naming an agent that is no longer available answers null, so the run stops and says so rather
+    /// than quietly handing the planning to somebody else.</remarks>
+    public GoalAgentChoice? PlanningAgent =>
+        PlanningAgentInstanceId.Length == 0
+            ? ExecutionAgent
+            : GoalAgents.WithId(_availableAgents, PlanningAgentInstanceId);
+
     /// <summary>What the reviewer picker says at rest: the chosen row's words, "Same as execution" included.</summary>
     /// <remarks>Not <see cref="ReviewAgent"/>'s label, which names the execution agent when the choice is
     /// "the same one" — true of the run, and the wrong answer to "what did I pick".</remarks>
     public string ReviewAgentLabel =>
         ReviewAgentChoices.FirstOrDefault(choice => choice.InstanceId == ReviewAgentInstanceId)?.Label
-        ?? GoalReviewerChoice.SameAsExecution.Label;
+        ?? GoalAgentSlotChoice.SameAsExecution.Label;
+
+    /// <summary>What the planner picker says at rest, by the rule <see cref="ReviewAgentLabel"/> follows.
+    /// </summary>
+    public string PlanningAgentLabel =>
+        PlanningAgentChoices.FirstOrDefault(choice => choice.InstanceId == PlanningAgentInstanceId)?.Label
+        ?? GoalAgentSlotChoice.SameAsExecution.Label;
 
     /// <summary>
-    /// Which agent runs this phase.
+    /// Which agent does this job.
     /// </summary>
-    /// <remarks>Only the review is somebody else's job. Clarifying, planning, implementing and
-    /// summarising are one train of thought and splitting them across two models would mean a plan
-    /// written by one agent being carried out by another that never saw the questions.</remarks>
-    private GoalAgentChoice? AgentFor(GoalPhase phase) =>
-        phase == GoalPhase.Review ? ReviewAgent : ExecutionAgent;
+    /// <remarks>
+    /// <para>Three slots, by role rather than by phase, so that the commit plan — which has no phase of
+    /// its own — can be asked for as what it is. Work and commit are the execution agent's: the one
+    /// writes the code and the other decides how to record it, and splitting those would hand the
+    /// commit to a model that never saw the change.</para>
+    /// <para>Planning and review both default to the execution agent and both may be somebody else.
+    /// Only the execution agent ever writes, which is what keeps this compatible with the worktree
+    /// <c>GoalBaseline</c> photographs once.</para>
+    /// </remarks>
+    private GoalAgentChoice? AgentFor(GoalRole role) => role switch
+    {
+        GoalRole.Review => ReviewAgent,
+        GoalRole.Planning => PlanningAgent,
+        _ => ExecutionAgent,
+    };
 
     /// <summary>What the transcript says when the agent a phase needs is not here.</summary>
     /// <remarks>Two agents, two absences: a missing review agent is a setting the user chose and can
     /// change in the strip, while a missing execution agent on a machine with none at all is an install.
     /// Told apart because the way out is different.</remarks>
-    private string MissingAgentMessage(GoalPhase phase) =>
+    private string MissingAgentMessage(GoalRole role) =>
         _availableAgents.Count == 0
             ? "No AI agent available. Install Claude Code, codex, opencode, pi or agy, then "
               + TryAgain()
-            : phase == GoalPhase.Review && ReviewAgentInstanceId.Length > 0
-                ? "The agent chosen to review this work is not available. Pick another reviewer in the "
-                  + "strip above, then " + TryAgain()
-                : "The agent chosen for this goal is not available. Pick another one in the strip "
-                  + "above, then " + TryAgain();
+            : role == GoalRole.Review && ReviewAgentInstanceId.Length > 0
+                ? "The agent chosen to review this work is not available. Pick another reviewer under "
+                  + "\"reviewed by\", then " + TryAgain()
+                : role == GoalRole.Planning && PlanningAgentInstanceId.Length > 0
+                    ? "The agent chosen to plan this goal is not available. Pick another one under "
+                      + "\"planned by\", then " + TryAgain()
+                    : "The agent chosen for this goal is not available. Pick another one in the strip "
+                      + "above, then " + TryAgain();
 
     /// <summary>What a message calls the agent that just failed.</summary>
     /// <remarks>Two agents mean two ways to fail, and "the AI tool reported a failure" over a run split
     /// between two of them names neither.</remarks>
-    private string NameOf(GoalPhase phase) =>
-        AgentFor(phase) is { } choice
-            ? phase == GoalPhase.Review && ReviewAgentInstanceId.Length > 0
+    private string NameOf(GoalRole role) =>
+        AgentFor(role) is { } choice
+            ? role == GoalRole.Review && ReviewAgentInstanceId.Length > 0
                 ? $"The review agent ({choice.Label})"
-                : choice.Label
+                : role == GoalRole.Planning && PlanningAgentInstanceId.Length > 0
+                    ? $"The planning agent ({choice.Label})"
+                    : choice.Label
             : "The AI tool";
 
     private void OnExecutionAgentInstanceIdChanged(string value)
     {
+        AnnounceAgents();
+        SaveStateSoon();
+    }
+
+    /// <summary>Every property that reads one of the three slots, said once.</summary>
+    /// <remarks>One method rather than a list of names repeated at each of the four places that change
+    /// a slot: as copies they had already drifted once, and a forgotten name is a picker showing the
+    /// agent that was chosen before last.</remarks>
+    private void AnnounceAgents()
+    {
         OnPropertyChanged(nameof(ExecutionAgent));
         OnPropertyChanged(nameof(ReviewAgent));
         OnPropertyChanged(nameof(ReviewAgentLabel));
+        OnPropertyChanged(nameof(PlanningAgent));
+        OnPropertyChanged(nameof(PlanningAgentLabel));
         AnnounceOfferedBehaviours();
-        SaveStateSoon();
     }
 
     /// <summary>Puts the permission strip back in step with the agent now carrying the goal out.</summary>
@@ -1283,6 +1365,13 @@ public partial class GoalTileViewModel
     {
         OnPropertyChanged(nameof(ReviewAgent));
         OnPropertyChanged(nameof(ReviewAgentLabel));
+        SaveStateSoon();
+    }
+
+    private void OnPlanningAgentInstanceIdChanged(string value)
+    {
+        OnPropertyChanged(nameof(PlanningAgent));
+        OnPropertyChanged(nameof(PlanningAgentLabel));
         SaveStateSoon();
     }
 
@@ -3392,7 +3481,12 @@ public partial class GoalTileViewModel
 
             Working("Working out how to divide the changes into commits...");
 
-            var run = await RunAiAsync(_engine.BuildCommitPlanPrompt(scope.Files, PromptBudget()));
+            // Named rather than derived: the commit plan has no phase of its own, so without this it
+            // would be run by whichever slot the current phase happens to name — the reviewer, most
+            // often — and at that slot's effort rather than the constant a commit is always worth.
+            var run = await RunAiAsync(
+                _engine.BuildCommitPlanPrompt(scope.Files, PromptBudget(GoalRole.Commit)),
+                role: GoalRole.Commit);
 
             // A tool that could not answer does not end this. The work has just been reviewed and is
             // sitting in the tree; one honest commit of all of it is worth more than silence, and it is
@@ -3697,21 +3791,28 @@ public partial class GoalTileViewModel
         return agent.EnvFor(runtime);
     }
 
-    private async Task<AiRun> RunAiAsync(string prompt, bool announceFailure = true)
+    /// <param name="role">What this call is for, when the phase does not say. Only the commit plan
+    /// needs it: it has no phase of its own and is asked for during whichever one the run is in, so
+    /// derived from the phase it would be attributed to the planner or the reviewer — and a commit
+    /// written by the agent that never saw the change is the one thing the slots exist to
+    /// prevent.</param>
+    private async Task<AiRun> RunAiAsync(
+        string prompt, bool announceFailure = true, GoalRole? role = null)
     {
         var phase = CurrentPhase;
+        var job = role ?? GoalRoles.For(phase);
 
         // Looked for again before giving up. Detection runs once, when the tile is built, so an agent
         // installed after that stayed invisible for the life of the tile — and the message telling the
         // user to install it and click Resume then sent them round the same loop for ever.
-        if (AgentFor(phase) is null)
+        if (AgentFor(job) is null)
             await RediscoverAgentsAsync();
 
-        if (AgentFor(phase) is not { } chosen)
+        if (AgentFor(job) is not { } chosen)
         {
             _log?.Event($"RUN      {phase} - refused: no agent this machine can run.");
             await AddMessageAsync(GoalMessageRole.System,
-                MissingAgentMessage(phase), phase);
+                MissingAgentMessage(job), phase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, toolMissing: true), null);
         }
 
@@ -3768,7 +3869,7 @@ public partial class GoalTileViewModel
             // one where no answer ever comes: a tool that hangs leaves this entry as the only account
             // of what it was asked, and a run that is cancelled leaves nothing else at all.
             var (loggedBehaviour, loggedEffort) = AiProcessRunner.Fit(chosen.Agent, CurrentUsage,
-                _settingsService.Settings.GoalPermissionMode, _settingsService.Settings.GoalEffort,
+                _settingsService.Settings.GoalPermissionMode, EffortFor(job),
                 chosen.Instance);
 
             _log?.Block(
@@ -3793,8 +3894,10 @@ public partial class GoalTileViewModel
                     // Read at the moment of the run, not when the tile was built: a user who changes
                     // the mode because a run was refused expects the next attempt to use the new one.
                     _settingsService.Settings.GoalPermissionMode,
-                    // Read at the moment of the run for the same reason the mode is.
-                    _settingsService.Settings.GoalEffort,
+                    // Read at the moment of the run for the same reason the mode is, and by *role*:
+                    // planning and reviewing repay the thinking, carrying a plan out largely does not,
+                    // and the commit plan is a constant nothing here can move — see GoalRoles.
+                    EffortFor(job),
                     // Refused once the tile is disposed, and that guard is here rather than implied:
                     // PostFireAndForget does not drop anything — it posts, and a post that lands after
                     // Dispose sets a property on a view model nobody is looking at. Harmless, and the
@@ -3862,7 +3965,7 @@ public partial class GoalTileViewModel
                     // salvage round's re-send, say — and a retry that fails too must stay as quiet as
                     // the run it stands in for, or the failure message names a phase that never asked
                     // to be loud.
-                    return await RunAiAsync(prompt, announceFailure);
+                    return await RunAiAsync(prompt, announceFailure, job);
                 }
 
                 // One recognisable cause gets named, because it is the one that fails *every* run on
@@ -3891,7 +3994,7 @@ public partial class GoalTileViewModel
                 // refusal of a flag that was never on the command line.
                 var (behaviour, effort) = AiProcessRunner.Fit(agent, usage,
                     _settingsService.Settings.GoalPermissionMode,
-                    _settingsService.Settings.GoalEffort,
+                    EffortFor(job),
                     chosen.Instance);
 
                 var effortFlag = agent.EffortFlagFor(effort, usage);
@@ -3919,7 +4022,7 @@ public partial class GoalTileViewModel
                 // name a failure the phase did not have.
                 if (announceFailure)
                     await AddMessageAsync(GoalMessageRole.System,
-                        $"{NameOf(CurrentPhase)} reported a failure. {cause}"
+                        $"{NameOf(job)} reported a failure. {cause}"
                         + $"{Capitalised(TryAgain())}\n\n{result.Text}",
                         CurrentPhase);
                 return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
@@ -3944,7 +4047,7 @@ public partial class GoalTileViewModel
         {
             _log?.Block($"ERROR    {phase} - the run threw.", ex.ToString());
             await AddMessageAsync(GoalMessageRole.System,
-                $"{NameOf(CurrentPhase)} failed: {ex.Message}. {Capitalised(TryAgain())}", CurrentPhase);
+                $"{NameOf(job)} failed: {ex.Message}. {Capitalised(TryAgain())}", CurrentPhase);
             return new AiRun(GoalLoopPolicy.Judge(null, cancelled: false, failed: true), null);
         }
         finally
@@ -4167,12 +4270,12 @@ public partial class GoalTileViewModel
     /// on the executable's own path length. Null when a test has replaced the runner: there is no
     /// command line in that case either.</para>
     /// </summary>
-    private int? PromptBudget()
+    private int? PromptBudget(GoalRole? role = null)
     {
         // A test has replaced the runner: there is no command line to fit.
         if (AiRunnerFactory != null) return null;
 
-        if (AgentFor(CurrentPhase) is { } chosen)
+        if (AgentFor(role ?? GoalRoles.For(CurrentPhase)) is { } chosen)
             // The instance too, because its own extra arguments go on the same command line: a prompt
             // fitted to the whole of it is refused by the guard the moment `--add-dir <long path>` is
             // set on the row, and refused identically on every Resume.
@@ -4855,9 +4958,11 @@ public partial class GoalTileViewModel
         // "collection was modified", and a transient race then lit the permanent "this tile could not
         // save its state" for a tile that saves perfectly well.
         Snapshot = () => Dispatcher.UIThread.CheckAccess()
-            ? _engine.ToState([..Messages], ExecutionAgentInstanceId, ReviewAgentInstanceId)
+            ? _engine.ToState([..Messages], ExecutionAgentInstanceId, ReviewAgentInstanceId,
+                PlanningAgentInstanceId)
             : Dispatcher.UIThread.Invoke(
-                () => _engine.ToState([..Messages], ExecutionAgentInstanceId, ReviewAgentInstanceId)),
+                () => _engine.ToState([..Messages], ExecutionAgentInstanceId, ReviewAgentInstanceId,
+                    PlanningAgentInstanceId)),
 
         // Into the transcript, from whichever thread the write failed on.
         Report = text => PostFireAndForget(() => Say(text)),
@@ -4896,6 +5001,7 @@ public partial class GoalTileViewModel
                 ExecutionAgentInstanceId = restored;
 
             ReviewAgentInstanceId = state.ReviewAgentInstanceId;
+            PlanningAgentInstanceId = state.PlanningAgentInstanceId;
 
             var savedAgentIsGone = restored.Length > 0 && ExecutionAgent is null;
 

@@ -154,16 +154,36 @@ public sealed class AppSettings
     public AiBehaviour GoalPermissionMode { get; set; } = AiBehaviour.Auto;
 
     /// <summary>
-    /// How hard the Goal tile's AI runs are asked to think — see <see cref="AiEffort"/>.
+    /// How hard the Goal tile's AI runs are asked to think — see <see cref="GoalEffortPreset"/>.
     /// </summary>
     /// <remarks>
-    /// Read tolerantly, as <see cref="GoalPermissionMode"/> is and for the same reason: a level written
-    /// by a newer build and read after a rollback would otherwise be a JsonException, and this file also
-    /// holds the profiles, the tool paths and the DPAPI-encrypted database passwords. One unknown word
-    /// must not quarantine all of it.
+    /// <para>One preset rather than one level, because the levels are per role now: a run plans,
+    /// works, reviews and commits, and those want different amounts of thinking. What the preset
+    /// stands for is <c>GoalRoles.EffortFor</c>.</para>
+    /// <para>Read tolerantly, as <see cref="GoalPermissionMode"/> is and for the same reason: a preset
+    /// written by a newer build and read after a rollback would otherwise be a JsonException, and this
+    /// file also holds the provider keys and the DPAPI-encrypted database passwords. One unknown word
+    /// must not quarantine all of it.</para>
     /// </remarks>
-    [JsonConverter(typeof(TolerantAiEffortConverter))]
-    public AiEffort GoalEffort { get; set; } = AiEffort.High;
+    [JsonConverter(typeof(TolerantGoalEffortPresetConverter))]
+    public GoalEffortPreset GoalEffortPreset { get; set; } = GoalEffortPreset.Balanced;
+
+    /// <summary>
+    /// The single effort level the Goal tile had before the levels became per role.
+    /// </summary>
+    /// <remarks>
+    /// <para>Nullable so that "never said" and "said high" are different answers, and never written
+    /// back — the property exists to be read once, from a file written by an older version.
+    /// <c>SettingsService.MigrateLegacySettings</c> turns it into a preset through
+    /// <c>GoalRoles.FromLegacyEffort</c> and drops it, which is the rule
+    /// <see cref="LegacyGitHideMTerminalDir"/> already follows.</para>
+    /// <para>Read tolerantly for the reason the preset beside it is: this is <c>settings.json</c>, and
+    /// a level a newer build wrote must not cost the file.</para>
+    /// </remarks>
+    [JsonPropertyName("GoalEffort")]
+    [JsonConverter(typeof(TolerantEnumConverter<AiEffort>))]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AiEffort? LegacyGoalEffort { get; set; }
 
     public bool DiffTrimIndent { get; set; } = true;
     /// <summary>

@@ -405,17 +405,19 @@
                         </p:Picker.Icon>
                     </p:Picker>
                     <!-- Beside the mode because they are the same kind of fact: how this tile runs its
-                         tool. High by default rather than the tool's own, which is tuned for a person
-                         watching — a goal run is left alone, and an attempt spent on a shallow answer
-                         costs as much of the budget as a careful one. -->
+                         tools. One preset rather than the effort per job it stands for: three pickers
+                         do not fit a strip that already carries an agent, a mode and a status, in a
+                         tile that is often 300px wide — so the three levels live in the row's own
+                         description, where somebody opening the list reads them and nobody else has
+                         to. What each preset means is GoalRoles.EffortFor. -->
                     <p:Picker x:Name="EffortPicker"
                               DockPanel.Dock="Left" Margin="0,0,2,0"
                               Classes="strip-picker"
-                              Options="{Binding AvailableEfforts}"
-                              SelectedId="{Binding EffortLabel, Mode=OneWay}"
-                              Text="{Binding EffortLabel}"
-                              DropDownWidth="300"
-                              ToolTip.Tip="How hard the AI tool is asked to think. Higher costs time and tokens and is usually worth it here, because the budget is in attempts and a shallow attempt spends one just the same. default passes no flag — pick it if your Claude Code is old enough not to know the option.">
+                              Options="{Binding AvailableEffortPresets}"
+                              SelectedId="{Binding EffortPresetLabel, Mode=OneWay}"
+                              Text="{Binding EffortPresetLabel}"
+                              DropDownWidth="340"
+                              ToolTip.Tip="How hard the AI tools are asked to think — one word for a level per job, spelled out on each row. Planning and reviewing repay the thinking; carrying the plan out largely does not, and the commit is always cheap whatever this says. default passes no flag — pick it if your Claude Code is old enough not to know the option.">
                         <p:Picker.Icon>
                             <mi:MaterialIcon Kind="Brain" Width="13" Height="13" />
                         </p:Picker.Icon>
@@ -482,6 +484,20 @@
              "VERDICT: PASS" anywhere in the review. -->
         <Border DockPanel.Dock="Top" Classes="criteria" IsVisible="{Binding ShowCriteria}">
             <StackPanel>
+                <!-- A once-per-goal setting, so it is here and not in the strip — the rule the
+                     reviewer below follows, and for the same reason. Working the goal out, asking the
+                     questions and writing the plan all run read-only (AiUsage.MayOnlyRead), so a
+                     second agent here cannot reach the worktree GoalBaseline photographs once. -->
+                <TextBlock Classes="crit-title" Text="planned by" />
+                <p:Picker x:Name="PlanningAgentPicker"
+                          Classes="strip-picker" Margin="0,0,0,6" MinWidth="160"
+                          HorizontalAlignment="Left"
+                          Options="{Binding PlanningAgentChoices}"
+                          SelectedId="{Binding PlanningAgentInstanceId, Mode=OneWay}"
+                          Text="{Binding PlanningAgentLabel}"
+                          DropDownWidth="300"
+                          ToolTip.Tip="Which agent works the goal out, asks the clarifying questions and writes the plan. It never edits anything; the agent in the strip above carries the plan out." />
+
                 <!-- A once-per-goal setting, so it is in the panel rather than the strip. A second
                      agent is what makes a review something other than the author marking their own
                      work; "same as execution" is the default and a real answer, which is why it is a

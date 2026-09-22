@@ -183,6 +183,67 @@ public sealed class SettingsMigrationTests : IDisposable
         finally { Trace.Listeners.Remove(listener); }
     }
 
+    /// <summary>
+    /// The Goal tile's one effort level became a preset over four roles, and the whole chain that
+    /// carries a stored level across is exercised here rather than only its pure rule.
+    /// </summary>
+    /// <remarks>
+    /// <c>GoalRolesTests</c> argues <c>GoalRoles.FromLegacyEffort</c> on its own, which leaves the
+    /// parts between the file and it untested: the <c>GoalEffort</c> property name, the tolerant
+    /// converter on a nullable enum, and the rule that the key is dropped once read. Any of the three
+    /// silently reduces the migration to a no-op — <c>LegacyGoalEffort</c> stays null, somebody's
+    /// <c>max</c> comes back as <c>balanced</c>, and nothing anywhere fails.
+    /// </remarks>
+    [Theory]
+    [InlineData("xhigh", GoalEffortPreset.Thorough)]
+    [InlineData("max", GoalEffortPreset.Thorough)]
+    [InlineData("low", GoalEffortPreset.Cheap)]
+    [InlineData("ToolDefault", GoalEffortPreset.ToolDefault)]
+    public void A_stored_effort_level_becomes_the_preset_it_meant(string stored, GoalEffortPreset expected)
+    {
+        GivenSettings($$"""{ "GoalEffort": "{{stored}}" }""");
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(expected, service.Settings.GoalEffortPreset);
+        Assert.Null(service.Settings.LegacyGoalEffort);
+
+        // Read once: the save the migration triggers is what takes the key out of the file, so a later
+        // version is not still handed a level nothing acts on.
+        Assert.DoesNotContain("GoalEffort\"", File.ReadAllText(SettingsPath));
+        Assert.Equal(expected, new SettingsService(SettingsPath).Settings.GoalEffortPreset);
+    }
+
+    /// <summary>
+    /// The old default was not a decision, so it arrives as the new default rather than as "high
+    /// everywhere" — and it is still dropped, or the migration would run again on every launch.
+    /// </summary>
+    [Fact]
+    public void The_old_default_effort_is_read_as_the_new_default()
+    {
+        GivenSettings("""{ "GoalEffort": "high" }""");
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(GoalEffortPreset.Balanced, service.Settings.GoalEffortPreset);
+        Assert.DoesNotContain("GoalEffort\"", File.ReadAllText(SettingsPath));
+    }
+
+    /// <summary>
+    /// A level this build cannot read must not cost the file, and must not be read as a decision
+    /// either: the converter answers null, so the preset stays at its default.
+    /// </summary>
+    [Fact]
+    public void An_unreadable_effort_level_leaves_the_default_standing()
+    {
+        GivenSettings("""{ "GoalEffort": "cosmic", "FontSize": 13 }""");
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(GoalEffortPreset.Balanced, service.Settings.GoalEffortPreset);
+        Assert.Equal(13, service.Settings.FontSize);
+    }
+
     private sealed class CapturedTrace : TraceListener
     {
         private readonly System.Text.StringBuilder _text = new();

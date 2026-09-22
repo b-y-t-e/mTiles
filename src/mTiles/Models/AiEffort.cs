@@ -4,15 +4,16 @@ namespace mTiles.Models;
 /// How hard the AI tool is asked to think, for the runs this tile starts.
 /// </summary>
 /// <remarks>
-/// <para>A Goal run is the case where this is worth spending: the tile is meant to be left alone for
-/// an hour on work the user has already decided is worth an hour, and the failure it keeps paying for
-/// is an attempt spent on a shallow answer — the budget is in attempts, and a cheap attempt costs
-/// exactly as much of it as a careful one. Hence <see cref="High"/> as the default rather than the
-/// tool's own, which is tuned for interactive use where a person is watching and can redirect.</para>
-/// <para>In settings rather than in the goal file, the same choice <see cref="AiBehaviour"/>
-/// makes and for a related reason: goal files live in <c>.mtiles/goals/</c> inside the user's
-/// repository and travel with a branch, and how hard somebody's own machine should think is not a
-/// property of the branch.</para>
+/// <para><b>A Goal run no longer picks one of these for the whole run</b>, and the argument that used
+/// to stand here — the budget is in attempts, so a cheap attempt costs as much of it as a careful one,
+/// hence <see cref="High"/> everywhere — is superseded by
+/// <c>docs/adr/0003-effort-by-role-in-a-goal-run.md</c>. It holds for planning and reviewing and not
+/// for carrying a plan out, so the tile asks per <c>GoalRole</c> through <c>GoalRoles.EffortFor</c>;
+/// what is left here is the scale itself.</para>
+/// <para>The Goal tile's own setting is in <c>settings.json</c> rather than in the goal file, the same
+/// choice <see cref="AiBehaviour"/> makes and for a related reason: goal files live in
+/// <c>.mtiles/goals/</c> inside the user's repository and travel with a branch, and how hard somebody's
+/// own machine should think is not a property of the branch.</para>
 /// <para>The levels are <c>claude --effort</c>'s own spellings. Measured: an unrecognised
 /// <em>value</em> is forgiving — the tool warns and carries on with its default — but an unrecognised
 /// <em>flag</em> is not, and an older Claude Code answers <c>error: unknown option '--effort'</c> and
@@ -21,8 +22,8 @@ namespace mTiles.Models;
 /// </remarks>
 public enum AiEffort
 {
-    /// <summary>The tile's default. A goal run is left alone, and a shallow attempt spends as much of
-    /// the budget as a careful one.</summary>
+    /// <summary>Thinks it through. What the Goal tile's <c>thorough</c> preset buys its planning and
+    /// its review; declared first because it was once the whole tile's default.</summary>
     High,
 
     Low,

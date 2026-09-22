@@ -17,6 +17,15 @@ public static class SettingPickerRows
     public static PickerOption Effort(string label) =>
         Row(label, label, AiEfforts.Description(AiEfforts.FromLabel(label)));
 
+    /// <summary>
+    /// A Goal effort preset named by its label, with the levels it stands for as its description.
+    /// </summary>
+    /// <remarks>The description is what lets the Goal tile's strip carry one picker where the feature
+    /// has an effort per role: <c>plan medium · work low · review high</c> is visible the moment the
+    /// list is opened and takes no width at all the rest of the time.</remarks>
+    public static PickerOption EffortPreset(string label) =>
+        Row(label, label, GoalRoles.Description(GoalRoles.FromLabel(label)));
+
     /// <summary>A mode as a session offers it; the vocabulary's sentence where the agent gave none.</summary>
     public static PickerOption Mode(SessionOption option) =>
         Row(option.Id, option.Label, option.Description ?? AiBehaviours.DescriptionOf(option.Id));

@@ -51,6 +51,7 @@ public class GoalAgentSelectionTests : IDisposable
 
     private static readonly GoalAgentChoice Worker = Choice("worker", "Worker");
     private static readonly GoalAgentChoice Reviewer = Choice("reviewer", "Reviewer");
+    private static readonly GoalAgentChoice Planner = Choice("planner", "Planner");
 
     private static void OnUiThread(Func<Task> body)
     {
@@ -107,6 +108,107 @@ public class GoalAgentSelectionTests : IDisposable
 
             Assert.DoesNotContain(asked,
                 run => !run.Answer.StartsWith("VERDICT") && run.Agent == "Reviewer");
+        });
+    }
+
+    /// <summary>
+    /// Working the goal out, asking the questions and writing the plan go to the planning agent, and
+    /// carrying the plan out does not.
+    /// </summary>
+    /// <remarks>The half of the split that writes is the half that must not move: a planner that also
+    /// implemented would be a second agent editing the repository behind the worktree
+    /// <c>GoalBaseline</c> photographs once. And a planner that is never reached is a feature that is
+    /// simply dead — nothing in the transcript tells the two models apart.</remarks>
+    [Fact]
+    public void The_planning_phases_run_on_the_planning_agent_and_the_work_on_the_execution_one()
+    {
+        OnUiThread(async () =>
+        {
+            GoalAgents.Factory = _ => [Worker, Reviewer, Planner];
+
+            var asked = new List<(string Agent, string Answer)>();
+            string[] answers =
+                ["Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS"];
+            var next = 0;
+
+            GoalTileViewModel.AiRunnerFactory = (choice, _, _, _) =>
+            {
+                var answer = answers[Math.Min(next++, answers.Length - 1)];
+                asked.Add((choice.Label, answer));
+                return Task.FromResult<AiOutput>(answer);
+            };
+
+            using var vm = NewTile();
+            vm.PlanningAgentInstanceId = Planner.InstanceId;
+
+            vm.InputText = "make the tile resumable";
+            await vm.SubmitCommand.ExecuteAsync(null);   // Goal   → Clarify
+            vm.InputText = "all of them";
+            await vm.SubmitCommand.ExecuteAsync(null);   // Clarify → Plan
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);   // Plan   → Implement → Review
+
+            Assert.Contains(asked, run => run.Answer == "Which files?" && run.Agent == "Planner");
+            Assert.Contains(asked, run => run.Answer == "The plan" && run.Agent == "Planner");
+
+            // The two that are the execution agent's: the work itself, and the review, which nobody
+            // here moved elsewhere.
+            Assert.Contains(asked, run => run.Answer == "Implemented it" && run.Agent == "Worker");
+            Assert.DoesNotContain(asked,
+                run => run.Answer.StartsWith("Implemented") && run.Agent == "Planner");
+            Assert.DoesNotContain(asked,
+                run => run.Answer.StartsWith("VERDICT") && run.Agent == "Planner");
+        });
+    }
+
+    /// <summary>An empty planning choice means the agent doing the work, everywhere.</summary>
+    [Fact]
+    public void Planning_falls_back_to_the_execution_agent_when_none_is_chosen()
+    {
+        OnUiThread(() =>
+        {
+            GoalAgents.Factory = _ => [Worker, Planner];
+
+            using var vm = NewTile();
+
+            Assert.Equal(Worker.InstanceId, vm.PlanningAgent?.InstanceId);
+
+            vm.PlanningAgentInstanceId = Planner.InstanceId;
+            Assert.Equal(Planner.InstanceId, vm.PlanningAgent?.InstanceId);
+
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// The planning agent survives the goal file.
+    /// </summary>
+    /// <remarks>It is a once-per-goal setting on a tile that is meant to be closed and come back, so a
+    /// choice that is not written down is one the user makes again every morning — and silently, since
+    /// the run that follows looks exactly the same.</remarks>
+    [Fact]
+    public void A_planning_agent_is_written_to_the_goal_file_and_read_back()
+    {
+        OnUiThread(() =>
+        {
+            GoalAgents.Factory = _ => [Worker, Planner];
+
+            var path = Path.Combine(_dir, "planned-goal.json");
+            File.WriteAllText(path, """
+                {"OriginalGoal":"a goal","ExecutionAgentInstanceId":"worker","CurrentPhase":"Goal"}
+                """);
+
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+
+            using (var vm = new GoalTileViewModel(path, _dir, settings))
+                vm.PlanningAgentInstanceId = Planner.InstanceId;
+
+            using var reopened = new GoalTileViewModel(path, _dir, settings);
+
+            Assert.Equal(Planner.InstanceId, reopened.PlanningAgentInstanceId);
+            Assert.Equal(Planner.InstanceId, reopened.PlanningAgent?.InstanceId);
+            Assert.Equal(Worker.InstanceId, reopened.ExecutionAgent?.InstanceId);
+            return Task.CompletedTask;
         });
     }
 
