@@ -1,4 +1,4 @@
-using Avalonia.Platform.Storage;
+﻿using Avalonia.Platform.Storage;
 using System.Diagnostics;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -103,6 +103,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
             ? new PickerOption { Id = reviewer.InstanceId, Title = reviewer.Label }
             : null;
         PermissionModePicker.OptionSelector = item => item is string label ? SettingPickerRows.Mode(label) : null;
+        GateModePicker.OptionSelector = item => item is string label ? SettingPickerRows.GateMode(label) : null;
         EffortPicker.OptionSelector = item => item is string label ? SettingPickerRows.EffortPreset(label) : null;
         PlanningAgentPicker.OptionSelector = item => item is GoalAgentSlotChoice planner
             ? new PickerOption { Id = planner.InstanceId, Title = planner.Label }
@@ -111,6 +112,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         ExecutionAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ExecutionAgentInstanceId = e.Option.Id);
         ReviewAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ReviewAgentInstanceId = e.Option.Id);
         PermissionModePicker.SelectionRequested += (_, e) => WithVm(vm => vm.PermissionModeLabel = e.Option.Id);
+        GateModePicker.SelectionRequested += (_, e) => WithVm(vm => vm.GateModeLabel = e.Option.Id);
         EffortPicker.SelectionRequested += (_, e) => WithVm(vm => vm.EffortPresetLabel = e.Option.Id);
         PlanningAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.PlanningAgentInstanceId = e.Option.Id);
     }
@@ -245,7 +247,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
     }
 
     /// <summary>
-    /// Puts the criteria fields back to what the tile is really using, once the user has left one.
+    /// Puts the panel's number fields back to what the tile is really using, once the user has left one.
     /// <para>These are text boxes bound to integers, and Avalonia surfaces a failed conversion as a
     /// binding error rather than as data validation — so the property is simply never set, the
     /// <c>:error</c> pseudo-class never fires, and "50x" sits in the box looking like a setting. This
@@ -255,7 +257,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
     private void NumberBox_LostFocus(object? sender, RoutedEventArgs e)
     {
         if (DataContext is GoalTileViewModel vm)
-            vm.Criteria.Refresh();
+            vm.RefreshNumberFields();
     }
 
     /// <summary>

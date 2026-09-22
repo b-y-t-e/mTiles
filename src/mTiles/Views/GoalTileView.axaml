@@ -1,4 +1,4 @@
-﻿<UserControl xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:mTiles.ViewModels"
              xmlns:ac="using:mTiles.ViewModels.AgentConversation"
@@ -513,6 +513,41 @@
                           Text="{Binding ReviewAgentLabel}"
                           DropDownWidth="300"
                           ToolTip.Tip="Which agent reviews the work. A different one is a second opinion; the same one is the author marking their own work." />
+
+                <!-- ======== What happens between a review and the next attempt ========
+                     A per-goal setting, so it is here beside the criteria rather than in the strip or
+                     in Settings — and unlike the effort preset above it, which is about this machine
+                     and these subscriptions, this is about this piece of work: the same person wants a
+                     countdown on a refactor they are watching and none at all on the goal they left
+                     running while they made coffee. -->
+                <TextBlock Classes="crit-title" Text="after each review" />
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+                    <p:Picker x:Name="GateModePicker"
+                              Classes="strip-picker" MinWidth="130"
+                              Options="{Binding AvailableGateModes}"
+                              SelectedId="{Binding GateModeLabel, Mode=OneWay}"
+                              Text="{Binding GateModeLabel}"
+                              DropDownWidth="320"
+                              ToolTip.Tip="countdown shows the findings and carries on by itself, and touching a tick stops the clock; pause waits for Resume after every review; off hands the findings straight back to the tool." />
+                    <TextBox Classes="crit-field"
+                             MinWidth="46"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding ShowGateSeconds}"
+                             Text="{Binding GateSeconds}"
+                             LostFocus="NumberBox_LostFocus"
+                             ToolTip.Tip="How long the countdown runs (3-600 s)" />
+                    <TextBlock Classes="crit-label"
+                               VerticalAlignment="Center"
+                               Text="seconds"
+                               IsVisible="{Binding ShowGateSeconds}" />
+                    <!-- Shown only where the wait will not be the one in the box; the attempts field
+                         two rows down says the same thing the same way. -->
+                    <TextBlock Classes="crit-label"
+                               VerticalAlignment="Center"
+                               Text="{Binding GateSecondsNote}"
+                               Foreground="{DynamicResource DangerText}"
+                               IsVisible="{Binding GateSecondsNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
 
                 <TextBlock Classes="crit-title" Text="done when" />
 
@@ -1137,6 +1172,51 @@
                     </StackPanel>
                 </DockPanel>
             </Border>
+
+            <!-- ======== The ask: what to fix next ========
+                 The one moment a person can say "not that one". The findings are already on screen in
+                 the review directly above, each with its own tick — so this block carries no list of
+                 its own: a second copy of six findings, one of them a screenful, would put the same
+                 review on screen twice and make it ambiguous which of the two the ticks belonged to.
+                 What is here is the sentence and the way on.
+
+                 In the conversation rather than docked at the foot of the tile, like every other thing
+                 this tile asks for: it belongs to the review it follows, and scrolling back through the
+                 attempt before it must not take it off the bottom of the tile. -->
+            <Border Classes="ask" IsVisible="{Binding ShowReviewGate}">
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                    <StackPanel Margin="10,6,10,8">
+                        <TextBlock Classes="ask-title"
+                                   Text="{Binding ReviewGateLine}"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,6,0,0"
+                                    HorizontalAlignment="Right">
+                            <!-- While the clock is running: get on with it, or stop it. Once it has
+                                 stopped there is only one way on, and it is the same Resume the rest of
+                                 the tile uses - a second verb for the same act would be two buttons the
+                                 user has to tell apart. -->
+                            <Button Classes="chat-action"
+                                    Command="{Binding PauseAtGateCommand}"
+                                    IsVisible="{Binding GateOffersTheClock}"
+                                    Content="Pause"
+                                    ToolTip.Tip="Stop the clock and leave the run here until you press Resume" />
+                            <Button Classes="chat-action primary"
+                                    Command="{Binding ContinueNowCommand}"
+                                    IsVisible="{Binding GateOffersTheClock}"
+                                    Content="Continue now"
+                                    ToolTip.Tip="Carry on with the ticked findings without waiting the clock out" />
+                            <Button Classes="chat-action primary"
+                                    Command="{Binding ResumeCommand}"
+                                    IsVisible="{Binding GateOffersResume}"
+                                    IsEnabled="{Binding !IsRunning}"
+                                    Content="Resume"
+                                    ToolTip.Tip="Carry on, fixing the findings that are still ticked" />
+                        </StackPanel>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
 
 
 

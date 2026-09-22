@@ -287,6 +287,61 @@ public sealed partial class GoalWorkflowEngine
     /// first review of this goal.</summary>
     public int[] LastReviewCounts { get; set; } = [];
 
+    /// <summary>The last review as it came back, so the feedback can be built again from a shorter list
+    /// after the user has dismissed something at the gate. Null before the first review of this
+    /// goal.</summary>
+    public GoalReviewResult? LastReview { get; set; }
+
+    /// <summary>Whether the run is standing at the review gate — see
+    /// <see cref="GoalTileState.PausedAtReviewGate"/>, which is where it is kept so a tile closed at
+    /// the gate comes back at it and a tile paused anywhere else does not.</summary>
+    public bool PausedAtReviewGate { get; set; }
+
+    /// <summary>
+    /// What the user has said is not to be fixed — see <see cref="GoalDismissals"/>.
+    /// </summary>
+    /// <remarks>Of the goal and not of one review: the reviewer is run from scratch on every lap and
+    /// remembers nothing, so a dismissal that lived on its own review would last exactly until the next
+    /// one was written.</remarks>
+    public List<GoalFinding> Dismissed { get; } = [];
+
+    /// <summary>What the loop does when a review is in and the goal is not finished — see
+    /// <see cref="GoalReviewGateMode"/>.</summary>
+    public GoalReviewGateMode ReviewGateMode { get; set; }
+
+    /// <summary>How long the gate's countdown runs, as it was typed. Bounded where it is used, the rule
+    /// <see cref="MaxIter"/> follows and for the same reason.</summary>
+    public int ReviewGateSeconds { get; set; } = GoalReviewGatePolicy.DefaultSeconds;
+
+    /// <summary>The wait the gate actually gets, whatever the panel or the file says.</summary>
+    public int GateSeconds => GoalReviewGatePolicy.Seconds(ReviewGateSeconds);
+
+    /// <summary>
+    /// Records what a tick now says about this finding, and answers whether anything moved.
+    /// </summary>
+    /// <remarks>By identity rather than by reference: the finding the user ticked is the one in the
+    /// transcript, and the one already on the list came off a review that may have been written on an
+    /// earlier lap or read back out of the file. Two objects, one defect.</remarks>
+    public bool SetFix(GoalFinding finding, bool fix)
+    {
+        var stored = Dismissed.FirstOrDefault(d => d.Defect == finding.Defect);
+        if (fix)
+        {
+            if (stored is null) return false;
+            Dismissed.Remove(stored);
+            return true;
+        }
+
+        if (stored is not null) return false;
+        Dismissed.Add(finding);
+        return true;
+    }
+
+    /// <summary>The review as the criteria and the next prompt see it: what came back, less what has
+    /// been dismissed.</summary>
+    public GoalReviewResult Accepted(GoalReviewResult review) =>
+        GoalDismissals.Accepted(review, Dismissed);
+
     /// <param name="budget">How many characters the chosen tool can be handed on a command line, or
     /// null when there is no such limit — see <see cref="AiProcessRunner.PromptBudget"/>. Passed all the
     /// way down rather than looked up in the builder, which is pure and knows nothing about tools.</param>
@@ -325,7 +380,11 @@ public sealed partial class GoalWorkflowEngine
     /// <inheritdoc cref="BuildClarifyPrompt"/>
     public string BuildReviewPrompt(string? gitDiff, bool scoped = false, int? budget = null,
         string? guideline = null) =>
-        _promptBuilder.BuildReview(OriginalGoal, gitDiff, scoped, budget, guideline);
+        // The dismissals are read here rather than passed in, so no caller can build a review prompt
+        // that forgets them — which is a reviewer raising, in fresh words, the finding the user
+        // unticked a minute ago, and an attempt spent undoing their decision.
+        _promptBuilder.BuildReview(OriginalGoal, gitDiff, scoped, budget, guideline,
+            GoalDismissals.PromptBlock(Dismissed));
 
     /// <summary>Asks the tool to re-send a review block it wrote as invalid JSON. The answer travels
     /// alone — the salvage round repairs what the tool wrote, it does not re-run the phase.</summary>
@@ -362,6 +421,14 @@ public sealed partial class GoalWorkflowEngine
         LastReviewFeedback = null;
         LastReviewFingerprint = null;
         LastReviewCounts = [];
+        LastReview = null;
+        PausedAtReviewGate = false;
+
+        // The old goal's dismissals go with the old goal. They are a decision about findings raised
+        // against work that is no longer what is being asked for, and kept, they would quietly tell the
+        // next goal's reviewer not to mention a defect nobody has looked at yet. The gate's own settings
+        // stay: those are how this tile is worked, not what it is working on.
+        Dismissed.Clear();
         AttemptLog.Clear();
         IterationCount = 0;
         LastStopReason = null;
@@ -505,6 +572,13 @@ public sealed partial class GoalWorkflowEngine
         // run after a single attempt, reporting that two reviews had agreed when only one had happened.
         LastReviewFingerprint = null;
         LastReviewCounts = [];
+        LastReview = null;
+        PausedAtReviewGate = false;
+
+        // The dismissals stay. They are the user's answer about a defect, not about the plan that was
+        // being argued over — and a rejected plan and its replacement are usually about the same defect,
+        // so clearing them here is how something unticked twenty seconds ago comes back on the first
+        // review of the new plan.
 
         IterationCount = 0;
         return true;
@@ -735,6 +809,11 @@ public sealed partial class GoalWorkflowEngine
         AttemptLog = [..AttemptLog],
         LastReviewFingerprint = LastReviewFingerprint,
         LastReviewCounts = [..LastReviewCounts],
+        LastReview = LastReview,
+        PausedAtReviewGate = PausedAtReviewGate,
+        DismissedFindings = [..Dismissed],
+        ReviewGateMode = ReviewGateMode,
+        ReviewGateSeconds = ReviewGateSeconds,
         Criteria = Criteria.Copy(),
 
         // Filtered here rather than at the call site so no caller can forget: a note about this session
@@ -785,6 +864,12 @@ public sealed partial class GoalWorkflowEngine
         AttemptLog.AddRange(state.AttemptLog);
         LastReviewFingerprint = state.LastReviewFingerprint;
         LastReviewCounts = [..state.LastReviewCounts];
+        LastReview = state.LastReview;
+        PausedAtReviewGate = state.PausedAtReviewGate;
+        Dismissed.Clear();
+        Dismissed.AddRange(state.DismissedFindings);
+        ReviewGateMode = state.ReviewGateMode;
+        ReviewGateSeconds = state.ReviewGateSeconds;
         Criteria = state.Criteria.Copy();
 
         // A run that was interrupted is a pause nobody asked for. The rule lives here rather than in

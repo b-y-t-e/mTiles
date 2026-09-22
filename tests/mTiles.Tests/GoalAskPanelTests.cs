@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
@@ -110,9 +110,9 @@ public class GoalAskPanelTests : IDisposable
             using var vm = Tile();
             var view = Shown(vm);
 
-            // An empty tile asks for a goal, and the composer is the whole of that. Both panels are in
-            // the tree either way — what a user sees is which of them is visible.
-            Assert.Equal(2, Asks(view).Count);
+            // An empty tile asks for a goal, and the composer is the whole of that. All three panels are
+            // in the tree either way — what a user sees is which of them is visible.
+            Assert.Equal(3, Asks(view).Count);
             Assert.True(vm.ShowComposer);
             Assert.DoesNotContain(Asks(view), b => b.IsVisible);
 
@@ -370,10 +370,10 @@ public class GoalAskPanelTests : IDisposable
 
             var scroller = view.GetVisualDescendants().OfType<ScrollViewer>().First(c => c.Name == "ChatScroll");
 
-            // The two ask blocks — the questions and the plan. Both are in the tree whether or not they
-            // are showing, so this holds before anything has been asked.
+            // The three ask blocks — the questions, the plan and the review gate. All are in the tree
+            // whether or not they are showing, so this holds before anything has been asked.
             var asks = Asks(view).ToList();
-            Assert.Equal(2, asks.Count);
+            Assert.Equal(3, asks.Count);
             Assert.All(asks, b => Assert.Contains(scroller, b.GetVisualAncestors()));
 
             // And the transcript is in there with them, which is the point: one scroller, not two

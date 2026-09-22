@@ -23,12 +23,29 @@
     <Styles.Resources>
         <DataTemplate x:Key="FindingTemplate" DataType="m:GoalFinding">
             <Border Classes="finding"
+                    Classes.f-left="{Binding !Fix}"
                     Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
                     Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
                     Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
                     Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}">
                 <StackPanel>
                     <DockPanel>
+                        <!-- ======== Will this one be fixed ========
+                             Drawn only where there is a choice to make or one that has been made - see
+                             GoalFinding.ShowPick. A review nobody was offered a say in keeps the look it
+                             has always had, rather than growing a column of permanently ticked boxes
+                             saying nothing.
+
+                             First in the row, before the severity, because it is the one thing here
+                             that is acted on: everything to the right of it describes the finding, and
+                             a control the eye has to find among three kinds of text is a control that
+                             gets missed while a clock runs. -->
+                        <CheckBox DockPanel.Dock="Left"
+                                  Classes="f-pick"
+                                  IsVisible="{Binding ShowPick}"
+                                  IsEnabled="{Binding CanPick}"
+                                  IsChecked="{Binding Fix, Mode=TwoWay}"
+                                  ToolTip.Tip="Ticked goes back to the tool to be fixed. Unticked is left alone - it stops counting against the goal, and the next review is told not to raise it again." />
                         <TextBlock DockPanel.Dock="Left"
                                    Classes="f-sev"
                                    Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
@@ -114,6 +131,20 @@
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Padding" Value="10,2,0,4" />
             <Setter Property="Margin" Value="0,14,0,0" />
+        </Style>
+        <!-- What a finding that is being left alone looks like: still there, still readable, plainly
+             not part of what happens next. Dimmed rather than struck through or hidden - it is the
+             record of a decision, and a reader two attempts later has to be able to see what was
+             decided as well as what was found. -->
+        <Style Selector="Border.finding.f-left">
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
+        <Style Selector="CheckBox.f-pick">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0,1,8,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
         </Style>
         <Style Selector="Border.finding:nth-child(1)">
             <Setter Property="Margin" Value="0" />

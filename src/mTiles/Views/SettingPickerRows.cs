@@ -26,6 +26,10 @@ public static class SettingPickerRows
     public static PickerOption EffortPreset(string label) =>
         Row(label, label, GoalRoles.Description(GoalRoles.FromLabel(label)));
 
+    /// <summary>A Goal review gate mode named by its label, with what it does as its description.</summary>
+    public static PickerOption GateMode(string label) =>
+        Row(label, label, GoalReviewGatePolicy.Description(GoalReviewGatePolicy.FromLabel(label)));
+
     /// <summary>A mode as a session offers it; the vocabulary's sentence where the agent gave none.</summary>
     public static PickerOption Mode(SessionOption option) =>
         Row(option.Id, option.Label, option.Description ?? AiBehaviours.DescriptionOf(option.Id));

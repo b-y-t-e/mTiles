@@ -301,6 +301,68 @@ public sealed class GoalTileState
     public string? LastReviewFeedback { get; set; }
 
     /// <summary>
+    /// The last review as it came back, kept whole.
+    /// </summary>
+    /// <remarks>
+    /// <para>What <see cref="LastReviewFeedback"/> was built from, and the reason both are here: the
+    /// feedback is a flattened sentence, and once a finding can be dismissed after the review has been
+    /// written, that sentence has to be built again from the findings that are left. A run paused at
+    /// the gate is exactly where that happens — the user unticks something, closes the tile, comes
+    /// back, and Resume has to re-implement against the shorter list rather than the one the file
+    /// happened to hold.</para>
+    /// <para>Nullable, because a goal that has never been reviewed has no last review — and every goal
+    /// file written before this existed has none either, which reads as null and costs the tile
+    /// nothing but the ability to recompute a decision nobody could have taken then.</para>
+    /// </remarks>
+    public GoalReviewResult? LastReview { get; set; }
+
+    /// <summary>
+    /// Whether the run was standing at the review gate when this was written.
+    /// </summary>
+    /// <remarks>Nothing else answers it. A pause is a pause however it was reached, and
+    /// <see cref="LastReview"/> is written on every lap — <see cref="GoalReviewGateMode.Off"/>
+    /// included — so a tile paused by the header button in the middle of an implementation came back
+    /// showing the gate over a review whose feedback had already gone to the tool, offering to take
+    /// back a decision that is no longer takeable. False for every goal file written before this
+    /// existed, which is what a gate nobody was standing at means.</remarks>
+    public bool PausedAtReviewGate { get; set; }
+
+    /// <summary>
+    /// The findings the user has said are not to be fixed, for this goal.
+    /// </summary>
+    /// <remarks>
+    /// <para>Whole findings rather than the identities they are matched by, because the review prompt
+    /// carries them back to the next reviewer as a list of things not to raise again, and an identity
+    /// is not something a model can be handed — see <see cref="mTiles.Services.GoalDismissals"/>.</para>
+    /// <para>Guarded against a null list and a null <em>in</em> the list, like every collection here:
+    /// each entry is read straight into a prompt block and compared against every finding of every
+    /// later review.</para>
+    /// </remarks>
+    public List<GoalFinding> DismissedFindings
+    {
+        get => _dismissedFindings;
+        set => _dismissedFindings = Without.Nulls(value);
+    }
+    private List<GoalFinding> _dismissedFindings = [];
+
+    /// <summary>
+    /// What the loop does when a review is in and the goal is not finished — see
+    /// <see cref="GoalReviewGateMode"/>.
+    /// </summary>
+    /// <remarks>Tolerantly read, as every enum in this file is: a mode written by a newer build and
+    /// read after a Velopack rollback must not cost the transcript beside it. An unreadable answer
+    /// falls to <see cref="GoalReviewGateMode.Countdown"/>, which is what a file that has never carried
+    /// the field means too.</remarks>
+    [JsonConverter(typeof(TolerantGoalReviewGateModeConverter))]
+    public GoalReviewGateMode ReviewGateMode { get; set; }
+
+    /// <summary>How long the countdown runs, as it was typed. Clamped where it is used
+    /// (<see cref="mTiles.Services.GoalReviewGatePolicy.Seconds"/>) rather than here, the rule the
+    /// completion criteria already follow: a field showing one number while the run uses another is the
+    /// panel lying about what it is doing.</summary>
+    public int ReviewGateSeconds { get; set; } = mTiles.Services.GoalReviewGatePolicy.DefaultSeconds;
+
+    /// <summary>
     /// Questions the tool has asked and the user has not answered yet.
     /// </summary>
     /// <remarks>

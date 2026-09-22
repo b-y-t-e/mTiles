@@ -223,15 +223,24 @@ public partial class GoalTileViewModel
     /// from a tile that had finished.</para>
     /// </remarks>
     public TileActivity Activity =>
-        IsRunning ? TileActivity.Working
-        : ShowQuestions || ShowApproval ? TileActivity.Blocked
+        // Waiting outranks running, and the gate is why: the loop holds IsRunning for the whole of a
+        // countdown, so read the other way round the tile says "working, leave it alone" for exactly
+        // the fifteen seconds somebody has to answer in.
+        IsWaitingForUser ? TileActivity.Blocked
+        : IsRunning ? TileActivity.Working
         : TileActivity.Idle;
+
+    /// <summary>Whether the run has stopped at something only the user can move — a round of questions,
+    /// a plan awaiting approval, or the gate after a review.</summary>
+    /// <remarks>The gate is the one of the three the loop holds <see cref="IsRunning"/> through, which
+    /// is why every reader takes it from here rather than testing the flags in its own order.</remarks>
+    private bool IsWaitingForUser => ShowQuestions || ShowApproval || ShowReviewGate;
 
     /// <summary>The strip's status word — see <see cref="GoalStatus"/>. Raised wherever
     /// <see cref="Activity"/> is, and with the phase, its label and a pause.</summary>
     private (string Text, AgentConversation.AgentStatusTone Tone) Status =>
-        GoalStatus.Of(IsRunning, IsPaused, ShowQuestions || ShowApproval, CurrentPhase, _engine.LastStopReason,
-            PhaseLabel);
+        GoalStatus.Of(IsRunning && !IsWaitingForUser, IsPaused, IsWaitingForUser, CurrentPhase,
+            _engine.LastStopReason, PhaseLabel);
 
     public string StatusText => Status.Text;
     public AgentConversation.AgentStatusTone StatusTone => Status.Tone;
@@ -904,6 +913,86 @@ public partial class GoalTileViewModel
 
     /// <summary>The effort presets the strip offers.</summary>
     public IReadOnlyList<string> AvailableEffortPresets => GoalRoles.Labels;
+
+    /// <summary>The gate modes the criteria panel offers.</summary>
+    public IReadOnlyList<string> AvailableGateModes => GoalReviewGatePolicy.Labels;
+
+    /// <summary>
+    /// What happens between a review and the next attempt, as the panel shows it.
+    /// </summary>
+    /// <remarks>
+    /// <para>A per-goal setting and not a per-machine one, which is the opposite of the effort preset
+    /// beside it in the panel — and for a reason that is about what is being decided rather than about
+    /// symmetry. How hard the tools think is a fact about this machine and these subscriptions; whether
+    /// a run may re-implement without being looked at is a fact about <em>this</em> piece of work, and
+    /// the same person wants a countdown on a refactor they are watching and none at all on the goal
+    /// they left running while they made coffee.</para>
+    /// <para>Written straight through to the engine and saved, like the criteria under it. No
+    /// confirmation: every mode here is visible while it costs anything, and the worst of them costs
+    /// a wait.</para>
+    /// </remarks>
+    public string GateModeLabel
+    {
+        get => GoalReviewGatePolicy.Label(_engine.ReviewGateMode);
+        set
+        {
+            var mode = GoalReviewGatePolicy.FromLabel(value);
+            if (mode == _engine.ReviewGateMode) return;
+
+            _engine.ReviewGateMode = mode;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowGateSeconds));
+            SaveStateNow();
+        }
+    }
+
+    /// <summary>Whether the seconds box means anything — only the countdown has a clock.</summary>
+    public bool ShowGateSeconds => _engine.ReviewGateMode == GoalReviewGateMode.Countdown;
+
+    /// <summary>
+    /// How long the countdown runs, as typed.
+    /// </summary>
+    /// <remarks>Stored exactly as typed and bounded where it is used
+    /// (<see cref="GoalReviewGatePolicy.Seconds"/>), the rule the attempt count already follows: a box
+    /// showing 0 while the run waits three seconds is the panel lying about what it is doing. What
+    /// stops that being silent is <see cref="GateSecondsNote"/>.</remarks>
+    public int GateSeconds
+    {
+        get => _engine.ReviewGateSeconds;
+        set
+        {
+            if (value == _engine.ReviewGateSeconds) return;
+
+            _engine.ReviewGateSeconds = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(GateSecondsNote));
+            // Debounced, the rule the criteria's own number boxes follow: this runs on every keystroke
+            // in a text box, and a save serialises the whole transcript on the UI thread.
+            SaveStateSoon();
+        }
+    }
+
+    /// <summary>
+    /// Puts every number box on the criteria panel back to what the tile is really using, once the
+    /// user has left one.
+    /// </summary>
+    /// <remarks>The panel's number boxes do not all belong to one object: the criteria are on
+    /// <see cref="Criteria"/> and the gate's wait is here, so a view asking only the editor to redraw
+    /// leaves "abc" sitting in the seconds box while the gate goes on counting the last good value —
+    /// the panel showing one number and the run using another. One method, so a number field added to
+    /// either object is redrawn from the same call.</remarks>
+    public void RefreshNumberFields()
+    {
+        Criteria.Refresh();
+        OnPropertyChanged(nameof(GateSeconds));
+        OnPropertyChanged(nameof(GateSecondsNote));
+    }
+
+    /// <summary>Empty unless the typed wait is not the wait the gate will take.</summary>
+    public string GateSecondsNote =>
+        GoalReviewGatePolicy.Seconds(GateSeconds) == GateSeconds
+            ? ""
+            : $"using {GoalReviewGatePolicy.Seconds(GateSeconds)}";
 
     /// <summary>
     /// How hard the tools are asked to think, as the strip shows it: one word standing for a level per
@@ -1678,7 +1767,8 @@ public partial class GoalTileViewModel
     /// same way: by the next thing typed, which is what that phase is waiting for anyway.</para>
     /// </remarks>
     public bool ShowResume =>
-        IsPaused && !ShowQuestions && !ShowApproval && GoalTilePolicy.CanResume(CurrentPhase);
+        IsPaused && !IsWaitingForUser
+        && GoalTilePolicy.CanResume(CurrentPhase);
 
     /// <summary>
     /// Whether the button is usable, as against on screen.
@@ -2657,6 +2747,12 @@ public partial class GoalTileViewModel
     /// </param>
     private async Task RunImplementReviewLoopAsync(bool finishInterruptedIteration = false, bool startAtReview = false)
     {
+        // Whatever the last gate left open belongs to a decision this loop is about to act on. It is
+        // closed here rather than where the pause was taken, because the pause is exactly the case
+        // where the ticks have to stay: a resume arrives through here, and this is the moment the
+        // answer stops being changeable.
+        ClosePicks();
+
         try
         {
             var finishing = finishInterruptedIteration;
@@ -2855,7 +2951,18 @@ public partial class GoalTileViewModel
                     GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
                     findings: GoalTranscript.InOrder(review.Findings));
 
-                if (GoalCompletionPolicy.IsMet(review, criteria))
+                // Kept whole, so a tick moved after the run has stopped can rebuild the feedback from
+                // it — see RebuildReviewFeedback.
+                _engine.LastReview = review;
+
+                // What the criteria, the feedback and the no-progress stop all judge: the review less
+                // whatever the user has said is not to be fixed. Asked for once and used by all four,
+                // because two rules for it disagree in the one way that cannot be recovered from — a
+                // dismissed error kept out of the prompt, so nothing ever touches it, and counted by
+                // the criteria, so the goal is refused for it on every lap until the budget is gone.
+                var accepted = _engine.Accepted(review);
+
+                if (GoalCompletionPolicy.IsMet(accepted, criteria))
                 {
                     _engine.ClearReviewFeedback();
                     stopReason = GoalStopReason.Met;
@@ -2872,21 +2979,70 @@ public partial class GoalTileViewModel
                     break;
                 }
 
+                // ======== The gate ========
+                // The one moment somebody can say "not that one" — the findings are on screen and
+                // nothing has been re-implemented over them yet. Before the feedback is recorded,
+                // because what they untick here is what that feedback must not carry.
+                if (GoalReviewGatePolicy.Opens(
+                        _engine.ReviewGateMode,
+                        pickable: review.Findings.Any(f => GoalReviewGatePolicy.CanPick(f.Severity)),
+                        hasNextAttempt: GoalLoopPolicy.NextAttempt(
+                            _engine.IterationCount, _engine.MaxIter, false) is not null))
+                {
+                    var gateCarriedOn = await WaitAtReviewGateAsync(
+                        review, _cts?.Token ?? CancellationToken.None);
+
+                    // The wait is released by Dispose as well as by the clock and the buttons, and its
+                    // continuation runs after the tile is already gone. Everything below writes: the
+                    // feedback, the fingerprint, and — through the summary — a commit in the user's
+                    // working tree. A tile closed at the gate must not leave one behind, so this is
+                    // asked before the branch that finishes the run, not after it.
+                    if (_disposed) return;
+                    if (!gateCarriedOn) PauseFromGate();
+
+                    // Asked again, because the ticks are what the gate was for. Dismissing the last
+                    // error is a goal that is finished, and taking that answer only on the next lap
+                    // would be an attempt spent re-implementing against an empty list.
+                    //
+                    // Only where the gate carried on by itself, though. Touching a tick *is* the
+                    // request to stop, and finishing the run on the answer that request produced
+                    // discards it silently — with "commit the work when done" on, that is the work
+                    // committed without anybody pressing Resume. Paused, this falls through to the
+                    // pause branch below and the run waits, and the verdict is taken by
+                    // FinishedAtTheGateAsync the moment Resume is pressed — which is that press, so
+                    // the run ends there rather than spending an implementation on an empty list.
+                    accepted = _engine.Accepted(review);
+                    if (gateCarriedOn && GoalCompletionPolicy.IsMet(accepted, criteria))
+                    {
+                        ClosePicks();
+                        _engine.ClearReviewFeedback();
+                        stopReason = GoalStopReason.Met;
+                        outstanding = null;
+                        break;
+                    }
+
+                    // Only once the run is actually going on. A pause leaves them open, which is what
+                    // lets the choosing carry on while the tile sits there — the next implementation
+                    // is what closes them.
+                    if (!PauseRequested) ClosePicks();
+
+                }
+
                 // Only the errors and warnings go back, and only as findings. The whole review used to,
                 // nits and prose included, so an attempt could be spent renaming a variable while the
                 // null dereference above it stayed exactly where it was.
-                _engine.RecordReviewFeedback(GoalTranscript.Feedback(review));
-                outstanding = GoalCompletionPolicy.WhyNotMet(review, criteria);
+                _engine.RecordReviewFeedback(GoalTranscript.Feedback(accepted));
+                outstanding = GoalCompletionPolicy.WhyNotMet(accepted, criteria);
 
                 var repeatedItself = GoalCompletionPolicy.RepeatsPrevious(
-                    review, _engine.LastReviewFingerprint);
-                _engine.LastReviewFingerprint = review.WasStructured ? review.Fingerprint() : null;
-                if (repeatedItself)
-                {
-                    stopReason = GoalStopReason.NoProgress;
-                    break;
-                }
-
+                    accepted, _engine.LastReviewFingerprint);
+                _engine.LastReviewFingerprint = accepted.WasStructured ? accepted.Fingerprint() : null;
+                // The pause is asked before the repeat is acted on, and the order is the whole of it.
+                // A gate whose tick was touched on a lap the reviewer happened to repeat itself on had
+                // its pause thrown away and the run summarised instead — with "commit the work when
+                // done" on, that is the work committed by the very press that asked it to stop. The
+                // repeat is mechanical and will still be there on the lap after Resume; the pause is a
+                // person, and is answered first.
                 if (PauseRequested)
                 {
                     // The review has run and asked for another pass, so what is owed is the next
@@ -2899,17 +3055,19 @@ public partial class GoalTileViewModel
                     // rather than left paused, because a Resume there could only re-run the review it
                     // had just finished, for one AI run and the same verdict twice, before summarising
                     // anyway.
-                    if (GoalLoopPolicy.NextAttempt(_engine.IterationCount, _engine.MaxIter, false) is not { } pending)
+                    if (!MoveToNextImplementation())
                     {
                         await ShowSummaryAsync(GoalStopReason.BudgetSpent, outstanding);
                         return;
                     }
 
-                    _engine.IterationCount = pending;
-                    _engine.CurrentPhase = GoalPhase.Implement;
-                    SyncFromEngine();
-                    PhaseLabel = _engine.GetPhaseLabel();
                     return;
+                }
+
+                if (repeatedItself)
+                {
+                    stopReason = GoalStopReason.NoProgress;
+                    break;
                 }
 
                 // The next attempt's number comes from the same rule that decides whether there is one,
@@ -2997,6 +3155,10 @@ public partial class GoalTileViewModel
         // pair in step.
         _engine.StartNewGoal(goal);
 
+        // The ticks belonged to the goal that has just been replaced, and so does whatever they were
+        // still offering to change.
+        ClosePicks();
+
         // StartNewGoal keeps only the images the new goal still refers to, so a marker the user pasted
         // and then left in the composer — + pressed, or a goal detected from the working tree — now
         // stands for nothing. It goes with them: sent as it is, the tool is handed [Image #1] with no
@@ -3021,8 +3183,382 @@ public partial class GoalTileViewModel
     /// Read once: <c>Enum.GetValues</c> allocates.</summary>
     private static readonly GoalSeverity[] GoalSeverities = Enum.GetValues<GoalSeverity>();
 
-    /// <summary>The badges in the status strip. Set on every review, including one that found nothing,
-    /// so a clean attempt does not keep showing the counts from the one before it.</summary>
+    // ======== The review gate ========
+    //
+    // What stands between a review and the next attempt. Everything about *when* it opens, when the
+    // clock stops and what it says is in GoalReviewGatePolicy, which is pure and argued in a table
+    // test; what is here is the timer, the wait, and the bookkeeping of which findings are currently
+    // offering a tick.
+
+    /// <summary>Whether the gate's own block is on screen — counting, or waiting for somebody.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GateOffersTheClock))]
+    [NotifyPropertyChangedFor(nameof(GateOffersResume))]
+    private bool _showReviewGate;
+
+    /// <summary>What the block says; <see cref="GoalReviewGatePolicy.Line"/> writes it.</summary>
+    [ObservableProperty] private string _reviewGateLine = "";
+
+    /// <summary>Whether the clock is still running, which is what decides between offering Continue
+    /// now and offering Resume.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GateOffersTheClock))]
+    [NotifyPropertyChangedFor(nameof(GateOffersResume))]
+    private bool _gateIsCounting;
+
+    /// <summary>Whether the block's Continue now and Pause are on screen.</summary>
+    public bool GateOffersTheClock => ShowReviewGate && GateIsCounting;
+
+    /// <summary>
+    /// Whether the block's own Resume is on screen.
+    /// </summary>
+    /// <remarks>Both halves of the question, rather than the clock alone: an <c>IsVisible</c> that only
+    /// asked about the clock is true on every tile that has never opened a gate — collapsed along with
+    /// the block around it, and so invisible on screen while every ancestor-blind reading of the tree
+    /// still finds a Resume button standing there. Two such readings exist: the test that pins where
+    /// Resume is offered, and anything that walks the visual tree looking for an action.</remarks>
+    public bool GateOffersResume => ShowReviewGate && !GateIsCounting;
+
+    private GoalGateState _gateState = GoalGateState.Waiting;
+
+    /// <summary>The wait the loop is sitting in, or null when the gate is not counting. True means
+    /// carry on, false means the run is to be paused.</summary>
+    private TaskCompletionSource<bool>? _gateWait;
+
+    private DispatcherTimer? _gateTimer;
+    private int _gateRemaining;
+
+    /// <summary>The findings currently offering a tick. Held so they can be unsubscribed from and put
+    /// back to <c>CanPick = false</c>: the objects live in the transcript and outlast the gate.</summary>
+    private readonly List<GoalFinding> _picking = [];
+
+    /// <summary>
+    /// Stops the loop between the review and the next attempt, and answers whether it may carry on.
+    /// </summary>
+    /// <remarks>
+    /// <para>False is not a failure — it is the user taking the decision by hand, by touching a tick,
+    /// by pressing Pause, or by having asked for <see cref="GoalReviewGateMode.Manual"/> in the first
+    /// place. The caller pauses the run, and the picks stay open across the pause so the choosing can
+    /// go on afterwards; what closes them is the next implementation starting.</para>
+    /// <para>The clock is a <see cref="DispatcherTimer"/> rather than a <c>Task.Delay</c> because the
+    /// block counts down on screen, and the one number a person watches must come from the same thing
+    /// that decides when the wait is over — two clocks means a block reading "continuing in 3 s" for a
+    /// wait that ended a moment ago.</para>
+    /// </remarks>
+    private async Task<bool> WaitAtReviewGateAsync(GoalReviewResult review, CancellationToken ct)
+    {
+        OpenPicks(review.Findings, GoalReviewGatePolicy.Initial(_engine.ReviewGateMode));
+
+        // Manual is a pause and nothing else: the ticks are open, the block says so, and the answer is
+        // no without a clock ever having run.
+        if (_gateState != GoalGateState.Counting) return false;
+
+        _gateRemaining = _engine.GateSeconds;
+        UpdateGateLine();
+
+        var wait = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _gateWait = wait;
+
+        // A pause pressed in the header cancels the run's token, and that has to reach the gate: the
+        // loop is not inside an AI run here, so nothing else would notice, and the wait would sit out
+        // its whole countdown before honouring a pause pressed at the start of it.
+        await using var cancellation = ct.Register(() => wait.TrySetResult(false));
+
+        _gateTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Normal, OnGateTick);
+        _gateTimer.Start();
+        try
+        {
+            var carryOn = await wait.Task;
+
+            // A pause leaves the state machine in Counting, and the sentence under the block would go
+            // on saying "continuing in N s" over a clock that has stopped — the disagreement
+            // GoalReviewGatePolicy.Line calls worse than no sentence at all. Said here rather than
+            // where the pause is pressed because the two routes into it (the block's own Pause and the
+            // header's, which arrives on the run's token, off this thread) share exactly this one
+            // moment on the loop's own thread.
+            if (!carryOn) _gateState = GoalReviewGatePolicy.AfterEdit(_gateState);
+            return carryOn;
+        }
+        finally
+        {
+            // `?.`, because Dispose stops and clears the timer itself before it releases this wait:
+            // the completion runs asynchronously, so this line is reached after the field is already
+            // null, and a tile closed during the countdown threw out of an async command on the UI
+            // thread with nothing between it and the dispatcher.
+            _gateTimer?.Stop();
+            _gateTimer = null;
+            _gateWait = null;
+            GateIsCounting = false;
+            UpdateGateLine();
+        }
+    }
+
+    private void OnGateTick(object? sender, EventArgs e)
+    {
+        _gateRemaining--;
+        if (GoalReviewGatePolicy.Expired(_gateState, _gateRemaining))
+        {
+            _gateWait?.TrySetResult(true);
+            return;
+        }
+
+        UpdateGateLine();
+    }
+
+    /// <summary>Whether the transcript's last list of findings is the one this review returned.</summary>
+    private static bool IsSameList(IReadOnlyList<GoalFinding>? shown, IReadOnlyList<GoalFinding> reviewed) =>
+        shown is { Count: > 0 } && shown.Count == reviewed.Count
+        && shown.Select(f => f.Defect).SequenceEqual(reviewed.Select(f => f.Defect));
+
+    /// <summary>
+    /// Puts the tick beside every finding this review left a choice about.
+    /// </summary>
+    /// <remarks>A blocker is not one of them — see <see cref="GoalReviewGatePolicy.CanPick"/> — and it
+    /// is left with no tick at all rather than a ticked one that refuses to move, which is a control
+    /// that looks broken exactly where the rule is strictest.</remarks>
+    /// <param name="state">Where the gate starts. Named by the caller rather than derived from the
+    /// mode, because the two callers mean different things by it: the loop opens a fresh gate, and a
+    /// reload opens one over a run that is already paused — which in countdown mode would otherwise
+    /// come back claiming to be counting, with no clock behind it and a number on screen that never
+    /// moves.</param>
+    private void OpenPicks(IReadOnlyList<GoalFinding> findings, GoalGateState state)
+    {
+        ClosePicks();
+
+        foreach (var finding in findings)
+        {
+            // The stored answer first and the subscription after it, or filling the tick from the
+            // dismissals would read as the user moving it: the run would pause on its own gate, over a
+            // decision taken on some earlier lap.
+            finding.Fix = !GoalDismissals.Contains(_engine.Dismissed, finding);
+            finding.CanPick = GoalReviewGatePolicy.CanPick(finding.Severity);
+            if (!finding.CanPick) continue;
+
+            finding.PropertyChanged += OnPickChanged;
+            _picking.Add(finding);
+        }
+
+        _gateState = state;
+
+        // The one fact a reload cannot work out for itself: a pause says nothing about where it was
+        // pressed, and the last review is written on every lap, the gate switched off included.
+        _engine.PausedAtReviewGate = true;
+        GateIsCounting = _gateState == GoalGateState.Counting;
+        ShowReviewGate = true;
+        UpdateGateLine();
+        RefreshAsk();
+    }
+
+    /// <summary>
+    /// Whether the run that was paused at the review gate is in fact finished, and finishes it.
+    /// </summary>
+    /// <remarks>
+    /// <para>Asked of the review the gate was standing over, less what the user dismissed in it — the
+    /// same subtraction the loop is judged by, so the gate and the loop cannot reach different
+    /// conclusions about one list. A goal whose remaining findings are within the criteria is a goal
+    /// that is done, and re-implementing against nothing is an AI run and an edit in somebody's
+    /// worktree spent proving it.</para>
+    /// <para>Here rather than in the loop because Resume is the press this answer was waiting for:
+    /// the loop reaches this state only by way of a tick, which is a request to stop, and a run that
+    /// ends there commits without having been asked to.</para>
+    /// </remarks>
+    private async Task<bool> FinishedAtTheGateAsync()
+    {
+        if (!_engine.PausedAtReviewGate || _engine.LastReview is not { } review) return false;
+        if (!GoalCompletionPolicy.IsMet(_engine.Accepted(review), _engine.Criteria)) return false;
+
+        StepBackToTheGate();
+        ClosePicks();
+        _engine.ClearReviewFeedback();
+        await WorkingAsync(() => ShowSummaryAsync(GoalStopReason.Met));
+        SaveStateNow();
+        return true;
+    }
+
+    /// <summary>Undoes the step <see cref="MoveToNextImplementation"/> took when the gate paused, so a
+    /// goal finished at the gate is counted in the attempts it actually ran.</summary>
+    /// <remarks>Without it the summary says one attempt more than was made, and Continue offers one
+    /// fewer.</remarks>
+    private void StepBackToTheGate()
+    {
+        if (_engine.CurrentPhase != GoalPhase.Implement) return;
+
+        _engine.IterationCount--;
+        _engine.CurrentPhase = GoalPhase.Review;
+        SyncFromEngine();
+    }
+
+    /// <summary>Moves the run onto the implementation a paused review owes, and says whether there
+    /// was one.</summary>
+    /// <remarks>The phase is the whole point: left in <see cref="GoalPhase.Review"/>, Resume reads
+    /// <see cref="GoalTilePolicy.ResumesAtReview"/> as true and runs the reviewer again over an
+    /// unchanged tree — one AI run spent and the same verdict twice in the transcript. Shared by the
+    /// loop's own pause branch and by a tile that was closed while the gate stood open, which never
+    /// reaches that branch: closing cancels the gate's wait and the state is flushed before the
+    /// continuation can run, so the phase that lands on disk is Review.
+    /// <para><c>false</c> is the budget being spent, which leaves the caller to summarise rather than
+    /// to move anywhere.</para></remarks>
+    private bool MoveToNextImplementation()
+    {
+        if (GoalLoopPolicy.NextAttempt(_engine.IterationCount, _engine.MaxIter, false) is not { } pending)
+            return false;
+
+        _engine.IterationCount = pending;
+        _engine.CurrentPhase = GoalPhase.Implement;
+        SyncFromEngine();
+        PhaseLabel = _engine.GetPhaseLabel();
+        return true;
+    }
+
+    /// <summary>Lets go of the findings themselves — the subscriptions and the ticks they offer —
+    /// without saying anything about whether the run is standing at the gate.</summary>
+    /// <remarks>Separate from <see cref="ClosePicks"/> because closing the tile has to do this half
+    /// and must not do the other: the store's closing flush serializes the live engine, so clearing
+    /// <see cref="GoalWorkflowEngine.PausedAtReviewGate"/> on the way out wrote <c>false</c> over the
+    /// <c>true</c> the gate had just saved, and the tile came back with its findings unpickable and no
+    /// way to finish or undo the choosing.</remarks>
+    private void DetachPicks()
+    {
+        foreach (var finding in _picking)
+        {
+            finding.PropertyChanged -= OnPickChanged;
+            finding.CanPick = false;
+        }
+
+        _picking.Clear();
+    }
+
+    /// <summary>Takes the ticks away and the block with them. Called when the run moves on, which is
+    /// the one moment a decision stops being changeable: the next implementation is about to be run
+    /// against it.</summary>
+    private void ClosePicks()
+    {
+        DetachPicks();
+        GateIsCounting = false;
+        _engine.PausedAtReviewGate = false;
+        if (!ShowReviewGate) return;
+
+        ShowReviewGate = false;
+        RefreshAsk();
+    }
+
+    /// <summary>
+    /// One tick moved.
+    /// </summary>
+    /// <remarks>
+    /// Three things follow, and the order matters. The dismissal is recorded first, so whatever reads
+    /// it next sees the new answer; the clock is stopped second, because the decision somebody is in
+    /// the middle of taking must not be re-implemented underneath them; and the feedback is rebuilt
+    /// last, so a run resumed after this hands the tool the shorter list rather than the one the review
+    /// happened to arrive with.
+    /// </remarks>
+    private void OnPickChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(GoalFinding.Fix) || sender is not GoalFinding finding) return;
+        if (!_engine.SetFix(finding, finding.Fix)) return;
+        TickSameDefects(finding);
+
+        _log?.Event($"USER     {(finding.Fix ? "will fix" : "is leaving")}: {finding.Defect}");
+
+        if (_gateState == GoalGateState.Counting)
+        {
+            _gateState = GoalReviewGatePolicy.AfterEdit(_gateState);
+            GateIsCounting = false;
+            _gateWait?.TrySetResult(false);
+        }
+
+        RebuildReviewFeedback();
+        RecountAfterPick();
+        UpdateGateLine();
+        // Debounced: unticking ten findings is ten of these, and each save writes the whole transcript.
+        SaveStateSoon();
+    }
+
+    /// <summary>Gives every finding of the same defect the tick just set on one of them.</summary>
+    /// <remarks>A dismissal is recorded by <see cref="GoalFinding.Defect"/>, which leaves the line out, so
+    /// two findings sharing it are subtracted together; their ticks must say so too, or the gate line
+    /// counts one that is not going back. Setting a sibling re-enters <see cref="OnPickChanged"/>, where
+    /// <see cref="GoalWorkflowEngine.SetFix"/> answers false and it stops.</remarks>
+    private void TickSameDefects(GoalFinding finding)
+    {
+        foreach (var sibling in _picking)
+            if (!ReferenceEquals(sibling, finding) && sibling.Defect == finding.Defect)
+                sibling.Fix = finding.Fix;
+    }
+
+    /// <summary>Recounts the badges and the finished-run actions after a tick has moved.</summary>
+    private void RecountAfterPick()
+    {
+        if (_engine.LastReview is not { } review) return;
+
+        RecountAccepted(review);
+        // The transcript's own findings, never the review's: after a reload those are separate
+        // deserialized objects — ticked and unpickable, since neither field is in the file — so the
+        // dialog would list rows nothing can tick while the transcript beside it stays right. Passing
+        // null is what puts both routes on one set of objects, and the list is still the whole review:
+        // the counts are what a dismissal subtracts from, while the list behind a badge is the record
+        // of the decision and has to keep the row that was just unticked, dimmed and tickable again.
+        RebuildBadges(null);
+        RefreshFinishedRunActions();
+    }
+
+    /// <summary>
+    /// Writes the feedback the next implementation gets from the last review as it now stands.
+    /// </summary>
+    /// <remarks>Rebuilt rather than edited, because a dismissal can be taken back as easily as it is
+    /// made: subtracting from the sentence would leave a finding that was unticked and ticked again out
+    /// of the prompt for good.</remarks>
+    private void RebuildReviewFeedback()
+    {
+        if (_engine.LastReview is not { } review) return;
+
+        _engine.RecordReviewFeedback(GoalTranscript.Feedback(_engine.Accepted(review)));
+    }
+
+    private void UpdateGateLine()
+    {
+        if (!ShowReviewGate) return;
+
+        ReviewGateLine = GoalReviewGatePolicy.Line(
+            _gateState, _gateRemaining, _picking.Count(f => f.Fix), _picking.Count);
+    }
+
+    /// <summary>Carry on now rather than waiting the clock out.</summary>
+    [RelayCommand]
+    private void ContinueNow() => _gateWait?.TrySetResult(true);
+
+    /// <summary>Stop here instead. The run is paused by the loop, which is the only thing that knows
+    /// what it was about to do next.</summary>
+    [RelayCommand]
+    private void PauseAtGate() => _gateWait?.TrySetResult(false);
+
+    /// <summary>
+    /// Records the pause the gate asked for, without cancelling anything.
+    /// </summary>
+    /// <remarks>Deliberately not <c>Pause()</c>: that cancels the run's token, which is right when a
+    /// tool is running and wrong here — nothing is running, and a cancelled token would make every
+    /// await the loop has left throw on its way to the pause branch that was going to handle this
+    /// anyway.</remarks>
+    private void PauseFromGate()
+    {
+        _log?.Event($"USER     paused at the review gate in {CurrentPhase}.");
+        _engine.IsPaused = true;
+        IsPaused = true;
+        SaveStateNow();
+    }
+
+    /// <summary>
+    /// Puts every finding in the transcript back in step with what has been dismissed.
+    /// </summary>
+    /// <remarks>Called after a load, where the ticks are the one thing not in the file: what is
+    /// dismissed is stored once, on the goal, and a copy on each finding of each review would be a
+    /// second record of the same fact — see <see cref="GoalFinding"/>.</remarks>
+    private void ApplyDismissalsToTranscript()
+    {
+        foreach (var finding in Messages.SelectMany(m => m.Findings))
+            finding.Fix = !GoalDismissals.Contains(_engine.Dismissed, finding);
+    }
+
     private void ShowFindings(GoalReviewResult review)
     {
         // Counted into the engine rather than straight onto the strip, so the numbers are saved with
@@ -3031,10 +3567,30 @@ public partial class GoalTileViewModel
         // By position in Enum.GetValues, and read back the same way — never by casting to int. The
         // array is written to disk, and a severity given an explicit value later would make the cast
         // an index into somewhere else entirely.
-        _engine.LastReviewCounts = GoalSeverities.Select(review.Count).ToArray();
+        RecountAccepted(review);
+        // Counts less the dismissals, list whole — see RecountAfterPick.
         ShowBadges(review.Findings);
     }
 
+    /// <summary>
+    /// Writes the strip's counts from the review less whatever has been dismissed.
+    /// </summary>
+    /// <remarks>
+    /// The same subtraction the criteria, the feedback and the no-progress stop are given, and for the
+    /// same reason: taken from the raw review, a finding unticked at the gate went on refusing the
+    /// commit — <see cref="MayCommit"/> reads these counts — so a run that ended as met left the button
+    /// disabled, the automatic commit undone and the strip saying "1 error" over it, with nothing on
+    /// screen saying why.
+    /// </remarks>
+    private GoalReviewResult RecountAccepted(GoalReviewResult review)
+    {
+        var accepted = _engine.Accepted(review);
+        _engine.LastReviewCounts = GoalSeverities.Select(accepted.Count).ToArray();
+        return accepted;
+    }
+
+    /// <summary>The badges in the status strip. Set on every review, including one that found nothing,
+    /// so a clean attempt does not keep showing the counts from the one before it.</summary>
     /// <param name="findings">
     /// The review the counts came from, when there is one in hand. There is not on a restore or after
     /// a new goal, and the review that is still standing in the transcript is then the one they belong
@@ -3048,6 +3604,15 @@ public partial class GoalTileViewModel
         // outlive its own badge: the strip would say 2E from the new review and the dialog would still
         // be listing the errors of the one before it, with no way for the reader to tell.
         CloseFindings();
+        RebuildBadges(findings);
+    }
+
+    /// <summary>The badges themselves, over whatever popup is open.</summary>
+    /// <remarks>Split from <see cref="ShowBadges"/> for the one caller that must not close it: a tick
+    /// moved at the gate changes the counts, and closing the popup under the hand that is ticking is
+    /// the opposite of what the gate is for.</remarks>
+    private void RebuildBadges(IReadOnlyList<GoalFinding>? findings)
+    {
         Badges.Clear();
 
         // Positional, and only trusted at exactly the right length. The array is saved to disk, so a
@@ -3061,17 +3626,42 @@ public partial class GoalTileViewModel
         findings ??= Messages.LastOrDefault(m => m.HasFindings)?.Findings;
 
         for (var i = 0; i < GoalSeverities.Length; i++)
-            if (counts[i] > 0)
+        {
+            // Filtered here rather than trusted to arrive grouped: the saved counts and a transcript
+            // from an older build are two records of one review, and a mismatch between them must come
+            // out as a badge that shows less than it counts, never as one severity's popup listing
+            // another's findings.
+            var ofSeverity = findings?.Where(f => f.Severity == GoalSeverities[i]).ToArray() ?? [];
+
+            // A severity whose every finding has been dismissed still has a badge, reading 0: the count
+            // is what is left to fix and the list behind it is the record of what was decided, so
+            // dropping the badge would be the one route back to those ticks disappearing with them.
+            if (counts[i] > 0 || ofSeverity.Length > 0)
                 Badges.Add(new GoalBadge
                 {
                     Severity = GoalSeverities[i],
                     Count = counts[i],
-                    // Filtered here rather than trusted to arrive grouped: the saved counts and a
-                    // transcript from an older build are two records of one review, and a mismatch
-                    // between them must come out as a badge that shows less than it counts, never as
-                    // one severity's popup listing another's findings.
-                    Findings = findings?.Where(f => f.Severity == GoalSeverities[i]).ToArray() ?? [],
+                    Findings = ofSeverity,
                 });
+        }
+
+        ReopenBadgeAfterRebuild();
+    }
+
+    /// <summary>
+    /// Puts the open dialog back on the badge that replaced the one it was showing.
+    /// </summary>
+    /// <remarks>Every rebuild makes new <see cref="GoalBadge"/> objects, so a dialog open across one
+    /// would be holding a badge no longer in the strip — its list frozen at the moment it was opened,
+    /// and every later tick invisible in it. Matched by severity, which is what a badge is: there is
+    /// one per severity in the strip. A severity that has gone entirely closes the dialog rather than
+    /// leaving an empty one up.</remarks>
+    private void ReopenBadgeAfterRebuild()
+    {
+        if (OpenBadge is not { } open) return;
+
+        var replacement = Badges.FirstOrDefault(b => b.Severity == open.Severity);
+        OpenBadge = replacement?.HasFindings == true ? replacement : null;
     }
 
     /// <param name="autoCommit">
@@ -3125,6 +3715,11 @@ public partial class GoalTileViewModel
         // over a Resume that has nothing to do, and keeps saying so after a restart.
         _engine.IsPaused = false;
         _engine.CurrentPhase = GoalPhase.Summary;
+
+        // Nothing is going to act on a tick from here: the run is over and the next thing offered is
+        // Continue, which opens a fresh attempt and a fresh review. The dismissals themselves stay —
+        // they belong to the goal, and a Continue is still working on it.
+        ClosePicks();
         SyncFromEngine();
 
         // Before the summary is written and before anything offers to commit, because it is the upper
@@ -3220,7 +3815,16 @@ public partial class GoalTileViewModel
             GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
             findings: GoalTranscript.InOrder(review.Findings));
 
-        if (GoalCompletionPolicy.IsMet(review, criteria))
+        // Kept whole, so a tick moved after the run has stopped can rebuild the feedback from it.
+        _engine.LastReview = review;
+
+        // The same subtraction the loop makes, for the same reason: what the user has said is not to
+        // be fixed must not be counted by the criteria, named in the summary or handed back as
+        // feedback. A review reached from outside the loop is still a review of dismissals already
+        // taken, and the reviewer, which is run from scratch, phrases them afresh every time.
+        var accepted = _engine.Accepted(review);
+
+        if (GoalCompletionPolicy.IsMet(accepted, criteria))
             return (GoalStopReason.Met, null);
 
         // Carried for Continue, exactly as RunReviewOnlyAsync carries it and for the same reason:
@@ -3238,10 +3842,10 @@ public partial class GoalTileViewModel
         // since the tree did not move, so escalating on it would replace the one fact the user needs
         // ("the agent changed no files") with a sentence about reviews. Each repeat is a press of a
         // button, in front of the user, against a sentence identical to the one above it.
-        _engine.RecordReviewFeedback(GoalTranscript.Feedback(review));
-        _engine.LastReviewFingerprint = review.WasStructured ? review.Fingerprint() : null;
+        _engine.RecordReviewFeedback(GoalTranscript.Feedback(accepted));
+        _engine.LastReviewFingerprint = accepted.WasStructured ? accepted.Fingerprint() : null;
 
-        return (GoalStopReason.NoChange, GoalCompletionPolicy.WhyNotMet(review, criteria));
+        return (GoalStopReason.NoChange, GoalCompletionPolicy.WhyNotMet(accepted, criteria));
     }
 
     /// <summary>
@@ -3296,7 +3900,15 @@ public partial class GoalTileViewModel
             GoalTranscript.ReviewHead(review, criteria.RequireGoalMet), GoalPhase.Review,
             findings: GoalTranscript.InOrder(review.Findings));
 
-        var met = GoalCompletionPolicy.IsMet(review, criteria);
+        // Kept whole, so a tick moved after the run has stopped can rebuild the feedback from it.
+        _engine.LastReview = review;
+
+        // The loop's own subtraction, made here too: a review asked for on its own judges the same
+        // tree against the same decisions, so a finding the user has dismissed must not refuse the
+        // goal in the summary or come back to the tool through Continue.
+        var accepted = _engine.Accepted(review);
+
+        var met = GoalCompletionPolicy.IsMet(accepted, criteria);
         if (met)
         {
             _engine.ClearReviewFeedback();
@@ -3305,13 +3917,13 @@ public partial class GoalTileViewModel
         {
             // Carried for Continue, which is offered next: without it the first implementation would
             // start over a tree that has just been reviewed, knowing nothing of what was found.
-            _engine.RecordReviewFeedback(GoalTranscript.Feedback(review));
-            _engine.LastReviewFingerprint = review.WasStructured ? review.Fingerprint() : null;
+            _engine.RecordReviewFeedback(GoalTranscript.Feedback(accepted));
+            _engine.LastReviewFingerprint = accepted.WasStructured ? accepted.Fingerprint() : null;
         }
 
         await ShowSummaryAsync(
             met ? GoalStopReason.Met : GoalStopReason.Reviewed,
-            met ? null : GoalCompletionPolicy.WhyNotMet(review, criteria),
+            met ? null : GoalCompletionPolicy.WhyNotMet(accepted, criteria),
             autoCommit: false,
             // The count belongs to the run this button was pressed *after*, not to the button. Reviewed
             // already knows that and says no number at all; Met did not, so a review asked for on its
@@ -4780,6 +5392,14 @@ public partial class GoalTileViewModel
             {
                 case GoalPhase.Implement:
                 case GoalPhase.Review:
+                    // The gate's own answer, taken at the one moment the user has authorised it.
+                    // Unticking the last error leaves the criteria met as they stand, and the loop
+                    // cannot act on that where it happens: touching a tick *is* the request to stop,
+                    // and finishing the run on it would commit the work without anybody pressing
+                    // anything. So the verdict waits here, for the press. Without it, Resume spent a
+                    // whole implementation and a second review on a list the gate had just emptied.
+                    if (await FinishedAtTheGateAsync()) break;
+
                     await AddMessageAsync(GoalMessageRole.System, "Resuming implementation...", CurrentPhase);
                     await WorkingAsync(() => RunImplementReviewLoopAsync(
                         finishInterruptedIteration: true,
@@ -5010,6 +5630,46 @@ public partial class GoalTileViewModel
 
             ShowBadges();
 
+            // The ticks are the one part of a review not written into the transcript: what is dismissed
+            // is kept once, on the goal, so this is where the two are put back in step.
+            ApplyDismissalsToTranscript();
+
+            // A tile closed at the gate comes back at the gate. Resume is what carries the decision
+            // out, so without this the user would be looking at a paused run, a review they had half
+            // finished choosing through, and no way to change the rest of it.
+            if (_engine.PausedAtReviewGate && _engine.IsPaused
+                && GoalWorkflowEngine.IsMidRun(CurrentPhase))
+            {
+                // Whatever there is to pick from, and nothing is a legitimate answer: a pause gate
+                // stands over a review the parser could not structure as readily as over a list, so a
+                // reload that demanded findings left the run with the phase still in Review, no gate
+                // on screen and a Resume that ran the reviewer a second time over an untouched tree.
+                // The transcript's last list is taken only when it is this review's own: after an
+                // unstructured review it is the previous lap's, and ticks offered on it would dismiss
+                // findings the gate is not standing over.
+                var reviewed = _engine.LastReview?.Findings ?? [];
+                var shown = Messages.LastOrDefault(m => m.HasFindings)?.Findings;
+                OpenPicks(IsSameList(shown, reviewed) ? shown! : reviewed, GoalGateState.Waiting);
+
+                // The loop writes the feedback only once the gate closes, so a tile closed while it
+                // stood open comes back owing it — and Resume would implement against the lap before.
+                RebuildReviewFeedback();
+
+                // The lap the closed tile was standing in had its review; what it owes is the next
+                // implementation. The loop says so in its own pause branch, and a tile closed at the
+                // gate never gets there — so it is said here too, or Resume runs the reviewer again
+                // over the tree the user has just finished choosing through. With the budget spent
+                // there is nowhere to move to and the phase is left where it was: that Resume can only
+                // summarise, which is what it does.
+                //
+                // Only out of Review, though. A tile paused at the gate and then closed and opened
+                // again is the ordinary case, and by then the loop's own pause branch has already
+                // moved the lap on while the gate stayed open — moving it a second time would spend an
+                // attempt per reopening, until the budget was gone and Resume could only summarise.
+                if (CurrentPhase == GoalPhase.Review)
+                    MoveToNextImplementation();
+            }
+
             // The questions a closed tile was waiting on. This is what the pending set is persisted
             // for — a panel built from a parsed answer would not survive the tile being closed, and the
             // goal would come back waiting for an answer to questions nobody could see any more.
@@ -5148,6 +5808,17 @@ public partial class GoalTileViewModel
             _engine.IsPaused = true;
             IsPaused = true;
         }
+
+        // The gate's clock, and the handlers it left on findings that outlive this tile: a review's
+        // findings are held by the state the store is about to write, so a subscription left behind
+        // here is this view model kept alive by its own transcript.
+        _gateTimer?.Stop();
+        _gateTimer = null;
+        _gateWait?.TrySetResult(false);
+
+        // Only the handlers, never the flag: the store's flush below serializes the live engine, so
+        // a tile closed at the gate has to be written down as standing at it.
+        DetachPicks();
 
         _disposed = true;
 

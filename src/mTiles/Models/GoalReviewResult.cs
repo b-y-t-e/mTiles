@@ -1,4 +1,4 @@
-namespace mTiles.Models;
+﻿namespace mTiles.Models;
 
 /// <summary>
 /// What a review said, once it has been read rather than searched.
@@ -54,11 +54,16 @@ public sealed class GoalReviewResult : IGoalParsedBlock
     /// <para>Severity, file and title — not the detail, which is prose and differs on every run for the
     /// same defect. Two consecutive reviews with the same fingerprint mean the implementation is going
     /// round in a circle, and the remaining attempts will be spent proving it.</para>
+    /// <para>And not the line either, which an implementation moves under every defect it did not
+    /// fix.</para>
     /// </summary>
     public string Fingerprint() =>
         Findings.Count == 0
             ? $"clean:{GoalMet}"
+            // GoalFinding.Defect, shared with the dismissals, because both comparisons are made
+            // across an implementation and both are wrong if the line is in them — see the remarks
+            // there.
             : string.Join("|", Findings
-                .Select(f => $"{f.Severity}:{f.File}:{f.Title}".ToLowerInvariant())
+                .Select(f => f.Defect)
                 .OrderBy(x => x, StringComparer.Ordinal));
 }
