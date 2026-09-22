@@ -30,8 +30,23 @@ public static class WindowTitle
     private const string Separator = " — ";
 
     /// <param name="workspaceName">What the open workspace is called, or null/blank when none is.</param>
-    public static string For(string? workspaceName) =>
-        string.IsNullOrWhiteSpace(workspaceName)
-            ? AppName
-            : workspaceName.Trim() + Separator + AppName;
+    /// <param name="version">The build's own version, or null/blank to leave it off.</param>
+    /// <remarks>
+    /// <para>The version rides on the application's name rather than on the workspace's, and therefore
+    /// at the end: the title is truncated from the right, so the part that differs between two windows
+    /// stays and the part that is the same in every one of them is the first to go. It is here rather
+    /// than in a dialog because it is what a bug report is asked for, and a taskbar button already
+    /// carries it.</para>
+    /// <para>The window's own <c>Title</c> is bound to this, so setting it in
+    /// <c>MainWindow</c>'s constructor is a value the binding overwrites the moment the data context
+    /// arrives — which is how the version came to be spelled there and shown nowhere.</para>
+    /// </remarks>
+    public static string For(string? workspaceName, string? version = null)
+    {
+        var app = string.IsNullOrWhiteSpace(version) ? AppName : AppName + " " + version.Trim();
+
+        return string.IsNullOrWhiteSpace(workspaceName)
+            ? app
+            : workspaceName.Trim() + Separator + app;
+    }
 }

@@ -38,7 +38,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = $"mTiles {AppInfo.Version}";
         TerminalClipboardCoordinator.Attach(this);
 
         _noWorkspace.Bind(TextBlock.FontSizeProperty, _noWorkspace.GetResourceObservable("FontLg"));
