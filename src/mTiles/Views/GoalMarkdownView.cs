@@ -46,8 +46,10 @@ public sealed class GoalMarkdownView : MarkdownViewer
         // Shape, not colour: none of this depends on a theme, so none of it has to wait for one.
         ColorTheme = EditorTheme.None;
         ViewerPadding = new Thickness(0);
-        ParagraphSpacing = 8;
-        LineSpacing = 2;
+        // Air between the lines of a paragraph as well as between paragraphs: two pixels was a log set
+        // solid, and a wrapped answer read as one block of glyphs rather than as lines of text.
+        ParagraphSpacing = 10;
+        LineSpacing = 5;
 
         // The tools write single newlines and mean them — a plan is a list of lines, not one paragraph.
         SoftLineBreaks = true;
@@ -97,7 +99,12 @@ public sealed class GoalMarkdownView : MarkdownViewer
         // count — and a paragraph set in it on the elevated ground of a dialog is the part of a finding
         // that explains it, printed in the least readable colour on screen. One step down from the
         // title, not three.
-        if (Brush(Muted ? "TextSecondary" : "TextPrimary") is { } text) Foreground = text;
+        //
+        // The body is TextBody rather than the full foreground, and bold is TextStrong: a column of
+        // monospace in the full foreground reads as bold throughout, which left the words that are
+        // bold nothing to stand out with. Contrast carries the weight the stroke alone could not.
+        if (Brush(Muted ? "TextSecondary" : "TextBody") is { } text) Foreground = text;
+        StrongBrush = Brush(Muted ? "TextPrimary" : "TextStrong");
         if (Brush("TextMuted") is { } muted) MutedBrush = muted;
         if (Brush("AccentDefault") is { } accent)
         {

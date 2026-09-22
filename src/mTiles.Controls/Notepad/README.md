@@ -30,6 +30,10 @@ for.
   patch is quoting somebody's code — and the pair that opens the next file is only recognisable from
   the line after it.
 
+- `MarkdownViewer.StrongBrush` — what bold text and headings are drawn in, null meaning `Foreground`
+  as before. A monospace face in the full foreground on a dark ground reads as bold from end to end,
+  so a weight alone left the words that really are bold with nowhere to go; the host says it with
+  contrast as well (`GoalMarkdownView`: body in `TextBody`, bold in `TextStrong`).
 - `MarkdownParser` — **the body of a fenced block is content and nothing else**, which 0.3.1 did not
   quite hold to and which only a patch notices. Three rules for prose reached into it: the blockquote
   markers were stripped at whatever depth the line carried rather than at the depth the block was

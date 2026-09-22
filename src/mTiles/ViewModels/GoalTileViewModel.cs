@@ -646,7 +646,7 @@ public partial class GoalTileViewModel
     /// </summary>
     /// <remarks>
     /// All that is left of a line that used to say what was being asked as well: everything else it
-    /// said was already on the status strip, in the placeholder and on the button. The count stays
+    /// said was already on the status bar, in the placeholder and on the button. The count stays
     /// because a round is as tall as it is — three questions with their reasons run past the fold of a
     /// small tile, and "3 questions" at the head is how you know there is a third one down there. It
     /// used to be justified by the panel being capped and scrolling; the cap is gone and the reason is
@@ -786,14 +786,14 @@ public partial class GoalTileViewModel
     /// What the tool is doing at this moment, in a few words, or empty.
     /// </summary>
     /// <remarks>
-    /// <para>Shown beside the phase on the status strip and nowhere else. It is not transcript: a run
+    /// <para>Shown beside the phase in the status bar under the composer and nowhere else. It is not transcript: a run
     /// touches dozens of files and every one of those lines would be in the way tomorrow, while the
     /// question it answers — "is this thing still doing something?" — is only ever asked about now.
     /// </para>
     /// <para>Cleared whenever a run ends, by <c>WorkingAsync</c>, so a finished tile never sits showing
     /// the last file the tool happened to open.</para>
     /// <para><b>Named for what it is</b>, because <see cref="Activity"/> beside it is a different
-    /// question with the same word: this is a line of prose for the status strip, that is the tile's
+    /// question with the same word: this is a line of prose for the status bar, that is the tile's
     /// state as the workspace list reads it. One of the two had to say which, and the display string is
     /// the one whose name can carry a suffix without becoming a lie.</para>
     /// </remarks>
@@ -3589,7 +3589,7 @@ public partial class GoalTileViewModel
         return accepted;
     }
 
-    /// <summary>The badges in the status strip. Set on every review, including one that found nothing,
+    /// <summary>The badges in the status bar under the composer. Set on every review, including one that found nothing,
     /// so a clean attempt does not keep showing the counts from the one before it.</summary>
     /// <param name="findings">
     /// The review the counts came from, when there is one in hand. There is not on a restore or after

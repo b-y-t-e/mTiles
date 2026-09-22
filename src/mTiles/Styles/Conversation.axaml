@@ -134,13 +134,14 @@
 
     <!-- The line spacing is the whole of why this reads better. A wall of monospace set solid is
          the hardest thing on this screen to scan, and two pixels a line is the difference between a
-         log and something written to be read. -->
+         log and something written to be read. Five, the markdown view's own, so a plain message and a
+         rendered one beside it keep the same rhythm. -->
     <Style Selector="SelectableTextBlock.msg">
         <Setter Property="TextWrapping" Value="Wrap" />
-        <Setter Property="LineSpacing" Value="2" />
+        <Setter Property="LineSpacing" Value="5" />
         <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
-        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
         <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
     </Style>
     <!-- Quieter by colour and by nothing else. It used to be set at four fifths as well, which is
@@ -209,6 +210,29 @@
     <Style Selector="Button.context-action:disabled">
         <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         <Setter Property="Cursor" Value="Arrow" />
+    </Style>
+
+    <!-- ======== The way back to the end ========
+         Floats over the foot of the transcript while the reader is scrolled away from it (JumpToBottom).
+         Elevated and outlined so it reads as something lying on the conversation rather than a line
+         of it; the strip's size, because it is a signpost and not a turn. -->
+    <Style Selector="Button.jump-to-bottom">
+        <Setter Property="Margin" Value="0,0,0,10" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource BorderThin}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
+        <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.jump-to-bottom:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource InteractiveHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentOutline}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
     </Style>
 
     <!-- ======== A button with a word on it ========
@@ -422,66 +446,31 @@
     </Style>
 
     <!-- ======== While the tool is working ========
-         The strip already says which phase and which file, in words, at the top of the tile. What
-         it cannot say is that anything is happening at all: a tool that spends four minutes
-         reading before it writes leaves a transcript that has not changed and a phase label that
-         has not moved. Three dots at the foot of the conversation, where the next message will
-         appear, and nothing else - a progress bar would be a claim about how far along it is,
-         which nothing here knows. -->
-    <Style Selector="Ellipse.think">
-        <Setter Property="Width" Value="7" />
-        <Setter Property="Height" Value="7" />
-        <Setter Property="Fill" Value="{DynamicResource AccentDefault}" />
-        <Setter Property="Opacity" Value="0.25" />
+         The strip says which phase and which file. What it cannot say is that anything is happening
+         at all: a tool that spends four minutes reading before it writes leaves a transcript that has
+         not changed. So the gutter of the row the next message will land in turns - a braille spinner
+         in the assistant glyph's own colour, the speaker's mark still forming (see WaitingRow). No
+         progress bar: that would be a claim about how far along it is, which nothing here knows. -->
+    <Style Selector="TextBlock.gutter.gutter-working">
+        <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
     </Style>
-    <!-- The dots say something is happening; these two say what and for how long, which are the
+    <!-- The spinner says something is happening; these two say what and for how long, which are the
          only honest things left to say about a tool nothing has been heard from - nothing here
          knows how far along it is.
 
-         Beside the dots rather than on the status strip: the strip carries the phase as a sentence
+         Beside the spinner rather than on the status bar: the strip carries the phase as a sentence
          and the file the tool is in, which are facts about the run as a whole, while this belongs
          to the wait being drawn and is read without leaving the conversation.
 
-         Muted, small, and in the transcript's own monospace so it reads as a note attached to the
-         dots rather than as a message. Monospace also stops the row twitching: the clock's digits
-         change every second, and in a proportional face "1:11" and "1:00" are different widths, so
-         the dots would shuffle sideways once a second beside a label added to reassure. -->
+         Muted, and at the transcript's own size and face, so it starts on the column every message's
+         text starts on and shares a baseline with the spinner beside it. Monospace also stops the row
+         twitching: the clock's digits change every second, and in a proportional face "1:11" and
+         "1:00" are different widths. -->
     <Style Selector="TextBlock.waiting-note">
-        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Top" />
         <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
-        <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+        <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
         <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
-    </Style>
-
-    <!-- One animation per dot rather than one with three delays: two animations selecting the same
-         element take turns setting the same property, and the dots stop agreeing about where they
-         are in the cycle. The delay is what makes it read as a wave rather than a blink. -->
-    <Style Selector="Ellipse.think.d1">
-        <Style.Animations>
-            <Animation Duration="0:0:1.2" IterationCount="INFINITE">
-                <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-                <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-            </Animation>
-        </Style.Animations>
-    </Style>
-    <Style Selector="Ellipse.think.d2">
-        <Style.Animations>
-            <Animation Duration="0:0:1.2" Delay="0:0:0.15" IterationCount="INFINITE">
-                <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-                <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-            </Animation>
-        </Style.Animations>
-    </Style>
-    <Style Selector="Ellipse.think.d3">
-        <Style.Animations>
-            <Animation Duration="0:0:1.2" Delay="0:0:0.3" IterationCount="INFINITE">
-                <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-                <KeyFrame Cue="30%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-                <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2" /></KeyFrame>
-            </Animation>
-        </Style.Animations>
     </Style>
 
     <!-- ======== The strip's status ========
@@ -531,6 +520,11 @@
         <Setter Property="Fill" Value="{DynamicResource DangerText}" />
     </Style>
 
+    <!-- First on its row - the Goal tile's bar under the composer - a rule in front of it divides
+         nothing, so it goes. -->
+    <Style Selector="StackPanel.strip-status.leading > Border.strip-divider">
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
     <Style Selector="Border.strip-divider">
         <Setter Property="Width" Value="1" />
         <Setter Property="Height" Value="12" />

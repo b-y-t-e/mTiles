@@ -106,7 +106,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// agent with no route for compaction simply never becomes pressable.</remarks>
     public bool ShowsCompact => CanCompact || !HasUsageReading;
 
-    /// <summary>What the agent is doing, beside the thinking dots. See <see cref="TurnStage"/>.</summary>
+    /// <summary>What the agent is doing, beside the waiting row's spinner. See <see cref="TurnStage"/>.</summary>
     [ObservableProperty] private string _turnStageText = "";
 
     /// <summary>How full the model's context is, or null when the agent did not say how big it is.</summary>
@@ -778,7 +778,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             : ChangeSettingsAsync(new SessionSettings(Model: chosen));
     }
 
-    /// <summary>How long the current turn has been going, beside the thinking dots — the Goal tile's clock.</summary>
+    /// <summary>How long the current turn has been going, beside the waiting row's spinner — the Goal tile's clock.</summary>
     public ElapsedClock TurnClock { get; } = new();
 
     partial void OnIsWorkingChanged(bool value)

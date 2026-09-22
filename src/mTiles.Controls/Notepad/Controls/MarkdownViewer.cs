@@ -58,6 +58,12 @@ public class MarkdownViewer : Control
     public static readonly StyledProperty<IBrush> ForegroundProperty =
         AvaloniaProperty.Register<MarkdownViewer, IBrush>(nameof(Foreground), Brushes.Black);
 
+    /// <summary>What bold text and headings are drawn in; null draws them in <see cref="Foreground"/>.
+    /// A weight alone is a small difference in a monospace face on a dark ground, so a host may say it
+    /// with contrast as well.</summary>
+    public static readonly StyledProperty<IBrush?> StrongBrushProperty =
+        AvaloniaProperty.Register<MarkdownViewer, IBrush?>(nameof(StrongBrush));
+
     public static readonly StyledProperty<IBrush> MutedBrushProperty =
         AvaloniaProperty.Register<MarkdownViewer, IBrush>(nameof(MutedBrush),
             new SolidColorBrush(Color.FromRgb(110, 118, 129)));
@@ -223,6 +229,12 @@ public class MarkdownViewer : Control
     {
         get => GetValue(ForegroundProperty);
         set => SetValue(ForegroundProperty, value);
+    }
+
+    public IBrush? StrongBrush
+    {
+        get => GetValue(StrongBrushProperty);
+        set => SetValue(StrongBrushProperty, value);
     }
 
     public IBrush MutedBrush
@@ -687,6 +699,7 @@ public class MarkdownViewer : Control
 
         if (change.Property == ForegroundProperty
             || change.Property == MutedBrushProperty
+            || change.Property == StrongBrushProperty
             || change.Property == LinkBrushProperty
             || change.Property == BackgroundBrushProperty
             || change.Property == CodeBackgroundProperty
@@ -1455,6 +1468,7 @@ public class MarkdownViewer : Control
                 Image = source.Image,
                 Brush = source.LinkUrl != null ? LinkBrush
                     : source.Muted || block.QuoteDepth > 0 ? MutedBrush
+                    : bold && !source.Code ? StrongBrush ?? Foreground
                     : Foreground
             };
             result.Add(run);

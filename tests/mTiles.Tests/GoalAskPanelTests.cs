@@ -255,7 +255,8 @@ public class GoalAskPanelTests : IDisposable
             });
             // The colour tokens are written into Application.Resources at run time by ThemeBridge,
             // derived from the active terminal theme, so a test window has to stand in for it.
-            window.Resources["TextPrimary"] = Brushes.White;
+            window.Resources["TextBody"] = Brushes.White;
+            window.Resources["TextStrong"] = Brushes.Yellow;
             window.Resources["TextMuted"] = Brushes.Gray;
             window.Resources["AccentDefault"] = Brushes.SteelBlue;
             window.Resources["BgElevated"] = Brushes.DimGray;
@@ -270,6 +271,8 @@ public class GoalAskPanelTests : IDisposable
             // value — which is why these are pushed after attachment instead. A probe caught this as
             // Foreground=Black on a viewer built straight from the transcript's template.
             Assert.Equal(Brushes.White, view.Foreground);
+            // Bold is said with contrast as well as weight - see ThemeBridge's TextStrong.
+            Assert.Equal(Brushes.Yellow, view.StrongBrush);
             Assert.Equal(Brushes.DimGray, view.CodeBackground);
             Assert.Equal(Brushes.Transparent, view.BackgroundBrush);
             Assert.Equal(EditorTheme.None, view.ColorTheme);
@@ -286,11 +289,11 @@ public class GoalAskPanelTests : IDisposable
             // picking another theme or font size happens while a tile is open and nothing else is going
             // to tell this control about it.
             window.Resources["TermFontBase"] = 21.0;
-            window.Resources["TextPrimary"] = Brushes.Yellow;
+            window.Resources["TextBody"] = Brushes.Orange;
             Pump();
 
             Assert.Equal(21.0, view.DefaultFontSize);
-            Assert.Equal(Brushes.Yellow, view.Foreground);
+            Assert.Equal(Brushes.Orange, view.Foreground);
         });
     }
 

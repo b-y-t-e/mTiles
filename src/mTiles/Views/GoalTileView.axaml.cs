@@ -35,13 +35,16 @@ public partial class GoalTileView : UserControl, IFocusTargetView
     {
         InitializeComponent();
         _anchor = TranscriptAnchor.Attach(ChatScroll);
+        JumpToBottom.Attach(ChatScroll, _anchor, this);
         TeachThePickers();
 
         // One line for the strip, giving up words before width in the order GoalStripLayout writes
         // down - the Agent tile's strip does the same with its own. Nothing keeps the fitter but the
         // handlers it hangs on these controls, which is exactly as long as it is needed.
         new RowFitter(StripRow, GoalStripLayout.Steps,
-            ExecutionAgentPicker, PermissionModePicker, EffortPicker, StatusView, Badges)
+            ExecutionAgentPicker, PermissionModePicker, EffortPicker);
+        // The status bar under the composer has its own order - see GoalStatusBarLayout.
+        new RowFitter(StatusRow, GoalStatusBarLayout.Steps, StatusView, Badges)
             .Watch(StatusView, StripStatus.TextProperty)
             .Watch(Badges, BoundsProperty);
 

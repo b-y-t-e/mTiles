@@ -564,6 +564,8 @@
             </StackPanel>
         </Border>
 
+        <!-- The transcript, and over its foot the way back to the end of it (JumpToBottom). -->
+        <Panel>
         <ScrollViewer x:Name="ChatScroll"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
@@ -1069,7 +1071,7 @@
                     </DockPanel>
                 </Border>
 
-                <!-- The dots say the turn is alive; the stage beside them says what it is doing, which is
+                <!-- The spinner says the turn is alive; the stage beside it says what it is doing, which is
                      the question anybody watching this row actually has. Read from the conversation and
                      not from a CLI, so every agent fills it — see TurnStage. -->
                 <v:WaitingRow IsVisible="{Binding IsWorking}"
@@ -1077,6 +1079,8 @@
                               Elapsed="{Binding TurnClock.Text}" />
             </StackPanel>
         </ScrollViewer>
+        <v:JumpToBottom x:Name="JumpToBottom" />
+        </Panel>
 
     </DockPanel>
     <local:FileDropHint x:Name="DropHint" Text="Drop to attach"

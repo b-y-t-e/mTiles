@@ -28,6 +28,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
     {
         InitializeComponent();
         _anchor = TranscriptAnchor.Attach(ChatScroll);
+        JumpToBottom.Attach(ChatScroll, _anchor, this);
         TeachThePickers();
         FitTheRows();
         // Anywhere on the tile, not only on the composer: the transcript is most of the card, and a

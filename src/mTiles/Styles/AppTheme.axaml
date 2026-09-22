@@ -23,6 +23,8 @@
     <!-- Text (4 tiers + 1 hover) -->
     <SolidColorBrush x:Key="TextPrimary"   Color="#c0c8e0" />
     <SolidColorBrush x:Key="TextSecondary" Color="#8090b0" />
+    <SolidColorBrush x:Key="TextBody"      Color="#aab2c9" />
+    <SolidColorBrush x:Key="TextStrong"    Color="#dde2f0" />
     <SolidColorBrush x:Key="TextMuted"     Color="#6070a0" />
     <SolidColorBrush x:Key="TextFaint"     Color="#3a3a5a" />
     <SolidColorBrush x:Key="TextHover"     Color="#e0e4f0" />

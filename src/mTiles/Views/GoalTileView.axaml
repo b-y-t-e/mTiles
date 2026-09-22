@@ -24,7 +24,7 @@
         two is speaking, and a side says it before a character is read — which is what let the angle
         bracket in your gutter go, since two things saying the same thing is one of them being ignored.
 
-        The one saturated colour in here is the phase dot in the status strip. Everything else is
+        The one saturated colour in here is the phase dot in the status bar under the composer. Everything else is
         text, muted chrome and one hairline per edge.
     -->
     <UserControl.Resources>
@@ -329,7 +329,7 @@
     <Panel>
     <DockPanel Background="{DynamicResource BgBase}">
 
-        <!-- ======== Status strip: which tool, which phase, and the three things you can do ======== -->
+        <!-- ======== Strip: which tool, how it runs, and the three things you can do ======== -->
         <Border DockPanel.Dock="Top"
                 Padding="6,3"
                 Background="{DynamicResource BgSurface}"
@@ -365,10 +365,10 @@
                 </StackPanel>
 
                 <!-- One line, and RowFitter decides what gives way (GoalStripLayout): effort and mode to
-                     their icons, then the status to its dot, then the agent trimmed and at last to its
-                     icon. A DockPanel rather than a horizontal StackPanel, because a StackPanel measures
-                     its children with infinite width and nothing in it can ever trim. -->
-                <DockPanel x:Name="StripRow">
+                     their icons, then the agent trimmed and at last to its icon. A DockPanel rather
+                     than a horizontal StackPanel, because a StackPanel measures its children with
+                     infinite width and nothing in it can ever trim. -->
+                <DockPanel x:Name="StripRow" LastChildFill="False">
                     <!-- The execution agent, and only that one, is in the strip. Five controls do not
                          fit a narrow tile, and of the five this is the one whose value has to be
                          readable at a glance: which agent is writing into this repository. The
@@ -422,58 +422,6 @@
                             <mi:MaterialIcon Kind="Brain" Width="13" Height="13" />
                         </p:Picker.Icon>
                     </p:Picker>
-                    <!-- The status, as the Agent tile's strip draws it and in its colours (GoalStatus):
-                         a rule, then a word coloured by what it says, and compact a dot of that colour.
-                         It replaced a dot coloured by phase beside a label that was empty whenever the
-                         tile was idle, which answered "can I type here" in a language of its own. -->
-                    <v:StripStatus x:Name="StatusView"
-                                   DockPanel.Dock="Left"
-                                   Text="{Binding StatusText}"
-                                   Tone="{Binding StatusTone}"
-                                   ToolTip.Tip="{Binding StatusTip}" />
-                    <!-- One template, four styles. Every severity used to need a view-model
-                         property, a TextBlock, a visibility converter and a style, and each of the four
-                         could be forgotten on its own. -->
-                    <ItemsControl x:Name="Badges" DockPanel.Dock="Right" ItemsSource="{Binding Badges}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="vm:GoalBadge">
-                                <!-- The count is a question - which two errors? - and the answer was
-                                     three screens up in a transcript the user had scrolled away from.
-                                     Pressing the badge brings that severity's findings to where the
-                                     count is.
-
-                                     Hit-testing off rather than disabled when there is nothing to open
-                                     (a goal file written before findings were kept): a greyed-out
-                                     badge would look like a count this tile no longer trusts, when the
-                                     count is exactly what it still knows. -->
-                                <Button Classes="badge-button"
-                                        IsHitTestVisible="{Binding HasFindings}"
-                                        ToolTip.Tip="{Binding Tooltip}"
-                                        Command="{Binding $parent[UserControl].((vm:GoalTileViewModel)DataContext).OpenFindingsCommand}"
-                                        CommandParameter="{Binding}">
-                                    <TextBlock Classes="badge"
-                                               Classes.badge-blocker="{Binding IsBlocker}"
-                                               Classes.badge-error="{Binding IsError}"
-                                               Classes.badge-warning="{Binding IsWarning}"
-                                               Classes.badge-suggestion="{Binding IsSuggestion}"
-                                               Text="{Binding Text}" />
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <!-- The activity fills what is left and is the first thing to go: it is about this
-                         second, and a DockPanel trims its last child. RowFitter never counts it. -->
-                    <TextBlock Classes="strip strip-activity"
-                               Text="{Binding ActivityText}"
-                               IsVisible="{Binding ActivityText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                               TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding ActivityText}"
-                               Margin="6,0,0,0" />
                 </DockPanel>
             </DockPanel>
         </Border>
@@ -659,6 +607,71 @@
         </Border>
 
 
+        <!-- ======== What the run is doing ========
+             At the foot of the tile, under the composer - the place the Agent tile keeps what its
+             conversation costs, in the same bar and at the same height, so the two conversations end
+             the same way. It used to share the top strip with the pickers, where a phase label that
+             changes every few seconds stood in the one row that says how this tile is set up, and in a
+             narrow tile was the first thing to go to a dot. -->
+        <Border DockPanel.Dock="Bottom" Classes="context-bar">
+            <DockPanel x:Name="StatusRow">
+                <!-- The status, as the Agent tile's strip draws it and in its colours (GoalStatus):
+                     a word coloured by what it says, and compact a dot of that colour. First on its
+                     row, so without the rule in front of it (leading), and held a pixel off each edge
+                     so the bar is the Agent tile's height, whose Compact button carries that pixel. -->
+                <v:StripStatus x:Name="StatusView"
+                               Classes="leading"
+                               Margin="0,1"
+                               DockPanel.Dock="Left"
+                               Text="{Binding StatusText}"
+                               Tone="{Binding StatusTone}"
+                               ToolTip.Tip="{Binding StatusTip}" />
+                <!-- One template, four styles. Every severity used to need a view-model
+                     property, a TextBlock, a visibility converter and a style, and each of the four
+                     could be forgotten on its own. -->
+                <ItemsControl x:Name="Badges" DockPanel.Dock="Right" ItemsSource="{Binding Badges}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:GoalBadge">
+                            <!-- The count is a question - which two errors? - and the answer was
+                                 three screens up in a transcript the user had scrolled away from.
+                                 Pressing the badge brings that severity's findings to where the
+                                 count is.
+
+                                 Hit-testing off rather than disabled when there is nothing to open
+                                 (a goal file written before findings were kept): a greyed-out
+                                 badge would look like a count this tile no longer trusts, when the
+                                 count is exactly what it still knows. -->
+                            <Button Classes="badge-button"
+                                    IsHitTestVisible="{Binding HasFindings}"
+                                    ToolTip.Tip="{Binding Tooltip}"
+                                    Command="{Binding $parent[UserControl].((vm:GoalTileViewModel)DataContext).OpenFindingsCommand}"
+                                    CommandParameter="{Binding}">
+                                <TextBlock Classes="badge"
+                                           Classes.badge-blocker="{Binding IsBlocker}"
+                                           Classes.badge-error="{Binding IsError}"
+                                           Classes.badge-warning="{Binding IsWarning}"
+                                           Classes.badge-suggestion="{Binding IsSuggestion}"
+                                           Text="{Binding Text}" />
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <!-- The activity fills what is left and is the first thing to go: it is about this
+                     second, and a DockPanel trims its last child. RowFitter never counts it. -->
+                <TextBlock Classes="strip strip-activity"
+                           Text="{Binding ActivityText}"
+                           IsVisible="{Binding ActivityText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding ActivityText}"
+                           Margin="6,0,0,0" />
+            </DockPanel>
+        </Border>
+
         <!-- ======== The conversation, and everything the tile asks of you inside it ========
              One scroller, one column, and nothing pinned to the bottom edge.
 
@@ -697,7 +710,7 @@
                  while the tool is working, and not while one of the blocks above is asking for the same
                  thing in a better shape.
 
-                 No second "the tool is busy" line here. The status strip already carries it, with the
+                 No second "the tool is busy" line here. The status bar under it already carries it, with the
                  phase and the iteration number in it, so a line saying only that something is happening
                  was the same news told worse. -->
             <Border x:Name="Composer" Classes="composer"
@@ -864,6 +877,8 @@
              and the composer below. The transcript is the one thing here that can afford to collapse:
              the strip says what is running and the composer is the only place to act from, so both keep
              their height and the conversation gives way, exactly as it does when the tile is narrow. -->
+        <!-- The transcript, and over its foot the way back to the end of it (JumpToBottom). -->
+        <Panel>
         <ScrollViewer x:Name="ChatScroll"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
@@ -1028,14 +1043,14 @@
 
             <!-- ======== Waiting for the tool ========
                  A row in the conversation, in the same shape as the message it is standing in for: the
-                 gutter marker where the marker goes, the dots where the text will be. What you are
+                 gutter marker where the marker goes, a braille spinner turning in it. What you are
                  waiting for *is* a message, so a placeholder message is what says so.
 
                  It used to be a pill floating over the transcript, pinned to the bottom-left of the
                  scroll area. Two things were wrong with that and only one of them was cosmetic: it
                  overlapped whatever was underneath — at the foot of a full transcript, the composer the
-                 user was typing into — and it said a second time what the status strip at the top of
-                 the tile already says, with the phase and the attempt number, in a bar that cannot be
+                 user was typing into — and it said a second time what the status bar under the composer
+                 already says, with the phase and the attempt number, in a bar that cannot be
                  scrolled away from. In the flow it can collide with nothing, it lands exactly where the
                  next message will, and the follow-to-the-bottom rule carries it for free. -->
             <v:WaitingRow IsVisible="{Binding IsRunning}"
@@ -1222,6 +1237,8 @@
 
             </StackPanel>
         </ScrollViewer>
+        <v:JumpToBottom x:Name="JumpToBottom" />
+        </Panel>
     </DockPanel>
 
     <v:FileDropHint x:Name="DropHint" Text="Drop to attach"

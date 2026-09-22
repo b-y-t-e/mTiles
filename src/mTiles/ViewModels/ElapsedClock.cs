@@ -6,7 +6,7 @@ using mTiles.Services;
 namespace mTiles.ViewModels;
 
 /// <summary>
-/// How long the agent has been at it, as the waiting row beside the thinking dots writes it — one clock for
+/// How long the agent has been at it, as the waiting row beside the waiting row's spinner writes it — one clock for
 /// every conversation that waits on one (the Goal tile's run, the Agent tile's turn).
 /// </summary>
 /// <remarks>

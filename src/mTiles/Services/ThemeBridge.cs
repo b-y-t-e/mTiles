@@ -63,6 +63,14 @@ public static class ThemeBridge
         var textFaint = borderStrong;
         var textHover = Lerp(fg, Colors.White, 0.25);
 
+        // Prose in a conversation, and the words in it somebody set in bold. A transcript is a page of
+        // monospace in the theme's full foreground, which on a dark ground reads as bold from end to
+        // end - and then the words that really are bold have nowhere left to go. So the body is taken
+        // one small step toward the ground and the bold one step past the foreground, away from it:
+        // the weight is then carried by contrast as well as by stroke.
+        var textBody = Lerp(fg, bg, 0.14);
+        var textStrong = Lerp(fg, theme.IsDark ? Colors.White : Colors.Black, 0.35);
+
         var green = Color.Parse(theme.Green);
         var dangerSubtle = WithAlpha(red, 0.12, bg);
         var dangerText = brightRed;
@@ -77,6 +85,8 @@ public static class ThemeBridge
 
         Set(app, "TextPrimary", fg);
         Set(app, "TextSecondary", textSecondary);
+        Set(app, "TextBody", textBody);
+        Set(app, "TextStrong", textStrong);
         Set(app, "TextMuted", textMuted);
         Set(app, "TextFaint", textFaint);
         Set(app, "TextHover", textHover);

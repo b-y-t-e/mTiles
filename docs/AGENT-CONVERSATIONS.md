@@ -533,7 +533,7 @@ Both tiles are an agent talking in a column, so the parts they share are one def
 
 - **`Styles/Conversation.axaml`**: message rows and gutters, the ask block (`ask`, `ask-rail`, `ask-marker`,
   `ask-question`, `ask-why`, `ask-option`, `ask-field`), copy buttons, the composer, `chat-action` buttons,
-  the thinking dots and `strip-choice`. Each tile keeps only what is its own: the Goal tile's criteria and
+  the waiting row's spinner (`gutter-working`), `jump-to-bottom` and `strip-choice`. Each tile keeps only what is its own: the Goal tile's criteria and
   findings, the Agent tile's tool rows and diffs.
 - **`@` file mentions**: the same `FileMentionsViewModel` + `FileMentionBehavior` on the composer and on
   every answer box, with Enter left to the suggestions while they are open.
@@ -555,7 +555,7 @@ Both tiles are an agent talking in a column, so the parts they share are one def
   frame shows the box's focus and a click on it puts the caret in the box. **Enter has to be caught in the
   tunnel**: a multi-line `TextBox` handles Enter itself before a `KeyDown` wired in markup sees it, so both
   keys used to break the line (`ComposerEnterTests` presses real keys through a window to pin it).
-- **Waiting**: `WaitingRow` (the thinking dots, a stage and a clock) fed by `ElapsedClock` — the Goal
+- **Waiting**: `WaitingRow` (a braille spinner in the gutter, a stage and a clock) fed by `ElapsedClock` — the Goal
   tile's run, the Agent tile's turn.
 - **A copy button per message** (`msg-copy` + `CopyButton`), and keeping the reader's place in the
   transcript by `TranscriptAnchor` — attached to the `ScrollViewer` and nothing else, so neither tile's
