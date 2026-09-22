@@ -56,7 +56,11 @@ public class GoalRolesTests
     [Theory]
     [InlineData(GoalEffortPreset.Balanced, GoalRole.Planning, AiEffort.Medium)]
     [InlineData(GoalEffortPreset.Balanced, GoalRole.Work, AiEffort.Low)]
-    [InlineData(GoalEffortPreset.Balanced, GoalRole.Review, AiEffort.High)]
+    [InlineData(GoalEffortPreset.Balanced, GoalRole.Review, AiEffort.Medium)]
+    // `careful` is the old `balanced`, levels unchanged, one rung up.
+    [InlineData(GoalEffortPreset.Careful, GoalRole.Planning, AiEffort.Medium)]
+    [InlineData(GoalEffortPreset.Careful, GoalRole.Work, AiEffort.Low)]
+    [InlineData(GoalEffortPreset.Careful, GoalRole.Review, AiEffort.High)]
     [InlineData(GoalEffortPreset.Thorough, GoalRole.Planning, AiEffort.High)]
     [InlineData(GoalEffortPreset.Thorough, GoalRole.Work, AiEffort.Medium)]
     [InlineData(GoalEffortPreset.Thorough, GoalRole.Review, AiEffort.High)]
@@ -115,8 +119,13 @@ public class GoalRolesTests
             Assert.False(string.IsNullOrWhiteSpace(GoalRoles.Description(preset)));
         }
 
-        Assert.Equal("plan medium · work low · review high",
+        Assert.Equal("plan medium · work low · review medium",
             GoalRoles.Description(GoalEffortPreset.Balanced));
+
+        // The rung above it is the old `balanced` under its new name, so the two rows differ in the
+        // review and nowhere else — which is what makes one word enough to choose between them.
+        Assert.Equal("plan medium · work low · review high",
+            GoalRoles.Description(GoalEffortPreset.Careful));
 
         // Unrecognised is the default rather than an exception while a tile is being built — the rule
         // AiEfforts.FromLabel follows, and for the same reason.

@@ -230,6 +230,48 @@ public sealed class SettingsMigrationTests : IDisposable
     }
 
     /// <summary>
+    /// The word moved under the preset, so a file that named one is moved with it.
+    /// </summary>
+    /// <remarks>
+    /// <c>balanced</c> named plan medium · work low · review <em>high</em> until the scale gained a
+    /// rung beneath it, and the value is stored by name — so left alone, somebody who had chosen it
+    /// would come back with their reviews quietly shallower, which is the one thing
+    /// <c>docs/GOAL.md</c>'s measurement says costs findings. Every other word means today what it
+    /// meant then and is passed through, or `cheap` would arrive as a decision nobody made.
+    /// </remarks>
+    [Theory]
+    [InlineData("Balanced", GoalEffortPreset.Careful)]
+    [InlineData("Thorough", GoalEffortPreset.Thorough)]
+    [InlineData("Cheap", GoalEffortPreset.Cheap)]
+    [InlineData("ToolDefault", GoalEffortPreset.ToolDefault)]
+    public void A_preset_stored_under_the_old_vocabulary_keeps_its_levels(
+        string stored, GoalEffortPreset expected)
+    {
+        GivenSettings($$"""{ "GoalEffortPreset": "{{stored}}" }""");
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(expected, service.Settings.GoalEffortPreset);
+        Assert.Null(service.Settings.LegacyGoalEffortPreset);
+
+        // Read once, and the migration's own save is what drops the old key — otherwise it would run
+        // again on every launch and overwrite whatever the user had chosen since.
+        Assert.Equal(expected, new SettingsService(SettingsPath).Settings.GoalEffortPreset);
+    }
+
+    /// <summary>A preset chosen since the rename is left exactly where it is.</summary>
+    /// <remarks>The half the test above cannot cover: both keys are readable at once, and a migration
+    /// that ran on the new one too would move every user onto <c>careful</c> on the first launch after
+    /// they had chosen <c>balanced</c>.</remarks>
+    [Fact]
+    public void A_preset_stored_under_the_current_key_is_not_migrated()
+    {
+        GivenSettings("""{ "GoalEffortPresetV2": "Balanced" }""");
+
+        Assert.Equal(GoalEffortPreset.Balanced, new SettingsService(SettingsPath).Settings.GoalEffortPreset);
+    }
+
+    /// <summary>
     /// A level this build cannot read must not cost the file, and must not be read as a decision
     /// either: the converter answers null, so the preset stays at its default.
     /// </summary>

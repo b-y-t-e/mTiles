@@ -165,8 +165,32 @@ public sealed class AppSettings
     /// file also holds the provider keys and the DPAPI-encrypted database passwords. One unknown word
     /// must not quarantine all of it.</para>
     /// </remarks>
+    /// <para>Written under a key of its own because the vocabulary moved under it:
+    /// <c>balanced</c> used to mean the levels <see cref="GoalEffortPreset.Careful"/> now carries, and
+    /// one key holding both spellings could not tell which build wrote the word. The old key is read
+    /// once by <see cref="LegacyGoalEffortPreset"/> and dropped.</para>
+    [JsonPropertyName("GoalEffortPresetV2")]
     [JsonConverter(typeof(TolerantGoalEffortPresetConverter))]
     public GoalEffortPreset GoalEffortPreset { get; set; } = GoalEffortPreset.Balanced;
+
+    /// <summary>
+    /// The preset as it was spelled before <c>balanced</c> named a shallower review.
+    /// </summary>
+    /// <remarks>
+    /// <para>Nullable and never written back, the rule <see cref="LegacyGoalEffort"/> already follows:
+    /// it exists to be read once out of a file an older build wrote.
+    /// <c>SettingsService.MigrateLegacySettings</c> turns a stored <c>Balanced</c> into
+    /// <see cref="GoalEffortPreset.Careful"/> — the same three levels under the name they moved to —
+    /// and passes every other word through unchanged.</para>
+    /// <para>Migrating rather than leaving the word where it was is the whole point: the value is
+    /// stored by name, so a file saying <c>balanced</c> would otherwise come back meaning a review at
+    /// <see cref="AiEffort.Medium"/> where the user had asked for <see cref="AiEffort.High"/>, with
+    /// nothing on screen saying that their reviews had got shallower.</para>
+    /// </remarks>
+    [JsonPropertyName("GoalEffortPreset")]
+    [JsonConverter(typeof(TolerantEnumConverter<GoalEffortPreset>))]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public GoalEffortPreset? LegacyGoalEffortPreset { get; set; }
 
     /// <summary>
     /// The single effort level the Goal tile had before the levels became per role.

@@ -21,6 +21,13 @@ namespace mTiles.Services;
 /// review is not a cheap review — it is a run that passes <c>RequireGoalMet</c> on its first attempt
 /// and reports a goal with an unfixed bug in it as met. The ADR argues against trading a second
 /// reviewing *agent* for a deeper one; it says nothing against the level this measurement fixes.</para>
+/// <para><b>Why that level is nonetheless not the default any more.</b> The measurement says what a
+/// review at <see cref="AiEffort.High"/> catches, not what every run is worth paying for it: a deep
+/// review on a two-line change is most of the run's cost for a step that had little to read. So the
+/// deep one keeps its rung and its name — <see cref="GoalEffortPreset.Careful"/>, the old
+/// <c>balanced</c> unchanged, one click away — and <c>balanced</c> now names the rung below it.
+/// Anybody who had chosen the old word is moved onto <c>careful</c> rather than onto the cheaper
+/// review; only the word moved, nobody's run did. See <c>AppSettings.LegacyGoalEffortPreset</c>.</para>
 /// </remarks>
 public static class GoalRoles
 {
@@ -70,11 +77,16 @@ public static class GoalRoles
                 GoalRole.Work => AiEffort.Medium,
                 _ => AiEffort.High,
             },
+            GoalEffortPreset.Careful => role switch
+            {
+                GoalRole.Work => AiEffort.Low,
+                GoalRole.Review => AiEffort.High,
+                _ => AiEffort.Medium,
+            },
             GoalEffortPreset.Cheap => AiEffort.Low,
             _ => role switch
             {
                 GoalRole.Work => AiEffort.Low,
-                GoalRole.Review => AiEffort.High,
                 _ => AiEffort.Medium,
             },
         };
@@ -85,6 +97,7 @@ public static class GoalRoles
     public static IReadOnlyList<GoalEffortPreset> All { get; } =
     [
         GoalEffortPreset.Balanced,
+        GoalEffortPreset.Careful,
         GoalEffortPreset.Thorough,
         GoalEffortPreset.Cheap,
         GoalEffortPreset.ToolDefault,
@@ -99,6 +112,7 @@ public static class GoalRoles
     /// <summary>How it reads in the strip — one lower-case word, like everything else there.</summary>
     public static string Label(GoalEffortPreset preset) => preset switch
     {
+        GoalEffortPreset.Careful => "careful",
         GoalEffortPreset.Thorough => "thorough",
         GoalEffortPreset.Cheap => "cheap",
         GoalEffortPreset.ToolDefault => "default",

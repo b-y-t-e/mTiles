@@ -971,8 +971,9 @@ inside the review it came from.
 **A run is four jobs, not one** (`GoalRole`, `GoalRoles`, and ADR
 [0003](docs/adr/0003-effort-by-role-in-a-goal-run.md)). Planning, work, review and commit each get
 their own amount of thinking and — for two of them — their own agent. **The strip still carries one
-effort picker**: its word is a *preset* (`balanced` = plan medium · work low · review high,
-`thorough`, `cheap`, `default`) and the three levels are in the picker row's own description, which is
+effort picker**: its word is a *preset* (`balanced` = plan medium · work low · review medium,
+`careful` = the same with the review at high — the word `balanced` used to be, and a stored `Balanced`
+is migrated onto it — `thorough`, `cheap`, `default`) and the three levels are in the picker row's own description, which is
 what lets a setting with three dimensions cost one control in a tile that is often 300px wide. **Commit
 is `low` as a constant**, in no preset and on no screen, because naming which changed files belong
 together is mechanical — the only exception is the `default` preset, whose whole meaning is to pass no
@@ -1759,9 +1760,13 @@ Recorded so far:
   over with a brief instead of being refused; the resume token is cleared at the seam, and the permission
   mode travels with the work, bypass included.
 - [0003](docs/adr/0003-effort-by-role-in-a-goal-run.md) — a Goal run thinks by role rather than at one
-  level: the strip's one word is a preset (`balanced` = plan medium · work low · review high), the
-  commit is `low` as a constant nothing can set, and planning joins review as a slot that may be
-  another agent. Reverses `AiEffort`'s "high by default because the budget is in attempts".
+  level: the strip's one word is a preset, the commit is `low` as a constant nothing can set, and
+  planning joins review as a slot that may be another agent. Reverses `AiEffort`'s "high by default
+  because the budget is in attempts". Its default preset is amended by 0004.
+- [0004](docs/adr/0004-a-rung-below-the-default-review.md) — the ladder gains a rung between `cheap`
+  and the old default: `balanced` now means a review at medium, and the deep review keeps its levels
+  under the name `careful`. The word moved, so a stored `Balanced` is migrated onto `careful` under a
+  key of its own rather than silently meaning something cheaper.
 
 ## Conventions
 

@@ -734,8 +734,15 @@ in — so its caller names its role, or it would be attributed to the reviewer a
 effort.
 
 **The strip still carries one picker, and its word is a preset.** `balanced` (the default) is
-*plan medium · work low · review high*; `thorough` is *plan high · work medium · review high*;
-`cheap` is everything low; `default` passes no flag anywhere. The three levels live in the picker row's
+*plan medium · work low · review medium*; `careful` is *plan medium · work low · review high*;
+`thorough` is *plan high · work medium · review high*; `cheap` is everything low; `default` passes no
+flag anywhere. `careful` is the word `balanced` used to be — the same three levels, one rung up — and a
+`settings.json` naming the old word is moved onto it rather than left where it was
+(`AppSettings.LegacyGoalEffortPreset`, under a key of its own since the value is stored by name and one
+key could not tell which build wrote it). The ladder gained that rung because the measurement below says
+what a deep review *catches*, not what every run is worth paying for it: a review at `high` on a
+two-line change is most of the run's cost for a step that had little to read. See
+[ADR 0004](adr/0004-a-rung-below-the-default-review.md). The three levels live in the picker row's
 own description, which is the whole reason a setting with three dimensions costs one control in a tile
 that is often 300px wide — open the list and they are spelled out, close it and they take no width at
 all. **The commit is `low`, always, as a constant** (`GoalRoles.CommitEffort`): it is in no preset and

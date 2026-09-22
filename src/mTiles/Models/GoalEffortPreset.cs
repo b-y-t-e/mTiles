@@ -15,8 +15,18 @@ namespace mTiles.Models;
 /// </remarks>
 public enum GoalEffortPreset
 {
-    /// <summary>The default: think about the goal and the review, get on with the work.</summary>
+    /// <summary>The default: think about the goal, get on with the work, read it back at a middling
+    /// depth.</summary>
     Balanced,
+
+    /// <summary>The default's review, deepened — for work where an unnoticed bug costs more than the
+    /// review does.</summary>
+    /// <remarks>This is what <see cref="Balanced"/> meant until the scale gained a rung beneath it, and
+    /// a stored <c>Balanced</c> written before that is read as this one — see
+    /// <c>AppSettings.LegacyGoalEffortPreset</c>. Moving somebody onto a cheaper review without saying
+    /// so is the one thing the rename must not do: <c>docs/GOAL.md</c> measures what a review at
+    /// <see cref="AiEffort.Medium"/> misses.</remarks>
+    Careful,
 
     /// <summary>More of everything, for work that has already been got wrong once.</summary>
     Thorough,

@@ -168,6 +168,20 @@ public sealed class SettingsService
             changed = true;
         }
 
+        // ...and then the preset's own word moved: `balanced` used to name the levels `careful` now
+        // carries. Read after the block above, so that of two generations in one file the newer answer
+        // wins — the rule the three .gitignore keys already follow. A stored `Balanced` is the only one
+        // that moves; every other word means today what it meant then, and passing it through is what
+        // keeps `cheap` from being read as a decision nobody made.
+        if (Settings.LegacyGoalEffortPreset is { } stored)
+        {
+            Settings.GoalEffortPreset = stored == GoalEffortPreset.Balanced
+                ? GoalEffortPreset.Careful
+                : stored;
+            Settings.LegacyGoalEffortPreset = null;
+            changed = true;
+        }
+
         changed |= AdoptEmbeddedFont();
         changed |= DropCustomShell();
         changed |= ReportUnknownDefaultShell();

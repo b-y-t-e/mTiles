@@ -62,7 +62,10 @@ into every goal file, decides `AiUsage`, and gates `GoalTilePolicy.CanResume`. `
 with no phase of its own and is named at its call site.
 
 **The setting is a preset, not three levels.** Four rows — `balanced` (the default: plan medium, work
-low, review high), `thorough`, `cheap`, `default` — behind the one picker the strip already had. The
+low, review high), `thorough`, `cheap`, `default` — behind the one picker the strip already had.
+*(Amended by [0004](0004-a-rung-below-the-default-review.md): a fifth row sits between `cheap` and the
+default, and takes the name `balanced`; these levels keep their place in the list under the name
+`careful`.)* The
 three levels live in the picker row's own description, so the strip carries one control where the
 feature has three. `AppSettings.GoalEffort` becomes `LegacyGoalEffort`, read once by
 `SettingsService.MigrateLegacySettings` through `GoalRoles.FromLegacyEffort` and dropped.
