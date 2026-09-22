@@ -724,15 +724,49 @@ fixed the same way: the tooltips carry what a button does, which is the part not
 
 **`NoChange` offers it too, and used not to.** The argument against was that the tool wrote nothing, so another attempt would write nothing again — and the summary said so out loud ("the last attempt changed no files, so the same prompt would change none again"). That prediction holds on neither path that reaches this stop. Where the attempt was *refused*, the summary itself says to change the permission mode and try again, and Continue is that retry with the transcript kept. Where it was not, the unchanged tree is reviewed on the way out and those findings go into the next implement prompt, so the next attempt is handed something this one was not. It is also the stop that most often arrives with the budget **unspent** — an empty attempt ends the loop whatever is left in it — so refusing here left a run with an unmet criterion, attempts still owed and no route at all to spend them but retyping the goal. The summary now states the fact and predicts nothing ("Stopped after 4 attempts: the agent changed no files. Still outstanding: 1 warning (limit 0)."), and it is drawn a step brighter than the tile's other notes (`GoalMessage.IsRunSummary` → `msg-summary` at `TextSecondary`), because an agent that had an unmet criterion in front of it and wrote nothing anyway is the thing to look at. Whether it disagreed with the finding or simply missed it is not something this application can tell, and one button is a cheaper way to find out than starting again.
 
-**How hard the tool is asked to think is the tile's to say too, and the default is not the tool's.**
-The strip carries an effort level beside the permission mode (`AiEffort`, mapped to `claude --effort`
-by `AiEfforts`), and it defaults to **high** rather than to whatever the tool would choose on its own.
-The argument is the budget: this loop is measured in attempts, and an attempt spent on a shallow answer
-costs exactly as much of it as a careful one — while the tool's own default is tuned for interactive
-use, where a person is watching and can redirect after two sentences. Nobody is watching here.
-It lives in `settings.json` beside the permission mode and for the same reason, and needs no
-confirmation of any kind: unlike `bypass`, the worst it can do is cost time and tokens, both visible
-while they are being spent.
+**How hard the tools are asked to think is the tile's to say too, and it is asked once per _job_.**
+A run makes four kinds of call — working the goal out and planning it, carrying the plan out, reviewing
+what came back, and deciding which changed files belong in which commit — and `GoalRole` names them.
+The role is derived from the phase (`GoalRoles.For`) and written down nowhere; `GoalPhase` is untouched,
+because it is in every goal file, decides `AiUsage` and gates `GoalTilePolicy.CanResume`. The commit plan
+is the one call with no phase of its own — it is asked for during whichever phase the run happens to be
+in — so its caller names its role, or it would be attributed to the reviewer and run at the reviewer's
+effort.
+
+**The strip still carries one picker, and its word is a preset.** `balanced` (the default) is
+*plan medium · work low · review high*; `thorough` is *plan high · work medium · review high*;
+`cheap` is everything low; `default` passes no flag anywhere. The three levels live in the picker row's
+own description, which is the whole reason a setting with three dimensions costs one control in a tile
+that is often 300px wide — open the list and they are spelled out, close it and they take no width at
+all. **The commit is `low`, always, as a constant** (`GoalRoles.CommitEffort`): it is in no preset and
+has no field on any screen, so nothing can set it wrong, and its one exception is the `default` preset,
+whose whole meaning is to pass no flag. It lives in `settings.json` beside the permission mode and for
+the same reason, and needs no confirmation of any kind: unlike `bypass`, the worst it can do is cost
+time and tokens, both visible while they are being spent.
+
+**Why the work is the cheap one, when this file used to argue the opposite.** The old rule was one
+level for everything, defaulting to high, on the argument that the loop is measured in attempts so a
+shallow attempt costs as much of the budget as a careful one. What is measured does not support that for
+the *implementing* phase: reasoning effort on agentic coding benchmarks saturates and is sometimes
+non-monotonic, with the extra spend going into re-reading and re-editing the same files, and a cheaper
+author's mistakes are the ones a review actually catches — a stronger author produces internally
+consistent wrong answers that verifiers wave through. What it does *not* support is spending the saving
+on a deeper review instead: under a fixed budget, generation beats verification by 4×–64×. What pays for
+the review is a **second agent**, not a deeper one. What that says nothing about is the *level* the
+review runs at, and the section above is this repository's own measurement of exactly that step —
+twenty-one reviews at `medium` returned one finding or none, eight of them empty, against twenty-one at
+`high` where none was empty — so the review stays `high` in every preset but `cheap`, and the saving
+comes out of the implementing phase alone. An empty review is not a cheap review: it passes
+`RequireGoalMet` on the first attempt and reports a goal with an unfixed bug in it as met. The papers
+and the reversal are ADR [0003](adr/0003-effort-by-role-in-a-goal-run.md).
+
+**Three agent slots, and only one of them writes.** The execution agent is in the strip — which agent is
+editing this repository is the one value there that has to be readable at a glance. `planned by` and
+`reviewed by` are rows of the criteria panel, both defaulting to "same as execution", because a
+once-per-goal setting is not strip furniture. Work and commit are the execution agent's together: one
+writes the code and the other decides how to record it, and splitting those would hand the commit to a
+model that never saw the change. Planning and review may each be somebody else; since neither writes,
+a second agent still cannot reach the worktree `GoalBaseline` photographs once.
 
 Measured, and the two failure modes are not alike. An unrecognised **value** is forgiving — *Warning:
 Unknown --effort value 'bogus' — ignoring it and using the default effort* — so nothing here has to
