@@ -822,8 +822,14 @@
             </StackPanel>
         </StackPanel>
 
+        <!-- No MinHeight here, and that is the fix for a short tile rather than a saving. A DockPanel
+             gives its last child whatever the docked ones left, which in a tile a couple of rows tall
+             is nothing - and a minimum height does not take that room back, it only makes the scroller
+             render taller than the rectangle it was given and paint its last lines over the strip above
+             and the composer below. The transcript is the one thing here that can afford to collapse:
+             the strip says what is running and the composer is the only place to act from, so both keep
+             their height and the conversation gives way, exactly as it does when the tile is narrow. -->
         <ScrollViewer x:Name="ChatScroll"
-                      MinHeight="48"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="0,4,0,10">

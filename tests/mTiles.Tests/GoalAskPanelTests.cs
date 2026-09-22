@@ -1,4 +1,5 @@
-﻿using Avalonia.Controls;
+﻿using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Controls.Templates;
@@ -48,10 +49,10 @@ public class GoalAskPanelTests : IDisposable
         return new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
     }
 
-    private static GoalTileView Shown(GoalTileViewModel vm)
+    private static GoalTileView Shown(GoalTileViewModel vm, double height = 480)
     {
         var view = new GoalTileView { DataContext = vm };
-        var window = new Window { Content = view, Width = 620, Height = 480 };
+        var window = new Window { Content = view, Width = 620, Height = height };
 
         // The colour tokens the panel's styles reach for. Without them every DynamicResource resolves
         // to nothing and the test would be drawing a different control from the one users see.
@@ -390,6 +391,40 @@ public class GoalAskPanelTests : IDisposable
                     .First(c => c.GetVisualParent() is DockPanel)));
         });
     }
+
+    /// <summary>
+    /// A tile too short for all three keeps the strip and the composer, and the transcript gives way.
+    /// </summary>
+    /// <remarks>
+    /// A DockPanel hands its last child what the docked ones left, and a minimum height on that child
+    /// does not take the room back — it renders over what is above and below it. The transcript carried
+    /// one, so a Goal tile a couple of rows tall drew its last lines across the status strip and the
+    /// composer. Pinned as rectangles rather than as an attribute, because the attribute is only one of
+    /// the ways this comes back.
+    /// </remarks>
+    [Fact]
+    public void In_a_short_tile_the_transcript_gives_way_rather_than_drawing_over_the_strip()
+    {
+        OnUiThread(() =>
+        {
+            using var vm = Tile();
+            var view = Shown(vm, height: 120);
+
+            var scroller = view.GetVisualDescendants().OfType<ScrollViewer>().First(c => c.Name == "ChatScroll");
+            var strip = view.GetVisualDescendants().OfType<DockPanel>().First(d => d.Name == "StripRow");
+            var composer = view.GetVisualDescendants().OfType<Border>().First(b => b.Name == "Composer");
+
+            Assert.True(scroller.Bounds.Height < 48, $"the transcript took {scroller.Bounds.Height}px it had not got");
+            Assert.True(Top(scroller, view) >= Bottom(strip, view) - 0.5, "the transcript starts above the strip's last line");
+            Assert.True(Bottom(scroller, view) <= Top(composer, view) + 0.5, "the transcript runs into the composer");
+        });
+    }
+
+    private static double Top(Control control, Control within) =>
+        control.TranslatePoint(new Point(0, 0), within)!.Value.Y;
+
+    private static double Bottom(Control control, Control within) =>
+        control.TranslatePoint(new Avalonia.Point(0, control.Bounds.Height), within)!.Value.Y;
 
     /// <summary>
     /// One block at a time: the composer is up until a round of questions takes its place.

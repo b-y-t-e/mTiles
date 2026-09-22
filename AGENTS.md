@@ -196,6 +196,12 @@ something that looked wrong on screen.
   the border width, or the two rounded rectangles are not concentric).
 - **One radius per role**: `RadiusTile` cards, `RadiusRow` list rows, `RadiusSm`/`RadiusMd` controls.
   Three radii in one 240px column read as a rendering accident.
+- **A minimum size on a `DockPanel`'s fill child is not a reservation.** The docked children take
+  their desired size first and the last child gets whatever is left — which in a short tile is
+  nothing — so a `MinHeight` there does not claim room back, it makes the child render taller than
+  the rectangle it was arranged in and paint over its neighbours. The Goal tile's transcript carried
+  one and drew its last lines across the status strip and the composer. Whatever can collapse,
+  collapses.
 - **Full-bleed by default.** Only a terminal's content is inset from its card (`LeafTileView.ContentInset`);
   a tile whose content is its own chrome runs to the edge and takes the card's corners from the clip.
   An inset leaves a square-cornered rectangle floating in a rounded card.
