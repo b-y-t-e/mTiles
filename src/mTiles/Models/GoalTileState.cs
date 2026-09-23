@@ -163,6 +163,10 @@ public sealed class GoalTileState
     [JsonConverter(typeof(TolerantEnumConverter<GoalStopReason>))]
     public GoalStopReason? LastStopReason { get; set; }
 
+    /// <summary>See <c>GoalWorkflowEngine.SummaryOfAReviewOnItsOwn</c>. Absent in older files, which
+    /// reads as false: no ticks offered, as before.</summary>
+    public bool SummaryOfAReviewOnItsOwn { get; set; }
+
     /// <summary>
     /// The git ref holding the working tree as it was when this goal started, or null when no snapshot
     /// was taken — see <see cref="mTiles.Services.GoalBaseline"/>.

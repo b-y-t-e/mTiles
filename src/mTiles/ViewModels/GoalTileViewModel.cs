@@ -409,7 +409,10 @@ public partial class GoalTileViewModel
             // still has attempts in it, and after a review-only run none have been spent — so nothing
             // is added, the label stays a plain "Continue", and the loop runs the attempts the panel
             // defines.
-            GoalStopReason.Reviewed => true,
+            // Unless every outstanding finding of that review has been left alone: an implementation
+            // handed an empty list is a run spent proving nothing. Asked here rather than folded into
+            // the stop reason, so the summary never claims a verdict the reviewer did not give.
+            GoalStopReason.Reviewed => !StandaloneReviewLeavesNothingToContinue(),
 
             // An attempt that wrote nothing: either it was refused and this is the retry the summary
             // asks for, or the unchanged tree was reviewed on the way out and the next implementation
@@ -3324,19 +3327,7 @@ public partial class GoalTileViewModel
     private void OpenPicks(IReadOnlyList<GoalFinding> findings, GoalGateState state)
     {
         ClosePicks();
-
-        foreach (var finding in findings)
-        {
-            // The stored answer first and the subscription after it, or filling the tick from the
-            // dismissals would read as the user moving it: the run would pause on its own gate, over a
-            // decision taken on some earlier lap.
-            finding.Fix = !GoalDismissals.Contains(_engine.Dismissed, finding);
-            finding.CanPick = GoalReviewGatePolicy.CanPick(finding.Severity);
-            if (!finding.CanPick) continue;
-
-            finding.PropertyChanged += OnPickChanged;
-            _picking.Add(finding);
-        }
+        AttachPicks(findings);
 
         _gateState = state;
 
@@ -3410,6 +3401,120 @@ public partial class GoalTileViewModel
         return true;
     }
 
+    /// <summary>Offers the tick beside every finding that may be left alone, filled from what has
+    /// already been dismissed.</summary>
+    private void AttachPicks(IReadOnlyList<GoalFinding> findings)
+    {
+        foreach (var finding in findings)
+        {
+            // The stored answer first and the subscription after it, or filling the tick from the
+            // dismissals would read as the user moving it: the run would pause on its own gate, over a
+            // decision taken on some earlier lap.
+            finding.Fix = !GoalDismissals.Contains(_engine.Dismissed, finding);
+            finding.CanPick = GoalReviewGatePolicy.CanPick(finding.Severity);
+            if (!finding.CanPick) continue;
+
+            finding.PropertyChanged += OnPickChanged;
+            _picking.Add(finding);
+        }
+    }
+
+    /// <summary>
+    /// Whether the ticks on screen belong to a review asked for on its own rather than to the loop's
+    /// gate.
+    /// </summary>
+    /// <remarks>
+    /// A review on its own ends in a summary offering Continue, and Continue implements what that
+    /// review found — so it is the same choice the gate offers, made before the first attempt instead
+    /// of between two. It is not the gate, though, and must not look like one to anything that reads
+    /// the state: no <see cref="GoalWorkflowEngine.PausedAtReviewGate"/>, no block, no clock. What a
+    /// tick changes here is the one thing the summary decided — whether there is anything left to
+    /// continue towards — see <see cref="RejudgeTheReview"/>.
+    /// </remarks>
+    private bool _picksAfterReview;
+
+    /// <summary>Opens the ticks on the review a Review or Re-review has just finished.</summary>
+    /// <remarks>After the summary, because the summary closes whatever picks are open. Taken from the
+    /// transcript's own list when it is this review's, for the reason the reload gives: the dialog
+    /// behind a badge and the transcript must tick the same objects.</remarks>
+    private void OpenPicksAfterReview()
+    {
+        if (_engine.LastReview is not { } review || !_engine.SummaryOfAReviewOnItsOwn) return;
+
+        var shown = Messages.LastOrDefault(m => m.HasFindings)?.Findings;
+        DetachPicks();
+        AttachPicks(IsSameList(shown, review.Findings) ? shown! : review.Findings);
+        _picksAfterReview = _picking.Count > 0;
+    }
+
+    /// <summary>Whether a review asked for on its own leaves nothing for Continue to implement: the
+    /// criteria are met once the dismissed findings are subtracted, or every finding it raised has
+    /// been dismissed.</summary>
+    /// <remarks>The second half is not implied by the first: the reviewer's own <c>goalMet</c> is left
+    /// as it was by a dismissal (see <see cref="GoalDismissals.Accepted"/>), so under the default
+    /// <c>RequireGoalMet</c> a review whose every finding was left alone still reads as unmet — and a
+    /// Continue offered there would run an implementation handed an empty list.</remarks>
+    private bool LeavesNothingToContinue(GoalReviewResult review, GoalReviewResult accepted) =>
+        GoalCompletionPolicy.IsMet(accepted, _engine.Criteria)
+        || (review.Findings.Any(IsOutstanding) && !accepted.Findings.Any(IsOutstanding));
+
+    /// <summary>Whether the summary standing is a review on its own whose remaining findings have all
+    /// been dismissed.</summary>
+    private bool StandaloneReviewLeavesNothingToContinue() =>
+        _engine.SummaryOfAReviewOnItsOwn
+        && _engine.LastReview is { } review
+        && LeavesNothingToContinue(review, _engine.Accepted(review));
+
+    /// <summary>The stop reason a standalone review stands on: the criteria's own verdict, never
+    /// what the ticks left for Continue.</summary>
+    private GoalStopReason StandaloneReviewStopReason(GoalReviewResult accepted) =>
+        GoalCompletionPolicy.IsMet(accepted, _engine.Criteria) ? GoalStopReason.Met : GoalStopReason.Reviewed;
+
+    /// <summary>A finding Continue would be sent to fix: anything above a suggestion, which no tick
+    /// can take away and which alone never refuses the goal.</summary>
+    private static bool IsOutstanding(GoalFinding finding) => finding.Severity != GoalSeverity.Suggestion;
+
+    /// <summary>Carries what Continue will need from a standalone review: the feedback when there is
+    /// something to fix, nothing when there is not.</summary>
+    private void CarryReviewForContinue(GoalReviewResult accepted, bool nothingToContinue)
+    {
+        if (nothingToContinue)
+        {
+            _engine.ClearReviewFeedback();
+            _engine.LastReviewFingerprint = null;
+            return;
+        }
+
+        // Carried for Continue, which is offered next: without it the first implementation would
+        // start over a tree that has just been reviewed, knowing nothing of what was found.
+        _engine.RecordReviewFeedback(GoalTranscript.Feedback(accepted));
+        _engine.LastReviewFingerprint = accepted.WasStructured ? accepted.Fingerprint() : null;
+    }
+
+    /// <summary>
+    /// Judges the standalone review again after a tick moved: the summary's one decision, whether
+    /// there is anything left for Continue to implement.
+    /// </summary>
+    /// <remarks>
+    /// Unticking the last outstanding finding leaves nothing to implement, and a Continue that stayed
+    /// on screen would run an implementation against nothing. Ticking one back brings Continue back.
+    /// The feedback and the fingerprint are carried by the same rule the summary used, so the next
+    /// review's no-progress check compares against what Continue was actually handed. The sentence the summary already wrote is left as it was.
+    /// </remarks>
+    private void RejudgeTheReview()
+    {
+        if (_engine.LastReview is not { } review) return;
+
+        var accepted = _engine.Accepted(review);
+        var nothingToContinue = LeavesNothingToContinue(review, accepted);
+        CarryReviewForContinue(accepted, nothingToContinue);
+        _engine.LastStopReason = StandaloneReviewStopReason(accepted);
+
+        OnPropertyChanged(nameof(CanContinue));
+        OnPropertyChanged(nameof(ContinueLabel));
+        RefreshFinishedRunActions();
+    }
+
     /// <summary>Lets go of the findings themselves — the subscriptions and the ticks they offer —
     /// without saying anything about whether the run is standing at the gate.</summary>
     /// <remarks>Separate from <see cref="ClosePicks"/> because closing the tile has to do this half
@@ -3426,6 +3531,7 @@ public partial class GoalTileViewModel
         }
 
         _picking.Clear();
+        _picksAfterReview = false;
     }
 
     /// <summary>Takes the ticks away and the block with them. Called when the run moves on, which is
@@ -3468,6 +3574,7 @@ public partial class GoalTileViewModel
         }
 
         RebuildReviewFeedback();
+        if (_picksAfterReview) RejudgeTheReview();
         RecountAfterPick();
         UpdateGateLine();
         // Debounced: unticking ten findings is ten of these, and each save writes the whole transcript.
@@ -3701,6 +3808,8 @@ public partial class GoalTileViewModel
         int implementationDenials = 0, bool autoCommit = true, bool wroteChanges = true,
         bool spentAttempts = true)
     {
+        // Every summary but the one a standalone review marks straight after this is a loop's own.
+        _engine.SummaryOfAReviewOnItsOwn = false;
         _log?.Event($"STOP  {reason}"
             + (outstanding is { Length: > 0 } ? $" - outstanding: {outstanding}" : "")
             + $" - denials {implementationDenials}, autoCommit {autoCommit}, wroteChanges {wroteChanges}.");
@@ -3876,6 +3985,11 @@ public partial class GoalTileViewModel
         // open again. If there is genuinely nothing left, the scope comes back empty and says so.
         _committed = false;
 
+        // The review being replaced stops being one whose ticks decide Continue: a tick moved from
+        // here on must not re-judge it, and neither must a tile reopened before this one answers.
+        ClosePicks();
+        _engine.SummaryOfAReviewOnItsOwn = false;
+
         _engine.CurrentPhase = GoalPhase.Review;
         SyncFromEngine();
 
@@ -3907,22 +4021,12 @@ public partial class GoalTileViewModel
         // tree against the same decisions, so a finding the user has dismissed must not refuse the
         // goal in the summary or come back to the tool through Continue.
         var accepted = _engine.Accepted(review);
-
-        var met = GoalCompletionPolicy.IsMet(accepted, criteria);
-        if (met)
-        {
-            _engine.ClearReviewFeedback();
-        }
-        else
-        {
-            // Carried for Continue, which is offered next: without it the first implementation would
-            // start over a tree that has just been reviewed, knowing nothing of what was found.
-            _engine.RecordReviewFeedback(GoalTranscript.Feedback(accepted));
-            _engine.LastReviewFingerprint = accepted.WasStructured ? accepted.Fingerprint() : null;
-        }
+        CarryReviewForContinue(accepted, LeavesNothingToContinue(review, accepted));
+        var stopReason = StandaloneReviewStopReason(accepted);
+        var met = stopReason == GoalStopReason.Met;
 
         await ShowSummaryAsync(
-            met ? GoalStopReason.Met : GoalStopReason.Reviewed,
+            stopReason,
             met ? null : GoalCompletionPolicy.WhyNotMet(accepted, criteria),
             autoCommit: false,
             // The count belongs to the run this button was pressed *after*, not to the button. Reviewed
@@ -3936,6 +4040,11 @@ public partial class GoalTileViewModel
             // last implementation left it. Both flags are false here for different reasons, which is
             // why they are two flags.
             wroteChanges: false);
+        _engine.SummaryOfAReviewOnItsOwn = true;
+
+        // What was found can be narrowed before Continue implements it - the gate's own choice, made
+        // before the first attempt rather than between two. See _picksAfterReview.
+        OpenPicksAfterReview();
 
         RefreshFinishedRunActions();
         return true;
@@ -5668,6 +5777,13 @@ public partial class GoalTileViewModel
                 // attempt per reopening, until the budget was gone and Resume could only summarise.
                 if (CurrentPhase == GoalPhase.Review)
                     MoveToNextImplementation();
+            }
+            else if (CurrentPhase == GoalPhase.Summary && _engine.SummaryOfAReviewOnItsOwn)
+            {
+                // A tile closed over the summary of a review asked for on its own comes back still
+                // offering the choice of what Continue is to fix - Met included, since unticking the
+                // last finding is what makes it Met. A loop's own Met is not this and gets no ticks.
+                OpenPicksAfterReview();
             }
 
             // The questions a closed tile was waiting on. This is what the pending set is persisted

@@ -1707,6 +1707,188 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
+    private const string TwoErrorsReview =
+        "```json\n{\"goalMet\":false,\"findings\":[" +
+        "{\"severity\":\"error\",\"title\":\"null deref\",\"file\":\"a.cs\"}," +
+        "{\"severity\":\"error\",\"title\":\"race on save\",\"file\":\"b.cs\"}]}\n```";
+
+    private static IReadOnlyList<GoalFinding> LastFindings(GoalTileViewModel vm) =>
+        vm.Messages.Last(m => m.Findings is { Count: > 0 }).Findings!;
+
+    /// <summary>
+    /// A review asked for on its own offers the same choice the gate does, before Continue implements
+    /// what it found - and without becoming the gate.
+    /// </summary>
+    [Fact]
+    public void A_review_on_its_own_lets_the_findings_be_narrowed_before_continue()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var answers = new Queue<string>(["Finish the pairing flow.", TwoErrorsReview,
+                "Implemented it", "VERDICT: PASS"]);
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers.Count > 0 ? answers.Dequeue() : "VERDICT: PASS");
+            };
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            vm.Criteria.RequireGoalMet = false;
+            await vm.ReviewCommand.ExecuteAsync(null);
+
+            var findings = LastFindings(vm);
+            Assert.All(findings, f => Assert.True(f.CanPick));
+            // The choice, and nothing of the gate: no block, no pause for a reload to find.
+            Assert.False(vm.ShowReviewGate);
+            Assert.False(vm.IsPaused);
+            Assert.True(vm.CanContinue);
+
+            findings.Single(f => f.Title == "null deref").Fix = false;
+            await vm.ContinueRunCommand.ExecuteAsync(null);
+
+            var implement = prompts.Single(p => p.Contains("Fix these findings from the previous review"));
+            Assert.Contains("race on save", implement);
+            Assert.DoesNotContain("null deref", implement);
+
+            // The attempt closed the choice: it was acted on.
+            Assert.All(findings, f => Assert.False(f.CanPick));
+        });
+    }
+
+    /// <summary>Leaving everything the review found takes Continue away, and ticking one back
+    /// returns it: an implementation against nothing is a run spent proving nothing.</summary>
+    [Fact]
+    public void Leaving_every_finding_of_a_review_takes_continue_away()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", TwoErrorsReview);
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            vm.Criteria.RequireGoalMet = false;
+            await vm.ReviewCommand.ExecuteAsync(null);
+            Assert.True(vm.CanContinue);
+
+            var findings = LastFindings(vm);
+            foreach (var finding in findings) finding.Fix = false;
+            Assert.False(vm.CanContinue);
+
+            findings[0].Fix = true;
+            Assert.True(vm.CanContinue);
+        });
+    }
+
+    /// <summary>The same on the default criteria, where the reviewer's own verdict still says no
+    /// after every finding is left alone: that verdict is not something Continue can implement.</summary>
+    [Fact]
+    public void Leaving_every_finding_takes_continue_away_on_the_default_criteria()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", TwoErrorsReview);
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            Assert.True(vm.Criteria.RequireGoalMet);
+            await vm.ReviewCommand.ExecuteAsync(null);
+            Assert.True(vm.CanContinue);
+
+            var findings = LastFindings(vm);
+            foreach (var finding in findings) finding.Fix = false;
+            Assert.False(vm.CanContinue);
+
+            findings[0].Fix = true;
+            Assert.True(vm.CanContinue);
+        });
+    }
+
+    /// <summary>A suggestion cannot be ticked away and never refuses the goal, so leaving every
+    /// error beside one still leaves nothing for Continue.</summary>
+    [Fact]
+    public void Leaving_every_error_takes_continue_away_even_beside_a_suggestion()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.",
+                "```json\n{\"goalMet\":false,\"findings\":[" +
+                "{\"severity\":\"error\",\"title\":\"null deref\",\"file\":\"a.cs\"}," +
+                "{\"severity\":\"suggestion\",\"title\":\"rename it\",\"file\":\"b.cs\"}]}\n```");
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            await vm.ReviewCommand.ExecuteAsync(null);
+            Assert.True(vm.CanContinue);
+
+            LastFindings(vm).Single(f => f.Title == "null deref").Fix = false;
+            Assert.False(vm.CanContinue);
+        });
+    }
+
+    /// <summary>A tile closed over that summary comes back still offering the choice.</summary>
+    [Fact]
+    public void Reopening_a_reviewed_tile_offers_the_ticks_again()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", TwoErrorsReview);
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            var first = NewTile();
+            first.Criteria.RequireGoalMet = false;
+            await first.ReviewCommand.ExecuteAsync(null);
+            LastFindings(first).Single(f => f.Title == "null deref").Fix = false;
+            var path = first.FilePath;
+            first.Dispose();
+
+            using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+
+            var findings = LastFindings(second);
+            Assert.All(findings, f => Assert.True(f.CanPick));
+            Assert.False(findings.Single(f => f.Title == "null deref").Fix);
+            Assert.False(second.ShowReviewGate);
+            Assert.True(second.CanContinue);
+        });
+    }
+
+    /// <summary>Unticking every finding turns the summary Met, and the choice must still come back
+    /// with the tile - or Continue could never be brought back.</summary>
+    [Fact]
+    public void Reopening_after_leaving_every_finding_offers_the_ticks_again()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", TwoErrorsReview);
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            var first = NewTile();
+            first.Criteria.RequireGoalMet = false;
+            await first.ReviewCommand.ExecuteAsync(null);
+            foreach (var finding in LastFindings(first)) finding.Fix = false;
+            Assert.False(first.CanContinue);
+            var path = first.FilePath;
+            first.Dispose();
+
+            using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+
+            var findings = LastFindings(second);
+            Assert.All(findings, f => Assert.True(f.CanPick));
+            Assert.False(second.CanContinue);
+            findings[0].Fix = true;
+            Assert.True(second.CanContinue);
+        });
+    }
+
     [Fact]
     public void Reopening_a_tile_paused_at_the_gate_does_not_spend_an_attempt_each_time()
     {

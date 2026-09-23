@@ -183,6 +183,11 @@ public sealed partial class GoalWorkflowEngine
     /// answer survives a restart.</summary>
     public GoalStopReason? LastStopReason { get; set; }
 
+    /// <summary>Whether the summary standing now is that of a review asked for on its own, whose
+    /// findings may still be ticked before Continue. Persisted, because Met alone cannot tell it from
+    /// the end of a loop.</summary>
+    public bool SummaryOfAReviewOnItsOwn { get; set; }
+
     /// <summary>
     /// The ref holding the working tree as it was when this goal started, or null when no snapshot was
     /// taken — see <see cref="GoalBaseline"/>.
@@ -432,6 +437,7 @@ public sealed partial class GoalWorkflowEngine
         AttemptLog.Clear();
         IterationCount = 0;
         LastStopReason = null;
+        SummaryOfAReviewOnItsOwn = false;
         // The old goal's snapshot belongs to the old goal. A new one is taken as this one starts, and
         // until it is there is nothing to point the user at.
         BaselineRef = null;
@@ -797,6 +803,7 @@ public sealed partial class GoalWorkflowEngine
         PlanningAgentInstanceId = planningAgentInstanceId,
         IterationCount = IterationCount,
         LastStopReason = LastStopReason,
+        SummaryOfAReviewOnItsOwn = SummaryOfAReviewOnItsOwn,
         BaselineRef = BaselineRef,
         EndRef = EndRef,
         ReviewsExistingWork = ReviewsExistingWork,
@@ -848,6 +855,7 @@ public sealed partial class GoalWorkflowEngine
         CurrentPhase = state.CurrentPhase;
         IterationCount = state.IterationCount;
         LastStopReason = state.LastStopReason;
+        SummaryOfAReviewOnItsOwn = state.SummaryOfAReviewOnItsOwn;
         BaselineRef = state.BaselineRef;
         EndRef = state.EndRef;
         ReviewsExistingWork = state.ReviewsExistingWork;
