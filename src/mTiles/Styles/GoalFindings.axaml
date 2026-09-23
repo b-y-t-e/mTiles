@@ -40,12 +40,16 @@
                              that is acted on: everything to the right of it describes the finding, and
                              a control the eye has to find among three kinds of text is a control that
                              gets missed while a clock runs. -->
-                        <CheckBox DockPanel.Dock="Left"
-                                  Classes="f-pick"
-                                  IsVisible="{Binding ShowPick}"
-                                  IsEnabled="{Binding CanPick}"
-                                  IsChecked="{Binding Fix, Mode=TwoWay}"
-                                  ToolTip.Tip="Ticked goes back to the tool to be fixed. Unticked is left alone - it stops counting against the goal, and the next review is told not to raise it again." />
+                        <!-- Drawn as the transcript draws everything - text in the terminal's face,
+                             [x] and [ ] - rather than as the platform's checkbox, whose 20px box
+                             stood taller than the line it sat on and was the one piece of desktop
+                             chrome in a column of monospace. The text comes from the f-pick styles. -->
+                        <ToggleButton DockPanel.Dock="Left"
+                                      Classes="f-pick"
+                                      IsVisible="{Binding ShowPick}"
+                                      IsEnabled="{Binding CanPick}"
+                                      IsChecked="{Binding Fix, Mode=TwoWay}"
+                                      ToolTip.Tip="Ticked goes back to the tool to be fixed. Unticked is left alone - it stops counting against the goal, and the next review is told not to raise it again." />
                         <TextBlock DockPanel.Dock="Left"
                                    Classes="f-sev"
                                    Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
@@ -139,12 +143,51 @@
         <Style Selector="Border.finding.f-left">
             <Setter Property="Opacity" Value="0.5" />
         </Style>
-        <Style Selector="CheckBox.f-pick">
+<!-- The tick as text: [x] going back to the tool, [ ] left alone. The terminal's face at the
+             severity label's size, so it sits on the same baseline and takes one line's height; no
+             ground and no border, and the pointer is said by colour alone, the way every quiet control
+             in this transcript says it. -->
+        <Style Selector="ToggleButton.f-pick">
+            <Setter Property="Content" Value="[ ]" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Margin" Value="0,1,8,0" />
+            <Setter Property="Margin" Value="0,0,8,0" />
             <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:checked">
+            <Setter Property="Content" Value="[x]" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <!-- Fluent paints its own ground and foreground on the presenter in every state; all of it is
+             held transparent so the brackets are the whole of the control. -->
+        <Style Selector="ToggleButton.f-pick /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentHover}" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:disabled">
+            <Setter Property="Cursor" Value="Arrow" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:disabled /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
         </Style>
         <Style Selector="Border.finding:nth-child(1)">
             <Setter Property="Margin" Value="0" />
