@@ -260,7 +260,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
     {
         _ = new RowFitter(PickerRow, ComposerPickerLayout.Steps, ModelPicker, EffortPicker, ModePicker);
         var strip = new RowFitter(StripRow, AgentStripLayout.Steps,
-            AgentPicker, StatusView, StopButton, ConversationPicker);
+            AgentPicker, StatusView, ConversationPicker);
         strip.Watch(StatusView, StripStatus.TextProperty);
     }
 }
