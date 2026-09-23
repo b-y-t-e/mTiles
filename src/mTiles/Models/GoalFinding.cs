@@ -68,6 +68,7 @@ public sealed partial class GoalFinding : ObservableObject
     [ObservableProperty]
     [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(ShowPick))]
+    [NotifyPropertyChangedFor(nameof(IsLeftAlone))]
     private bool _fix = true;
 
     /// <summary>Whether the tick can be moved right now — true while the gate this finding belongs to
@@ -84,9 +85,16 @@ public sealed partial class GoalFinding : ObservableObject
     /// <remarks>While the gate is open, and afterwards only where the answer was no. A review nobody
     /// was offered a choice about — the gate switched off, or a finding that arrived after the decision
     /// was taken — is drawn exactly as it always was, with no column of permanently ticked boxes down
-    /// the side saying nothing.</remarks>
+    /// the side saying nothing. A suggestion is the other way round — its default is <em>not</em>
+    /// fixed — so for it the answer worth keeping on screen is a tick.</remarks>
     [JsonIgnore]
-    public bool ShowPick => CanPick || !Fix;
+    public bool ShowPick => CanPick || (Severity == GoalSeverity.Suggestion ? Fix : !Fix);
+
+    /// <summary>Whether the row is drawn as left alone: an error or a warning somebody unticked. A
+    /// suggestion unticked is only what a suggestion always was, and dimming every one of them would
+    /// make the list's quietest rows quieter for saying nothing new.</summary>
+    [JsonIgnore]
+    public bool IsLeftAlone => !Fix && Severity != GoalSeverity.Suggestion;
 
     public GoalSeverity Severity { get; set; }
 

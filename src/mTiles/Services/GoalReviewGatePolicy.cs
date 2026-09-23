@@ -63,14 +63,15 @@ internal static class GoalReviewGatePolicy
     /// <summary>
     /// Whether this finding can be left unfixed.
     /// </summary>
-    /// <remarks>Errors and warnings only — the two severities that go back to the tool and that the
-    /// completion criteria count. A suggestion is neither, so a tick beside it would change nothing
-    /// while stopping the clock and swelling the gate's count. Not a blocker either: that severity is the one with no tolerance in the
+    /// <remarks>Errors, warnings and suggestions. The first two go back to the tool and are counted
+    /// unless unticked; a suggestion is the other way round — left alone unless ticked, when it goes
+    /// back and holds the goal open until a review stops raising it (see
+    /// <see cref="GoalWorkflowEngine.IncludedSuggestions"/>). Not a blocker: that severity is the one with no tolerance in the
     /// completion criteria either, and for the same reason: it is what a reviewer writes when the
     /// change is unacceptable rather than merely wrong, so a tick beside it would be the tolerance the
     /// panel deliberately does not offer, reached from somewhere else.</remarks>
     public static bool CanPick(GoalSeverity severity) =>
-        severity is GoalSeverity.Error or GoalSeverity.Warning;
+        severity is GoalSeverity.Error or GoalSeverity.Warning or GoalSeverity.Suggestion;
 
     /// <summary>The labels the picker offers, in the order it offers them.</summary>
     public static IReadOnlyList<string> Labels { get; } =

@@ -310,6 +310,52 @@ public sealed partial class GoalWorkflowEngine
     /// one was written.</remarks>
     public List<GoalFinding> Dismissed { get; } = [];
 
+    /// <summary>
+    /// The suggestions the user has ticked to be fixed. A suggestion is left alone by default — never
+    /// sent back, never counted — so what is kept for it is the opt-in, the opposite of
+    /// <see cref="Dismissed"/>.
+    /// </summary>
+    public List<GoalFinding> IncludedSuggestions { get; } = [];
+
+    /// <summary>Whether this suggestion has been ticked to be fixed. Always false for any other
+    /// severity, which is governed by <see cref="Dismissed"/> instead.</summary>
+    public bool Includes(GoalFinding finding) =>
+        finding.Severity == GoalSeverity.Suggestion && GoalDismissals.Contains(IncludedSuggestions, finding);
+
+    /// <summary>What the tick beside this finding says when nobody has touched it on this review: the
+    /// goal's standing decision about it.</summary>
+    public bool FixByDefault(GoalFinding finding) =>
+        finding.Severity == GoalSeverity.Suggestion
+            ? Includes(finding)
+            : !GoalDismissals.Contains(Dismissed, finding);
+
+    /// <summary>
+    /// Whether the goal is done: the criteria, and no suggestion the user ticked still standing.
+    /// </summary>
+    /// <remarks>The criteria count no suggestion and must not start to, so the tick is the one thing
+    /// here that makes a suggestion hold a goal open — asked for by name, and still raised by the
+    /// review that has just come in.</remarks>
+    public bool IsMet(GoalReviewResult accepted) =>
+        GoalCompletionPolicy.IsMet(accepted, Criteria) && !accepted.Findings.Any(Includes);
+
+    /// <summary>Why the goal is not done, as <see cref="IsMet"/> judges it: the criteria's own sentence,
+    /// or — where the criteria are met — the suggestions the user ticked that the review still raises.</summary>
+    public string WhyNotMet(GoalReviewResult accepted)
+    {
+        if (!GoalCompletionPolicy.IsMet(accepted, Criteria))
+            return GoalCompletionPolicy.WhyNotMet(accepted, Criteria);
+
+        var ticked = accepted.Findings.Count(Includes);
+        return ticked == 1
+            ? "a suggestion you ticked to be fixed is still raised"
+            : $"{ticked} suggestions you ticked to be fixed are still raised";
+    }
+
+    /// <summary>What goes back to the tool from this review: its defects, and the suggestions the user
+    /// ticked.</summary>
+    public string FeedbackFor(GoalReviewResult accepted) =>
+        GoalTranscript.Feedback(accepted, IncludedSuggestions);
+
     /// <summary>What the loop does when a review is in and the goal is not finished — see
     /// <see cref="GoalReviewGateMode"/>.</summary>
     public GoalReviewGateMode ReviewGateMode { get; set; }
@@ -329,6 +375,16 @@ public sealed partial class GoalWorkflowEngine
     /// earlier lap or read back out of the file. Two objects, one defect.</remarks>
     public bool SetFix(GoalFinding finding, bool fix)
     {
+        // A suggestion's tick is an opt-in, kept on its own list: see IncludedSuggestions.
+        if (finding.Severity == GoalSeverity.Suggestion)
+        {
+            var included = IncludedSuggestions.FirstOrDefault(d => d.Defect == finding.Defect);
+            if (fix == included is not null) return false;
+            if (fix) IncludedSuggestions.Add(finding);
+            else IncludedSuggestions.Remove(included!);
+            return true;
+        }
+
         var stored = Dismissed.FirstOrDefault(d => d.Defect == finding.Defect);
         if (fix)
         {
@@ -434,6 +490,7 @@ public sealed partial class GoalWorkflowEngine
         // next goal's reviewer not to mention a defect nobody has looked at yet. The gate's own settings
         // stay: those are how this tile is worked, not what it is working on.
         Dismissed.Clear();
+        IncludedSuggestions.Clear();
         AttemptLog.Clear();
         IterationCount = 0;
         LastStopReason = null;
@@ -819,6 +876,7 @@ public sealed partial class GoalWorkflowEngine
         LastReview = LastReview,
         PausedAtReviewGate = PausedAtReviewGate,
         DismissedFindings = [..Dismissed],
+        IncludedSuggestions = [..IncludedSuggestions],
         ReviewGateMode = ReviewGateMode,
         ReviewGateSeconds = ReviewGateSeconds,
         Criteria = Criteria.Copy(),
@@ -876,6 +934,8 @@ public sealed partial class GoalWorkflowEngine
         PausedAtReviewGate = state.PausedAtReviewGate;
         Dismissed.Clear();
         Dismissed.AddRange(state.DismissedFindings);
+        IncludedSuggestions.Clear();
+        IncludedSuggestions.AddRange(state.IncludedSuggestions);
         ReviewGateMode = state.ReviewGateMode;
         ReviewGateSeconds = state.ReviewGateSeconds;
         Criteria = state.Criteria.Copy();

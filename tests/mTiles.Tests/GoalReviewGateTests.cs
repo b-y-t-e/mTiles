@@ -84,7 +84,55 @@ public class GoalReviewGateTests
         Assert.False(GoalReviewGatePolicy.CanPick(GoalSeverity.Blocker));
         Assert.True(GoalReviewGatePolicy.CanPick(GoalSeverity.Error));
         Assert.True(GoalReviewGatePolicy.CanPick(GoalSeverity.Warning));
-        Assert.False(GoalReviewGatePolicy.CanPick(GoalSeverity.Suggestion));
+        // A suggestion has one too - the other way round, left alone unless ticked.
+        Assert.True(GoalReviewGatePolicy.CanPick(GoalSeverity.Suggestion));
+    }
+
+    [Fact]
+    public void A_suggestion_is_left_alone_until_it_is_ticked()
+    {
+        var engine = new GoalWorkflowEngine();
+        engine.StartNewGoal("tidy it");
+        engine.Criteria.RequireGoalMet = false;
+
+        var nit = new GoalFinding { Severity = GoalSeverity.Suggestion, File = "a.cs", Title = "rename x" };
+        var review = new GoalReviewResult { GoalMet = true, WasStructured = true, Findings = [nit] };
+
+        // By default a suggestion is what it always was: unticked, not sent back, not counted.
+        Assert.False(engine.FixByDefault(nit));
+        Assert.True(engine.IsMet(engine.Accepted(review)));
+        Assert.DoesNotContain("rename x", engine.FeedbackFor(engine.Accepted(review)));
+
+        // Ticked, it goes back and holds the goal open while a review still raises it.
+        Assert.True(engine.SetFix(nit, true));
+        Assert.True(engine.FixByDefault(nit));
+        Assert.False(engine.IsMet(engine.Accepted(review)));
+        Assert.Contains("rename x", engine.FeedbackFor(engine.Accepted(review)));
+
+        // Matched by defect, as a dismissal is: the next review's copy of it is the same suggestion.
+        var again = new GoalFinding { Severity = GoalSeverity.Suggestion, File = "a.cs", Title = "rename x", Line = 40 };
+        Assert.True(engine.Includes(again));
+
+        // Unticked again, it is back to being a nit.
+        Assert.True(engine.SetFix(nit, false));
+        Assert.False(engine.SetFix(nit, false));
+        Assert.True(engine.IsMet(engine.Accepted(review)));
+    }
+
+    [Fact]
+    public void A_ticked_suggestion_survives_the_tile_being_closed_and_goes_with_the_goal()
+    {
+        var engine = new GoalWorkflowEngine();
+        engine.StartNewGoal("tidy it");
+        var nit = new GoalFinding { Severity = GoalSeverity.Suggestion, File = "a.cs", Title = "rename x" };
+        engine.SetFix(nit, true);
+
+        var reloaded = new GoalWorkflowEngine();
+        reloaded.LoadFrom(engine.ToState([], "claude-instance", ""));
+        Assert.True(reloaded.Includes(nit));
+
+        reloaded.StartNewGoal("something else");
+        Assert.False(reloaded.Includes(nit));
     }
 
     [Fact]

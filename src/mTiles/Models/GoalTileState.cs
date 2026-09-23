@@ -350,6 +350,22 @@ public sealed class GoalTileState
     private List<GoalFinding> _dismissedFindings = [];
 
     /// <summary>
+    /// The suggestions the user has asked to have fixed, for this goal.
+    /// </summary>
+    /// <remarks>
+    /// The other half of <see cref="DismissedFindings"/>, and the other way round: a suggestion is
+    /// neither sent back to the tool nor counted by the criteria unless it is ticked, so what has to be
+    /// remembered for it is the yes rather than the no. Absent from files written before it existed,
+    /// which read as "none", which is what those goals meant.
+    /// </remarks>
+    public List<GoalFinding> IncludedSuggestions
+    {
+        get => _includedSuggestions;
+        set => _includedSuggestions = Without.Nulls(value);
+    }
+    private List<GoalFinding> _includedSuggestions = [];
+
+    /// <summary>
     /// What the loop does when a review is in and the goal is not finished — see
     /// <see cref="GoalReviewGateMode"/>.
     /// </summary>

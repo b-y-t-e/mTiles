@@ -1831,6 +1831,43 @@ public class GoalWorkflowLoopTests : IDisposable
         });
     }
 
+    /// <summary>A clean review offers its suggestions unticked, and ticking one is asking for it: the
+    /// goal is no longer finished, Continue appears, and the suggestion is what it is sent to fix.</summary>
+    [Fact]
+    public void Ticking_a_suggestion_after_a_review_asks_continue_to_fix_it()
+    {
+        OnUiThread(async () =>
+        {
+            const string onlyANit =
+                "```json\n{\"goalMet\":true,\"findings\":[{\"severity\":\"suggestion\"," +
+                "\"title\":\"rename x\",\"file\":\"a.cs\"}]}\n```";
+            var prompts = new List<string>();
+            var answers = new Queue<string>(["Finish the pairing flow.", onlyANit, "Implemented it", "VERDICT: PASS"]);
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers.Count > 0 ? answers.Dequeue() : "VERDICT: PASS");
+            };
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            await vm.ReviewCommand.ExecuteAsync(null);
+
+            var nit = LastFindings(vm).Single();
+            Assert.True(nit.CanPick);
+            Assert.False(nit.Fix);
+            Assert.False(vm.CanContinue);
+
+            nit.Fix = true;
+            Assert.True(vm.CanContinue);
+
+            await vm.ContinueRunCommand.ExecuteAsync(null);
+            Assert.Contains(prompts, p => p.Contains("Fix these findings from the previous review")
+                                          && p.Contains("rename x"));
+        });
+    }
+
     /// <summary>A tile closed over that summary comes back still offering the choice.</summary>
     [Fact]
     public void Reopening_a_reviewed_tile_offers_the_ticks_again()

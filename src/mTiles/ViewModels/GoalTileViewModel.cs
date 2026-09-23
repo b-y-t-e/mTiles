@@ -2965,7 +2965,7 @@ public partial class GoalTileViewModel
                 // the criteria, so the goal is refused for it on every lap until the budget is gone.
                 var accepted = _engine.Accepted(review);
 
-                if (GoalCompletionPolicy.IsMet(accepted, criteria))
+                if (_engine.IsMet(accepted))
                 {
                     _engine.ClearReviewFeedback();
                     stopReason = GoalStopReason.Met;
@@ -3015,7 +3015,7 @@ public partial class GoalTileViewModel
                     // FinishedAtTheGateAsync the moment Resume is pressed — which is that press, so
                     // the run ends there rather than spending an implementation on an empty list.
                     accepted = _engine.Accepted(review);
-                    if (gateCarriedOn && GoalCompletionPolicy.IsMet(accepted, criteria))
+                    if (gateCarriedOn && _engine.IsMet(accepted))
                     {
                         ClosePicks();
                         _engine.ClearReviewFeedback();
@@ -3034,8 +3034,8 @@ public partial class GoalTileViewModel
                 // Only the errors and warnings go back, and only as findings. The whole review used to,
                 // nits and prose included, so an attempt could be spent renaming a variable while the
                 // null dereference above it stayed exactly where it was.
-                _engine.RecordReviewFeedback(GoalTranscript.Feedback(accepted));
-                outstanding = GoalCompletionPolicy.WhyNotMet(accepted, criteria);
+                _engine.RecordReviewFeedback(_engine.FeedbackFor(accepted));
+                outstanding = _engine.WhyNotMet(accepted);
 
                 var repeatedItself = GoalCompletionPolicy.RepeatsPrevious(
                     accepted, _engine.LastReviewFingerprint);
@@ -3091,6 +3091,7 @@ public partial class GoalTileViewModel
             // followed an implementation that did write, and keeps the default.
             await ShowSummaryAsync(stopReason, outstanding, implementationDenials,
                 wroteChanges: stopReason != GoalStopReason.NoChange);
+            if (stopReason == GoalStopReason.Met) OfferSuggestionsAfterMet();
         }
         finally
         {
@@ -3356,7 +3357,7 @@ public partial class GoalTileViewModel
     private async Task<bool> FinishedAtTheGateAsync()
     {
         if (!_engine.PausedAtReviewGate || _engine.LastReview is not { } review) return false;
-        if (!GoalCompletionPolicy.IsMet(_engine.Accepted(review), _engine.Criteria)) return false;
+        if (!_engine.IsMet(_engine.Accepted(review))) return false;
 
         StepBackToTheGate();
         ClosePicks();
@@ -3410,7 +3411,7 @@ public partial class GoalTileViewModel
             // The stored answer first and the subscription after it, or filling the tick from the
             // dismissals would read as the user moving it: the run would pause on its own gate, over a
             // decision taken on some earlier lap.
-            finding.Fix = !GoalDismissals.Contains(_engine.Dismissed, finding);
+            finding.Fix = _engine.FixByDefault(finding);
             finding.CanPick = GoalReviewGatePolicy.CanPick(finding.Severity);
             if (!finding.CanPick) continue;
 
@@ -3447,6 +3448,20 @@ public partial class GoalTileViewModel
         _picksAfterReview = _picking.Count > 0;
     }
 
+    /// <summary>Offers the ticks on the suggestions of the review a loop has just finished on.</summary>
+    /// <remarks>The loop ends as Met before its gate opens, so a clean final review with a few nits
+    /// would otherwise never offer them. Its summary is then judged like a review asked for on its own:
+    /// ticking one re-judges the review, and Continue is offered to fix it.</remarks>
+    private void OfferSuggestionsAfterMet()
+    {
+        if (_engine.LastReview is not { } review
+            || !review.Findings.Any(f => f.Severity == GoalSeverity.Suggestion)) return;
+
+        _engine.SummaryOfAReviewOnItsOwn = true;
+        OpenPicksAfterReview();
+        SaveStateSoon();
+    }
+
     /// <summary>Whether a review asked for on its own leaves nothing for Continue to implement: the
     /// criteria are met once the dismissed findings are subtracted, or every finding it raised has
     /// been dismissed.</summary>
@@ -3455,7 +3470,7 @@ public partial class GoalTileViewModel
     /// <c>RequireGoalMet</c> a review whose every finding was left alone still reads as unmet — and a
     /// Continue offered there would run an implementation handed an empty list.</remarks>
     private bool LeavesNothingToContinue(GoalReviewResult review, GoalReviewResult accepted) =>
-        GoalCompletionPolicy.IsMet(accepted, _engine.Criteria)
+        _engine.IsMet(accepted)
         || (review.Findings.Any(IsOutstanding) && !accepted.Findings.Any(IsOutstanding));
 
     /// <summary>Whether the summary standing is a review on its own whose remaining findings have all
@@ -3468,11 +3483,12 @@ public partial class GoalTileViewModel
     /// <summary>The stop reason a standalone review stands on: the criteria's own verdict, never
     /// what the ticks left for Continue.</summary>
     private GoalStopReason StandaloneReviewStopReason(GoalReviewResult accepted) =>
-        GoalCompletionPolicy.IsMet(accepted, _engine.Criteria) ? GoalStopReason.Met : GoalStopReason.Reviewed;
+        _engine.IsMet(accepted) ? GoalStopReason.Met : GoalStopReason.Reviewed;
 
-    /// <summary>A finding Continue would be sent to fix: anything above a suggestion, which no tick
-    /// can take away and which alone never refuses the goal.</summary>
-    private static bool IsOutstanding(GoalFinding finding) => finding.Severity != GoalSeverity.Suggestion;
+    /// <summary>A finding Continue would be sent to fix: anything above a suggestion, and a suggestion
+    /// somebody ticked to be fixed.</summary>
+    private bool IsOutstanding(GoalFinding finding) =>
+        finding.Severity != GoalSeverity.Suggestion || _engine.Includes(finding);
 
     /// <summary>Carries what Continue will need from a standalone review: the feedback when there is
     /// something to fix, nothing when there is not.</summary>
@@ -3487,7 +3503,7 @@ public partial class GoalTileViewModel
 
         // Carried for Continue, which is offered next: without it the first implementation would
         // start over a tree that has just been reviewed, knowing nothing of what was found.
-        _engine.RecordReviewFeedback(GoalTranscript.Feedback(accepted));
+        _engine.RecordReviewFeedback(_engine.FeedbackFor(accepted));
         _engine.LastReviewFingerprint = accepted.WasStructured ? accepted.Fingerprint() : null;
     }
 
@@ -3619,7 +3635,7 @@ public partial class GoalTileViewModel
     {
         if (_engine.LastReview is not { } review) return;
 
-        _engine.RecordReviewFeedback(GoalTranscript.Feedback(_engine.Accepted(review)));
+        _engine.RecordReviewFeedback(_engine.FeedbackFor(_engine.Accepted(review)));
     }
 
     private void UpdateGateLine()
@@ -3663,7 +3679,7 @@ public partial class GoalTileViewModel
     private void ApplyDismissalsToTranscript()
     {
         foreach (var finding in Messages.SelectMany(m => m.Findings))
-            finding.Fix = !GoalDismissals.Contains(_engine.Dismissed, finding);
+            finding.Fix = _engine.FixByDefault(finding);
     }
 
     private void ShowFindings(GoalReviewResult review)
@@ -3675,6 +3691,10 @@ public partial class GoalTileViewModel
         // array is written to disk, and a severity given an explicit value later would make the cast
         // an index into somewhere else entirely.
         RecountAccepted(review);
+        // Every tick starts as the goal's standing decision, gate open or not: the model's own default
+        // is "fix", which beside a suggestion nobody ticked would claim it goes back when it does not.
+        foreach (var finding in review.Findings)
+            finding.Fix = _engine.FixByDefault(finding);
         // Counts less the dismissals, list whole — see RecountAfterPick.
         ShowBadges(review.Findings);
     }
@@ -3933,7 +3953,7 @@ public partial class GoalTileViewModel
         // taken, and the reviewer, which is run from scratch, phrases them afresh every time.
         var accepted = _engine.Accepted(review);
 
-        if (GoalCompletionPolicy.IsMet(accepted, criteria))
+        if (_engine.IsMet(accepted))
             return (GoalStopReason.Met, null);
 
         // Carried for Continue, exactly as RunReviewOnlyAsync carries it and for the same reason:
@@ -3951,10 +3971,10 @@ public partial class GoalTileViewModel
         // since the tree did not move, so escalating on it would replace the one fact the user needs
         // ("the agent changed no files") with a sentence about reviews. Each repeat is a press of a
         // button, in front of the user, against a sentence identical to the one above it.
-        _engine.RecordReviewFeedback(GoalTranscript.Feedback(accepted));
+        _engine.RecordReviewFeedback(_engine.FeedbackFor(accepted));
         _engine.LastReviewFingerprint = accepted.WasStructured ? accepted.Fingerprint() : null;
 
-        return (GoalStopReason.NoChange, GoalCompletionPolicy.WhyNotMet(accepted, criteria));
+        return (GoalStopReason.NoChange, _engine.WhyNotMet(accepted));
     }
 
     /// <summary>
@@ -4027,7 +4047,7 @@ public partial class GoalTileViewModel
 
         await ShowSummaryAsync(
             stopReason,
-            met ? null : GoalCompletionPolicy.WhyNotMet(accepted, criteria),
+            met ? null : _engine.WhyNotMet(accepted),
             autoCommit: false,
             // The count belongs to the run this button was pressed *after*, not to the button. Reviewed
             // already knows that and says no number at all; Met did not, so a review asked for on its
@@ -5782,7 +5802,8 @@ public partial class GoalTileViewModel
             {
                 // A tile closed over the summary of a review asked for on its own comes back still
                 // offering the choice of what Continue is to fix - Met included, since unticking the
-                // last finding is what makes it Met. A loop's own Met is not this and gets no ticks.
+                // last finding is what makes it Met. A loop's own Met comes here too when its final review
+                // raised suggestions (OfferSuggestionsAfterMet marks it so), and is offered their ticks.
                 OpenPicksAfterReview();
             }
 

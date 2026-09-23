@@ -23,7 +23,7 @@
     <Styles.Resources>
         <DataTemplate x:Key="FindingTemplate" DataType="m:GoalFinding">
             <Border Classes="finding"
-                    Classes.f-left="{Binding !Fix}"
+                    Classes.f-left="{Binding IsLeftAlone}"
                     Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
                     Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
                     Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"

@@ -213,13 +213,19 @@ internal static class GoalTranscript
     /// attention and for the prompt's own size budget, and a run could spend an attempt renaming a
     /// variable while the null dereference above it stayed exactly where it was.</para>
     /// </summary>
-    public static string Feedback(GoalReviewResult review)
+    /// <param name="includedSuggestions">The suggestions the user ticked to be fixed. A suggestion goes
+    /// back only when it is one of these - the nits stay out by default, and a tick is somebody asking
+    /// for this one by name.</param>
+    public static string Feedback(GoalReviewResult review,
+        IReadOnlyList<GoalFinding>? includedSuggestions = null)
     {
         if (!review.WasStructured)
             return review.RawText.Trim();
 
         var blocking = Ordered(review.Findings.Where(f =>
-            f.Severity != GoalSeverity.Suggestion)).ToList();
+            f.Severity != GoalSeverity.Suggestion
+            || (includedSuggestions is { Count: > 0 } && GoalDismissals.Contains(includedSuggestions, f))))
+            .ToList();
         if (blocking.Count == 0)
             return review.GoalMet
                 ? "The review found nothing blocking."
