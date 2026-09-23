@@ -158,14 +158,36 @@ public static class AiAgentCatalog
     /// test without a settings file behind it, and so the caller decides whether a first run is what
     /// this is.</para>
     /// </remarks>
-    public static IReadOnlyList<AiAgentInstance> SeedInstances() => [.. All.Select(SeedInstanceFor)];
+    public static IReadOnlyList<AiAgentInstance> SeedInstances() => [.. All.Select(SettingsRowFor)];
+
+    /// <summary>A row written into Settings for an agent: the seeded instance, in <see cref="AiBehaviour.Auto"/>
+    /// where the agent has that gate.</summary>
+    private static AiAgentInstance SettingsRowFor(IAiAgent agent)
+    {
+        var instance = SeedInstanceFor(agent);
+        instance.DefaultBehaviour = DefaultBehaviourFor(agent, instance);
+        return instance;
+    }
 
     /// <summary>
     /// The instance an agent starts life with — its own name, its own defaults, its own configuration.
     /// </summary>
     /// <remarks>Also what a caller uses while the tile is still resolving its agent by binary name
-    /// rather than by instance (stages 4–6): asking an agent what it supports needs an instance, and
-    /// the seeded one is the honest answer for a tile that has not been given another.</remarks>
+    /// rather than by instance (stages 4–6), and what a tile whose instance was deleted falls back to —
+    /// which is why it stays on <see cref="AiBehaviour.ToolDefault"/>: a lost answer must never come back
+    /// as a more permissive one. Only a row written into Settings is seeded on <c>auto</c>.</remarks>
     public static AiAgentInstance SeedInstanceFor(IAiAgent agent) =>
         new() { AgentId = agent.Id, Name = agent.DisplayName };
+
+    /// <summary>
+    /// The mode a new instance of an agent starts in: <see cref="AiBehaviour.Auto"/> where the agent has
+    /// that gate, the tool's own default where it has not.
+    /// </summary>
+    /// <remarks>Asked of the interactive list, which is where an instance's own mode is spent; a headless
+    /// run is narrowed again at launch by <c>AiProcessRunner.Fit</c>, so an agent whose goal runs have no
+    /// <c>auto</c> (Grok) still falls to <see cref="AiBehaviour.ToolDefault"/> there.</remarks>
+    public static AiBehaviour DefaultBehaviourFor(IAiAgent agent, AiAgentInstance instance) =>
+        agent.SupportedBehaviours(instance, AiUsage.Interactive).Contains(AiBehaviour.Auto)
+            ? AiBehaviour.Auto
+            : AiBehaviour.ToolDefault;
 }

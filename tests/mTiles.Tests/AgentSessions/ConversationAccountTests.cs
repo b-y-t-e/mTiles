@@ -192,14 +192,17 @@ public class ConversationAccountTests
         using var settings = new TempSettings();
         using var tile = NewTile(settings, new JsonObject());
         tile.AdoptStoredSession(ConversationReducer.Replay([
-            new SessionConfigured("sonnet", "Auto", null), new SessionModelChosen("sonnet"),
+            // Accept edits rather than auto: a seeded instance starts on auto now, and an adopted mode equal to
+            // the instance's own is no override at all.
+            new SessionConfigured("sonnet", SessionSettingOptions.ModeId(AiBehaviour.AcceptEdits), null),
+            new SessionModelChosen("sonnet"),
         ]), tile.Agent);
 
         tile.AdoptStoredSession(ConversationReducer.Replay([
             new SessionConfigured("opus", "Plan", null, "Max"), new SessionModelChosen("opus"),
         ]), tile.Agent);
 
-        Assert.Equal(new SessionOverrides("sonnet", AiBehaviour.Auto, AiEffort.Max), tile.Overrides);
+        Assert.Equal(new SessionOverrides("sonnet", AiBehaviour.AcceptEdits, AiEffort.Max), tile.Overrides);
     }
 
     [Fact]

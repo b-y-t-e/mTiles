@@ -1045,4 +1045,28 @@ public sealed class AiSettingsPageTests : IDisposable
         foreach (var agent in AiAgentCatalog.All)
             Assert.Contains(rows, row => row.AgentName == agent.DisplayName);
     }
+
+    [Fact]
+    public void Dragging_an_agent_row_stores_the_instances_in_the_order_the_rows_show()
+    {
+        var vm = OnTheAiTab();
+        var first = vm.AgentInstances[0].Instance;
+
+        vm.MoveAgentInstance(0, vm.AgentInstances.Count - 1);
+
+        Assert.Same(first, vm.AgentInstances[^1].Instance);
+        Assert.Equal(vm.AgentInstances.Select(row => row.Instance),
+            _settings.Service.Settings.AiAgentInstances);
+    }
+
+    [Fact]
+    public void A_move_outside_the_list_changes_nothing()
+    {
+        var vm = OnTheAiTab();
+        var before = _settings.Service.Settings.AiAgentInstances.ToList();
+
+        vm.MoveAgentInstance(0, vm.AgentInstances.Count);
+
+        Assert.Equal(before, _settings.Service.Settings.AiAgentInstances);
+    }
 }

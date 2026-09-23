@@ -86,17 +86,22 @@ public class AiAgentTests : IDisposable
     }
 
     /// <summary>
-    /// A seeded instance passes no permission flag at all.
+    /// A seeded instance starts on <c>auto</c> where its agent has that gate, and on the tool's own
+    /// default where it has not — never on anything more permissive.
     /// </summary>
-    /// <remarks>Nobody has been asked about a row that was seeded, and every terminal agent tile made from
-    /// one carries its behaviour to the CLI: anything above <see cref="AiBehaviour.ToolDefault"/>
-    /// would turn the tool's own asking off on a fresh install, and the first symptom of that is an
-    /// edit that already happened.</remarks>
     [Fact]
-    public void A_seeded_instance_leaves_permission_to_the_tool()
+    public void A_seeded_instance_starts_on_auto_where_the_agent_has_it()
     {
-        Assert.All(AiAgentCatalog.SeedInstances(),
-            instance => Assert.Equal(AiBehaviour.ToolDefault, instance.DefaultBehaviour));
+        Assert.All(AiAgentCatalog.SeedInstances(), instance =>
+        {
+            var agent = AiAgentCatalog.Find(instance.AgentId)!;
+            var hasAuto = agent.SupportedBehaviours(instance, AiUsage.Interactive).Contains(AiBehaviour.Auto);
+            Assert.Equal(hasAuto ? AiBehaviour.Auto : AiBehaviour.ToolDefault, instance.DefaultBehaviour);
+        });
+        Assert.Equal(AiBehaviour.Auto,
+            AiAgentCatalog.SeedInstances().Single(i => i.AgentId == "claude").DefaultBehaviour);
+        Assert.Equal(AiBehaviour.ToolDefault,
+            AiAgentCatalog.SeedInstances().Single(i => i.AgentId == "pi").DefaultBehaviour);
     }
 
     /// <summary>A stored id nothing answers to finds nothing, rather than finding the first agent.

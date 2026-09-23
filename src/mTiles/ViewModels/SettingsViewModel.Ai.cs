@@ -977,8 +977,13 @@ public partial class SettingsViewModel
     /// instances keep their names: those are rows nobody was asked about, and a blank one would be
     /// worse than an obvious one.</remarks>
     [RelayCommand]
-    private void AddAgentInstance() =>
-        BeginAgentEditing(new AiAgentInstance { AgentId = AiAgentCatalog.All[0].Id });
+    private void AddAgentInstance()
+    {
+        var agent = AiAgentCatalog.All[0];
+        var instance = new AiAgentInstance { AgentId = agent.Id };
+        instance.DefaultBehaviour = AiAgentCatalog.DefaultBehaviourFor(agent, instance);
+        BeginAgentEditing(instance);
+    }
 
     [RelayCommand]
     private void EditAgentInstance(AiAgentInstanceViewModel row) => BeginAgentEditing(row.Instance);
@@ -1119,6 +1124,36 @@ public partial class SettingsViewModel
         IsEditingAgentInstance = false;
         OnPropertyChanged(nameof(IsEditingAnything));
     }
+
+    /// <summary>Moves an agent instance to another place in the list, which is the order every chooser
+    /// offers them in — the Agent tile's, the terminal agent's setup step and the Goal tile's.</summary>
+    /// <remarks>The stored list follows the rows at once, so what is on screen and what a save would write
+    /// never disagree; telling everybody that it moved waits for <see cref="CommitAgentOrder"/>, since a drag
+    /// crosses several rows and each announcement redraws every open chooser.</remarks>
+    public void MoveAgentInstance(int from, int to)
+    {
+        if (from == to || from < 0 || to < 0 || from >= AgentInstances.Count || to >= AgentInstances.Count)
+            return;
+
+        AgentInstances.Move(from, to);
+
+        MoveStoredAgentInstance(AgentInstances[to].Instance, AgentInstances.ElementAtOrDefault(to + 1)?.Instance);
+    }
+
+    /// <summary>Moves one instance in the stored list to just before the row that now follows it.</summary>
+    /// <remarks>One removal and one insertion, never a clear and a refill: a debounced save serialises this
+    /// list on another thread, and a list passing through empty is a settings file written without its
+    /// agents.</remarks>
+    private void MoveStoredAgentInstance(AiAgentInstance moved, AiAgentInstance? next)
+    {
+        var stored = _settingsService.Settings.AiAgentInstances;
+        if (!stored.Remove(moved)) return;
+        var at = next is null ? -1 : stored.IndexOf(next);
+        stored.Insert(at < 0 ? stored.Count : at, moved);
+    }
+
+    /// <summary>The drag is over: the order is saved and the choosers redraw.</summary>
+    public void CommitAgentOrder() => _settingsService.NotifyChanged();
 
     [RelayCommand]
     private async Task DeleteAgentInstanceAsync(AiAgentInstanceViewModel row)
@@ -2080,6 +2115,7 @@ public partial class SettingsViewModel
         GitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
         AgentFileSyncEnabled = s.AgentFileSyncEnabled;
         NotifyWhenTileBlocked = s.NotifyWhenTileBlocked;
+        ShowContextBar = s.ShowContextBar;
         GitPath = s.GitPath;
         LoadDefaultShell();
         LoadAiInstances();
