@@ -496,7 +496,10 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// caller reaching for the convenient default on a question where it is the wrong one.</remarks>
     public Func<string, Task<bool>>? ConfirmExpectingYes { get; set; }
 
-    public string HeaderNote => Model.Length > 0 ? $"{Instance.Name} · {Model}" : Instance.Name;
+    /// <summary>The model alone: the strip's agent picker, one line below, already names the instance, and
+    /// the header saying it again was the same words twice on one tile. The terminal agent tile has no such
+    /// strip and keeps both.</summary>
+    public string HeaderNote => Model;
 
     /// <summary>What the strip's model control says at rest.</summary>
     /// <remarks>An empty model is the ordinary state and not a failure: the session reports one only once it

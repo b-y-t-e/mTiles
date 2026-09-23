@@ -274,14 +274,6 @@
                         <mi:MaterialIcon Kind="ForumOutline" Width="13" Height="13" />
                     </p:Picker.Icon>
                 </p:Picker>
-                <Button x:Name="StopButton"
-                        DockPanel.Dock="Right" Margin="0,0,2,0"
-                        Classes="tile-btn"
-                        Command="{Binding InterruptCommand}"
-                        IsVisible="{Binding IsWorking}"
-                        ToolTip.Tip="Stop the agent (Esc)">
-                    <mi:MaterialIcon Kind="Stop" Width="14" Height="14" />
-                </Button>
 
                 <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
                      a conversation with nothing in it is bound to nobody yet. Another agent is offered as a
@@ -480,20 +472,26 @@
                          (ShowContextBar off): one word and the same act, beside the paperclip, in the
                          bar's own quiet face — the composer's accent is Send's. Disabled rather than
                          hidden on an agent with no route for compaction, so the percentage still reads. -->
-                    <Button DockPanel.Dock="Right" Classes="context-action" VerticalAlignment="Center"
+                    <Button DockPanel.Dock="Right" Classes="context-action composer-context" VerticalAlignment="Center"
                             Margin="0,0,4,0"
                             Classes.tight="{Binding IsContextTight}"
                             IsVisible="{Binding ShowsComposerContext}"
                             Command="{Binding CompactCommand}"
                             ToolTip.Tip="{Binding ComposerContextTip}"
                             ToolTip.ShowOnDisabled="True">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <mi:MaterialIcon Kind="ArrowCollapseVertical" Width="11" Height="11" />
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <!-- The window as a ring, filled as far as it is spent, in the button's own
+                                 colour - so it turns WarnText with the figure and fades with it. -->
+                            <Panel Classes="context-ring">
+                                <Ellipse Classes="context-ring-track" />
+                                <Arc Classes="context-ring-fill"
+                                     SweepAngle="{Binding ContextPercent, Converter={x:Static v:ContextRing.Sweep}}" />
+                            </Panel>
                             <TextBlock Text="{Binding ContextShortReading}"
                                        IsVisible="{Binding ContextShortReading, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                     </Button>
-                    <Button DockPanel.Dock="Right" Classes="tile-btn" VerticalAlignment="Center"
+                    <Button DockPanel.Dock="Right" Classes="tile-btn composer-attach" VerticalAlignment="Center"
                             Margin="0,0,4,0"
                             Click="AttachButton_Click" ToolTip.Tip="Attach files — a picture goes in as an image, anything else by its path">
                         <mi:MaterialIcon Kind="Paperclip" Width="14" Height="14" />

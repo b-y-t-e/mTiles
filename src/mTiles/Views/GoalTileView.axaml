@@ -269,8 +269,13 @@
                  them to clear, and an eighteen-pixel right margin was leaving the buttons further from
                  the edge than the composer directly above them. They share the composer's own margin,
                  because they are now the same block. -->
-            <!-- Above the composer now: the composer's own top margin is the gap below, so the row asks
-                 for none and pulls four pixels of it back, leaving one eight-pixel step either way. -->
+            <!-- Its own eight pixels below by default: with the composer hidden (a paused run) what is
+                 under the row is the status strip, and the old -4 laid the buttons over it. -->
+            <Setter Property="Margin" Value="8" />
+        </Style>
+        <!-- Above the composer: the composer's own top margin is the gap below, so the row asks for none
+             and pulls four pixels of it back, leaving one eight-pixel step either way. -->
+        <Style Selector="StackPanel.chat-actions.above-composer">
             <Setter Property="Margin" Value="8,8,8,-4" />
         </Style>
         <Style Selector="StackPanel.chat-actions > Button.chat-action">
@@ -732,7 +737,8 @@
 
                  Every button is an icon and a verb at one height, so the row reads as one control strip
                  rather than four words; the one to press next carries the accent (primary). -->
-            <StackPanel Classes="chat-actions" IsVisible="{Binding HasFinishedRunActions}">
+            <StackPanel Classes="chat-actions" Classes.above-composer="{Binding ShowComposer}"
+                        IsVisible="{Binding HasFinishedRunActions}">
                 <!-- The only one that shows while a run is merely stopped rather than finished. -->
                 <Button Classes="chat-action primary"
                         Command="{Binding ResumeCommand}"
