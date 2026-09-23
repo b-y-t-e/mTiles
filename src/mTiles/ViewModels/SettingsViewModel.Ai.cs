@@ -363,6 +363,11 @@ public partial class SettingsViewModel
     [ObservableProperty] private string _editAgentEffort = "";
     [ObservableProperty] private string _editAgentExtraArgs = "";
     [ObservableProperty] private bool _editAgentUseOutputProxy;
+
+    // The active sentence depends on the tick as well as on the machine, and a tick raises no
+    // refresh of its own.
+    partial void OnEditAgentUseOutputProxyChanged(bool value) =>
+        OnPropertyChanged(nameof(IsOutputProxyActive));
     private AiAgentInstance? _editingAgentInstance;
 
     /// <summary>Whether the agent form can be saved: it needs a name, for the reason the provider
@@ -500,6 +505,7 @@ public partial class SettingsViewModel
         OutputProxyHint = ShowsOutputProxy ? DescribeOutputProxyOnThisMachine() : "";
         OnPropertyChanged(nameof(OutputProxyHint));
         OnPropertyChanged(nameof(HasOutputProxyWarning));
+        OnPropertyChanged(nameof(IsOutputProxyActive));
     }
 
     private string DescribeOutputProxyOnThisMachine() =>
@@ -518,6 +524,27 @@ public partial class SettingsViewModel
 
     /// <summary>Whether that sentence is one worth colouring.</summary>
     public bool HasOutputProxyWarning => OutputProxyHint.Length > 0;
+
+    /// <summary>Whether the proxy is ticked and this machine can actually carry it.</summary>
+    /// <remarks>The third state the hint had no room for. Silence used to mean both "nothing is wrong"
+    /// and "it is working", which left the only way of telling them apart outside this application —
+    /// and the instrument people reach for there, <c>rtk gain</c>, cannot see our hook at all.</remarks>
+    public bool IsOutputProxyActive =>
+        ShowsOutputProxy && EditAgentUseOutputProxy && !HasOutputProxyWarning;
+
+    /// <summary>What to say when it is on and working.</summary>
+    /// <remarks><b>The second sentence is the one that earns its place.</b> <c>rtk gain</c> reports on
+    /// the hook in the CLI's <em>own</em> settings — the one <c>rtk init -g</c> writes and this
+    /// application deliberately does not — so on a machine hooked from here it prints
+    /// <c>No hook installed — run `rtk init -g`</c> whatever our hook is doing. Measured 2026-09-23 on
+    /// a machine where the proxy was verifiably rewriting commands: the counter rose by exactly one per
+    /// shell call while that warning stayed on screen. Without this sentence the obvious next step is
+    /// to follow rtk's advice, which adds a second hook beside ours and hands one command to the proxy
+    /// twice — so the warning does not merely confuse, it advises a change for the worse.</remarks>
+    public static string OutputProxyActiveNote =>
+        $"Active for this instance — its shell commands go through {OutputProxy.BinaryName}. "
+        + $"`{OutputProxy.BinaryName} gain` will still warn that no hook is installed: it only checks "
+        + "the global one, which mTiles does not write. Do not run `rtk init -g` to silence it.";
 
     /// <summary>Whether the Auto-compact field is shown: Claude Code's alone.</summary>
     /// <remarks>The field is the manual <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c>, and only Claude Code
