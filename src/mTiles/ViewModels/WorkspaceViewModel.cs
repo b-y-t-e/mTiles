@@ -411,6 +411,9 @@ public partial class WorkspaceViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        // Before the tiles go: a change made in the last second is otherwise written — if at all — from a
+        // tree whose tiles have already been taken apart.
+        _persistenceService.FlushLayout(WorkspaceId);
         DisposeTree(RootTile);
     }
 

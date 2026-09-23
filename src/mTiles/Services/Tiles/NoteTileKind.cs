@@ -13,7 +13,7 @@ public sealed class NoteTileKind : TileKind<NoteTileViewModel>
     public override string AccentKey => "TileAccentNote";
 
     protected override NoteTileViewModel Create(TileContext context, JsonObject? state) =>
-        new(state.String(MarkdownTileKind.FilePathKey)
+        new(MarkdownTileKind.StoredPath(state, context.WorkingDirectory)
             ?? NoteTileViewModel.NewFilePath(context.WorkingDirectory), context.Settings);
 
     protected override JsonObject? Save(NoteTileViewModel tile) =>

@@ -7,7 +7,36 @@ namespace mTiles.Services;
 public sealed class PersistenceService
 {
     private readonly string _workspacesDir;
-    private Timer? _debounceTimer;
+
+    /// <summary>The layout saves waiting out their debounce, one per layout.</summary>
+    /// <remarks><b>One per layout, never one for the service.</b> Every workspace shares this object, and a
+    /// single timer meant a save scheduled for workspace B threw away the one still pending for A: a note
+    /// added or renamed in A a moment before switching to B was gone from A's layout on the next launch —
+    /// and a renamed note's layout still named the file the rename had just moved away from, so the tile
+    /// reopened empty.</remarks>
+    private readonly Dictionary<string, PendingSave> _pending = new(StringComparer.Ordinal);
+
+    /// <summary>One lock per layout, held for the whole of a write.</summary>
+    /// <remarks>So a flush waits for a debounced write already in flight — the tiles are disposed right after
+    /// it — and two writes of one layout land one after the other rather than in whichever order their
+    /// moves happen to finish.</remarks>
+    private readonly Dictionary<string, object> _writeLocks = new(StringComparer.Ordinal);
+
+    private object WriteLockFor(string workspaceId)
+    {
+        lock (_writeLocks)
+        {
+            if (!_writeLocks.TryGetValue(workspaceId, out var gate))
+                _writeLocks[workspaceId] = gate = new object();
+            return gate;
+        }
+    }
+
+    private sealed class PendingSave(Func<TileNode?> getRootTile)
+    {
+        public Func<TileNode?> GetRootTile { get; } = getRootTile;
+        public Timer? Timer { get; set; }
+    }
 
     /// <summary>What a copy taken before the tile-kind migration is called.</summary>
     /// <remarks>One suffix rather than a timestamp, unlike <c>settings.bad-…</c>: this is taken once,
@@ -99,20 +128,70 @@ public sealed class PersistenceService
             RootTile = rootTile
         };
         var json = JsonSerializer.Serialize(state, JsonDefaults.Options);
-        File.WriteAllText(GetFilePath(workspaceId), json);
+
+        // Through a temporary file and a move: a process killed mid-write — an update restarting it, a
+        // crash, a stopped debugger — otherwise left a truncated layout, which the next launch cannot read,
+        // replaces with an empty tile and then saves over for good.
+        var path = GetFilePath(workspaceId);
+        // A name of its own per write: a debounced save and a flush can write the same layout at once.
+        var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(temporary, json);
+        File.Move(temporary, path, overwrite: true);
     }
 
     public void DebouncedSaveLayout(string workspaceId, Func<TileNode?> getRootTile)
     {
-        _debounceTimer?.Dispose();
-        _debounceTimer = new Timer(_ =>
+        var pending = new PendingSave(getRootTile);
+        lock (_pending)
         {
-            try { SaveLayout(workspaceId, getRootTile()); }
-            catch (Exception ex)
+            if (_pending.Remove(workspaceId, out var previous)) previous.Timer?.Dispose();
+            _pending[workspaceId] = pending;
+            pending.Timer = new Timer(_ => SaveIfStillPending(workspaceId, pending), null,
+                AppDefaults.SaveDebounceMs, Timeout.Infinite);
+        }
+    }
+
+    /// <summary>Writes this layout now if a save of it is waiting, rather than a second from now.</summary>
+    /// <remarks>Called before the layout's tiles are disposed — a workspace unloaded, the window closing — so
+    /// what is written is the tree as it stood, and nothing waiting is lost with the process.</remarks>
+    public void FlushLayout(string workspaceId)
+    {
+        lock (WriteLockFor(workspaceId))
+        {
+            PendingSave? pending;
+            lock (_pending)
             {
-                Trace.TraceWarning("Debounced save failed for workspace '{0}': {1}", workspaceId, ex.Message);
+                if (!_pending.Remove(workspaceId, out pending)) return;
+                pending.Timer?.Dispose();
             }
-        }, null, AppDefaults.SaveDebounceMs, Timeout.Infinite);
+
+            Write(workspaceId, pending);
+        }
+    }
+
+    private void SaveIfStillPending(string workspaceId, PendingSave pending)
+    {
+        lock (WriteLockFor(workspaceId))
+        {
+            lock (_pending)
+            {
+                // A save replaced or flushed since this timer was set has already been dealt with.
+                if (!_pending.TryGetValue(workspaceId, out var current) || current != pending) return;
+                _pending.Remove(workspaceId);
+                pending.Timer?.Dispose();
+            }
+
+            Write(workspaceId, pending);
+        }
+    }
+
+    private void Write(string workspaceId, PendingSave pending)
+    {
+        try { SaveLayout(workspaceId, pending.GetRootTile()); }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("Debounced save failed for workspace '{0}': {1}", workspaceId, ex.Message);
+        }
     }
 
     public void DeleteLayout(string workspaceId)

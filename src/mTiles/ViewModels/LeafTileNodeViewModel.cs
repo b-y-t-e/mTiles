@@ -39,7 +39,10 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// and claim to have done something else. The one place left where this class knows what its content
     /// is, and it is about the tile's own identity rather than about anything the content can do.
     /// </remarks>
-    public bool HasSession => Content is TerminalAgentTileViewModel;
+    public bool HasSession => Content is TerminalAgentTileViewModel or INewConversationTile;
+
+    /// <summary>What the header's "start another" button and menu entry are called here.</summary>
+    public string NewSessionLabel => Content is INewConversationTile tile ? tile.NewConversationLabel : "New session";
 
     /// <summary>The tile's content when it is an agent, for the two questions only an agent answers.
     /// </summary>
@@ -245,8 +248,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     public bool RestartIsUrgent => RestartAction?.Urgency is { Length: > 0 };
 
     /// <summary>The content's actions the overflow menu lists under its own entries.</summary>
-    /// <remarks>Every action but the two the header already draws a control of its own for (Restart and
-    /// Add), so a kind offering a new action gets a menu entry by offering it. Built when the menu opens,
+    /// <remarks>Every action but the three the header already draws a control of its own for (Restart, Add
+    /// and New conversation), so a kind offering a new action gets a menu entry by offering it. Built when the menu opens,
     /// for the reason <see cref="RefreshChangeKindOptions"/> is: whether an action is enabled moves with
     /// the content's state, and opening the menu is the moment the answer is read.</remarks>
     public IReadOnlyList<TileActionChoice> ContentActions { get; private set; } = [];
@@ -259,7 +262,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     {
         ContentActions =
         [
-            .. Actions.Where(action => action.Id is not (TileActionIds.Restart or TileActionIds.Add))
+            .. Actions.Where(action => action.Id is not (TileActionIds.Restart or TileActionIds.Add
+                    or TileActionIds.NewConversation))
                 .Select(action => new TileActionChoice(action, () => InvokeActionAsync(action.Id)))
         ];
 
@@ -372,6 +376,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // or it would believe itself inactive until the next time the focus moved away and back.
         if (IsActive && newValue is IActiveStateTile activeState) activeState.OnActiveChanged(true);
         OnPropertyChanged(nameof(HasSession));
+        OnPropertyChanged(nameof(NewSessionLabel));
         OnPropertyChanged(nameof(CanMaximize));
         RefreshAgentInstances();
         OnPropertyChanged(nameof(Activity));
@@ -700,6 +705,14 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     [RelayCommand]
     private async Task ResetTileIdAsync()
     {
+        // The Agent and Goal tiles start over by themselves and ask their own question; only the terminal
+        // agent tile's new session is a new tile id.
+        if (Content is INewConversationTile tile)
+        {
+            await tile.StartNewConversationAsync();
+            return;
+        }
+
         if (ConfirmAction != null && !await ConfirmAction("Generate new Tile ID and restart shell?"))
             return;
 
