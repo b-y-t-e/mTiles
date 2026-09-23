@@ -449,6 +449,10 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// </remarks>
     protected override void ConfigureActivity(TileActivityMonitor monitor)
     {
+        // The one place the terminal is known to exist: a handover waiting to be typed needs to see the
+        // output settle before it types.
+        if (CachedControl is Terminal.Avalonia.TerminalControl terminal)
+            terminal.RawOutputReceived += (_, _) => _handover?.OnOutput(DateTimeOffset.UtcNow);
         base.ConfigureActivity(monitor);
         monitor.Add(new TerminalTitleSource(_agent));
         monitor.Add(new RecentOutputSource(_agent));
@@ -839,13 +843,98 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     {
         LaunchNotice = LaunchNotices.Without(LaunchNotice, SkillChangePolicy.Notice);
         SetSkillsAwaitRestart(false);
+        _handover?.OnCommandStarting(ownCommand: !TypedTextReachesAShell, DateTimeOffset.UtcNow);
+        StepHandover();
     }
+
+    /// <summary>Whether a switch away from this tile's agent can carry the conversation with it.</summary>
+    /// <remarks>Only where the CLI's own transcript is one this application has read
+    /// (<see cref="Services.Agents.SessionLogs.IAgentSessionLog.ReadsTranscripts"/>) and the tile knows which
+    /// conversation it is in — a captured agent that has not been captured yet names none.</remarks>
+    public bool CanHandOverContext => _agent.SessionLog is { ReadsTranscripts: true } && SessionId.Length > 0;
+
+    /// <summary>
+    /// Writes a brief of this tile's conversation for the agent it is about to be switched to, and answers
+    /// its path relative to the workspace — or null when there is nothing to write.
+    /// </summary>
+    /// <remarks>Read out of the CLI's own transcript (<see cref="TerminalHandover"/>), under
+    /// <c>.mtiles/handover/</c>. A failure answers null and is logged: the switch then goes ahead without the
+    /// context rather than not at all, and the caller says so.</remarks>
+    public async Task<string?> WriteHandoverBriefAsync()
+    {
+        if (!CanHandOverContext || _agent.SessionLog is not { } log) return null;
+        try
+        {
+            var turns = await log.ReadTranscriptAsync(AiSignInStore.Find(_settings.Settings, Instance.SignInId),
+                WorkingDirectory, SessionId);
+            if (TerminalHandover.Write(Instance.Name, turns) is not { } brief) return null;
+
+            var name = TerminalHandover.FileName(DateTime.Now, _agent.Id, TileId);
+            await TerminalHandover.SaveAsync(WorkingDirectory, name, brief);
+            return $".mtiles/handover/{name}";
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("The handover brief for tile {0} could not be written: {1}", TileId, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>Whether running this tile as that instance leaves its conversation behind — another CLI, or
+    /// another login of this one, where the session cannot be resumed.</summary>
+    public bool LeavesConversationFor(string instanceId, string agentId)
+    {
+        if (agentId != AgentId) return true;
+        var target = _settings.Settings.AiAgentInstances.FirstOrDefault(i => i.Id == instanceId);
+        return target is not null && target.SignInId != Instance.SignInId;
+    }
+
+    /// <summary>Says on the tile that the context was asked for and none could be carried.</summary>
+    public void SayNothingWasCarried() =>
+        LaunchNotice = LaunchNotices.With(LaunchNotice, TerminalHandover.NothingToCarry);
+
+    /// <summary>Has the next launch of this tile type the line pointing its agent at a brief.</summary>
+    public void HandOverOnNextLaunch(string briefPath)
+    {
+        _handover = new HandoverDelivery(TerminalHandover.Prompt(briefPath));
+        _handoverBrief = briefPath;
+        _handoverTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background,
+            (_, _) => StepHandover());
+        _handoverTimer.Start();
+    }
+
+    /// <summary>Types the line when the delivery says it is time, and says where the brief is when it gives
+    /// up.</summary>
+    private void StepHandover()
+    {
+        if (_handover is not { } delivery) return;
+
+        // Held while the CLI waits for an answer: typed into its trust or permission question, the Enter
+        // would answer it on the user's behalf.
+        if (delivery.Tick(DateTimeOffset.UtcNow, heldByAQuestion: Activity == TileActivity.Blocked) is { } line) TrySendText(line, submit: true);
+        if (!delivery.IsFinished) return;
+
+        _handoverTimer?.Stop();
+        _handover = null;
+        if (_handoverBrief is not { } brief) return;
+        // Said after a delivery too: a prompt the CLI put up first (a folder-trust question nobody has a
+        // rule for) can take the line, and the tile cannot tell that from the agent reading it.
+        LaunchNotice = LaunchNotices.With(LaunchNotice, delivery.Abandoned
+            ? $"The brief of the work handed over could not be typed in. Ask the agent to read {brief}."
+            : $"The agent was asked to read {brief}, the brief of the work handed over. If it did not, ask it again.");
+    }
+
+    private HandoverDelivery? _handover;
+    private string? _handoverBrief;
+    private DispatcherTimer? _handoverTimer;
 
     /// <inheritdoc />
     /// <remarks>The claim goes with the tile: a session nobody is showing any more is one the next codex
     /// tile in this workspace may legitimately be handed.</remarks>
     protected override void OnDisposing()
     {
+        _handoverTimer?.Stop();
+        _handover = null;
         if (_agentFiles is not null) _agentFiles.SkillsChanged -= OnSkillsChanged;
         _settings.SettingsChanged -= OnContextBarSettingChanged;
         Gauge.PropertyChanged -= OnGaugeChanged;

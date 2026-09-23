@@ -647,12 +647,25 @@ public sealed partial class HandoverItemViewModel : TimelineItemViewModel
         var handover = (HandoverEntry)entry;
         Id = handover.Id;
         Source = handover;
-        Headline = handover.From is { } from
-            ? $"The work was handed from {StoredSessionPolicy.AccountLabel(from)} to " +
-              $"{StoredSessionPolicy.AccountLabel(handover.To)}."
-            : $"The work was handed to {StoredSessionPolicy.AccountLabel(handover.To)}.";
+        var to = StoredSessionPolicy.AccountLabel(handover.To);
+        // An empty brief is a switch the user asked to make without the context: the agent arriving was told
+        // nothing, so the entry says so rather than offering to show what it was told.
+        Headline = (handover.From, handover.Brief.Length > 0) switch
+        {
+            ({ } from, true) => $"The work was handed from {StoredSessionPolicy.AccountLabel(from)} to {to}.",
+            (null, true) => $"The work was handed to {to}.",
+            ({ } from, false) =>
+                $"Switched from {StoredSessionPolicy.AccountLabel(from)} to {to}, which was told nothing of the work above.",
+            (null, false) => $"Switched to {to}, which was told nothing of the work above.",
+        };
         Brief = handover.Brief;
+        OnPropertyChanged(nameof(HasBrief));
+        OnPropertyChanged(nameof(Title));
     }
+
+    public bool HasBrief => Brief.Length > 0;
+
+    public string Title => HasBrief ? "Handed over" : "Switched without context";
 
     [RelayCommand]
     private void ToggleBrief()

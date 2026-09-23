@@ -885,9 +885,10 @@
                                 <DockPanel>
                                     <Border DockPanel.Dock="Left" Classes="ask-rail" />
                                     <StackPanel Margin="10,6,10,8" Spacing="4">
-                                        <TextBlock Classes="ask-title" Text="Handed over" />
+                                        <TextBlock Classes="ask-title" Text="{Binding Title}" />
                                         <TextBlock Classes="ask-why" TextWrapping="Wrap" Text="{Binding Headline}" />
-                                        <Button Classes="fold" Command="{Binding ToggleBriefCommand}">
+                                        <Button Classes="fold" Command="{Binding ToggleBriefCommand}"
+                                                IsVisible="{Binding HasBrief}">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <mi:MaterialIcon Width="12" Height="12"
                                                                  Kind="{Binding IsBriefShown, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />

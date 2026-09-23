@@ -394,5 +394,9 @@ public sealed class CodexAgent : AiAgent, Sessions.IConversationalAgent
             "Waiting for permission"),
         new("Would you like to send input to terminal", TileActivity.Blocked,
             "Waiting for input for a terminal"),
+        // Measured 2026-09-24 out of 0.154.0: asked at start-up in a directory not yet trusted — a fresh
+        // CODEX_HOME included — and answered by a bare Enter, so a handover line must never be typed into it.
+        new("Do you trust the contents of this directory?", TileActivity.Blocked,
+            "Waiting to be told whether to trust this directory"),
     ];
 }

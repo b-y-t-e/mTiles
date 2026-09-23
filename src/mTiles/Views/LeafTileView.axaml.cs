@@ -272,6 +272,7 @@ public partial class LeafTileView : UserControl, ITileDropTarget
             leaf.FocusRequested += FocusContent;
             leaf.ConfirmAction = message =>
                 MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: true);
+            leaf.ChooseHandover = message => MessageDialog.ChooseHandoverAsync(this, message);
             UpdateTypeGlyph(leaf);
             UpdateMaximizeButton(leaf);
             UpdateActiveIndicator(leaf);

@@ -83,4 +83,24 @@ public interface IAgentSessionLog
     /// and codex files by date and not by project at all. A watcher that had to know which would be a
     /// sixth copy of a table that already exists on each agent.</remarks>
     string? WatchDirectory(AiSignIn? signIn, string workspaceDir);
+
+    /// <summary>Whether <see cref="ReadTranscriptAsync"/> can answer with anything for this CLI.</summary>
+    /// <remarks>Measured per store: a CLI whose transcript format nobody here has read answers false, and
+    /// a switch away from it offers no context to carry rather than a brief made of nothing.</remarks>
+    bool ReadsTranscripts => false;
+
+    /// <summary>
+    /// What was said in one conversation — the user's messages and the agent's replies, in order, with
+    /// tool calls, their output and everything the CLI injects of its own left out.
+    /// </summary>
+    /// <remarks>What a terminal agent tile hands over when its agent changes
+    /// (<c>TerminalHandover</c>). Empty where the store cannot say, never null.</remarks>
+    Task<IReadOnlyList<TranscriptTurn>> ReadTranscriptAsync(AiSignIn? signIn, string workspaceDir,
+        string sessionId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<TranscriptTurn>>([]);
 }
+
+/// <summary>One message in a CLI's own transcript.</summary>
+/// <param name="FromUser">Whether the user said it; otherwise it is the agent's reply.</param>
+/// <param name="Text">What was said, as text.</param>
+public sealed record TranscriptTurn(bool FromUser, string Text);

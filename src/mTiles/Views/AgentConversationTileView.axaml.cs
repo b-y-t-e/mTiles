@@ -41,7 +41,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         // The keys and gestures every conversation's composer answers to — see ComposerInput.
         ComposerInput.Attach(InputBox, Send, () => IsPickingAFile, Composer,
             bitmap => _subscribed?.AttachImageCommand.Execute(ComposerImages.FromBitmap(bitmap, "pasted image")),
-            AttachFilesAsync, PasteLongTextAsync);
+            AttachFilesAsync, PasteLongTextAsync, mayClear: () => _subscribed is not { IsWorking: true });
         ComposerHistoryInput.Attach(InputBox, SentMessages, () => IsPickingAFile, HistoryPicker);
     }
 
@@ -188,6 +188,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
             _subscribed.TranscriptOpened -= GoToEnd;
             _subscribed.ConfirmAction = null;
             _subscribed.ConfirmExpectingYes = null;
+            _subscribed.ChooseHandover = null;
             _subscribed = null;
         }
 
@@ -204,6 +205,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         vm.ConfirmAction = message => MessageDialog.ConfirmAsync(this, "Confirm", message, whenUnavailable: false);
         // The one question here that opens on Yes, and the one whose unasked answer is yes: see
         // AgentConversationTileViewModel.ConfirmExpectingYes.
+        vm.ChooseHandover = message => MessageDialog.ChooseHandoverAsync(this, message);
         vm.ConfirmExpectingYes = message => MessageDialog.ConfirmAsync(this, "Compact", message,
             whenUnavailable: true, defaultsToYes: true);
         if (VisualRoot is not null) vm.EnsureStarted();

@@ -14,6 +14,13 @@ namespace mTiles.Tests;
 /// </remarks>
 internal static class TestTiles
 {
+    /// <summary>A yes/no answer read as the agent-switch question's: yes carries the context over, no stays.
+    /// For the tests written when that question had only two answers.</summary>
+    public static Func<string, Task<mTiles.ViewModels.HandoverAnswer>> AsHandover(Func<string, Task<bool>>? confirm) =>
+        async message => confirm is not null && await confirm(message)
+            ? mTiles.ViewModels.HandoverAnswer.WithContext
+            : mTiles.ViewModels.HandoverAnswer.Cancel;
+
     /// <param name="settings">What the database service manager reads. It is constructed and never
     /// started: the database kind needs one to exist, not to be listening. The usage service is given
     /// no sources for the same reason — the usage kind needs one to exist, and a real list would have a

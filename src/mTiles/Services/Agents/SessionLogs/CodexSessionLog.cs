@@ -184,6 +184,70 @@ public sealed class CodexSessionLog : AgentSessionLog
         return new AgentSessionReading(entry.Id, file.LastWriteTimeUtc, tokens.Used, tokens.Window);
     }
 
+    /// <inheritdoc />
+    public override bool ReadsTranscripts => true;
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<TranscriptTurn> TranscriptOf(AiSignIn? signIn, SessionEntry entry) =>
+        RolloutOf(signIn, entry) is { } file ? TurnsOf(ReadAllLines(file), TurnIn) : [];
+
+    /// <summary>One rollout line as a message, or null for everything that is not one.</summary>
+    /// <remarks>
+    /// <para>From the <c>event_msg</c> lines and never the <c>response_item</c> ones: those are what was sent
+    /// to the model, and a user message there carries codex's own injected context (the plugin list, the
+    /// environment) alongside what was typed.</para>
+    /// <para>Two shapes, both read. Measured 2026-09-23 against 0.154.0: <c>item_completed</c> with an
+    /// <c>item</c> of type <c>UserMessage</c> or <c>AgentMessage</c> and its words in <c>content[].text</c>.
+    /// Earlier versions wrote <c>user_message</c> and <c>agent_message</c> with the words in
+    /// <c>message</c>; a version writing both is folded by <see cref="AgentSessionLog.TurnsOf"/>.</para>
+    /// </remarks>
+    internal static TranscriptTurn? TurnIn(string line)
+    {
+        if (!line.Contains("\"event_msg\"", StringComparison.Ordinal)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            if (!document.RootElement.TryGetProperty("payload", out var payload)
+                || payload.ValueKind != JsonValueKind.Object
+                || !payload.TryGetProperty("type", out var type))
+                return null;
+
+            switch (type.GetString())
+            {
+                case "user_message": return Turn(true, StringIn(payload, "message"));
+                case "agent_message": return Turn(false, StringIn(payload, "message"));
+                case "item_completed" when payload.TryGetProperty("item", out var item)
+                                           && item.ValueKind == JsonValueKind.Object
+                                           && item.TryGetProperty("type", out var kind):
+                    var fromUser = kind.GetString() switch
+                    {
+                        "UserMessage" => true,
+                        "AgentMessage" => false,
+                        _ => (bool?)null,
+                    };
+                    if (fromUser is not { } user || !item.TryGetProperty("content", out var content)
+                        || content.ValueKind != JsonValueKind.Array)
+                        return null;
+                    return Turn(user, string.Join("\n\n", content.EnumerateArray()
+                        .Where(part => part.ValueKind == JsonValueKind.Object)
+                        .Select(part => StringIn(part, "text"))));
+                default: return null;
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+
+        static string StringIn(JsonElement element, string name) =>
+            element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString() ?? ""
+                : "";
+
+        static TranscriptTurn? Turn(bool fromUser, string text) =>
+            text.Trim() is { Length: > 0 } words ? new TranscriptTurn(fromUser, words) : null;
+    }
+
     /// <summary>One rollout line folded in: the last <c>token_count</c> that <em>parses</em> wins.</summary>
     /// <remarks>The rule is the last one that parses because the substring also turns up inside messages
     /// about token counts; the cheap <c>Contains</c> keeps the parse off the thousands of lines that are

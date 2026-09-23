@@ -111,6 +111,70 @@ public sealed class ClaudeSessionLog : JsonlSessionLog
         }
     }
 
+    /// <inheritdoc />
+    public override bool ReadsTranscripts => true;
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<TranscriptTurn> TranscriptOf(AiSignIn? signIn, SessionEntry entry) =>
+        FileOf(entry) is { } file ? TurnsOf(ReadAllLines(file), TurnIn) : [];
+
+    /// <summary>One transcript line as a message, or null for everything that is not one.</summary>
+    /// <remarks>
+    /// <para>Measured 2026-09-23 against 2.1.274. A message is a line of <c>type</c> <c>user</c> or
+    /// <c>assistant</c> whose <c>message.content</c> is a string or a list of blocks; only the
+    /// <c>text</c> blocks are words — <c>tool_use</c>, <c>tool_result</c>, <c>thinking</c> and
+    /// <c>image</c> are the work, not the conversation.</para>
+    /// <para><b>Two kinds of user line are the CLI's own</b> and are left out: <c>isMeta</c> (what it
+    /// writes about an attached image), and text that opens with a tag — <c>&lt;command-name&gt;</c>,
+    /// <c>&lt;local-command-stdout&gt;</c>, <c>&lt;system-reminder&gt;</c> — which is a slash command or
+    /// something injected, not something somebody typed.</para>
+    /// </remarks>
+    internal static TranscriptTurn? TurnIn(string line)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            var fromUser = root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
+                ? type.GetString() switch { "user" => true, "assistant" => false, _ => (bool?)null }
+                : null;
+            if (fromUser is not { } user) return null;
+            if (root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True) return null;
+            if (!root.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.Object
+                || !message.TryGetProperty("content", out var content))
+                return null;
+
+            var text = content.ValueKind switch
+            {
+                JsonValueKind.String => content.GetString() ?? "",
+                JsonValueKind.Array => string.Join("\n\n", content.EnumerateArray()
+                    .Where(block => block.ValueKind == JsonValueKind.Object
+                                    && block.TryGetProperty("type", out var kind) && kind.GetString() == "text"
+                                    && block.TryGetProperty("text", out _))
+                    .Select(block => block.GetProperty("text").GetString() ?? "")),
+                _ => "",
+            };
+            text = text.Trim();
+            if (text.Length == 0 || (user && IsInjected(text))) return null;
+            return new TranscriptTurn(user, text);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The tags the CLI opens its own user lines with; a message of somebody's that merely starts
+    /// with <c>&lt;</c> — pasted HTML — is theirs and stays.</summary>
+    private static readonly string[] InjectedTags =
+        ["<command-name>", "<command-message>", "<command-args>", "<local-command-stdout>",
+         "<local-command-stderr>", "<local-command-caveat>", "<system-reminder>", "<bash-input>",
+         "<bash-stdout>", "<bash-stderr>", "<user-prompt-submit-hook>"];
+
+    private static bool IsInjected(string text) =>
+        InjectedTags.Any(tag => text.StartsWith(tag, StringComparison.Ordinal));
+
     private static long Tokens(JsonElement usage, string name) =>
         usage.TryGetProperty(name, out var value) && value.TryGetInt64(out var tokens) ? tokens : 0;
 }

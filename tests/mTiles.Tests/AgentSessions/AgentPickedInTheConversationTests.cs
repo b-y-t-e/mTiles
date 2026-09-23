@@ -74,6 +74,7 @@ public class AgentPickedInTheConversationTests
             asked = message;
             return Task.FromResult(true);
         };
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
         await tile.SwitchInstanceAsync(claude);
 
         Assert.Contains("brief", asked ?? "", StringComparison.OrdinalIgnoreCase);
@@ -178,6 +179,7 @@ public class AgentPickedInTheConversationTests
             asked = message;
             return Task.FromResult(false);
         };
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
         tile.IsWorking = true;
 
         await tile.SwitchInstanceAsync(otherClaude);

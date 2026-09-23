@@ -112,6 +112,7 @@ public class ConversationSeamTests
             asked++;
             return Task.FromResult(false);
         };
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
 
         await tile.SwitchInstanceAsync(codex);
 
@@ -130,6 +131,7 @@ public class ConversationSeamTests
         using var owned = tile;
         var codex = InstanceOf(settings, "codex");
         tile.ConfirmAction = _ => Task.FromResult(true);
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
 
         await tile.SwitchInstanceAsync(codex);
 
@@ -146,6 +148,30 @@ public class ConversationSeamTests
         Assert.Contains("Make it sort pinned rows first.", seam.Brief);
     }
 
+    /// <remarks>Switching without the context still has to move the record and clear the token — the next
+    /// start refuses a conversation whose row names the agent that left — but the arriving agent is sent
+    /// nothing, so the seam carries no brief and none is owed.</remarks>
+    [Fact]
+    public async Task Switching_without_the_context_moves_the_conversation_and_tells_the_new_agent_nothing()
+    {
+        using var settings = new TempSettings();
+        var store = TestTiles.ConversationStore();
+        var (tile, record) = await OnAConversationWithSomethingSaid(settings, store);
+        using var owned = tile;
+        tile.ChooseHandover = _ => Task.FromResult(mTiles.ViewModels.HandoverAnswer.WithoutContext);
+
+        await tile.SwitchInstanceAsync(InstanceOf(settings, "codex"));
+
+        Assert.Equal("codex", tile.Agent.Id);
+        var moved = store.Find(record.Id)!;
+        Assert.Equal("codex", moved.AgentId);
+        Assert.Null(moved.ResumeToken);
+        var seam = Assert.IsType<HandoverRecorded>(store.ReadEvents(record.Id).Last(e => e is HandoverRecorded));
+        Assert.Equal("", seam.Brief);
+        Assert.Null(mTiles.AgentSessions.Conversation.ConversationHandover.BriefOwedIn(
+            mTiles.AgentSessions.Conversation.ConversationReducer.Replay(store.ReadEvents(record.Id))));
+    }
+
     /// <remarks>Carrying them is what the switch is for: dropped, somebody working in bypass came back on
     /// the tool's own asking without being told, which is a change of permissions nobody made. The arriving
     /// agent's own lists narrow them at launch (<c>AiProcessRunner.Fit</c>), so a mode it does not have is
@@ -158,6 +184,7 @@ public class ConversationSeamTests
         var (tile, _) = await OnAConversationWithSomethingSaid(settings, store);
         using var owned = tile;
         tile.ConfirmAction = _ => Task.FromResult(true);
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
         tile.KeepOverride(new SessionSettings(Mode: "BypassPermissions", Effort: "Max"));
 
         await tile.SwitchInstanceAsync(InstanceOf(settings, "codex"));
@@ -188,6 +215,7 @@ public class ConversationSeamTests
             asked = message;
             return Task.FromResult(true);
         };
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
 
         // Nothing picked in the strip: the mode is the outgoing instance's own answer.
         Assert.Null(tile.Overrides.Behaviour);
@@ -208,6 +236,7 @@ public class ConversationSeamTests
         var (tile, record) = await OnAConversationWithSomethingSaid(settings, store);
         using var owned = tile;
         tile.ConfirmAction = _ => Task.FromResult(true);
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
 
         store.RefusingAppends = true;
         await tile.SwitchInstanceAsync(InstanceOf(settings, "codex"));

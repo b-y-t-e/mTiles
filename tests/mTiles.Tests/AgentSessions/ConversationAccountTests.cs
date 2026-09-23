@@ -36,6 +36,7 @@ public class ConversationAccountTests
             asked++;
             return Task.FromResult(false);
         };
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
 
         await tile.SwitchInstanceAsync(elsewhere);
 
@@ -43,6 +44,7 @@ public class ConversationAccountTests
         Assert.Equal(here.Id, tile.Instance.Id);
 
         tile.ConfirmAction = _ => Task.FromResult(true);
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
         await tile.SwitchInstanceAsync(elsewhere);
 
         Assert.Equal(elsewhere.Id, tile.Instance.Id);
@@ -58,6 +60,7 @@ public class ConversationAccountTests
         using var tile = await StartedWithASession(settings, here, store);
         store.Append(tile.ConversationId, [new UserMessageAdded("m1", "fix the build", [])]);
         tile.ConfirmAction = _ => Task.FromResult(true);
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
 
         await tile.SwitchInstanceAsync(elsewhere);
 
@@ -74,6 +77,7 @@ public class ConversationAccountTests
         var elsewhere = Beside(settings, here, signIn: "second-subscription");
         using var tile = NewTile(settings, new JsonObject { [AgentStateKeys.InstanceIdKey] = here.Id });
         tile.ConfirmAction = _ => throw new InvalidOperationException("No session, so nothing is lost.");
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
 
         await tile.SwitchInstanceAsync(elsewhere);
 
@@ -88,6 +92,7 @@ public class ConversationAccountTests
         var sameAccount = Beside(settings, here, signIn: here.SignInId);
         using var tile = NewTile(settings, new JsonObject { [AgentStateKeys.InstanceIdKey] = here.Id });
         tile.ConfirmAction = _ => throw new InvalidOperationException("Nothing is lost, so nothing is asked.");
+        tile.ChooseHandover = TestTiles.AsHandover(tile.ConfirmAction);
 
         await tile.SwitchInstanceAsync(sameAccount);
 

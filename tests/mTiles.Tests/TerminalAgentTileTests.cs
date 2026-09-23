@@ -764,6 +764,88 @@ public class TerminalAgentTileTests
         finally { tile.Dispose(); }
     }
 
+    /// <summary>Another CLI or another login leaves the conversation behind; another instance on the same
+    /// login does not.</summary>
+    [Fact]
+    public void Only_another_agent_or_another_login_leaves_the_conversation()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var (chosen, sameLogin) = TwoInstancesOfOneAgent(settings, "claude");
+        var otherLogin = new AiAgentInstance { AgentId = chosen.AgentId, Name = "other login", SignInId = "elsewhere" };
+        settings.Service.Settings.AiAgentInstances.Add(otherLogin);
+        var tile = ClaudeTile(directory.Path, settings, chosen);
+
+        try
+        {
+            Assert.False(tile.LeavesConversationFor(sameLogin.Id, chosen.AgentId));
+            Assert.True(tile.LeavesConversationFor(otherLogin.Id, chosen.AgentId));
+            Assert.True(tile.LeavesConversationFor(chosen.Id, "codex"));
+            Assert.True(tile.CanHandOverContext);
+        }
+        finally { tile.Dispose(); }
+    }
+
+    /// <summary>A switch onto another login asks the three-way question: staying keeps the tile where it is,
+    /// and switching without the context moves it with no brief and no notice.</summary>
+    [Fact]
+    public async Task A_switch_onto_another_login_asks_whether_to_carry_the_context()
+    {
+        using var settings = new TempSettings();
+        using var directory = new TempDirectory();
+        var (chosen, other) = TwoInstancesOfOneAgent(settings, "claude");
+        var signIn = new AiSignIn { AgentId = chosen.AgentId, Name = "second" };
+        settings.Service.Settings.AiSignIns.Add(signIn);
+        other.SignInId = signIn.Id;
+        var tile = ClaudeTile(directory.Path, settings, chosen);
+        var leaf = new LeafTileNodeViewModel(TileKindIds.TerminalAgent, tile, directory.Path,
+            new TileActivationScope());
+
+        try
+        {
+            leaf.RefreshAgentInstances();
+            var target = leaf.AgentInstances.FirstOrDefault(choice => choice.Label == other.Name);
+            if (target is null && AiAgentCatalog.Locate(AiAgentCatalog.Find(chosen.AgentId)!) is null)
+                return; // Not installed here, so there is no second instance to switch to.
+            Assert.NotNull(target);
+            var confirmed = false;
+            leaf.ConfirmAction = _ => { confirmed = true; return Task.FromResult(true); };
+
+            var asked = new TaskCompletionSource();
+            leaf.ChooseHandover = _ => { asked.TrySetResult(); return Task.FromResult(HandoverAnswer.Cancel); };
+            target.SwitchCommand.Execute(null);
+            await asked.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            await Task.Yield();
+            Assert.Equal(chosen.Id, tile.InstanceId);
+            Assert.False(confirmed);
+
+            leaf.ChooseHandover = _ => Task.FromResult(HandoverAnswer.WithoutContext);
+            target.SwitchCommand.Execute(null);
+            await Until(() => tile.InstanceId == other.Id);
+            Assert.False(confirmed);
+            Assert.False(Directory.Exists(TerminalHandover.DirectoryIn(directory.Path)));
+            Assert.DoesNotContain(TerminalHandover.NothingToCarry, tile.LaunchNotice ?? "");
+        }
+        finally { leaf.Dispose(); }
+    }
+
+    /// <summary>Waits for a switch that runs asynchronously, bounded so a regression fails rather than hangs.</summary>
+    private static async Task Until(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++) await Task.Delay(10);
+        Assert.True(condition());
+    }
+
+    private static TerminalAgentTileViewModel ClaudeTile(string directory, TempSettings settings,
+        AiAgentInstance instance) =>
+        (TerminalAgentTileViewModel)((ITileKind)new TerminalAgentTileKind()).Create(
+            Context(directory, settings, Guid.NewGuid().ToString()),
+            new JsonObject
+            {
+                [AgentStateKeys.InstanceIdKey] = instance.Id,
+                [AgentStateKeys.AgentIdKey] = instance.AgentId,
+            });
+
     /// <summary>Two instances of one agent, so a switch has somewhere to go.</summary>
     /// <remarks>The second is a copy of the first, so the pair differs by nothing the availability rule
     /// looks at: a test about switching must not turn into a test about what is installed.</remarks>

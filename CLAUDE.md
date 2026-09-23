@@ -873,6 +873,18 @@ sentence of its own. **Undo changes still works across the seam**, because `ITur
 the conversation and knows nothing of agents — the working tree is the shared state. The one refusal left
 is `RefusalFor`'s: an agent this machine cannot run has nothing to hand the work to.
 
+**The switch asks three ways, not two** (`ChooseHandover`, `HandoverAnswer`, `MessageDialog.ChooseAsync`):
+carry the context over (the brief above), switch **without** it — the seam is still written, since it is what
+moves the record and clears the token, but with an empty brief that `BriefOwedIn` never sends — or stay.
+
+**A terminal agent tile asks the same question** when Run as or Change type moves it to another CLI or another
+login (`LeafTileNodeViewModel.AskAboutSwitchingAsync`). Its brief comes out of the CLI's own transcript
+(`IAgentSessionLog.ReadTranscriptAsync`, measured for Claude Code and codex only — the rest answer
+`ReadsTranscripts` false and get the plain confirmation), folded by `TerminalHandover` into
+`.mtiles/handover/*.md`, and the arriving agent is pointed at it by **one typed line** (`HandoverDelivery`) —
+typed rather than put on the command line, because the launch chain reruns its commands and would hand the
+brief over again at every relaunch.
+
 **A conversation remembers which account each stretch of it ran as, and says so.** The agent is only half
 the identity: a resume token lives in the *account's* own directory, so the same CLI on a second
 subscription starts cold while the transcript — which is ours — goes on being drawn as one unbroken column.

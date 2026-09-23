@@ -141,6 +141,49 @@ public abstract class AgentSessionLog : IAgentSessionLog
                 : null;
         }), ct);
 
+    /// <inheritdoc />
+    /// <remarks>Virtual here and not left to the interface's default, the rule <c>UsesModelContextWindow</c>
+    /// sets: a default interface member is only reached through the interface.</remarks>
+    public virtual bool ReadsTranscripts => false;
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<TranscriptTurn>> ReadTranscriptAsync(AiSignIn? signIn, string workspaceDir,
+        string sessionId, CancellationToken ct = default) =>
+        Task.Run(() => Safely<IReadOnlyList<TranscriptTurn>>(() =>
+        {
+            if (!ReadsTranscripts || sessionId.Length == 0) return [];
+            return Find(signIn, workspaceDir, sessionId, ct) is { } entry
+                ? TranscriptOf(signIn, entry)
+                : [];
+        }, []), ct);
+
+    /// <summary>The conversation's messages, for a store that <see cref="ReadsTranscripts"/>.</summary>
+    protected virtual IReadOnlyList<TranscriptTurn> TranscriptOf(AiSignIn? signIn, SessionEntry entry) => [];
+
+    /// <summary>Every line of a transcript, read with sharing because the CLI may be writing it.</summary>
+    protected static IEnumerable<string> ReadAllLines(FileInfo file)
+    {
+        using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        while (reader.ReadLine() is { } line) yield return line;
+    }
+
+    /// <summary>The turns read line by line, with a turn that repeats the one before it dropped — codex
+    /// writes the same message under two event shapes in some versions.</summary>
+    protected static IReadOnlyList<TranscriptTurn> TurnsOf(IEnumerable<string> lines,
+        Func<string, TranscriptTurn?> turnIn)
+    {
+        var turns = new List<TranscriptTurn>();
+        foreach (var line in lines)
+        {
+            if (turnIn(line) is not { } turn || turn.Text.Length == 0) continue;
+            if (turns.Count > 0 && turns[^1] == turn) continue;
+            turns.Add(turn);
+        }
+        return turns;
+    }
+
     /// <summary>Runs a read, answering null for anything that goes wrong with it.</summary>
     /// <remarks>Cancellation is let through, because a cancelled read is the caller's own doing and
     /// swallowing it would report "this agent says nothing" for a question nobody is asking any more.
