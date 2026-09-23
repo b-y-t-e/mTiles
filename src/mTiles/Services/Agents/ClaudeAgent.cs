@@ -103,6 +103,20 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
         // provider's own key variable would be a secret sitting in the tile's shell that nothing reads.
         ApplyProviderKey(environment, runtime, setKey: false);
 
+        // The hook rewrites to a bare `rtk …`, so the shell this session runs its commands in has to
+        // find rtk by name. Where it would not, its directory goes in front of the PATH this session
+        // inherits — the case is ordinary rather than exotic: winget installs into
+        // %LOCALAPPDATA%\Microsoft\WinGet\Links and adds that to the *user's* PATH, a change no
+        // already-running process sees, so mTiles that installed rtk from its own Settings row is by
+        // construction a process whose PATH does not carry it. Only for a session that actually asks
+        // for the proxy, and null from DirectoryToPrependToPath means nothing needs doing — every
+        // other session's environment is left exactly as it was.
+        if (OutputProxyFor(runtime) is not null && OutputProxy.DirectoryToPrependToPath() is { } rtkDirectory)
+        {
+            environment["PATH"] = OutputProxy.PathWith(
+                rtkDirectory, Environment.GetEnvironmentVariable("PATH"));
+        }
+
         // The pair below, removed when this instance runs as a *sign-in*. ApplyProviderKey clears only
         // variables that are some provider's KeyEnvironmentVariable, and neither of these is one:
         // ANTHROPIC_AUTH_TOKEN is what this CLI actually authenticates with, and ANTHROPIC_BASE_URL is
@@ -549,16 +563,21 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
         ClaudeSessionSettings.Write(OutputProxyFor(runtime)) is { } path ? ["--settings", path] : [];
 
     /// <summary>Where rtk is, when this session should run through it; null otherwise.</summary>
-    /// <remarks><b>The shell's <c>PATH</c> and not <see cref="OutputProxy.Locate"/>.</b> Measured
-    /// 2026-09-23 against rtk 0.46.0: the hook answers <c>{"updatedInput":{"command":"rtk git
-    /// status"}}</c> — a <em>bare</em> name — so however carefully the hook's own command is spelled,
-    /// what finally runs is <c>rtk …</c> in the tile's shell. On a machine where rtk sits somewhere no
-    /// shell searches, that is <c>rtk: command not found</c> on every Bash call the agent makes: the
-    /// command fails rather than merely missing its saving, which is worse than having no proxy at
-    /// all. So the question asked here is the one the rewrite depends on.</remarks>
+    /// <remarks><para>Measured 2026-09-23 against rtk 0.46.0: the hook answers
+    /// <c>{"updatedInput":{"command":"rtk git status"}}</c> — a <em>bare</em> name — so however
+    /// carefully the hook's own command is spelled, what finally runs is <c>rtk …</c> in the tile's
+    /// shell. On a machine where rtk sits somewhere no shell searches that is
+    /// <c>rtk: command not found</c> on every Bash call the agent makes: the command <em>fails</em>
+    /// rather than merely missing its saving.</para>
+    /// <para><b>Which is why this asks <see cref="OutputProxy.Locate"/> and not the shell's
+    /// <c>PATH</c>.</b> It briefly did the latter, refusing the hook where the rewrite would not
+    /// resolve — correct, and a worse answer than the one available: <see cref="Configure"/> puts
+    /// rtk's own directory on the <c>PATH</c> of every session that carries the hook, so "the shell
+    /// cannot find it" is a state this agent closes rather than reports. The two belong together and
+    /// will be wrong together if either moves alone.</para></remarks>
     private string? OutputProxyFor(AgentRuntime runtime) =>
         runtime.Instance.UseOutputProxy && !IsOutputProxyAlreadyHooked(runtime.SignIn, runtime.WorkingDirectory)
-            ? OutputProxy.OnTheShellsPath()
+            ? OutputProxy.Locate()
             : null;
 
     /// <inheritdoc />

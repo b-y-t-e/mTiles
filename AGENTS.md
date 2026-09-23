@@ -888,11 +888,11 @@ comes back **through `IAiAgent.InstanceModel`**, the round trip a model picked i
 since what a session lists is spelled that CLI's way and opencode and pi would otherwise qualify it a second
 time into `openrouter/openrouter/auto`. The first entry of a new stretch carries a
 rule with the account's name on it (`TimelineItemViewModel.Seam`, `MarkSeams`), drawn on the *item* rather
-than as an item of its own because `TimelineSync` matches view models to records by position. And the switch
-**asks first** (`ConfirmLeavingTheAccountAsync`) — only where the login actually moves, and a missing dialog
-is a yes here, since nothing is lost that the transcript does not still hold. Carrying the *work* across
-that seam is still [`docs/ROADMAP.md`](docs/ROADMAP.md) §6, and is cheaper than it was written to be: a
-segment is now the stretch between two `SessionConfigured`s naming different accounts.
+than as an item of its own because `TimelineSync` matches view models to records by position. And **another login of the same agent is a handover**, exactly as another agent is
+(`MovesTheLogin`, feeding `ApplySwitchAsync`'s `handingOver`): the brief is written and sent and the token
+cleared, because the arriving session could resume nothing — it used to start cold under a transcript the
+model had never seen, with a warning (`ConfirmLeavingTheAccountAsync`, now asked only before anything has
+been said, where there is no work to brief) as the whole of the answer.
 
 **The context bar carries the one act there is about the figure on it** (`ICompactingSession`,
 `CompactContext`, `SessionOptionsReported.CanCompact`). Compact asks the agent to summarise what has been
@@ -1065,9 +1065,8 @@ per-run flag at all, so it answers `WritesOutsideOurDirectories` — a route nam
 one nobody found, because taking it would turn a tick on one instance into a change to every opencode
 session on the machine, the ones started from a shell included, with nothing here able to take it back off.
 
-**Three facts decide it and the tick is only one.** rtk has to be **where the tile's own shell will
-find it** (`OutputProxy.OnTheShellsPath` — our `PATH`, plus the login shell's on Unix — and
-deliberately *not* `ExecutableFinder.Anywhere`), and Claude Code's own settings
+**Three facts decide it and the tick is only one.** rtk has to be on this machine at all
+(`OutputProxy.Locate`), and Claude Code's own settings
 must **not** already carry an rtk hook — the CLI runs every matching entry, so ours beside theirs is one
 command handed to the proxy twice, which is a behaviour nobody chose arrived at by two pieces of
 configuration that cannot see each other. Asked at the moment the file is written rather than
@@ -1099,15 +1098,22 @@ missing**, which is the difference from the clipboard notice beside it: that one
 every agent on the platform lacks, this one about a decision already made that has quietly been doing
 nothing.
 
-**What the hook produces is a bare name, and that is why the `PATH` question is the one asked.**
+**What the hook produces is a bare name, so the launch puts rtk on the session's `PATH`.**
 Measured 2026-09-23 against rtk 0.46.0 by feeding it a `PreToolUse` payload: it answers
 `{"updatedInput":{"command":"rtk git status"}}`. So however carefully the hook's *own* command is
 spelled — and it is spelled with the full path, which is what makes it survive a `PATH` ours does not
 carry — what finally runs is `rtk …` in the tile's shell. On a machine where rtk sits somewhere no
-shell searches, that is `rtk: command not found` on **every** Bash call the agent makes: the command
-*fails* rather than merely missing its saving, which is worse than having no proxy at all. Hence a
-fourth state on the Settings row, naming where rtk is and saying the tick stays off until that folder
-is on `PATH`.
+shell searches, that would be `rtk: command not found` on **every** Bash call the agent makes: the
+command *fails* rather than merely missing its saving, which is worse than having no proxy at all.
+**And that case is ordinary rather than exotic**: winget installs into
+`%LOCALAPPDATA%\Microsoft\WinGet\Links` and adds it to the *user's* `PATH`, a change no
+already-running process sees — so mTiles that installed rtk from its own Settings row is, by
+construction, a process whose `PATH` does not carry what it just installed. The first answer was a
+sentence on the row telling the user to fix their `PATH` and restart; it is now closed instead
+(`OutputProxy.DirectoryToPrependToPath`, applied in `ClaudeAgent.Configure`): rtk's own directory goes
+in front of the `PATH` of any session carrying the hook, additively, so a shell rc file that appends
+to what it was given keeps its own entries. `OutputProxyFor` and that `PATH` line belong together and
+will be wrong together if either moves alone.
 
 **And `rtk gain` cannot see any of this, which misleads in the one direction that costs something.**
 It reports on the hook in the CLI's *own* settings — the one `rtk init -g` writes — so on a machine

@@ -595,6 +595,8 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         // command line then names a model the document does not - which is the
         // ProviderModelNotFoundError the document exists to prevent. And after the check because a
         // launch that is not going to happen has nothing to prepare.
+        // Locate falls back to the login shell's PATH; a restored tile must not launch without the rtk
+        // hook only because that read had not finished.
         if (Instance.UseOutputProxy) await OutputProxy.WhenShellsPathIsKnownAsync();
         _agent.PrepareToLaunch(Runtime);
 

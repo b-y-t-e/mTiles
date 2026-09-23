@@ -138,12 +138,13 @@ public class OutputProxyTests : IDisposable
         var arguments = claude.SessionDefaultArgs(new AgentRuntime(instance, null, null, ""));
         Assert.Equal("--settings", arguments[0]);
 
-        // Three facts decide it and none of them is the tick alone: rtk has to be where the tile's shell finds it by name
-        // (the rewrite is a bare `rtk …`), and
-        // Claude Code's own settings must not already carry the hook — two of them on one command is
-        // one command handed to the proxy twice. This asserts the rule rather than a machine, so it
-        // passes on a build agent with no rtk and on a developer's box with one.
-        var expected = OutputProxy.IsUsableByAShell && !OutputProxyGlobalHook.IsHookedForClaude(null);
+        // Three facts decide it and none of them is the tick alone: rtk has to be on this machine at
+        // all, and Claude Code's own settings must not already carry the hook — two of them on one
+        // command is one command handed to the proxy twice. Being *reachable by name* is deliberately
+        // not one of them any more: the launch prepends rtk's own directory to the session's PATH, so
+        // that is a state this agent closes rather than refuses. This asserts the rule rather than a
+        // machine, so it passes on a build agent with no rtk and on a developer's box with one.
+        var expected = OutputProxy.IsInstalled && !OutputProxyGlobalHook.IsHookedForClaude(null);
         Assert.Equal(ClaudeSessionSettings.PathFor(expected), arguments[1]);
     }
 
@@ -270,31 +271,66 @@ public class OutputProxyTests : IDisposable
     }
 
     [Fact]
-    public void Rtk_off_the_shells_path_gets_no_hook_whatever_else_the_machine_has()
+    public void Rtk_off_the_shells_path_is_put_on_the_sessions_path_rather_than_refused()
     {
-        // With nothing on PATH the rewrite's bare `rtk …` would fail, so the launch must not write the
-        // hook — whether or not rtk sits somewhere ExecutableFinder.Anywhere looks. Nothing is planted
-        // in the real home folder: a run killed before cleanup would leave an empty rtk.exe that
-        // Locate then reports as installed. Windows only: on Unix the login shell's PATH is not ours
-        // to empty.
+        // The state this used to refuse. The rewrite is a bare `rtk …`, so a session whose PATH does
+        // not carry rtk would answer "command not found" on every Bash call — and the ordinary way to
+        // be in it is winget, which installs into WinGet\Links and adds that to the *user's* PATH, a
+        // change no already-running process sees. So the launch closes the gap instead: the hook is
+        // still written, and the environment it is written for names rtk's own directory first.
+        // Windows only: on Unix the login shell's PATH is not ours to empty.
         if (!OperatingSystem.IsWindows()) return;
+
+        var directory = Directory.CreateTempSubdirectory("rtk-elsewhere-").FullName;
+        var rtk = Path.Combine(directory, "rtk.exe");
+        File.WriteAllText(rtk, "");
         var emptyPath = Directory.CreateTempSubdirectory("rtk-nopath-").FullName;
         var original = Environment.GetEnvironmentVariable("PATH");
         try
         {
             Environment.SetEnvironmentVariable("PATH", emptyPath);
 
-            var instance = new AiAgentInstance { AgentId = "claude", UseOutputProxy = true };
-            var arguments = AiAgentCatalog.Find("claude")!.SessionDefaultArgs(new AgentRuntime(instance, null, null, ""));
-
+            // Nothing on PATH finds it...
             Assert.Null(OutputProxy.OnTheShellsPath());
-            Assert.Equal(ClaudeSessionSettings.PathFor(false), arguments[1]);
+
+            // ...and the fix is a directory to prepend rather than a refusal.
+            Assert.Equal(directory, OutputProxy.DirectoryToPrependToPath(() => rtk));
         }
         finally
         {
             Environment.SetEnvironmentVariable("PATH", original);
             Directory.Delete(emptyPath, recursive: true);
+            Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void A_session_carrying_the_hook_is_launched_with_rtk_on_its_path()
+    {
+        // The half the helper test cannot see: that Configure actually applies it. Asserted as a rule
+        // rather than a machine, the way the --settings test above is, so it holds with or without rtk.
+        var instance = new AiAgentInstance { AgentId = "claude", UseOutputProxy = true };
+        var environment = AiAgentCatalog.Find("claude")!.EnvFor(new AgentRuntime(instance, null, null, ""));
+
+        var hooked = OutputProxy.IsInstalled && !OutputProxyGlobalHook.IsHookedForClaude(null);
+        if (hooked && OutputProxy.DirectoryToPrependToPath() is { } directory)
+            Assert.StartsWith(directory + Path.PathSeparator, environment["PATH"]);
+        else
+            Assert.False(environment.ContainsKey("PATH"));
+    }
+
+    [Theory]
+    [InlineData("C:\tools", "C:\a;C:\b")]
+    [InlineData("C:\tools", "")]
+    [InlineData("C:\tools", null)]
+    public void The_directory_goes_in_front_and_nothing_is_taken_away(string directory, string? inherited)
+    {
+        var result = OutputProxy.PathWith(directory, inherited);
+
+        // In front, because the point is to be found; additive, because a shell rc file appends to
+        // what it was given and must not find its own entries gone.
+        Assert.StartsWith(directory, result);
+        if (!string.IsNullOrEmpty(inherited)) Assert.EndsWith(inherited, result);
     }
 
     [Fact]

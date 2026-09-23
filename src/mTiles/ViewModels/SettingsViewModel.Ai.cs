@@ -259,13 +259,13 @@ public partial class SettingsViewModel
     public bool ShowsOutputProxyNotice { get; private set; }
 
     /// <summary>The sentence itself.</summary>
+    /// <remarks>Installed-but-unreachable used to be a second sentence here, telling the user to put
+    /// rtk on <c>PATH</c> and restart. It is gone because the state is: <c>ClaudeAgent.Configure</c>
+    /// puts rtk's own directory in front of the <c>PATH</c> of any session carrying the hook, so the
+    /// only thing left to report is rtk not being on the machine at all.</remarks>
     public string OutputProxyNotice =>
-        OutputProxy.IsInstalled
-            ? $"An agent here is set to filter command output through {OutputProxy.BinaryName}, which is "
-              + $"installed at {OutputProxy.Locate()} but is not on PATH. Those sessions run unfiltered "
-              + "until that folder is on PATH and mTiles is restarted."
-            : $"An agent here is set to filter command output through {OutputProxy.BinaryName}, which is not "
-              + "installed on this machine. Those sessions run unfiltered until it is.";
+        $"An agent here is set to filter command output through {OutputProxy.BinaryName}, which is not "
+        + "installed on this machine. Those sessions run unfiltered until it is.";
 
     /// <summary>Whether there is a command to offer as well as the sentence.</summary>
     /// <remarks>False wherever <see cref="OutputProxy.Plan"/> is null — today, everything that is not
@@ -284,12 +284,11 @@ public partial class SettingsViewModel
             && AiAgentCatalog.Find(instance.AgentId) is
                 { OutputProxySupport: OutputProxy.Support.GeneratedFile });
 
-        // Installed but off PATH is as useless as missing: the hook is never written, so it gets the
-        // notice too — but no Install… button, since installing again would not change where it is.
-        // Not while the login shell's PATH is still being read: rtk found only there would be named
-        // "not on PATH" until the page happened to refresh.
-        ShowsOutputProxyNotice = wanted && OutputProxy.IsShellsPathKnown && !OutputProxy.IsUsableByAShell;
-        _outputProxyInstall = ShowsOutputProxyNotice && !OutputProxy.IsInstalled ? OutputProxy.Plan : null;
+        // Only rtk missing from the machine is left to report: one installed off PATH is put on the
+        // session's PATH by the launch (ClaudeAgent.Configure). Not while the login shell's PATH is
+        // still being read: rtk found only there would be named "not installed" until it answered.
+        ShowsOutputProxyNotice = wanted && OutputProxy.IsShellsPathKnown && !OutputProxy.IsInstalled;
+        _outputProxyInstall = ShowsOutputProxyNotice ? OutputProxy.Plan : null;
         OnPropertyChanged(nameof(ShowsOutputProxyNotice));
         OnPropertyChanged(nameof(OutputProxyNotice));
         OnPropertyChanged(nameof(CanInstallOutputProxy));
@@ -548,20 +547,9 @@ public partial class SettingsViewModel
         if (!OutputProxy.IsInstalled)
             return $"{OutputProxy.BinaryName} is not installed on this machine, so this does nothing yet.";
 
-        if (!OutputProxy.IsShellsPathKnown)
-            return $"Checking whether a shell here can find {OutputProxy.BinaryName}…";
-
-        // Installed, but nowhere a shell looks. The rewrite this hook produces is a bare name, so the
-        // agent's commands would fail rather than merely run unfiltered — the one state here where
-        // switching the proxy on is worse than leaving it off, and the only one the user cannot work
-        // out from the tick.
-        if (!OutputProxy.IsUsableByAShell)
-        {
-            return $"{OutputProxy.BinaryName} is installed at {OutputProxy.Locate()} but is not on "
-                + "PATH, so the commands it rewrites would not run. This stays off until it is — add "
-                + "that folder to PATH and restart mTiles.";
-        }
-
+        // Installed but nowhere a shell looks used to be a state here, telling the user to fix their
+        // PATH. It is not one any more: the launch puts rtk's directory in front of the session's own
+        // PATH, so being findable is this application's problem rather than a sentence.
         return AgentBeingEdited?.IsOutputProxyAlreadyHooked(SignInBeingEdited) == true
             ? $"{OutputProxy.BinaryName} is already hooked into {AgentBeingEdited?.DisplayName}'s own settings, so "
               + "mTiles adds nothing — your sessions are rewritten either way."

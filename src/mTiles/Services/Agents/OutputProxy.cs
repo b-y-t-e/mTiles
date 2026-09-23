@@ -65,14 +65,17 @@ public static class OutputProxy
     /// Where a shell we launch would find <c>rtk</c> by its bare name, or null.
     /// </summary>
     /// <remarks>
-    /// <para><b>A different question from <see cref="Locate"/>, and the hook depends on this one.</b>
+    /// <para><b>A different question from <see cref="Locate"/>, and not the one the hook is gated on.</b>
+    /// The hook is written wherever <see cref="Locate"/> finds rtk; this decides only whether
+    /// <see cref="DirectoryToPrependToPath()"/> has to put rtk's directory on the session's <c>PATH</c>.
     /// Measured 2026-09-23 by feeding a <c>PreToolUse</c> payload to <c>rtk hook claude</c>: it answers
     /// <c>{"updatedInput":{"command":"rtk git status"}}</c> — the rewrite is spelled with the <b>bare
     /// name</b>. So whatever path we put in the hook, what finally runs is <c>rtk …</c> in the tile's
     /// own shell, and a machine where rtk sits somewhere that shell does not search answers
     /// <c>rtk: command not found</c> — the agent's command <em>fails</em> rather than merely missing
-    /// its saving. That is worse than having no proxy, which is why this is checked before the hook is
-    /// written rather than hoped for.</para>
+    /// its saving. That is worse than having no proxy, which is why a miss here is closed by prepending
+    /// rtk's directory rather than hoped away — and never by refusing the hook, which is the regression
+    /// ADR 0005's third amendment removed.</para>
     /// <para><b>Both paths a child of ours can have</b>: ours, which a tile inherits, and — on Unix —
     /// the login shell's, since the tile's shell reads the rc files that nvm, asdf and friends write
     /// into and this application's own <c>PATH</c> does not carry them. The same pair
@@ -82,8 +85,8 @@ public static class OutputProxy
     /// wrong for a name somebody else's rewrite is about to emit.</para>
     /// <para><b>Never waits for the login shell</b>: this is asked on the way to starting a tile, on
     /// the UI thread, and that read is a process with a ten-second deadline. Until it has finished, rtk
-    /// found only there reads as absent — the hook is left out of that one launch, which costs a saving
-    /// and never a command.</para>
+    /// found only there reads as absent, and rtk's directory is prepended though it was not needed —
+    /// harmless, since a duplicate entry costs one failed lookup.</para>
     /// </remarks>
     public static string? OnTheShellsPath() => OnThePathsOf(() => LoginShellPath.ValueIfRead);
 
@@ -92,15 +95,48 @@ public static class OutputProxy
     public static bool IsShellsPathKnown =>
         ExecutableFinder.OnPathRunnable(BinaryName) is not null || LoginShellPath.IsRead;
 
-    /// <summary>Waits, off the UI thread, until <see cref="OnTheShellsPath"/> is final — for a launch
+    /// <summary>Waits, off the UI thread, until <see cref="Locate"/> and <see cref="OnTheShellsPath"/> are final — for a launch
     /// that is about to decide whether to write the hook, so a tile restored at startup is not left
     /// unfiltered only because the login shell had not answered yet.</summary>
     public static Task WhenShellsPathIsKnownAsync() =>
         IsShellsPathKnown ? Task.CompletedTask : LoginShellPath.ReadAsync();
 
-    /// <summary>Whether a tile's shell could run the rewrite this hook produces; safe on the UI thread
-    /// for the reason <see cref="OnTheShellsPath"/> gives.</summary>
+    /// <summary>Whether a tile's shell would find rtk by name without help; decides only whether the
+    /// launch prepends its directory, never whether the hook is written.</summary>
     public static bool IsUsableByAShell => OnTheShellsPath() is not null;
+
+    /// <summary>
+    /// The directory a session's <c>PATH</c> has to gain for the rewrite to resolve, or null when it
+    /// already would — or when there is no rtk to reach.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Making it reachable beats reporting that it is not.</b> The first answer to a machine
+    /// where rtk is installed somewhere no shell searches was a sentence on the Settings row, telling
+    /// the user to fix their <c>PATH</c> and restart mTiles. That is a real fact and a poor response:
+    /// the environment a session runs in is one this application composes anyway
+    /// (<c>IAiAgent.EnvFor</c>), and every route that carries the hook carries the environment too, so
+    /// the gap can simply be closed.</para>
+    /// <para><b>The case it exists for is ordinary, not exotic.</b> winget installs into
+    /// <c>%LOCALAPPDATA%\Microsoft\WinGet\Links</c> and adds that to the *user's* <c>PATH</c> — a
+    /// change no already-running process ever sees. So mTiles that installed rtk from its own Settings
+    /// row is, by construction, a process whose <c>PATH</c> does not carry what it just installed,
+    /// until somebody restarts it.</para>
+    /// <para><b>Null where nothing needs doing</b>, so a <c>PATH</c> override is added only where it
+    /// buys something and every other session's environment is left exactly as it was.</para>
+    /// </remarks>
+    public static string? DirectoryToPrependToPath() => DirectoryToPrependToPath(Locate);
+
+    /// <summary>As above, with where rtk is supplied by the caller — so a test states the machine
+    /// instead of planting a binary in the developer's own home directory.</summary>
+    internal static string? DirectoryToPrependToPath(Func<string?> locate) =>
+        IsUsableByAShell ? null : locate() is { } found ? Path.GetDirectoryName(found) : null;
+
+    /// <summary><paramref name="inherited"/> with <paramref name="directory"/> in front of it.</summary>
+    /// <remarks>Pure, so the rule is argued without a machine. <b>In front</b>, because the point is to
+    /// be found — and additive, so a shell rc file that appends to what it was given keeps it. A
+    /// duplicate entry costs one failed lookup and nothing else, so none is searched for.</remarks>
+    internal static string PathWith(string directory, string? inherited) =>
+        string.IsNullOrEmpty(inherited) ? directory : directory + Path.PathSeparator + inherited;
 
     /// <summary>Our <c>PATH</c>, then — on Unix — the login shell's, read only when ours misses:
     /// reading it can take seconds and this is asked on the way to starting a tile.</summary>
