@@ -161,6 +161,9 @@ public partial class SettingsViewModel : ObservableObject
     private bool _notifyWhenTileBlocked;
 
     [ObservableProperty]
+    private bool _showContextBar;
+
+    [ObservableProperty]
     private string _gitPath;
 
     [ObservableProperty]
@@ -423,6 +426,7 @@ public partial class SettingsViewModel : ObservableObject
         _gitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
         _agentFileSyncEnabled = s.AgentFileSyncEnabled;
         _notifyWhenTileBlocked = s.NotifyWhenTileBlocked;
+        _showContextBar = s.ShowContextBar;
         _gitPath = s.GitPath;
 
         _ = DetectGitAsync();
@@ -464,6 +468,7 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnGitIgnoreWorkspaceDirChanged(bool value) { _settingsService.Settings.GitIgnoreWorkspaceDir = value; _settingsService.NotifyChanged(); }
     partial void OnAgentFileSyncEnabledChanged(bool value) { _settingsService.Settings.AgentFileSyncEnabled = value; _settingsService.NotifyChanged(); }
     partial void OnNotifyWhenTileBlockedChanged(bool value) { _settingsService.Settings.NotifyWhenTileBlocked = value; _settingsService.NotifyChanged(); }
+    partial void OnShowContextBarChanged(bool value) { _settingsService.Settings.ShowContextBar = value; _settingsService.NotifyChanged(); }
     partial void OnGitPathChanged(string value) { _settingsService.Settings.GitPath = value; _settingsService.NotifyChanged(); _ = DetectGitAsync(); }
 
     [RelayCommand]

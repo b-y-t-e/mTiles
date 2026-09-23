@@ -719,7 +719,7 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   down: the agent's own `SupportedEfforts` narrowed by the chosen model's (`NarrowEfforts`, fed by the
   models fetched for the chosen account), and a level neither accepts falls back to the tool's own
   default.
-  **`bypass` asks once before it is stored here too**, and an unwired `ConfirmAction` answers no
+  **The agent rows can be dragged into another order** (`Views/ListReorder.cs`, `SettingsViewModel.MoveAgentInstance`), and that order is the one every chooser lists them in. **`bypass` asks once before it is stored here too**, and an unwired `ConfirmAction` answers no
   **Under the two model fields, what the provider says about the model, said in tokens.** The Model and
   Fast model fields each show `N tokens context` as soon as the chosen model is one the account
   describes — answered free from the list already fetched (OpenRouter, LM Studio), or, for a model the
@@ -834,7 +834,7 @@ chooser in the strip's right-hand corner, holding conversations only, `Conversat
 `conversationId` in the layout **written only once one has been chosen** — absent means the tile's own id,
 so a layout from before this opens exactly what it always did — rather than a change of `TileId`, which is
 the tile's identity to the layout and would let two leaves be saved under one id. Consequences worth
-knowing: **"New conversation" no longer forgets and always asks** (a button beside the list, not a row in it; it opens one beside the old, and *Delete this
+knowing: **"New conversation" no longer forgets and always asks** (a button in the tile's header — `INewConversationTile`, which the Goal tile answers too as "New goal" — not a row in the list; it opens one beside the old, and *Delete this
 conversation* is what takes it), **a conversation is one tile's at a time** (`OpenConversations` — two hosts
 of one conversation number their events from the same starting point and the store keeps whichever landed
 last), and **the agent comes with the conversation** rather than the other way round, because a resume token
@@ -846,7 +846,7 @@ fail a cold resume in silence, and both are now caught before the first message 
 answers an unknown id with an error. The table is in
 [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) → *Which conversation a tile is showing*.
 
-**Another agent is picked, and the work is handed to it.** No CLI can continue another's session, and that
+**The chooser leaves out an agent whose CLI is not installed** (the tile's own instance excepted), as the Terminal agent and Goal tiles do. **Another agent is picked, and the work is handed to it.** No CLI can continue another's session, and that
 was read for a long time as a refusal: another agent was offered dimmed, with a sentence saying to start a
 new conversation. Right about the mechanism, wrong about the user — the transcript is ours and the working
 tree is on disk, so the *work* moves perfectly well even though the session cannot. What travels is a brief
@@ -916,7 +916,7 @@ on a tile where two of the three would never have produced it. **Whether it is o
 answer and not the session's**, stamped in `Stamp` beside `SessionConfigured.Account`: it is whether the
 object the host holds implements the interface, and a session saying it separately is a second copy of
 one fact that can disagree with the method actually called. On screen it is at the right-hand end of the
-context bar rather than among the composer's pickers — those say what the *next message* runs as, and
+context bar — or, with the bar off, beside the composer's paperclip with the reading in one word (`42%`) — rather than among the composer's pickers — those say what the *next message* runs as, and
 this is an act — quieter than anything in the composer, because that one accent belongs to Send; it
 takes `WarnText` past 80% of the window, which is `ModelContextWindow`'s own margin rather than a second
 opinion, and never without the sentence in its tooltip.
@@ -1801,10 +1801,10 @@ this application, named by process id, or one that has not finished exiting.
 - `%APPDATA%/mTiles/` (Windows) or `~/.config/mTiles/` (Linux). Renamed from `MTerminal`, and `AppPaths` **moves** the old directory into place on first use rather than leaving it: everything the user has is in there, and the first run *saves*, so a fresh path would have written defaults over a reachable installation within milliseconds. A move that fails keeps using the old path — a locked file must not become a lost installation
 - `settings.json` — everything in Settings, the configured `AiProviderInstances` (**not** seeded — an empty list means nothing has been set up, rather than six services none of which work — with the key encrypted the way the database passwords are), the seeded `AiAgentInstances` (one per agent, added and
   never replaced, so a rename or a repointed provider survives every launch and an agent shipped by a
-  later version still gets its row, and seeded on the CLI's **own** permission default — `ToolDefault`,
-  which passes no behaviour flag at all, because a row nobody has been asked about must not start
-  every agent tile with the tool's own asking switched off, and the first symptom of that is an edit
-  that already happened; its `DefaultBehaviour`/`DefaultEffort` are read through the tolerant converters
+  later version still gets its row, and seeded on **`auto`** where the agent has that gate and on
+  `ToolDefault` (no flag) where it has not (`AiAgentCatalog.DefaultBehaviourFor` — the user's call,
+  2026-09-23, reversing the earlier all-`ToolDefault` seeding for new rows only — an existing row is
+  never moved, since a row on `ToolDefault` may be somebody's decision to keep the tool asking); its `DefaultBehaviour`/`DefaultEffort` are read through the tolerant converters
   for the reason `GoalPermissionMode` is, the behaviour falling to `ToolDefault` rather than `Auto` so an
   unreadable answer is never *more* permissive than the one it replaced), the configured `AiSignIns` (**not** seeded, and the one list here with **no secret in it** — a name
   and a location, so nothing to blank on export and nothing to restore on import; the login itself stays
@@ -1930,7 +1930,7 @@ Recorded so far:
   **It draws the Agent tile's context bar** (`ContextGaugeViewModel`, one class for both kinds, and
   `Border.context-bar` in `Controls.axaml`): the same figure about the same conversation, differing only
   in where it is read from — the Agent tile is told it by the protocol it drives, this one reads it out
-  of the CLI's own store. **The row is there from the first frame**, reading `context not known yet`
+  of the CLI's own store. **The bar is off by default** (`AppSettings.ShowContextBar`, Settings → General): with it off the reading moves into the tile's header as one word (`42%`, `IContextReadingTile`) and nothing is lost. **With it on, the row is there from the first frame**, reading `context not known yet`
   wherever a reading can ever arrive (`ContextGaugeViewModel.KeepsItsPlace`, asked of the agent's own
   `SessionLog`) — the Agent tile's rule, and here it is about the terminal rather than the figure: a row
   that appears with the first reading pushes the terminal up one line mid-turn, which remeasures the

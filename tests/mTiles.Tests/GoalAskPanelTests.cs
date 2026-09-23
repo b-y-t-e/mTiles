@@ -528,21 +528,21 @@ public class GoalAskPanelTests : IDisposable
 
             var view = Shown(stopped);
             Assert.Contains(view.GetVisualDescendants().OfType<Button>(),
-                b => b.IsVisible && (b.Content as string) == "Resume");
+                b => b.IsVisible && b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Resume"));
 
             // And no composer over it. There is nothing for one to send in Implement or Review —
             // Submit's own case for those phases hands the text back — so the box accepted typing and
             // answered with a sentence. Resume says the same thing and can be pressed.
             Assert.False(stopped.ShowComposer);
 
-            // Under the box, not above it: everything the tile offers is one group at the foot of the
-            // conversation. The row used to sit between the transcript and a composer it had nothing to
-            // do with, which put an input in the middle of the buttons.
+            // Directly above the box, in the same group at the foot of the tile: under it, the row was a
+            // second line of buttons below the one inside the composer, with Set goal and Commit competing
+            // for one corner. The box stays the last thing on the tile.
             var column = view.GetVisualDescendants().OfType<StackPanel>()
                 .First(c => c.Children.OfType<Border>().Any(b => b.Classes.Contains("composer")));
             var composer = column.Children.First(c => c.Classes.Contains("composer"));
             var actions = column.Children.First(c => c.Classes.Contains("chat-actions"));
-            Assert.True(column.Children.IndexOf(actions) > column.Children.IndexOf(composer));
+            Assert.Equal(column.Children.IndexOf(composer) - 1, column.Children.IndexOf(actions));
 
             // And down where the plan is waiting: Resume re-runs the phase, which there means proposing
             // a plan again beside the one the user has not answered yet.
@@ -570,7 +570,7 @@ public class GoalAskPanelTests : IDisposable
             Assert.False(pausedBeforeAGoal.ShowResume);
             Assert.False(pausedBeforeAGoal.HasFinishedRunActions);
             Assert.DoesNotContain(Shown(pausedBeforeAGoal).GetVisualDescendants().OfType<Button>(),
-                b => b.IsVisible && (b.Content as string) == "Resume");
+                b => b.IsVisible && b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Resume"));
         });
     }
 

@@ -36,6 +36,13 @@
                        Foreground="{DynamicResource TextMuted}"
                        TextWrapping="Wrap" />
         </StackPanel>
+        <StackPanel x:Key="ContextBarCaption" x:Shared="False">
+            <TextBlock Text="Show the context bar on agent tiles" Classes="label" />
+            <TextBlock Text="A bar along the foot of every Agent and terminal agent tile. Off, the percentage is beside the composer's paperclip — with Compact — or in the tile's header"
+                       FontSize="{DynamicResource FontXs}"
+                       Foreground="{DynamicResource TextMuted}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
         <StackPanel x:Key="AgentFileSyncCaption" x:Shared="False">
             <TextBlock Text="Sync CLAUDE.md ⇄ AGENTS.md" Classes="label" />
             <TextBlock Text="Keeps the two instruction files identical, live, in workspaces that opt in — so every AI CLI reads the same instructions"
@@ -316,6 +323,17 @@
                                           OffContent="{StaticResource BlockedNotificationCaption}" />
                         </DockPanel>
                     </Border>
+
+                    <!-- The agent tiles' context bar -->
+                    <Border Classes="settings-group">
+                        <DockPanel>
+                            <ToggleSwitch IsChecked="{Binding ShowContextBar}"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Center"
+                                          OnContent="{StaticResource ContextBarCaption}"
+                                          OffContent="{StaticResource ContextBarCaption}" />
+                        </DockPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- About. The notices are not decoration: parts of this application are ports of
@@ -478,13 +496,20 @@
                         </Button>
                     </DockPanel>
 
-                    <ItemsControl ItemsSource="{Binding AgentInstances}">
+                    <!-- Dragged by the grip on the left into the order every chooser offers them in
+                         (ListReorder, wired in the code-behind). -->
+                    <ItemsControl x:Name="AgentInstanceList" ItemsSource="{Binding AgentInstances}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:AiAgentInstanceViewModel">
                                 <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
                                         Margin="0,0,0,3">
-                                    <Border Background="{DynamicResource BgSurface}" Padding="12,8">
+                                    <Border Background="{DynamicResource BgSurface}" Padding="4,8,12,8">
                                         <DockPanel>
+                                            <Border DockPanel.Dock="Left"
+                                                    Classes="drag-handle"
+                                                    ToolTip.Tip="Drag to change the order agents are offered in">
+                                                <mi:MaterialIcon Kind="DragVertical" Width="14" Height="14" />
+                                            </Border>
                                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                                                         Spacing="4" VerticalAlignment="Center">
                                                 <Button Classes="outlined-sm"

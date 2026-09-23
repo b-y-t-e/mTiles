@@ -47,7 +47,32 @@ public sealed partial class ContextGaugeViewModel : ObservableObject
     public bool KeepsItsPlace { get; init; }
 
     /// <summary>Whether the bar is drawn at all.</summary>
-    public bool IsDrawn => HasAnythingToSay || KeepsItsPlace;
+    public bool IsDrawn => !IsHidden && (HasAnythingToSay || KeepsItsPlace);
+
+    /// <summary>Whether Settings has put the bar away (<c>AppSettings.ShowContextBar</c> off).</summary>
+    /// <remarks>The figures are still read and kept: with the bar away the tile says them in a word
+    /// elsewhere — <see cref="ShortReading"/> — rather than not at all.</remarks>
+    [NotifyPropertyChangedFor(nameof(IsDrawn))]
+    [NotifyPropertyChangedFor(nameof(ShortReading))]
+    [ObservableProperty] private bool _isHidden;
+
+    /// <summary>The reading in one word, for where the bar is not drawn: <c>42%</c>, or the tokens used
+    /// where no window is known, or empty when nothing has been read.</summary>
+    public string ShortReading => ShortReadingOf(UsedPercent, _usedTokens);
+
+    /// <summary>Whether a reading is past the point a tile colours it as a warning.</summary>
+    /// <remarks><c>ModelContextWindow.Share</c> rather than a second figure: it is the margin the launch
+    /// already compacts at, and both agent tiles ask here so the same reading is coloured the same way.</remarks>
+    public static bool IsTight(double? percentUsed) =>
+        percentUsed >= (double)(mTiles.Services.Providers.ModelContextWindow.Share * 100);
+
+    /// <summary><c>42%</c>, <c>128k</c>, or empty — the one-word form both agent tiles use.</summary>
+    public static string ShortReadingOf(double? percent, long? usedTokens) =>
+        percent is { } p
+            ? string.Create(CultureInfo.InvariantCulture, $"{Math.Round(p):0}%")
+            : usedTokens is { } used ? Tokens(used) : "";
+
+    private long? _usedTokens;
 
     /// <summary>What the bar actually reads — the figures, or that there are none yet.</summary>
     public string BarText => HasAnythingToSay ? Text : NothingKnownYet;
@@ -55,6 +80,7 @@ public sealed partial class ContextGaugeViewModel : ObservableObject
     /// <summary>How much of the window is gone, 0 to 100, or null when it cannot be said.</summary>
     /// <remarks>Null hides the bar and leaves the figures, which is the whole reason it is a property of
     /// its own rather than something derived in the view from <see cref="Text"/>.</remarks>
+    [NotifyPropertyChangedFor(nameof(ShortReading))]
     [ObservableProperty] private double? _usedPercent;
 
     /// <summary>"106.8k / 1M tokens · $1.15" — whatever of it was actually said.</summary>
@@ -73,8 +99,10 @@ public sealed partial class ContextGaugeViewModel : ObservableObject
     public void Show(long? used, long? window, decimal? cost, long? fallbackWindow = null)
     {
         var usage = new TokenUsage(used, window ?? fallbackWindow, CostUsd: cost);
+        _usedTokens = used;
         UsedPercent = ContextGauge.PercentUsed(usage);
         Text = Describe(usage);
+        OnPropertyChanged(nameof(ShortReading));
     }
 
     /// <summary>Clears it, so the bar goes away rather than standing at its last reading.</summary>
@@ -83,8 +111,10 @@ public sealed partial class ContextGaugeViewModel : ObservableObject
     /// because nothing on screen says it is stale.</remarks>
     public void Clear()
     {
+        _usedTokens = null;
         UsedPercent = null;
         Text = "";
+        OnPropertyChanged(nameof(ShortReading));
     }
 
     /// <summary>"42.1k / 200k tokens · $0.31" — whatever of it the agent said.</summary>

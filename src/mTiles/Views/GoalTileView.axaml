@@ -269,7 +269,30 @@
                  them to clear, and an eighteen-pixel right margin was leaving the buttons further from
                  the edge than the composer directly above them. They share the composer's own margin,
                  because they are now the same block. -->
-            <Setter Property="Margin" Value="8,8,8,6" />
+            <!-- Above the composer now: the composer's own top margin is the gap below, so the row asks
+                 for none and pulls four pixels of it back, leaving one eight-pixel step either way. -->
+            <Setter Property="Margin" Value="8,8,8,-4" />
+        </Style>
+        <Style Selector="StackPanel.chat-actions > Button.chat-action">
+            <Setter Property="Padding" Value="9,4,10,4" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <!-- The glyph a shade under the word, and the accent on the one to press next: the colour marks
+             the button, the word stays readable. -->
+        <Style Selector="mi|MaterialIcon.chat-action-icon">
+            <Setter Property="Width" Value="13" />
+            <Setter Property="Height" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        </Style>
+        <Style Selector="Button.chat-action.primary mi|MaterialIcon.chat-action-icon">
+            <Setter Property="Foreground" Value="{DynamicResource AccentDefault}" />
+        </Style>
+        <Style Selector="Button.chat-action:pointerover mi|MaterialIcon.chat-action-icon">
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+        <Style Selector="Button.chat-action:disabled">
+            <Setter Property="Opacity" Value="0.45" />
         </Style>
 
         <!-- ======== The one control under the composer ========
@@ -354,14 +377,7 @@
                          of the tile from the sentence that names it. Pause stays: it is the one of the
                          pair that has to be reachable while the transcript is scrolled anywhere at all,
                          because what it interrupts is happening now. -->
-                    <!-- The Agent tile's new-conversation glyph and colour, so the two conversations
-                         say "start another" the same way. -->
-                    <Button Classes="tile-btn tile-btn-accent"
-                            Command="{Binding NewGoalCommand}"
-                            IsEnabled="{Binding !IsRunning}"
-                            ToolTip.Tip="New goal">
-                        <mi:MaterialIcon Kind="MessagePlusOutline" Width="13" Height="13" />
-                    </Button>
+                    <!-- New goal is the tile header's "start another" button (INewConversationTile). -->
                 </StackPanel>
 
                 <!-- One line, and RowFitter decides what gives way (GoalStripLayout): effort and mode to
@@ -701,10 +717,64 @@
              about a control: scroll back to read a review from two attempts ago and the box you want to
              answer in, and the Resume you want to press, have both gone off the bottom.
 
-             The composer and the finished-run buttons move together, because they were already one
-             group for a reason the old comment gives: everything this tile offers is in one place,
-             under the box. -->
+             The composer and the finished-run buttons move together: everything this tile offers is in
+             one place, the buttons directly above the box. -->
         <StackPanel DockPanel.Dock="Bottom">
+            <!-- ======== What to do with the run that just ended ========
+                 One row, no sentence in it: the summary right above says why the run stopped and what
+                 is outstanding, and the tooltips carry what each button does.
+
+                 Above the box, and that is the third place this row has stood. Beside the summary it
+                 floated between the transcript and a box it had nothing to do with; under the box it put
+                 a second row of buttons below the one inside the composer, with Set goal and Commit
+                 competing for the same corner. Above it, it reads as the answer to the transcript and
+                 the box stays the last thing on the tile, as in every chat window.
+
+                 Every button is an icon and a verb at one height, so the row reads as one control strip
+                 rather than four words; the one to press next carries the accent (primary). -->
+            <StackPanel Classes="chat-actions" IsVisible="{Binding HasFinishedRunActions}">
+                <!-- The only one that shows while a run is merely stopped rather than finished. -->
+                <Button Classes="chat-action primary"
+                        Command="{Binding ResumeCommand}"
+                        IsVisible="{Binding ShowResume}"
+                        IsEnabled="{Binding CanResume}"
+                        ToolTip.Tip="Pick the stopped run up where it left off">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <mi:MaterialIcon Kind="Play" Classes="chat-action-icon" />
+                        <TextBlock Text="Resume" />
+                    </StackPanel>
+                </Button>
+                <!-- Judge the tree again against the same goal, changing nothing: the reason to press it
+                     is something fixed by hand next door. -->
+                <Button Classes="chat-action"
+                        Command="{Binding ReReviewCommand}"
+                        IsVisible="{Binding CanReReview}"
+                        ToolTip.Tip="Judge the working tree against the same goal again, changing nothing">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <mi:MaterialIcon Kind="MagnifyScan" Classes="chat-action-icon" />
+                        <TextBlock Text="Review again" />
+                    </StackPanel>
+                </Button>
+                <Button Classes="chat-action"
+                        Command="{Binding CommitWorkCommand}"
+                        IsVisible="{Binding CanCommit}"
+                        ToolTip.Tip="Divide this run's own changes into commits and ask before making them">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <mi:MaterialIcon Kind="SourceCommit" Classes="chat-action-icon" />
+                        <TextBlock Text="Commit" />
+                    </StackPanel>
+                </Button>
+                <Button Classes="chat-action primary"
+                        Command="{Binding ContinueRunCommand}"
+                        IsVisible="{Binding CanContinue}"
+                        ToolTip.Tip="Carry on into the implement and review loop, keeping the conversation">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <mi:MaterialIcon Kind="ArrowRightCircleOutline" Classes="chat-action-icon" />
+                        <TextBlock Text="{Binding ContinueLabel}" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
             <!-- ======== Composer ========
                  The last thing in the conversation, and only when there is something it can send: not
                  while the tool is working, and not while one of the blocks above is asking for the same
@@ -821,53 +891,6 @@
                 </DockPanel>
             </Border>
 
-            <!-- ======== What to do with a finished run ========
-                 One row, and no sentence in it. Each of these used to be its own strip with its own line
-                 of prose — "The attempts ran out.", "This run's changes are not committed." — and a
-                 third would have made three sentences stacked above the composer, each restating the
-                 summary message printed directly above them. The summary already says why the run
-                 stopped and what is outstanding; a bar that repeats it is the same fault the status
-                 strip's four idle labels had. The tooltips carry what a button does, which is the part
-                 that is not already on screen.
-
-                 Under the composer, with the detect row, and that is a correction. They sat above
-                 whatever was asking — the reasoning being that they are what to do with the run that
-                 just ended, so they belong beside its summary. What that produced on screen was a
-                 Resume floating between the transcript and a box it had nothing to do with, and two
-                 rows of buttons in one column with the input wedged between them. Everything the tile
-                 offers is now in one place, under the box: the buttons are read as a group, and the
-                 composer keeps the position it has in every chat window. -->
-            <StackPanel Classes="chat-actions" IsVisible="{Binding HasFinishedRunActions}">
-                <!-- First, and the only one of these that shows while a run is merely stopped rather
-                     than finished. The transcript's last line says to click Resume; until this button
-                     existed the only Resume on screen was a play glyph in the header's strip, which is
-                     not where anything else this tile asks for is answered. That glyph is gone — this
-                     is the whole of Resume now. -->
-                <Button Classes="chat-action primary"
-                        Command="{Binding ResumeCommand}"
-                        IsVisible="{Binding ShowResume}"
-                        IsEnabled="{Binding CanResume}"
-                        Content="Resume"
-                        ToolTip.Tip="Pick the stopped run up where it left off" />
-                <!-- Judge the tree again against the same goal. It does not re-derive the goal: the
-                     reason to press this is that something has just been fixed by hand next door, and
-                     working the goal out afresh from a changed tree answers a different question. -->
-                <Button Classes="chat-action"
-                        Command="{Binding ReReviewCommand}"
-                        IsVisible="{Binding CanReReview}"
-                        Content="Review · +1"
-                        ToolTip.Tip="Judge the working tree against the same goal again, changing nothing" />
-                <Button Classes="chat-action"
-                        Command="{Binding CommitWorkCommand}"
-                        IsVisible="{Binding CanCommit}"
-                        Content="Commit"
-                        ToolTip.Tip="Divide this run's own changes into commits and ask before making them" />
-                <Button Classes="chat-action primary"
-                        Command="{Binding ContinueRunCommand}"
-                        IsVisible="{Binding CanContinue}"
-                        Content="{Binding ContinueLabel}"
-                        ToolTip.Tip="Carry on into the implement and review loop, keeping the conversation" />
-            </StackPanel>
         </StackPanel>
 
         <!-- No MinHeight here, and that is the fix for a short tile rather than a saving. A DockPanel

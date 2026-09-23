@@ -24,7 +24,7 @@ namespace mTiles.ViewModels;
 /// </para>
 /// </remarks>
 public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescribedTile, IAgentTile,
-    IActiveStateTile, IInputSubmissionTile
+    IActiveStateTile, IInputSubmissionTile, IContextReadingTile
 {
     private readonly WorkspaceAgentFiles? _agentFiles;
 
@@ -153,7 +153,13 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
         _agentFiles = agentFiles;
         if (_agentFiles is not null) _agentFiles.SkillsChanged += OnSkillsChanged;
         _agent = agent;
-        Gauge = new ContextGaugeViewModel { KeepsItsPlace = agent.SessionLog is not null };
+        Gauge = new ContextGaugeViewModel
+        {
+            KeepsItsPlace = agent.SessionLog is not null,
+            IsHidden = !settingsService.Settings.ShowContextBar,
+        };
+        Gauge.PropertyChanged += OnGaugeChanged;
+        settingsService.SettingsChanged += OnContextBarSettingChanged;
         _settings = settingsService;
         _requestSave = requestSave;
         _conversation = new ConversationFollower(agent.SessionLog, WorkingDirectory,
@@ -185,6 +191,35 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// agent watching the same directory could take the conversation this one is showing the moment it
     /// is written, and both would resume it at the next restart.</remarks>
     private void ClaimCurrentSession() => CapturedSessions.Claim(SessionId, TileId);
+
+    /// <inheritdoc />
+    /// <remarks>Only while the bar is put away: with it drawn, the figure would be on the tile twice.
+    /// </remarks>
+    public string ContextReading => Gauge.IsHidden ? Gauge.ShortReading : "";
+
+    /// <inheritdoc />
+    public string ContextReadingTip => Gauge.HasAnythingToSay ? $"Context: {Gauge.Text}" : "";
+
+    /// <inheritdoc />
+    public bool ContextReadingIsTight => ContextGaugeViewModel.IsTight(Gauge.UsedPercent);
+
+    private void OnGaugeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(ContextGaugeViewModel.ShortReading)
+            or nameof(ContextGaugeViewModel.Text) or nameof(ContextGaugeViewModel.UsedPercent)
+            or nameof(ContextGaugeViewModel.IsHidden))) return;
+
+        OnPropertyChanged(nameof(ContextReading));
+        OnPropertyChanged(nameof(ContextReadingTip));
+        OnPropertyChanged(nameof(ContextReadingIsTight));
+    }
+
+    /// <summary>Settings turned the bar on or off: it moves between the foot of the tile and the header.
+    /// </summary>
+    private void OnContextBarSettingChanged() => _post(() =>
+    {
+        if (!IsDisposed) Gauge.IsHidden = !_settings.Settings.ShowContextBar;
+    });
 
     /// <summary>How full the model's context is, drawn at the foot of the tile.</summary>
     /// <remarks>The Agent tile's own bar and the Agent tile's own wording
@@ -812,6 +847,8 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     protected override void OnDisposing()
     {
         if (_agentFiles is not null) _agentFiles.SkillsChanged -= OnSkillsChanged;
+        _settings.SettingsChanged -= OnContextBarSettingChanged;
+        Gauge.PropertyChanged -= OnGaugeChanged;
         _conversation.Dispose();
         CancelCapture();
         CapturedSessions.ReleaseAllOf(TileId);

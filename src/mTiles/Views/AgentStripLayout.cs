@@ -10,12 +10,12 @@ namespace mTiles.Views;
 /// <para><b>The status goes to a dot next.</b> Its colour already carries the meaning — the word is
 /// there to be read once — and the tile header's own mark says the same thing again.</para>
 /// <para><b>The agent trims, and goes to its icon last</b>, because which agent holds the conversation is
-/// said nowhere else on the tile. Stop and New conversation are icons already and never give way.</para>
+/// said nowhere else on the tile. Stop is an icon already and never gives way; New conversation is in the tile's header.</para>
 /// <para>The arithmetic is <see cref="RowRetreat"/>'s.</para>
 /// </remarks>
 public static class AgentStripLayout
 {
-    public const int Agent = 0, Status = 1, Stop = 2, Conversation = 3, NewConversation = 4;
+    public const int Agent = 0, Status = 1, Stop = 2, Conversation = 3;
 
     public static readonly IReadOnlyList<RetreatStep> Steps =
     [

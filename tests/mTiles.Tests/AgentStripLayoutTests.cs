@@ -15,26 +15,25 @@ namespace mTiles.Tests;
 /// </remarks>
 public class AgentStripLayoutTests
 {
-    // Agent, status, stop, conversation, new conversation.
+    // Agent, status, stop, conversation.
     private static readonly RowItemWidths AgentW = new(180, 30);
     private static readonly RowItemWidths StatusW = new(60, 17);
     private static readonly RowItemWidths StopW = new(26, 26);
     private static readonly RowItemWidths ConversationW = new(170, 30);
-    private static readonly RowItemWidths NewW = new(26, 26);
 
     private static RowShape Fit(double width, bool working = true) =>
         RowRetreat.For(width,
-            [AgentW, StatusW, working ? StopW : RowItemWidths.Hidden, ConversationW, NewW],
+            [AgentW, StatusW, working ? StopW : RowItemWidths.Hidden, ConversationW],
             AgentStripLayout.Steps);
 
     [Fact]
     public void A_wide_strip_changes_nothing() =>
-        Assert.Equal([false, false, false, false, false], Fit(462).Compact);
+        Assert.Equal([false, false, false, false], Fit(436).Compact);
 
     [Fact]
     public void The_conversation_goes_to_its_icon_first()
     {
-        var shape = Fit(400);
+        var shape = Fit(374);
         Assert.True(shape.Compact[Conversation]);
         Assert.False(shape.Compact[Status]);
         Assert.False(shape.Compact[Agent]);
@@ -43,7 +42,7 @@ public class AgentStripLayoutTests
     [Fact]
     public void Then_the_status_goes_to_its_dot()
     {
-        var shape = Fit(300);
+        var shape = Fit(274);
         Assert.True(shape.Compact[Conversation]);
         Assert.True(shape.Compact[Status]);
         Assert.False(shape.Compact[Agent]);
@@ -55,18 +54,18 @@ public class AgentStripLayoutTests
     {
         var shape = Fit(220);
         Assert.False(shape.Compact[Agent]);
-        Assert.Equal(220 - 17 - 26 - 30 - 26, shape.MaxWidth[Agent]);
+        Assert.Equal(220 - 17 - 26 - 30, shape.MaxWidth[Agent]);
     }
 
     [Fact]
     public void Last_of_all_the_agent_goes_to_its_icon()
     {
-        var shape = Fit(150);
-        Assert.Equal([true, true, false, true, false], shape.Compact);
+        var shape = Fit(124);
+        Assert.Equal([true, true, false, true], shape.Compact);
         Assert.Null(shape.MaxWidth[Agent]);
     }
 
     [Fact]
     public void Stop_leaving_at_the_end_of_a_turn_gives_its_room_back() =>
-        Assert.False(Fit(436, working: false).Compact[Conversation]);
+        Assert.False(Fit(410, working: false).Compact[Conversation]);
 }

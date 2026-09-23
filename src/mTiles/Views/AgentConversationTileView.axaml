@@ -242,24 +242,10 @@
                  right-hand controls come first, so they are measured before the agent is given what is
                  left - which is what makes its trimming the backstop rather than theirs. -->
             <DockPanel x:Name="StripRow" LastChildFill="False">
-                <!-- Right-hand corner: which conversation, and a new one. Docked right to left, so Stop
-                     stands first on screen, and its coming and going with a turn moves neither the list
-                     nor the button beside it. -->
-                <!-- A new conversation: a button rather than a row in the list, because it is an action
-                     and not a place, and because it asks first - to the eye it clears the screen. Nothing
-                     is lost by it; the old conversation stays in the list. Deleting a conversation is
-                     *not* drawn here: it was the one destructive thing standing permanently beside the
-                     settings, a misclick from a conversation and its checkpoints, so it is declared in
-                     ITileActions.Actions and the tile header's overflow lists it.
-                     Accent (tile-btn-accent), so the one way to a fresh conversation is found without
-                     hunting; the confirmation behind it is what keeps it from being pressed by accident. -->
-                <Button x:Name="NewConversationButton"
-                        DockPanel.Dock="Right"
-                        Classes="tile-btn tile-btn-accent"
-                        Command="{Binding NewConversationCommand}"
-                        ToolTip.Tip="New conversation (this one stays in the list)">
-                    <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
-                </Button>
+                <!-- Right-hand corner: which conversation. Docked right to left, so Stop stands first on
+                     screen, and its coming and going with a turn does not move the list. -->
+                <!-- A new conversation is the tile header's "start another" button (INewConversationTile),
+                     the same place the terminal agent tile has it; it asks first. -->
                 <!-- Which conversation this tile is showing. Every conversation ever held in this
                      workspace is in the store, and until this list existed there was no way back to any
                      of them: a conversation was the tile's own id, so a new one could only be started
@@ -376,7 +362,7 @@
              two bars anywhere in this application are compared by counting rather than by measuring,
              and any spending at all lights the first cell. No tick on it - that mark is where the
              *clock* is, and a context window does not refill with time. -->
-        <Border DockPanel.Dock="Bottom" Classes="context-bar">
+        <Border DockPanel.Dock="Bottom" Classes="context-bar" IsVisible="{Binding ShowContextBar}">
             <DockPanel>
                 <!-- Compacting is the one act there is about this figure, so it stands at the end of the
                      line the figure is on rather than among the pickers above, which say what the *next
@@ -489,6 +475,23 @@
                             Command="{Binding InterruptCommand}"
                             ToolTip.Tip="Stop the agent (Esc)">
                         <mi:MaterialIcon Kind="Stop" Width="15" Height="15" />
+                    </Button>
+                    <!-- The context bar's reading and its Compact, when Settings has put the bar away
+                         (ShowContextBar off): one word and the same act, beside the paperclip, in the
+                         bar's own quiet face — the composer's accent is Send's. Disabled rather than
+                         hidden on an agent with no route for compaction, so the percentage still reads. -->
+                    <Button DockPanel.Dock="Right" Classes="context-action" VerticalAlignment="Center"
+                            Margin="0,0,4,0"
+                            Classes.tight="{Binding IsContextTight}"
+                            IsVisible="{Binding ShowsComposerContext}"
+                            Command="{Binding CompactCommand}"
+                            ToolTip.Tip="{Binding ComposerContextTip}"
+                            ToolTip.ShowOnDisabled="True">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <mi:MaterialIcon Kind="ArrowCollapseVertical" Width="11" Height="11" />
+                            <TextBlock Text="{Binding ContextShortReading}"
+                                       IsVisible="{Binding ContextShortReading, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
                     </Button>
                     <Button DockPanel.Dock="Right" Classes="tile-btn" VerticalAlignment="Center"
                             Margin="0,0,4,0"

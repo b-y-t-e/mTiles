@@ -93,7 +93,7 @@
                             <Button x:Name="NewSessionButton"
                                     Classes="tile-btn tile-btn-accent"
                                     Command="{Binding ResetTileIdCommand}"
-                                    ToolTip.Tip="New session">
+                                    ToolTip.Tip="{Binding NewSessionLabel}">
                                 <!-- The Agent and Goal tiles' "start another" glyph and colour: one gesture,
                                      one picture, whichever kind of tile it is pressed in. -->
                                 <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
@@ -120,7 +120,7 @@
                                                 <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
                                             </MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="New session"
+                                        <MenuItem Header="{Binding NewSessionLabel}"
                                                   Command="{Binding ResetTileIdCommand}"
                                                   IsVisible="{Binding HasSession}">
                                             <MenuItem.Icon>
@@ -308,7 +308,7 @@
                              trimming when that is not enough. The other way round is how a tile ends
                              up spelling out an agent and a model beside a name reduced to "A...". -->
                         <Panel>
-                            <Grid ColumnDefinitions="Auto,*">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
                                 <TextBlock x:Name="TileNameLabel"
                                            Grid.Column="0"
                                            Text="{Binding TileName}"
@@ -341,6 +341,20 @@
                                            FontSize="{DynamicResource FontXs}"
                                            Foreground="{DynamicResource TextMuted}"
                                            TextTrimming="CharacterEllipsis"
+                                           IsVisible="False" />
+
+                                <!-- How full the agent's context is, where the tile draws no bar for it
+                                     (IContextReadingTile). One word, never trimmed, at the far end of the
+                                     name's column so it stands beside the buttons rather than after
+                                     however long the note happens to be. Filled from the code-behind
+                                     beside the note. -->
+                                <TextBlock x:Name="TileHeaderReading"
+                                           Grid.Column="2"
+                                           VerticalAlignment="Center"
+                                           Margin="8,1,2,0"
+                                           FontFamily="{DynamicResource UiFontFamily}"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}"
                                            IsVisible="False" />
                             </Grid>
 

@@ -32,7 +32,8 @@ namespace mTiles.ViewModels;
 /// </para>
 /// </remarks>
 public partial class GoalTileViewModel
-    : ObservableObject, IBusyTile, ITileActions, IProcessTile, IActivatableTile, IMaximizableTile
+    : ObservableObject, IBusyTile, ITileActions, IProcessTile, IActivatableTile, IMaximizableTile,
+    INewConversationTile
 {
     /// <inheritdoc />
     public string KindId => TileKindIds.Goal;
@@ -108,6 +109,19 @@ public partial class GoalTileViewModel
     /// </para>
     /// </summary>
     private readonly CancellationTokenSource _lifetime = new();
+
+    /// <summary>
+    /// The UI thread this tile was built on, taken once rather than read from
+    /// <see cref="Dispatcher.UIThread"/> by whichever thread wants to marshal back.
+    /// <para>The static is not a fact, it is a lookup: while it is unset, the first thread to read it
+    /// <em>becomes</em> the UI thread. In the application that never happens after startup; under the
+    /// headless test session it happens between every two tests, and a reader thread, a git probe or a
+    /// debounced save left over from the tile before read it in that gap — making a pool thread the UI
+    /// thread and failing the next test's setup with "a different thread owns it" (Linux CI, several
+    /// times on <c>GoalWorkflowLoopTests</c>). A tile that has gone marshals to the dispatcher it knew,
+    /// which drops the post once it has shut down.</para>
+    /// </summary>
+    private readonly Dispatcher _ui = Dispatcher.UIThread;
 
     /// <summary>Set at the start of <see cref="Dispose"/>. The workflow keeps unwinding after the
     /// tile is closed and the store must not be asked for anything more.</summary>
@@ -5556,16 +5570,23 @@ public partial class GoalTileViewModel
         }
     }
 
-    [RelayCommand]
-    private async Task NewGoalAsync()
-    {
-        if (IsRunning) return;
+    /// <inheritdoc />
+    public string NewConversationLabel => "New goal";
 
-        if (!await ConfirmDiscardAsync())
+    /// <inheritdoc />
+    /// <remarks>Asks even over a tile with nothing worth keeping: the button sits among the header's other
+    /// buttons, a misclick away from Restart and Close.</remarks>
+    public async Task StartNewConversationAsync()
+    {
+        if (IsRunning)
         {
-            // The same explanation Submit gives. Usually this is the user answering "no", which needs
-            // none — but it is also what happens when there is no dialog to ask in, and then the button
-            // simply did nothing.
+            await SayOnceAsync("Pause the run before starting a new goal.");
+            return;
+        }
+
+        if (!await ConfirmDiscardAsync(askWhenNothingToLose: true))
+        {
+            // The same explanation Submit gives, for the one case where nobody was asked at all.
             if (ConfirmAction == null)
                 await SayOnceAsync("This tile cannot ask whether to discard the current goal, so it " +
                                    "has kept it.");
@@ -5685,10 +5706,10 @@ public partial class GoalTileViewModel
         else
             _log?.Block($"MESSAGE  {role} - {phase}", text);
 
-        if (Dispatcher.UIThread.CheckAccess())
+        if (_ui.CheckAccess())
             Messages.Add(message);
         else
-            await Dispatcher.UIThread.InvokeAsync(() => Messages.Add(message));
+            await _ui.InvokeAsync(() => Messages.Add(message));
 
         SaveStateSoon();
     }
@@ -5706,10 +5727,10 @@ public partial class GoalTileViewModel
         // ToState enumerating ClarificationHistory on a pool thread while the workflow added to it —
         // "collection was modified", and a transient race then lit the permanent "this tile could not
         // save its state" for a tile that saves perfectly well.
-        Snapshot = () => Dispatcher.UIThread.CheckAccess()
+        Snapshot = () => _ui.CheckAccess()
             ? _engine.ToState([..Messages], ExecutionAgentInstanceId, ReviewAgentInstanceId,
                 PlanningAgentInstanceId)
-            : Dispatcher.UIThread.Invoke(
+            : _ui.Invoke(
                 () => _engine.ToState([..Messages], ExecutionAgentInstanceId, ReviewAgentInstanceId,
                     PlanningAgentInstanceId)),
 
@@ -5890,17 +5911,17 @@ public partial class GoalTileViewModel
     }
 
     /// <summary>Runs something on the UI thread, from wherever this happens to be called.</summary>
-    private static void PostFireAndForget(Action action)
+    private void PostFireAndForget(Action action)
     {
-        if (Dispatcher.UIThread.CheckAccess()) action();
-        else Dispatcher.UIThread.Post(action);
+        if (_ui.CheckAccess()) action();
+        else _ui.Post(action);
     }
 
     /// <summary>The same, awaited, for a caller that needs it done before it carries on.</summary>
-    private static Task Post(Action action)
+    private Task Post(Action action)
     {
-        if (!Dispatcher.UIThread.CheckAccess())
-            return Dispatcher.UIThread.InvokeAsync(action).GetTask();
+        if (!_ui.CheckAccess())
+            return _ui.InvokeAsync(action).GetTask();
 
         action();
         return Task.CompletedTask;
@@ -5910,19 +5931,24 @@ public partial class GoalTileViewModel
     /// Asks before a transcript is thrown away, or answers yes when there is nothing to lose.
     /// Shared by the + button and by typing a new goal into a finished tile, which are the same act.
     /// </summary>
-    private async Task<bool> ConfirmDiscardAsync()
+    /// <param name="askWhenNothingToLose">Ask even over an empty tile, where there is a dialog to ask in —
+    /// the header button's case, a misclick away from Restart and Close.</param>
+    private async Task<bool> ConfirmDiscardAsync(bool askWhenNothingToLose = false)
     {
         // What is worth a dialog is what would be lost, not which phase the tile is in. Asking about
         // the phase meant that a Clarify which failed — and so put the engine back to Goal — let the
         // next thing typed wipe the goal, the answers and the tool's replies without a word. Notes the
         // tile wrote about itself are not worth interrupting anybody over.
-        if (!GoalTilePolicy.WorthConfirming(Messages)) return true;
+        var worthConfirming = GoalTilePolicy.WorthConfirming(Messages);
+        if (!worthConfirming && (!askWhenNothingToLose || ConfirmAction == null)) return true;
 
         // No dialog to ask in means no. The same answer the Settings dialog gives, and for the same
         // reason: an unanswered question is not a yes, and there is no undo for a discarded session.
         if (ConfirmAction == null) return false;
 
-        return await ConfirmAction("Discard the current goal and start fresh?");
+        return await ConfirmAction(worthConfirming
+            ? "Discard the current goal and start fresh?"
+            : "Start a new goal?");
     }
 
     public void Dispose()

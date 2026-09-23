@@ -184,9 +184,11 @@ public class AgentConversationViewTests
 
             // Compact stands at the end of the line the figure is on — on the context bar, not among the
             // composer's pickers, which say what the next message runs as. Drawn only where the session
-            // has a route for it: this one reports none, so it is there and invisible.
+            // has a route for it: this one reports none, so it is there and invisible. (The composer's
+            // own copy, beside the paperclip, is for when Settings puts the bar away.)
             var compact = view.GetVisualDescendants().OfType<Button>()
-                .Single(b => b.Classes.Contains("context-action"));
+                .Single(b => b.Classes.Contains("context-action") && b.Command is not null
+                             && b.GetVisualAncestors().OfType<Border>().Any(a => a.Classes.Contains("context-bar")));
             var contextBar = view.GetVisualDescendants().OfType<Border>()
                 .Single(b => b.Classes.Contains("context-bar"));
             Assert.Contains(contextBar, compact.GetVisualAncestors());

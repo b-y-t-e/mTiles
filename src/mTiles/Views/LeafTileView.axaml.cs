@@ -168,7 +168,33 @@ public partial class LeafTileView : UserControl, ITileDropTarget
 
         TileHeaderNote.Text = note;
         ToolTip.SetTip(TileHeaderNote, note.Length > 0 ? note : null);
+        UpdateHeaderReading(leaf);
         ApplyHeaderWidth(TileToolbar.Bounds.Width);
+    }
+
+    /// <summary>Puts the content's context reading into the header, or takes it away.</summary>
+    /// <remarks>Its own writer, like the note's: shown whenever there is a reading, because it is one word
+    /// and the one thing on the header that changes turn by turn.</remarks>
+    private bool _headerReadingTight;
+    private IDisposable? _headerReadingBrush;
+
+    private void UpdateHeaderReading(LeafTileNodeViewModel leaf)
+    {
+        var tile = leaf.Content as IContextReadingTile;
+        var reading = tile?.ContextReading ?? "";
+
+        TileHeaderReading.Text = reading;
+        TileHeaderReading.IsVisible = reading.Length > 0;
+        // Bound to the resource rather than set from it, so a theme changed while it is showing repaints it.
+        var tight = tile?.ContextReadingIsTight == true;
+        if (tight != _headerReadingTight || _headerReadingBrush is null)
+        {
+            _headerReadingTight = tight;
+            _headerReadingBrush?.Dispose();
+            _headerReadingBrush = TileHeaderReading.Bind(TextBlock.ForegroundProperty,
+                this.GetResourceObservable(tight ? "WarnText" : "TextMuted"));
+        }
+        ToolTip.SetTip(TileHeaderReading, tile?.ContextReadingTip is { Length: > 0 } tip ? tip : null);
     }
 
     private void OnTilePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
@@ -597,6 +623,12 @@ public partial class LeafTileView : UserControl, ITileDropTarget
         if (e.PropertyName == nameof(IDescribedTile.HeaderNote)
             && DataContext is LeafTileNodeViewModel leaf)
             UpdateHeaderNote(leaf);
+
+        if (e.PropertyName is nameof(IContextReadingTile.ContextReading)
+                or nameof(IContextReadingTile.ContextReadingIsTight)
+                or nameof(IContextReadingTile.ContextReadingTip)
+            && DataContext is LeafTileNodeViewModel reading)
+            UpdateHeaderReading(reading);
     }
 
     /// <summary>

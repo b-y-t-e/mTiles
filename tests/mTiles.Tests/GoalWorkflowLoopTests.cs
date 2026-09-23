@@ -3652,7 +3652,7 @@ public class GoalWorkflowLoopTests : IDisposable
             using var vm = NewTile();
             var path = vm.FilePath;
 
-            await vm.NewGoalCommand.ExecuteAsync(null);
+            await vm.StartNewConversationAsync();
 
             // The guard for this existed and was unreachable: SyncFromEngine wrote the file a line
             // before anything asked whether it should.
@@ -3674,10 +3674,31 @@ public class GoalWorkflowLoopTests : IDisposable
 
             Assert.Contains("a goal", await File.ReadAllTextAsync(vm.FilePath));
 
-            await vm.NewGoalCommand.ExecuteAsync(null);
+            await vm.StartNewConversationAsync();
 
             // The other half: an existing session must not be left on disk after it is cleared away.
             Assert.DoesNotContain("a goal", await File.ReadAllTextAsync(vm.FilePath));
+        });
+    }
+
+    [Fact]
+    public void A_new_goal_with_no_dialog_to_ask_in_keeps_the_current_one()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Which files?");
+
+            using var vm = NewTile();
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            WaitForFile(vm);
+            vm.ConfirmAction = null;
+
+            await vm.StartNewConversationAsync();
+
+            // An unanswered question is not a yes: the goal stays, and the tile says why nothing happened.
+            Assert.Contains("a goal", await File.ReadAllTextAsync(vm.FilePath));
+            Assert.Contains(vm.Messages, m => m.Text.Contains("cannot ask whether to discard"));
         });
     }
 

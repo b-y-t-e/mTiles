@@ -36,9 +36,16 @@ namespace mTiles.ViewModels.AgentConversation;
 /// shell is.</para>
 /// </remarks>
 public sealed partial class AgentConversationTileViewModel : ObservableObject,
-    IBusyTile, IMaximizableTile, ITextInputTile, IDescribedTile, ITileActions, IAgentTile, IProcessTile
+    IBusyTile, IMaximizableTile, ITextInputTile, IDescribedTile, ITileActions, IAgentTile, IProcessTile,
+    INewConversationTile
 {
-    public const string NewConversationActionId = "new-conversation";
+    public const string NewConversationActionId = TileActionIds.NewConversation;
+
+    /// <inheritdoc />
+    public string NewConversationLabel => "New conversation";
+
+    /// <inheritdoc />
+    public Task StartNewConversationAsync() => NewConversationAsync();
     public const string DeleteConversationActionId = "delete-conversation";
 
     private readonly string _workingDirectory;
@@ -85,7 +92,28 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [NotifyPropertyChangedFor(nameof(HasUsageReading))]
     [NotifyPropertyChangedFor(nameof(ContextBarText))]
     [NotifyPropertyChangedFor(nameof(ShowsCompact))]
+    [NotifyPropertyChangedFor(nameof(ShowsComposerContext))]
+    [NotifyPropertyChangedFor(nameof(ComposerContextTip))]
     [ObservableProperty] private string _usageText = "";
+
+    /// <summary>Whether the bar along the foot of the tile is drawn — <c>AppSettings.ShowContextBar</c>.
+    /// </summary>
+    [NotifyPropertyChangedFor(nameof(ShowsComposerContext))]
+    [ObservableProperty] private bool _showContextBar;
+
+    /// <summary>The reading in one word — <c>42%</c>, or the tokens where no window is known.</summary>
+    [ObservableProperty] private string _contextShortReading = "";
+
+    /// <summary>Whether the composer carries the reading and Compact, beside the paperclip.</summary>
+    /// <remarks>Only with the bar put away, and only once there is something to say or something to do:
+    /// the bar keeps its place before the first reading because it is a row, and a row appearing moves the
+    /// conversation; a button among the composer's own moves nothing.</remarks>
+    public bool ShowsComposerContext => !ShowContextBar && (HasUsageReading || CanCompact);
+
+    /// <summary>The composer button's tooltip: the whole reading, and what pressing it does.</summary>
+    public string ComposerContextTip => CanCompact
+        ? $"Context: {ContextBarText}{Environment.NewLine}{CompactTip}"
+        : $"Context: {ContextBarText}{Environment.NewLine}This agent cannot be asked to compact its context.";
 
     /// <summary>Whether the agent has said anything about its context yet.</summary>
     public bool HasUsageReading => UsageText.Length > 0;
@@ -230,7 +258,16 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
         _agentFiles = agentFiles;
         if (_agentFiles is not null) _agentFiles.SkillsChanged += OnSkillsChanged;
+        _showContextBar = settings.Settings.ShowContextBar;
+        settings.SettingsChanged += OnContextBarSettingChanged;
     }
+
+    /// <summary>Settings turned the bar on or off: the reading moves between the foot of the tile and the
+    /// composer.</summary>
+    private void OnContextBarSettingChanged() => _post(() =>
+    {
+        if (!_disposed) ShowContextBar = _settings.Settings.ShowContextBar;
+    });
 
     private readonly WorkspaceAgentFiles? _agentFiles;
 
@@ -791,6 +828,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     partial void OnCanCompactChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowsCompact));
+        OnPropertyChanged(nameof(ShowsComposerContext));
+        OnPropertyChanged(nameof(ComposerContextTip));
         CompactCommand.NotifyCanExecuteChanged();
     }
 
@@ -798,6 +837,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         OnPropertyChanged(nameof(IsContextTight));
         OnPropertyChanged(nameof(CompactTip));
+        OnPropertyChanged(nameof(ComposerContextTip));
     }
 
     partial void OnSelectedModeChanged(SessionOption? value)
@@ -1256,7 +1296,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <remarks>80%, which is the margin <c>ModelContextWindow</c> already chose for the point at which
     /// Claude Code is told to compact on its own — one number for one idea, rather than this screen
     /// having an opinion of its own about when a window is nearly full.</remarks>
-    public bool IsContextTight => ContextPercent >= 80;
+    public bool IsContextTight => ContextGaugeViewModel.IsTight(ContextPercent);
 
     [RelayCommand]
     private Task RestartAsync() => StartAsync();
@@ -1895,6 +1935,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         var usage = WithAWindow(state.Usage);
         UsageText = UsageDisplay(usage);
         ContextPercent = ContextGauge.PercentUsed(usage);
+        ContextShortReading = ContextGaugeViewModel.ShortReadingOf(ContextPercent, usage?.UsedTokens);
         TurnStageText = TurnStage.For(state);
         (StatusText, StatusTone) = StatusOf(state);
         Activity = state.IsWaitingForUser
@@ -2089,6 +2130,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _disposed = true;
         _lifetime.Cancel();
         if (_agentFiles is not null) _agentFiles.SkillsChanged -= OnSkillsChanged;
+        _settings.SettingsChanged -= OnContextBarSettingChanged;
         OpenConversations.ReleaseAllOf(_tileId());
         Chooser.Dispose();
         FileMentions.Dispose();
