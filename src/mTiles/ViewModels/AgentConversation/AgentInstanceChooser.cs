@@ -15,9 +15,12 @@ namespace mTiles.ViewModels.AgentConversation;
 /// <para>It decides nothing about the conversation. What runs, which agent holds the conversation and what a
 /// pick then does are the tile's, handed in as questions and a callback, so a change to how the list looks and
 /// a change to the binding rule land in two different classes.</para>
-/// <para><b>Nothing is left out of the list.</b> An instance this machine cannot run is offered dimmed with
-/// the reason under it rather than vanishing from under the pointer, and an instance of another agent is
-/// offered as what it now is: a handover, said on the row before the dialog says it.</para>
+/// <para><b>An agent that is not installed is left out of the list</b> — as the Terminal agent and Goal tiles
+/// leave it out — because nothing on the row can be done about it from here; the tile's own instance stays
+/// whatever it is. An instance that is installed and still cannot run (a deleted provider, a sign-in gone) is
+/// offered dimmed with the reason under it, since that is a fault in Settings somebody can mend, and an
+/// instance of another agent is offered as what it now is: a handover, said on the row before the dialog
+/// says it.</para>
 /// </remarks>
 public sealed partial class AgentInstanceChooser : ObservableObject, IDisposable
 {
@@ -129,14 +132,24 @@ public sealed partial class AgentInstanceChooser : ObservableObject, IDisposable
         if (!_disposed && InstancesFingerprint() != _drawnInstances) Draw();
     });
 
-    /// <summary>Every configured instance that can be held as a conversation, and the tile's own first when
-    /// Settings no longer lists it.</summary>
+    /// <summary>Every configured instance that can be held as a conversation and whose CLI is on this machine,
+    /// and the tile's own — first when Settings no longer lists it.</summary>
     private List<AiAgentInstance> ConversationalInstances()
     {
-        var instances = _settings.Settings.AiAgentInstances
-            .Where(i => AiAgentCatalog.Find(i.AgentId) is IConversationalAgent)
-            .ToList();
         var current = _current();
+        return Offered(_settings.Settings.AiAgentInstances, current,
+            agent => AiAgentCatalog.Locate(agent) is not null);
+    }
+
+    /// <summary>The instances the list offers: conversational ones whose CLI <paramref name="isInstalled"/>
+    /// says is here, and <paramref name="current"/> whatever it is — first when it is not among them.</summary>
+    internal static List<AiAgentInstance> Offered(IEnumerable<AiAgentInstance> configured,
+        AiAgentInstance current, Func<IAiAgent, bool> isInstalled)
+    {
+        var instances = configured
+            .Where(i => AiAgentCatalog.Find(i.AgentId) is { } agent and IConversationalAgent
+                        && (i.Id == current.Id || isInstalled(agent)))
+            .ToList();
         if (instances.All(i => i.Id != current.Id)) instances.Insert(0, current);
         return instances;
     }
