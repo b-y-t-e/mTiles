@@ -15,18 +15,6 @@ namespace mTiles.Tests;
 /// </remarks>
 public class SpeechModelSelectionTests : IDisposable
 {
-    private sealed class SilentCapture : IAudioCapture
-    {
-        public bool IsAvailable => true;
-        public bool IsRecording => false;
-        public IReadOnlyList<string> Devices { get; set; } = [];
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => Devices;
-        public void Start(string deviceName) { }
-        public IRecordingHandle? Detach() => null;
-        public float[] Finish(IRecordingHandle? detached) => [];
-        public void Dispose() { }
-    }
-
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
 
@@ -38,20 +26,13 @@ public class SpeechModelSelectionTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>Puts a model on "disk" — a file of exactly the right size, which is what IsDownloaded
-    /// asks for.</summary>
-    private void PlaceOnDisk(string modelId)
-    {
-        var model = SpeechModelCatalog.Find(modelId)!;
-        using var file = File.Create(Path.Combine(_directory, model.FileName));
-        file.SetLength(model.DownloadBytes);
-    }
+    private void PlaceOnDisk(string modelId) => SpeechModelFiles.PlaceOnDisk(_directory, modelId);
 
-    private (SettingsViewModel Tab, TempSettings Settings) Build(SilentCapture? capture = null)
+    private (SettingsViewModel Tab, TempSettings Settings) Build(IdleMicrophone? capture = null)
     {
         var settings = new TempSettings();
         var store = new SpeechModelStore(_directory);
-        var dictation = new DictationService(settings.Service, capture ?? new SilentCapture(), store: store,
+        var dictation = new DictationService(settings.Service, capture ?? new IdleMicrophone(), store: store,
             dispatch: action => action());
 
         var tab = new SettingsViewModel(settings.Service, dictation: dictation) { SelectedTab = SettingsTabs.Speech };
@@ -82,7 +63,7 @@ public class SpeechModelSelectionTests : IDisposable
     [Fact]
     public async Task Rescanning_devices_keeps_the_chosen_microphone()
     {
-        var capture = new SilentCapture { Devices = ["Yeti", "Webcam"] };
+        var capture = new IdleMicrophone { Devices = ["Yeti", "Webcam"] };
         var (tab, settings) = Build(capture);
         using var _ = settings;
         await SettleAsync(tab);
@@ -108,7 +89,7 @@ public class SpeechModelSelectionTests : IDisposable
     [Fact]
     public async Task An_unplugged_microphone_is_still_the_chosen_one()
     {
-        var capture = new SilentCapture { Devices = ["Yeti"] };
+        var capture = new IdleMicrophone { Devices = ["Yeti"] };
         var (tab, settings) = Build(capture);
         using var _ = settings;
         await SettleAsync(tab);
@@ -126,7 +107,7 @@ public class SpeechModelSelectionTests : IDisposable
     [Fact]
     public async Task The_system_default_survives_a_rescan()
     {
-        var capture = new SilentCapture { Devices = ["Yeti"] };
+        var capture = new IdleMicrophone { Devices = ["Yeti"] };
         var (tab, settings) = Build(capture);
         using var _ = settings;
         await SettleAsync(tab);
@@ -222,7 +203,7 @@ public class SpeechModelSelectionTests : IDisposable
     public async Task Running_the_wizard_leaves_the_tab_showing_what_it_changed()
     {
         PlaceOnDisk("base");
-        var capture = new SilentCapture { Devices = ["Webcam"] };
+        var capture = new IdleMicrophone { Devices = ["Webcam"] };
         var (tab, settings) = Build(capture);
         using var _ = settings;
         await SettleAsync(tab);

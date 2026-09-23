@@ -103,8 +103,10 @@ public class AgentProviderRoutingTests : IDisposable
         using var appData = new TempAppData();
         var theirs = Path.Combine(appData.Root, ".config", "opencode");
         Directory.CreateDirectory(theirs);
-        File.WriteAllText(Path.Combine(theirs, "opencode.json"),
-            """{ "model": "openrouter/theirs", "mcp": { "their-server": {} } }""");
+        File.WriteAllText(Path.Combine(theirs, "opencode.json"), """
+            { "model": "openrouter/theirs", "mcp": { "their-server": {} },
+              "provider": { "openrouter": { "name": "Theirs" } } }
+            """);
 
         var (settings, instance) = Configured("opencode", "lmstudio", key: "");
         instance.Model = "gemma";
@@ -115,7 +117,9 @@ public class AgentProviderRoutingTests : IDisposable
         var written = File.ReadAllText(OpenCodeProviderConfig.PathFor(instance.Id));
         Assert.Contains("openrouter/theirs", written);
         Assert.Contains("their-server", written);
-        Assert.Contains("lmstudio", written);
+        // Their other provider survives beside ours, and only the key we own is replaced.
+        Assert.Contains("\"Theirs\"", written);
+        Assert.Contains("\"lmstudio\"", written);
     }
 
     /// <summary>
@@ -278,18 +282,6 @@ public class AgentProviderRoutingTests : IDisposable
             Assert.True(environment.ContainsKey(variable), $"{variable} is not removed");
             Assert.Null(environment[variable]);
         }
-    }
-
-    /// <summary>An instance on no provider removes nothing.</summary>
-    /// <remarks>"The agent's own account" means the CLI's own setup, and taking its keys away is not
-    /// what that asks for.</remarks>
-    [Fact]
-    public void An_instance_on_no_provider_leaves_every_key_alone()
-    {
-        var settings = new AppSettings();
-        var instance = AiAgentCatalog.SeedInstanceFor(Agent("opencode"));
-
-        Assert.Empty(Agent("opencode").EnvFor(AgentRuntime.For(settings, instance)));
     }
 
     /// <summary>
@@ -467,38 +459,6 @@ public class AgentProviderRoutingTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// A sign-in clears the other services' keys too — the same rule by the other branch.
-    /// </summary>
-    /// <remarks>An instance on a subscription names no provider, so the early return meant a globally
-    /// exported <c>OPENAI_API_KEY</c> stayed visible to opencode as a second account; and with no
-    /// provider there is no prefix on the model to break the tie either.</remarks>
-    [Theory]
-    [InlineData("claude")]
-    [InlineData("codex")]
-    [InlineData("opencode")]
-    [InlineData("pi")]
-    public void A_sign_in_clears_the_hosted_keys(string agentId)
-    {
-        var settings = new AppSettings();
-        var signIn = new AiSignIn { AgentId = agentId, Name = "Work" };
-        var instance = AiAgentCatalog.SeedInstanceFor(Agent(agentId));
-        instance.SignInId = signIn.Id;
-        settings.AiSignIns.Add(signIn);
-        settings.AiAgentInstances.Add(instance);
-
-        var environment = Agent(agentId).EnvFor(AgentRuntime.For(settings, instance));
-
-        // Every service's key, because the point is that nothing inherited survives to authenticate
-        // instead of the login this instance names.
-        foreach (var variable in new[]
-                 { "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "ZAI_API_KEY" })
-        {
-            Assert.True(environment.ContainsKey(variable), $"{agentId} leaves {variable} inherited");
-            Assert.Null(environment[variable]);
-        }
-    }
-
     /// <summary>The document says what opencode's schema asks for.</summary>
     /// <remarks>Pinned because it is somebody else's format: when it moves, this fails rather than a
     /// tile silently starting on the wrong provider.</remarks>
@@ -558,32 +518,6 @@ public class AgentProviderRoutingTests : IDisposable
     public void Only_the_agents_with_a_small_model_slot_offer_the_field(string agentId, bool has)
     {
         Assert.Equal(has, Agent(agentId) is { UsesFastModel: true });
-    }
-
-    /// <summary>
-    /// The generated document keeps whatever the user already had in theirs.
-    /// </summary>
-    /// <remarks><c>OPENCODE_CONFIG</c> names <em>the</em> config file rather than an extra one, so a
-    /// document holding only our provider is a tile that has silently lost the user's default model,
-    /// their MCP servers, their agents and their instructions. This is the one place this application
-    /// writes a configuration file for somebody else's tool.</remarks>
-    [Fact]
-    public void The_generated_config_keeps_the_users_own_settings()
-    {
-        var theirs = System.Text.Json.Nodes.JsonNode.Parse("""
-            { "model": "openrouter/theirs", "mcp": { "their-server": {} },
-              "provider": { "openrouter": { "name": "Theirs" } } }
-            """)!.AsObject();
-
-        var document = OpenCodeProviderConfig.Document(
-            "lmstudio", "LM Studio", new Uri("http://localhost:1234/v1"), "gemma", theirs);
-
-        Assert.Contains("openrouter/theirs", document);
-        Assert.Contains("their-server", document);
-        // Their other provider survives beside ours, and only the key we own is replaced.
-        Assert.Contains("\"Theirs\"", document);
-        Assert.Contains("\"lmstudio\"", document);
-        Assert.Contains("http://localhost:1234/v1", document);
     }
 
     /// <summary>

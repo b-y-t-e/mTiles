@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Markup.Xaml.Styling;
 using CommunityToolkit.Mvvm.ComponentModel;
 using mTiles.Models;
 using mTiles.Services.Tiles;
@@ -29,13 +28,6 @@ namespace mTiles.Tests;
 /// </remarks>
 public class TileHeaderDoubleClickTests
 {
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(TileHeaderDoubleClickTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     /// <summary>A tile that can be maximized: the right content, a split above it and a scope to ask.
     /// </summary>
     /// <remarks>All three are what <see cref="LeafTileNodeViewModel.CanMaximize"/> reads, and the last
@@ -55,10 +47,7 @@ public class TileHeaderDoubleClickTests
 
         var view = new LeafTileView { DataContext = leaf };
         var window = new Window { Content = view, Width = 500, Height = 300 };
-        window.Resources.MergedDictionaries.Add(new ResourceInclude(new Uri("avares://mTiles/Styles/"))
-        {
-            Source = new Uri("avares://mTiles/Styles/AppTheme.axaml"),
-        });
+        window.WithAppTokens();
         window.Show();
 
         return (leaf, view);
@@ -72,7 +61,7 @@ public class TileHeaderDoubleClickTests
     /// only maximizes leaves the mouse no way back from a view that has hidden every other tile.
     /// </remarks>
     [Fact]
-    public void A_double_click_on_the_header_fills_the_workspace_and_gives_it_back() => OnUiThread(() =>
+    public void A_double_click_on_the_header_fills_the_workspace_and_gives_it_back() => Ui.Run(() =>
     {
         var (leaf, view) = Build();
         var toolbar = view.FindControl<Border>("TileToolbar")!;
@@ -88,7 +77,7 @@ public class TileHeaderDoubleClickTests
     /// <remarks>The same condition the button and the menu entry are hidden by, said at the one entry
     /// point that has nothing to hide: a header is always there to be double-clicked.</remarks>
     [Fact]
-    public void A_tile_that_cannot_be_maximized_ignores_it() => OnUiThread(() =>
+    public void A_tile_that_cannot_be_maximized_ignores_it() => Ui.Run(() =>
     {
         var (leaf, view) = Build(maximizable: false);
 
@@ -103,7 +92,7 @@ public class TileHeaderDoubleClickTests
     /// unless the label claims it. Failing, this is a rename box opened over a tile that has just gone
     /// full screen.</remarks>
     [Fact]
-    public void A_double_click_on_the_name_renames_rather_than_maximizing() => OnUiThread(() =>
+    public void A_double_click_on_the_name_renames_rather_than_maximizing() => Ui.Run(() =>
     {
         var (leaf, view) = Build();
 
@@ -118,7 +107,7 @@ public class TileHeaderDoubleClickTests
     /// pressing either twice quickly is ordinary. Without the guard the second press also fills the
     /// workspace.</remarks>
     [Fact]
-    public void A_double_click_on_a_button_is_not_the_headers_gesture() => OnUiThread(() =>
+    public void A_double_click_on_a_button_is_not_the_headers_gesture() => Ui.Run(() =>
     {
         var (leaf, view) = Build();
 

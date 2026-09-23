@@ -2,6 +2,7 @@
 using Avalonia.Headless;
 using Avalonia.Layout;
 using mTiles.Models;
+using mTiles.Services.Tiles;
 using mTiles.ViewModels;
 using mTiles.Views;
 using Xunit;
@@ -20,60 +21,22 @@ namespace mTiles.Tests;
 /// <para>The exits are as much of the feature as the entrance, which is why closing and splitting have
 /// tests of their own: both leave the maximized leaf pointing at parents it no longer has.</para>
 /// </remarks>
-public class TileMaximizeTests : IDisposable
+public class TileMaximizeTests
 {
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
-
-    public TileMaximizeTests() => Directory.CreateDirectory(_directory);
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_directory, recursive: true); } catch { }
-        GC.SuppressFinalize(this);
-    }
-
-    private WorkspaceViewModel Build(TempSettings settings) =>
-        new(new Workspace { Name = "test", DirectoryPath = _directory }, settings.Layouts,
-            settings.Service, TestTiles.Catalog(settings.Service));
-
-    /// <summary>Gives an empty tile content of that kind, the way the chooser does.</summary>
-    private static void Make(LeafTileNodeViewModel leaf, string kindId)
-    {
-        leaf.SelectKindCommand.Execute(kindId);
-        if (leaf.IsChoosingSetup)
-            leaf.SelectSetupOptionCommand.Execute(leaf.SetupOptions.First());
-    }
-
     /// <summary>A terminal, split down, with an empty tile in the second half.</summary>
     /// <remarks>What a tile can do depends on where it hangs as much as on what it holds, so anything
-    /// asking about the offer asks it of a tile with a split above it — the arrangement every tile in a
-    /// workspace of more than one is in.</remarks>
+    /// asking about the offer asks it of a tile with a split above it.</remarks>
     private static (SplitTileNodeViewModel Split, LeafTileNodeViewModel Second) SplitTerminal(
         WorkspaceViewModel workspace)
     {
-        var root = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
-        Make(root, TileKindIds.Terminal);
-        root.SplitVerticalCommand.Execute(null);
-
-        var split = Assert.IsType<SplitTileNodeViewModel>(workspace.RootTile);
-        return (split, Assert.IsType<LeafTileNodeViewModel>(split.Second));
+        var (split, _, second) = TestWorkspace.Split(workspace, TileKindIds.Terminal, null);
+        return (split, second);
     }
 
     /// <summary>A terminal, split down, with a note in the second half.</summary>
     private static (SplitTileNodeViewModel Split, LeafTileNodeViewModel Terminal, LeafTileNodeViewModel Note)
-        TerminalAndNote(WorkspaceViewModel workspace)
-    {
-        var root = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
-        Make(root, TileKindIds.Terminal);
-        root.SplitVerticalCommand.Execute(null);
-
-        var split = Assert.IsType<SplitTileNodeViewModel>(workspace.RootTile);
-        var second = Assert.IsType<LeafTileNodeViewModel>(split.Second);
-        Make(second, TileKindIds.Note);
-
-        return (split, Assert.IsType<LeafTileNodeViewModel>(split.First), second);
-    }
+        TerminalAndNote(WorkspaceViewModel workspace) =>
+        TestWorkspace.Split(workspace, TileKindIds.Terminal, TileKindIds.Note);
 
     /// <summary>The five kinds whose content is simply more of the same at a larger size say yes.
     /// </summary>
@@ -91,13 +54,15 @@ public class TileMaximizeTests : IDisposable
     [InlineData(TileKindIds.Usage, false)]
     public void Only_the_kinds_that_gain_from_the_room_offer_it(string kindId, bool expected)
     {
+        // Asked of the content the kind builds: the leaf's own half of the rule (a split above it, a
+        // scope) is the same for every kind and is what the tests below exercise.
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var directory = new TempDirectory();
+        var kind = TestTiles.Catalog(settings.Service).Kind(kindId)!;
 
-        var (_, leaf) = SplitTerminal(workspace);
-        Make(leaf, kindId);
+        using var tile = kind.Create(new TileContext(directory.Path, settings.Service), null);
 
-        Assert.Equal(expected, leaf.CanMaximize);
+        Assert.Equal(expected, tile is IMaximizableTile);
     }
 
     /// <summary>An empty tile has nothing to make full screen yet.</summary>
@@ -105,7 +70,7 @@ public class TileMaximizeTests : IDisposable
     public void A_tile_with_no_content_does_not_offer_it()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (_, empty) = SplitTerminal(workspace);
 
@@ -121,10 +86,10 @@ public class TileMaximizeTests : IDisposable
     public void The_only_tile_in_a_workspace_does_not_offer_it()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var lone = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
-        Make(lone, TileKindIds.Terminal);
+        TestWorkspace.Make(lone, TileKindIds.Terminal);
 
         Assert.False(lone.CanMaximize);
 
@@ -137,7 +102,7 @@ public class TileMaximizeTests : IDisposable
     public void Maximizing_solos_the_split_above_the_tile_and_restoring_clears_it()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, terminal, note) = TerminalAndNote(workspace);
 
@@ -161,7 +126,7 @@ public class TileMaximizeTests : IDisposable
     public void Maximizing_a_tile_deep_inside_solos_the_whole_path_to_the_root()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (outer, terminal, _) = TerminalAndNote(workspace);
         terminal.SplitHorizontalCommand.Execute(null);
@@ -178,7 +143,7 @@ public class TileMaximizeTests : IDisposable
     public void Only_one_tile_has_the_workspace_at_a_time()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, terminal, note) = TerminalAndNote(workspace);
 
@@ -200,7 +165,7 @@ public class TileMaximizeTests : IDisposable
     public async Task Closing_a_maximized_tile_puts_the_layout_back()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, terminal, _) = TerminalAndNote(workspace);
         terminal.ToggleMaximizeCommand.Execute(null);
@@ -221,7 +186,7 @@ public class TileMaximizeTests : IDisposable
     public async Task Closing_another_tile_does_not_put_the_layout_back()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, terminal, note) = TerminalAndNote(workspace);
         terminal.ToggleMaximizeCommand.Execute(null);
@@ -245,7 +210,7 @@ public class TileMaximizeTests : IDisposable
     public async Task Closing_a_tile_the_maximized_one_was_drawn_through_re_solos_what_is_left()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (outer, terminal, note) = TerminalAndNote(workspace);
         terminal.SplitHorizontalCommand.Execute(null);
@@ -271,7 +236,7 @@ public class TileMaximizeTests : IDisposable
     public void Splitting_a_maximized_tile_puts_the_layout_back()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, terminal, _) = TerminalAndNote(workspace);
         terminal.ToggleMaximizeCommand.Execute(null);
@@ -293,8 +258,7 @@ public class TileMaximizeTests : IDisposable
     [Fact]
     public void The_maximized_tile_keeps_the_control_it_had_in_the_layout()
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(TileMaximizeTests).Assembly);
-        session.Dispatch(() =>
+        Ui.Run(() =>
         {
             var first = new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope());
             var second = new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope());
@@ -325,7 +289,6 @@ public class TileMaximizeTests : IDisposable
             Assert.Same(leafView, firstPane.Content);
 
             window.Close();
-            return Task.FromResult(true);
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        });
     }
 }

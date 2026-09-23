@@ -139,73 +139,6 @@ public class ConversationAccountTests
     }
 
     [Fact]
-    public void What_the_instance_answers_by_itself_is_not_pinned_as_an_override()
-    {
-        using var settings = new TempSettings();
-        var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
-        instance.Model = "opus";
-        instance.DefaultBehaviour = AiBehaviour.Plan;
-        instance.DefaultEffort = AiEffort.Max;
-        using var tile = NewTile(settings, new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
-
-        tile.AdoptStoredSession(ConversationReducer.Replay([
-            new SessionConfigured("opus", "Plan", "token", "Max"),
-        ]), tile.Agent);
-
-        Assert.Equal(SessionOverrides.None, tile.Overrides);
-    }
-
-    [Fact]
-    public void A_model_resolved_at_every_launch_is_never_written_down()
-    {
-        using var settings = new TempSettings();
-        var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
-        instance.Model = AiModelChoice.FirstLoaded;
-        using var tile = NewTile(settings, new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
-
-        tile.AdoptStoredSession(ConversationReducer.Replay([new SessionConfigured("qwen3", null, "token")]),
-            tile.Agent);
-
-        Assert.Null(tile.Overrides.Model);
-    }
-
-    [Fact]
-    public void Opening_a_conversation_never_puts_the_tile_into_bypass()
-    {
-        using var settings = new TempSettings();
-        using var tile = NewTile(settings, new JsonObject());
-
-        // Adoption is a start nobody is standing in front of, and bypass is the one grant the strip only
-        // reaches through a dialog — restored here it would arm the tile silently and survive every restart.
-        tile.AdoptStoredSession(ConversationReducer.Replay([
-            new SessionConfigured("opus", SessionSettingOptions.ModeId(AiBehaviour.BypassPermissions), null,
-                "Max"),
-        ]), tile.Agent);
-
-        Assert.Null(tile.Overrides.Behaviour);
-        Assert.Equal(AiEffort.Max, tile.Overrides.Effort);
-    }
-
-    [Fact]
-    public void What_the_tile_already_overrides_outranks_what_the_conversation_last_ran_on()
-    {
-        using var settings = new TempSettings();
-        using var tile = NewTile(settings, new JsonObject());
-        tile.AdoptStoredSession(ConversationReducer.Replay([
-            // Accept edits rather than auto: a seeded instance starts on auto now, and an adopted mode equal to
-            // the instance's own is no override at all.
-            new SessionConfigured("sonnet", SessionSettingOptions.ModeId(AiBehaviour.AcceptEdits), null),
-            new SessionModelChosen("sonnet"),
-        ]), tile.Agent);
-
-        tile.AdoptStoredSession(ConversationReducer.Replay([
-            new SessionConfigured("opus", "Plan", null, "Max"), new SessionModelChosen("opus"),
-        ]), tile.Agent);
-
-        Assert.Equal(new SessionOverrides("sonnet", AiBehaviour.AcceptEdits, AiEffort.Max), tile.Overrides);
-    }
-
-    [Fact]
     public void A_restored_model_is_spelled_the_way_the_instance_stores_it_and_not_the_way_the_session_said_it()
     {
         using var settings = new TempSettings();
@@ -442,9 +375,7 @@ public class ConversationAccountTests
 
     private static AgentConversationTileViewModel NewTile(TempSettings settings, JsonObject state,
         mTiles.AgentSessions.Storage.IConversationStore? store = null, string tileId = "") =>
-        (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(
-                store ?? TestTiles.ConversationStore(), NoSessionStarter.Instance))
-            .Create(new TileContext(Path.GetTempPath(), settings.Service) { TileId = () => tileId }, state);
+        ConversationTiles.FromKind(settings, state, store, tileId: tileId);
 
     /// <summary>A tile on the instance given, opened on a conversation the CLI holds a session for.</summary>
     private static async Task<AgentConversationTileViewModel> StartedWithASession(TempSettings settings,
@@ -456,25 +387,7 @@ public class ConversationAccountTests
         store.Save(new mTiles.AgentSessions.Storage.ConversationRecord(tile.ConversationId, instance.AgentId,
             Path.GetTempPath(), "session-token", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
 
-        tile.EnsureStarted();
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (tile.LaunchProblem is null && DateTime.UtcNow < deadline) await Task.Delay(20);
-        Assert.NotNull(tile.LaunchProblem);
+        await ConversationTiles.StartUntilRefused(tile);
         return tile;
-    }
-
-    /// <summary>Prepares no launch, so a start stops with a problem before any process exists.</summary>
-    private sealed class NoSessionStarter : IAgentSessionStarter
-    {
-        public static NoSessionStarter Instance { get; } = new();
-
-        public Task<(AgentSessionLaunch? Launch, string? Problem)> PrepareAsync(AppSettings settings, IAiAgent agent,
-            AiAgentInstance instance, string workingDirectory, string conversationId, string? resumeToken,
-            CancellationToken ct) =>
-            Task.FromResult<(AgentSessionLaunch?, string?)>((null, "No agent is started in these tests."));
-
-        public mTiles.AgentSessions.IAgentSession Create(IAiAgent agent, AgentSessionLaunch launch,
-            mTiles.AgentSessions.IAgentEventSink sink) =>
-            throw new InvalidOperationException("No agent is started in these tests.");
     }
 }

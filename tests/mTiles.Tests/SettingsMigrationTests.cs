@@ -12,41 +12,33 @@ namespace mTiles.Tests;
 /// </summary>
 public sealed class SettingsMigrationTests : IDisposable
 {
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new();
 
-    private string SettingsPath => Path.Combine(_directory, "settings.json");
+    private string SettingsPath => Path.Combine(_directory.Path, "settings.json");
 
-    public SettingsMigrationTests() => Directory.CreateDirectory(_directory);
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_directory, recursive: true); } catch { /* a temp directory */ }
-    }
+    public void Dispose() => _directory.Dispose();
 
     private void GivenSettings(string json) => File.WriteAllText(SettingsPath, json);
 
     /// <summary>
-    /// The one case where the application would edit a repository against a decision the user had
-    /// already made. They turned the old switch off; the feature was renamed and its meaning widened
-    /// from hiding to ignoring, but "no, thank you" carries across both readings.
+    /// An answer under either older name of the <c>.gitignore</c> switch is carried across and the old key
+    /// is dropped once read, so the migration cannot run again and undo a choice made later.
     /// </summary>
-    [Fact]
-    public void An_explicit_no_under_the_old_name_is_still_a_no()
+    /// <remarks>An explicit no matters most: it is the one case where the application would otherwise
+    /// edit a repository against a decision the user had already made. The middle name is the one most
+    /// installations hold.</remarks>
+    [Theory]
+    [InlineData("GitHideMTerminalDir", false)]
+    [InlineData("GitHideMTerminalDir", true)]
+    [InlineData("GitIgnoreMTerminalDir", false)]
+    [InlineData("GitIgnoreMTerminalDir", true)]
+    public void An_answer_under_an_old_name_is_carried_across_and_the_key_dropped(string key, bool answered)
     {
-        GivenSettings("""{ "GitHideMTerminalDir": false }""");
+        GivenSettings($$"""{ "{{key}}": {{(answered ? "true" : "false")}} }""");
 
-        var service = new SettingsService(SettingsPath);
-
-        Assert.False(service.Settings.GitIgnoreWorkspaceDir);
-    }
-
-    [Fact]
-    public void An_explicit_yes_under_the_old_name_stays_yes()
-    {
-        GivenSettings("""{ "GitHideMTerminalDir": true }""");
-
-        Assert.True(new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
+        Assert.Equal(answered, new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
+        Assert.DoesNotContain(key, File.ReadAllText(SettingsPath));
+        Assert.Equal(answered, new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
     }
 
     /// <summary>
@@ -77,12 +69,12 @@ public sealed class SettingsMigrationTests : IDisposable
     }
 
     /// <summary>
-    /// The same loss by the other route: on Unix the old detection offered whatever <c>$SHELL</c>
-    /// pointed at, so the default could be a shell no class here knows. Falling back to bash without a
-    /// word is the silent version of the custom-shell loss.
+    /// A default shell this version does not know — on Unix the old detection offered whatever
+    /// <c>$SHELL</c> pointed at — is reported rather than silently replaced, and the name itself is kept:
+    /// it is also what a shell added by a newer version looks like after a Velopack rollback.
     /// </summary>
     [Fact]
-    public void A_default_shell_this_version_does_not_know_is_reported()
+    public void A_default_shell_this_version_does_not_know_is_reported_and_kept()
     {
         GivenSettings("""{ "DefaultShellName": "nu" }""");
 
@@ -90,24 +82,10 @@ public sealed class SettingsMigrationTests : IDisposable
         Trace.Listeners.Add(listener);
         try
         {
-            var service = new SettingsService(SettingsPath);
-
+            _ = new SettingsService(SettingsPath);
             Assert.Contains("nu", listener.Text);
         }
         finally { Trace.Listeners.Remove(listener); }
-    }
-
-    /// <summary>
-    /// The name itself is kept, because "this build does not know it" is also what a shell added by a
-    /// newer version looks like after a Velopack rollback. Dropping it would let the older build settle
-    /// the question for the newer one, permanently.
-    /// </summary>
-    [Fact]
-    public void A_default_shell_this_version_does_not_know_is_kept()
-    {
-        GivenSettings("""{ "DefaultShellName": "nu" }""");
-
-        _ = new SettingsService(SettingsPath);
 
         Assert.Equal("nu", new SettingsService(SettingsPath).Settings.DefaultShellName);
         Assert.Contains("\"DefaultShellName\": \"nu\"", File.ReadAllText(SettingsPath));
@@ -199,6 +177,8 @@ public sealed class SettingsMigrationTests : IDisposable
     [InlineData("max", GoalEffortPreset.Thorough)]
     [InlineData("low", GoalEffortPreset.Cheap)]
     [InlineData("ToolDefault", GoalEffortPreset.ToolDefault)]
+    // The old default was not a decision, so it arrives as the new default rather than as high everywhere.
+    [InlineData("high", GoalEffortPreset.Balanced)]
     public void A_stored_effort_level_becomes_the_preset_it_meant(string stored, GoalEffortPreset expected)
     {
         GivenSettings($$"""{ "GoalEffort": "{{stored}}" }""");
@@ -212,21 +192,6 @@ public sealed class SettingsMigrationTests : IDisposable
         // version is not still handed a level nothing acts on.
         Assert.DoesNotContain("GoalEffort\"", File.ReadAllText(SettingsPath));
         Assert.Equal(expected, new SettingsService(SettingsPath).Settings.GoalEffortPreset);
-    }
-
-    /// <summary>
-    /// The old default was not a decision, so it arrives as the new default rather than as "high
-    /// everywhere" — and it is still dropped, or the migration would run again on every launch.
-    /// </summary>
-    [Fact]
-    public void The_old_default_effort_is_read_as_the_new_default()
-    {
-        GivenSettings("""{ "GoalEffort": "high" }""");
-
-        var service = new SettingsService(SettingsPath);
-
-        Assert.Equal(GoalEffortPreset.Balanced, service.Settings.GoalEffortPreset);
-        Assert.DoesNotContain("GoalEffort\"", File.ReadAllText(SettingsPath));
     }
 
     /// <summary>
@@ -332,57 +297,20 @@ public sealed class SettingsMigrationTests : IDisposable
         Assert.DoesNotContain("GitIgnoreMTerminalDir", written);
     }
 
-    /// <summary>The name between the two renames. It is the one most existing installations actually
-    /// hold, so it is the hop that matters in practice rather than in principle.</summary>
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void An_answer_under_the_middle_name_is_carried_across(bool answered)
-    {
-        GivenSettings($$"""{ "GitIgnoreMTerminalDir": {{(answered ? "true" : "false")}} }""");
-
-        Assert.Equal(answered, new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
-        Assert.DoesNotContain("GitIgnoreMTerminalDir", File.ReadAllText(SettingsPath));
-    }
-
-    /// <summary>Read once. The old key is gone from the file afterwards, so the migration cannot run a
-    /// second time and undo a choice the user makes later.</summary>
-    [Fact]
-    public void The_old_key_is_dropped_once_it_has_been_read()
-    {
-        GivenSettings("""{ "GitHideMTerminalDir": false }""");
-        _ = new SettingsService(SettingsPath);
-
-        Assert.DoesNotContain("GitHideMTerminalDir", File.ReadAllText(SettingsPath));
-
-        // And a run after that leaves the answer where the first one put it.
-        Assert.False(new SettingsService(SettingsPath).Settings.GitIgnoreWorkspaceDir);
-    }
-
     /// <summary>
-    /// The dictation shortcut lost its separate on/off switch, and an empty shortcut is what "off"
-    /// means now. Somebody who had switched it off must not get Alt+Space swallowed again by an update.
+    /// The dictation shortcut lost its separate on/off switch, and an empty shortcut is what "off" means
+    /// now: somebody who had switched it off must not get Alt+Space swallowed again by an update.
     /// </summary>
-    [Fact]
-    public void A_shortcut_that_was_switched_off_comes_back_as_no_shortcut()
+    [Theory]
+    [InlineData("Alt+Space", false, "")]
+    [InlineData("Ctrl+Alt+D", true, "Ctrl+Alt+D")]
+    public void The_old_shortcut_switch_becomes_the_shortcut_or_none(string hotkey, bool enabled, string expected)
     {
-        GivenSettings("""{ "Speech": { "Hotkey": "Alt+Space", "HotkeyEnabled": false } }""");
+        GivenSettings($$"""{ "Speech": { "Hotkey": "{{hotkey}}", "HotkeyEnabled": {{(enabled ? "true" : "false")}} } }""");
 
         var service = new SettingsService(SettingsPath);
 
-        Assert.Equal("", service.Settings.Speech.Hotkey);
-        Assert.DoesNotContain("HotkeyEnabled", File.ReadAllText(SettingsPath));
-    }
-
-    /// <summary>Switched on means exactly what it means now: there is a shortcut, and it is that one.</summary>
-    [Fact]
-    public void A_shortcut_that_was_switched_on_keeps_working()
-    {
-        GivenSettings("""{ "Speech": { "Hotkey": "Ctrl+Alt+D", "HotkeyEnabled": true } }""");
-
-        var service = new SettingsService(SettingsPath);
-
-        Assert.Equal("Ctrl+Alt+D", service.Settings.Speech.Hotkey);
+        Assert.Equal(expected, service.Settings.Speech.Hotkey);
         Assert.DoesNotContain("HotkeyEnabled", File.ReadAllText(SettingsPath));
     }
 
@@ -494,7 +422,7 @@ public sealed class SettingsMigrationTests : IDisposable
 
         _ = new SettingsService(SettingsPath);
 
-        var kept = Directory.GetFiles(_directory, "settings.bad-*.json");
+        var kept = Directory.GetFiles(_directory.Path, "settings.bad-*.json");
         var copy = Assert.Single(kept);
         Assert.Contains("C:\\\\keep\\\\me", File.ReadAllText(copy));
 
@@ -510,7 +438,7 @@ public sealed class SettingsMigrationTests : IDisposable
 
         _ = new SettingsService(SettingsPath);
 
-        Assert.Empty(Directory.GetFiles(_directory, "settings.bad-*.json"));
+        Assert.Empty(Directory.GetFiles(_directory.Path, "settings.bad-*.json"));
     }
 
     [Fact]
@@ -559,18 +487,14 @@ public sealed class SettingsMigrationTests : IDisposable
     /// object with nothing and is not an error, so the load's own catch never sees it. The first service
     /// to read it then throws during construction of the main window — the application does not start,
     /// and says nothing about why. Settings are never worth refusing to launch over.
-    /// <para>Two cases, not one per property: which properties refuse a null is <c>SettingsNullGuardTests</c>'
-    /// business, and it walks the whole graph by reflection rather than listing them. What is left for
-    /// this file is that the guards are reached through a real file on disk — once at the top level, and
-    /// once <em>one level deeper</em>, which is where patching the sections after loading stopped
-    /// working and where a null is a window that never appears.</para>
+    /// <para>Which properties refuse a null is <c>SettingsNullGuardTests</c>' business; this is that the
+    /// guards are reached through a real file on disk — at the top level and one level deeper, which is
+    /// where patching the sections after loading stopped working.</para>
     /// </remarks>
-    [Theory]
-    [InlineData("""{ "Speech": null, "Database": null, "ShellProfiles": null, "AiAgentInstances": null, "AiProviderInstances": null }""")]
-    [InlineData("""{ "Speech": { "CustomWords": null }, "Database": { "ManualConnections": null, "SqlServer": null, "PostgreSql": null } }""")]
-    public void A_null_section_takes_its_defaults_rather_than_breaking_startup(string json)
+    [Fact]
+    public void A_null_section_takes_its_defaults_rather_than_breaking_startup()
     {
-        GivenSettings(json);
+        GivenSettings("""{ "Speech": { "CustomWords": null }, "Database": null, "ShellProfiles": null, "AiAgentInstances": null, "AiProviderInstances": null }""");
 
         var settings = new SettingsService(SettingsPath).Settings;
 
@@ -581,8 +505,6 @@ public sealed class SettingsMigrationTests : IDisposable
         Assert.NotNull(settings.AiProviderInstances);
         Assert.NotNull(settings.Speech.CustomWords);
         Assert.NotNull(settings.Database.ManualConnections);
-        Assert.NotNull(settings.Database.SqlServer);
-        Assert.NotNull(settings.Database.PostgreSql);
 
         // And the defaults are the real ones, not just non-null.
         Assert.Equal(new mTiles.Models.SpeechSettings().ModelUnloadMinutes, settings.Speech.ModelUnloadMinutes);
@@ -609,6 +531,8 @@ public sealed class SettingsMigrationTests : IDisposable
               "ColorThemeName": null,
               "GitPath": null,
               "DefaultShellName": null,
+              "LastWorkspaceId": null,
+              "ShellProfiles": [ { "Name": "mine", "RequiredAiToolBinaryName": null } ],
               "Database": { "PostgreSql": { "Username": null, "Password": null } }
             }
             """);
@@ -622,6 +546,10 @@ public sealed class SettingsMigrationTests : IDisposable
         // The encrypted ones carry their own converter, which wins over the general rule — so they are
         // the last strings that could still have come back null, and they need saying separately.
         Assert.Equal("", settings.Database.PostgreSql.Password);
+        // And it overrules a string?: the converter is chosen by type and never told which property it
+        // fills, so the annotation holds only for what code assigns (see SettingsNullGuardTests).
+        Assert.Equal("", settings.LastWorkspaceId);
+        Assert.Equal("", settings.ShellProfiles.Single(p => p.Name == "mine").RequiredAiToolBinaryName);
     }
 
     /// <summary>

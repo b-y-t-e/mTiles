@@ -252,7 +252,12 @@ public class ClaudeCredentialStoreTests : IDisposable
             if (!hold) _released.SetResult();
 
             ClaudeCredentialStore.HandlerFactory =
-                () => new CannedHandler(body, status, Entered, _released.Task);
+                () => new FakeHttpHandler(async (_, ct) =>
+                {
+                    Entered();
+                    await _released.Task.WaitAsync(ct);
+                    return FakeHttpHandler.Json(body, status);
+                });
         }
 
         public int Calls => Volatile.Read(ref _calls);
@@ -273,22 +278,6 @@ public class ClaudeCredentialStoreTests : IDisposable
         {
             Interlocked.Increment(ref _calls);
             _inFlight.TrySetResult();
-        }
-
-        private sealed class CannedHandler(string body, HttpStatusCode status, Action entered,
-            Task released) : HttpMessageHandler
-        {
-            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken)
-            {
-                entered();
-                await released.WaitAsync(cancellationToken);
-
-                return new HttpResponseMessage(status)
-                {
-                    Content = new StringContent(body, Encoding.UTF8, "application/json"),
-                };
-            }
         }
     }
 }

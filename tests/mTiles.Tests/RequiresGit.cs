@@ -22,9 +22,14 @@ internal static class RequiresGit
     /// <param name="what">What the caller cannot say anything about without git, named in the failure.
     /// </param>
     public static void OrFail(string what) =>
-        Assert.True(IsInstalled(), $"git is not on PATH, so this cannot say anything about {what}.");
+        Assert.True(IsInstalled, $"git is not on PATH, so this cannot say anything about {what}.");
 
-    private static bool IsInstalled()
+    /// <summary>Asked once per run: it was a <c>git --version</c> process per test.</summary>
+    public static bool IsInstalled => Probe.Value;
+
+    private static readonly Lazy<bool> Probe = new(Ask);
+
+    private static bool Ask()
     {
         try
         {

@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Text.Json;
 using mTiles.Models;
 using mTiles.Services;
 using Xunit;
@@ -90,6 +89,9 @@ public class SettingsNullGuardTests
         Assert.Contains(typeof(DatabaseSettings), reached);
         Assert.Contains(typeof(PostgreSqlDiscoverySettings), reached);   // AppSettings → Database → here
         Assert.Contains(typeof(SpeechSettings), reached);
+
+        // And it finds properties to check, or the theory below passes for ever while testing nothing.
+        Assert.NotEmpty(reached.SelectMany(t => Guarded(t, includeStrings: false)));
     }
 
     [Theory]
@@ -174,28 +176,10 @@ public class SettingsNullGuardTests
             nullable);
     }
 
-    /// <summary>And the converter really does overrule the annotation, rather than this being a worry
-    /// about something that does not happen.</summary>
-    [Fact]
-    public void A_nullable_string_in_the_file_still_arrives_empty()
-    {
-        var json = """
-            {
-              "LastWorkspaceId": null,
-              "ShellProfiles": [ { "Name": "mine", "RequiredAiToolBinaryName": null } ]
-            }
-            """;
-
-        var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonDefaults.SettingsOptions)!;
-
-        Assert.Equal("", settings.LastWorkspaceId);
-        Assert.Equal("", settings.ShellProfiles.Single(p => p.Name == "mine").RequiredAiToolBinaryName);
-    }
-
     /// <summary>Something with a settable reference type: a collection, another settings object, and —
     /// where <paramref name="includeStrings"/> says so — a string. Properties declared nullable are left
-    /// alone here: <c>string?</c> is a promise that null is an answer, and the two tests above are where
-    /// that promise is reconciled with the converter that breaks it.</summary>
+    /// alone here: <c>string?</c> is a promise that null is an answer, and the test above and
+    /// <c>SettingsMigrationTests</c> are where that promise is reconciled with the converter that breaks it.</summary>
     private static IEnumerable<PropertyInfo> Guarded(Type type, bool includeStrings)
     {
         var nullability = new NullabilityInfoContext();
@@ -206,17 +190,4 @@ public class SettingsNullGuardTests
             .Where(p => includeStrings || p.PropertyType != typeof(string))
             .Where(p => nullability.Create(p).WriteState != NullabilityState.Nullable);
     }
-
-    /// <summary>
-    /// The reflection above has to actually find something, or this file passes for ever while testing
-    /// nothing.
-    /// </summary>
-    /// <remarks>
-    /// Asked of the whole walk rather than of each type: a settings object made only of numbers and
-    /// strings — <c>SqlServerDiscoverySettings</c> is one — has nothing for this rule to check, and that
-    /// is a fact about it rather than a hole in the scan.
-    /// </remarks>
-    [Fact]
-    public void The_scan_finds_properties_to_check()
-        => Assert.NotEmpty(Reachable(typeof(AppSettings)).SelectMany(t => Guarded(t, includeStrings: false)));
 }

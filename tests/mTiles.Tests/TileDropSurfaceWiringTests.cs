@@ -21,15 +21,8 @@ namespace mTiles.Tests;
 /// </remarks>
 public class TileDropSurfaceWiringTests
 {
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(TileDropSurfaceWiringTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     [Fact]
-    public void The_workspace_tree_is_laid_on_its_drop_surface() => OnUiThread(() =>
+    public void The_workspace_tree_is_laid_on_its_drop_surface() => Ui.Run(() =>
     {
         var view = new WorkspaceView();
 
@@ -73,7 +66,7 @@ public class TileDropSurfaceWiringTests
 
     /// <summary>A tile of a tree nested inside a tile of this one is walked past, to the tile it sits in.</summary>
     [Fact]
-    public void A_tile_of_a_nested_tree_is_walked_past_to_the_outer_tile() => OnUiThread(() =>
+    public void A_tile_of_a_nested_tree_is_walked_past_to_the_outer_tile() => Ui.Run(() =>
     {
         var outer = Tree(out var outerTarget, out var dragged);
         Tree(out var innerTarget, out _);
@@ -92,7 +85,7 @@ public class TileDropSurfaceWiringTests
 
     /// <summary>A gutter of a nested tree is walked past; one of this tree is taken.</summary>
     [Fact]
-    public void Only_a_gutter_of_the_surface_tree_is_taken() => OnUiThread(() =>
+    public void Only_a_gutter_of_the_surface_tree_is_taken() => Ui.Run(() =>
     {
         var outer = Tree(out var outerTarget, out var dragged);
         var inner = Tree(out _, out _);
@@ -120,7 +113,7 @@ public class TileDropSurfaceWiringTests
 
     /// <summary>The walk stops at the surface that asked, so a tile drawn around it is never taken.</summary>
     [Fact]
-    public void The_walk_stops_at_the_surface() => OnUiThread(() =>
+    public void The_walk_stops_at_the_surface() => Ui.Run(() =>
     {
         var outer = Tree(out var outerTarget, out var dragged);
 

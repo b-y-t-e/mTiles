@@ -28,76 +28,27 @@ public sealed class HeaderNoteTests : IDisposable
         _directory.Dispose();
     }
 
-    /// <summary>The instance's name and the model, in the words the Settings row uses.</summary>
-    [Fact]
-    public void It_names_the_instance_and_the_model()
-    {
-        var tile = TileOn(new AiAgentInstance
-        {
-            AgentId = "claude", Name = "Claude on OpenRouter", Model = "z-ai/glm-5.3-flash",
-        });
-
-        Assert.Equal("Claude on OpenRouter · glm-5.3-flash", tile.HeaderNote);
-    }
-
-    /// <summary>
-    /// The model is shortened for the narrowest line in the application, and only there.
+    /// <summary>The instance's name and the model, the model shortened for the narrowest line in the
+    /// application — and only there; the full id is a tooltip away and unchanged wherever it is stored.
     /// </summary>
-    /// <remarks>Ids are namespaced by whoever published them; the vendor is dropped from a line that is
-    /// already the second thing to give way, and the full name is a tooltip away and unchanged
-    /// everywhere it is stored or sent.</remarks>
+    /// <remarks>Read through <see cref="IDescribedTile"/>, which is how the header reads it.</remarks>
     [Theory]
-    [InlineData("z-ai/glm-5.3-flash", "glm-5.3-flash")]
-    [InlineData("openai/gpt-5.5", "gpt-5.5")]
-    [InlineData("gemma-4-12b", "gemma-4-12b")]
-    [InlineData("a/b/c", "c")]
-    public void The_model_is_shortened_to_the_part_that_tells_models_apart(string model, string shown)
+    [InlineData("Mine", "z-ai/glm-5.3-flash", "Mine · glm-5.3-flash")]
+    [InlineData("Mine", "openai/gpt-5.5", "Mine · gpt-5.5")]
+    [InlineData("Mine", "gemma-4-12b", "Mine · gemma-4-12b")]
+    [InlineData("Mine", "a/b/c", "Mine · c")]
+    // The sentinel is not a model name and is never shown as one.
+    [InlineData("Local", AiModelChoice.FirstLoaded, "Local")]
+    // No model is no second half: a word for its absence fills the scarcest line with nothing.
+    [InlineData("Mine", "", "Mine")]
+    // An unnamed instance falls back to the CLI's own name rather than showing nothing.
+    [InlineData("", "", "Claude Code")]
+    public void It_names_the_instance_and_the_part_of_the_model_that_tells_models_apart(
+        string name, string model, string expected)
     {
-        var tile = TileOn(new AiAgentInstance { AgentId = "claude", Name = "Mine", Model = model });
+        IDescribedTile tile = TileOn(new AiAgentInstance { AgentId = "claude", Name = name, Model = model });
 
-        Assert.Equal($"Mine · {shown}", tile.HeaderNote);
-    }
-
-    /// <summary>
-    /// The sentinel is not a model name and is never shown as one.
-    /// </summary>
-    /// <remarks>It reaches here before a launch has resolved it — <c>__first_loaded__</c> in a header
-    /// is worse than nothing, and "whatever the server has loaded" is not something the narrowest line
-    /// on screen should spend itself saying.</remarks>
-    [Fact]
-    public void The_first_loaded_sentinel_is_not_shown()
-    {
-        var tile = TileOn(new AiAgentInstance
-        {
-            AgentId = "claude", Name = "Local", Model = AiModelChoice.FirstLoaded,
-        });
-
-        Assert.Equal("Local", tile.HeaderNote);
-        Assert.DoesNotContain("_", tile.HeaderNote);
-    }
-
-    /// <summary>An instance naming no model says nothing about one.</summary>
-    /// <remarks>"Whatever the agent picks" is not a model, and printing a word for its absence fills
-    /// the scarcest line on screen with the absence of information.</remarks>
-    [Fact]
-    public void No_model_is_no_second_half()
-    {
-        var tile = TileOn(new AiAgentInstance { AgentId = "claude", Name = "Mine", Model = "" });
-
-        Assert.Equal("Mine", tile.HeaderNote);
-    }
-
-    /// <summary>
-    /// An unnamed instance falls back to the CLI's own name rather than showing nothing.
-    /// </summary>
-    /// <remarks>The instance's name comes first because it is what the user configured and what every
-    /// chooser identifies the row by; the CLI's name is what is left when there is none.</remarks>
-    [Fact]
-    public void An_unnamed_instance_is_named_by_its_cli()
-    {
-        var tile = TileOn(new AiAgentInstance { AgentId = "claude", Name = "", Model = "" });
-
-        Assert.Equal("Claude Code", tile.HeaderNote);
+        Assert.Equal(expected, tile.HeaderNote);
     }
 
     /// <summary>A deleted instance leaves a tile that still says which agent it is.</summary>
@@ -111,15 +62,6 @@ public sealed class HeaderNoteTests : IDisposable
             instanceId: "never-existed", tileId: () => Guid.NewGuid().ToString());
 
         Assert.Contains("Claude Code", tile.HeaderNote);
-    }
-
-    /// <summary>A terminal agent tile announces the capability; the header reads it through the interface.</summary>
-    [Fact]
-    public void An_agent_tile_is_a_described_tile()
-    {
-        var tile = TileOn(new AiAgentInstance { AgentId = "claude", Name = "Mine" });
-
-        Assert.IsAssignableFrom<IDescribedTile>(tile);
     }
 
     private TerminalAgentTileViewModel TileOn(AiAgentInstance instance)

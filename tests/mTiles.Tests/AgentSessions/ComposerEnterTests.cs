@@ -20,23 +20,17 @@ namespace mTiles.Tests.AgentSessions;
 /// Only a real key press through the window shows that; calling the handler directly passes.</remarks>
 public class ComposerEnterTests
 {
-    private static readonly Avalonia.Themes.Fluent.FluentTheme Theme = new();
-
     [Fact]
-    public void Agent_composer() => OnUiThread(() =>
+    public void Agent_composer() => Ui.Run(() =>
     {
         using var settings = new TempSettings();
-        var agent = AiAgentCatalog.Find("claude")!;
-        using var vm = new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
-            new mTiles.AgentSessions.Storage.SqliteConversationStore(
-                Path.Combine(Path.GetTempPath(), $"mtiles-enter-{Guid.NewGuid():N}.db")),
-            AiAgentCatalog.SeedInstanceFor(agent), agent, () => "tile", post: action => action());
+        using var vm = ConversationTiles.New(settings);
 
         Press(new AgentConversationTileView { DataContext = vm }, () => vm.Draft, emptyBeforeEnter: false);
     });
 
     [Fact]
-    public void Goal_composer() => OnUiThread(() =>
+    public void Goal_composer() => Ui.Run(() =>
     {
         var dir = Path.Combine(Path.GetTempPath(), "mtiles-enter-goal-" + Guid.NewGuid());
         Directory.CreateDirectory(dir);
@@ -49,14 +43,9 @@ public class ComposerEnterTests
 
     private static void Press(Control view, Func<string> text, bool emptyBeforeEnter)
     {
-        // Control templates on the application: without a theme a TextBox has no presenter and edits nothing.
-        var app = Avalonia.Application.Current!;
-        app.Styles.Add(Theme);
+        // Without a theme a TextBox has no presenter and edits nothing.
+        using var theme = new HeadlessTheme();
         var window = new Window { Content = view, Width = 700, Height = 700 };
-        window.Resources.MergedDictionaries.Add(new ResourceInclude(new Uri("avares://mTiles/Styles/"))
-        {
-            Source = new Uri("avares://mTiles/Styles/AppTheme.axaml"),
-        });
         try
         {
             window.Show();
@@ -78,16 +67,8 @@ public class ComposerEnterTests
         finally
         {
             window.Close();
-            app.Styles.Remove(Theme);
         }
     }
 
     private static int LineBreaks(string text) => text.Replace("\r\n", "\n").Count(c => c == '\n');
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(ComposerEnterTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

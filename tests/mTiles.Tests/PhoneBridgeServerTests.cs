@@ -69,19 +69,6 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
 
     // ── pairing over HTTP ───────────────────────────────────────────────────────────────────────────
 
-    [Fact]
-    public async Task A_valid_code_serves_the_page_and_sets_a_session_cookie()
-    {
-        var cookies = new CookieContainer();
-        using var client = Client(cookies);
-
-        var response = await client.GetAsync($"{Root}/p/{_pairing.IssuePairingToken()}");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("mTiles dictation", await response.Content.ReadAsStringAsync());
-        Assert.Contains(cookies.GetCookies(new Uri(Root)).Cast<Cookie>(), c => c.Name == "mtiles_phone");
-    }
-
     /// <summary>The pin is only as good as this: it is the one address we know actually worked.</summary>
     /// <remarks>
     /// The one test that arrives under a <em>name</em>, because that is the case a phone pairs on when
@@ -116,16 +103,20 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
     }
 
     /// <summary>
-    /// The regression behind B2: pairing codes are single-use, so without a route that accepts the
-    /// session cookie a paired phone was one page refresh away from being locked out until somebody
-    /// showed it a new QR code — on a machine that may be in another building.
+    /// A valid code serves the page and sets the session cookie — and because codes are single-use, that
+    /// cookie is what lets a paired phone reload the page rather than be locked out until somebody shows
+    /// it a new QR code.
     /// </summary>
     [Fact]
-    public async Task A_paired_device_can_reload_the_page()
+    public async Task A_valid_code_serves_the_page_and_a_session_cookie_that_can_reload_it()
     {
         var cookies = new CookieContainer();
         using var client = Client(cookies);
-        await client.GetAsync($"{Root}/p/{_pairing.IssuePairingToken()}");
+        var paired = await client.GetAsync($"{Root}/p/{_pairing.IssuePairingToken()}");
+
+        Assert.Equal(HttpStatusCode.OK, paired.StatusCode);
+        Assert.Contains("mTiles dictation", await paired.Content.ReadAsStringAsync());
+        Assert.Contains(cookies.GetCookies(new Uri(Root)).Cast<Cookie>(), c => c.Name == "mtiles_phone");
 
         var reloaded = await client.GetAsync($"{Root}/");
 
@@ -185,22 +176,6 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         Assert.Contains("401", failure.Message);
     }
 
-    [Fact]
-    public async Task Begin_audio_and_end_reach_the_sink_in_order()
-    {
-        using var socket = await ConnectAsync();
-
-        await SendTextAsync(socket, """{"type":"begin","sampleRate":48000}""");
-        await _sink.Began.Task.WaitAsync(Patience);
-        Assert.Equal(48_000, _sink.SampleRate);
-
-        await SendBinaryAsync(socket, [1, 2, 3, 4]);
-        await SendTextAsync(socket, """{"type":"end"}""");
-        await _sink.Ended.Task.WaitAsync(Patience);
-
-        Assert.Equal([1, 2, 3, 4], _sink.Audio);
-    }
-
     /// <summary>The rate sizes a resampling kernel and arrives from the network.</summary>
     [Fact]
     public async Task An_absurd_sample_rate_is_refused_before_the_sink_sees_it()
@@ -215,21 +190,18 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
     }
 
     /// <summary>
-    /// A second <c>begin</c> from a connection that is already recording must not orphan the recording.
+    /// Begin, audio and end reach the sink in order — and a second <c>begin</c> from a connection that is
+    /// already recording does not orphan the recording, which then ran to the five-minute cap with
+    /// nothing able to stop it.
     /// </summary>
-    /// <remarks>
-    /// Assigning the refusal to the ownership flag lost the recording for good: the manager says no
-    /// because it is already recording, the flag went false, and from that moment nothing could stop what
-    /// was running — not <c>end</c>, not <c>cancel</c>, not even disconnecting. It ran to the five-minute
-    /// cap with the tile stuck in "recording".
-    /// </remarks>
     [Fact]
-    public async Task A_repeated_begin_does_not_orphan_the_recording()
+    public async Task Begin_audio_and_end_reach_the_sink_and_a_repeated_begin_does_not_orphan_the_recording()
     {
         using var socket = await ConnectAsync();
 
-        await SendTextAsync(socket, """{"type":"begin","sampleRate":16000}""");
+        await SendTextAsync(socket, """{"type":"begin","sampleRate":48000}""");
         await _sink.Began.Task.WaitAsync(Patience);
+        Assert.Equal(48_000, _sink.SampleRate);
 
         // The second one is refused by the manager in production; here the sink accepts everything, so
         // what is being pinned is the server's own rule: while this connection owns a stream, begin is
@@ -307,7 +279,9 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
     public async Task Rapid_broadcasts_all_arrive_and_keep_their_order()
     {
         using var socket = await ConnectAsync();
-        await ReadUntilAsync(socket, "state");   // the greeting the server sends on connect
+        // The state every connecting device is greeted with, unprompted — and nothing but it precedes
+        // the broadcasts, since those are all "text".
+        await ReadUntilAsync(socket, "state");
 
         const int count = 50;
         for (var i = 0; i < count; i++)
@@ -388,35 +362,17 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
     }
 
     /// <summary>
-    /// A handshake claiming an origin this server never served is refused.
+    /// A handshake claiming an origin this server never served is refused; the page's own is allowed.
     /// </summary>
     /// <remarks>
     /// The cookie is SameSite=Lax, so a browser should withhold it from a cross-site handshake anyway —
     /// but a session cookie is the only thing between a page on another origin and a socket that types
     /// into a terminal, and one string comparison is a cheap second lock.
     /// </remarks>
-    [Fact]
-    public async Task A_socket_from_a_foreign_origin_is_refused()
-    {
-        var token = _pairing.IssuePairingToken();
-        Assert.True(_pairing.TryRedeem(token, "test", out var session));
-
-        var socket = new ClientWebSocket();
-        socket.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
-        socket.Options.Cookies = new CookieContainer();
-        socket.Options.Cookies.Add(new Uri(Root), new Cookie("mtiles_phone", session) { Path = "/" });
-        socket.Options.SetRequestHeader("Origin", "https://attacker.example");
-
-        using var timeout = new CancellationTokenSource(Patience);
-        var failure = await Assert.ThrowsAsync<WebSocketException>(
-            () => socket.ConnectAsync(new Uri($"wss://127.0.0.1:{_port}/ws"), timeout.Token));
-
-        Assert.Contains("403", failure.Message);
-    }
-
-    /// <summary>The page's own origin is, of course, allowed.</summary>
-    [Fact]
-    public async Task A_socket_from_our_own_origin_is_allowed()
+    [Theory]
+    [InlineData("https://attacker.example", false)]
+    [InlineData(null, true)]   // the server's own root
+    public async Task A_socket_is_accepted_only_from_our_own_origin(string? origin, bool allowed)
     {
         var token = _pairing.IssuePairingToken();
         Assert.True(_pairing.TryRedeem(token, "test", out var session));
@@ -425,12 +381,21 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         socket.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
         socket.Options.Cookies = new CookieContainer();
         socket.Options.Cookies.Add(new Uri(Root), new Cookie("mtiles_phone", session) { Path = "/" });
-        socket.Options.SetRequestHeader("Origin", Root);
+        socket.Options.SetRequestHeader("Origin", origin ?? Root);
 
         using var timeout = new CancellationTokenSource(Patience);
-        await socket.ConnectAsync(new Uri($"wss://127.0.0.1:{_port}/ws"), timeout.Token);
+        var connect = socket.ConnectAsync(new Uri($"wss://127.0.0.1:{_port}/ws"), timeout.Token);
 
-        Assert.Equal(WebSocketState.Open, socket.State);
+        if (allowed)
+        {
+            await connect;
+            Assert.Equal(WebSocketState.Open, socket.State);
+        }
+        else
+        {
+            var failure = await Assert.ThrowsAsync<WebSocketException>(() => connect);
+            Assert.Contains("403", failure.Message);
+        }
     }
 
     /// <summary>
@@ -646,43 +611,29 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         Assert.Contains("path=/", cookie, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task A_connecting_device_is_told_the_current_state()
-    {
-        using var socket = await ConnectAsync();
-
-        Assert.Contains("\"state\"", await ReadUntilAsync(socket, "state"));
-    }
-
     // ── the keys ────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The keys the page offers, each reaching the sink as itself.
+    /// The keys the page offers, each reaching the sink as itself and in the order pressed.
     /// </summary>
     /// <remarks>
-    /// Worth spelling out per key rather than testing one: what crosses the wire is a name, and the map
-    /// from that name to a key is the whole of what the transport contributes here. Getting one entry
-    /// wrong sends Up where Enter was pressed, which in an agent's prompt is not a no-op.
+    /// Every key is named: what crosses the wire is a name, and getting one entry of that map wrong sends
+    /// Up where Enter was pressed.
     /// <para>Nothing is begun first, deliberately: the keys answer the prompt an agent is waiting on,
-    /// which happens <em>between</em> utterances. Tying them to stream ownership — the rule <c>end</c>
-    /// and <c>cancel</c> follow — would make them work only while the talk button was held down.</para>
+    /// which happens <em>between</em> utterances, so they must not depend on stream ownership.</para>
     /// </remarks>
-    [Theory]
-    [InlineData("enter")]
-    [InlineData("up")]
-    [InlineData("down")]
-    [InlineData("left")]
-    [InlineData("right")]
-    [InlineData("escape")]
-    public async Task A_key_press_reaches_the_sink(string name)
+    [Fact]
+    public async Task Every_key_press_reaches_the_sink_in_order()
     {
+        string[] names = ["enter", "up", "down", "left", "right", "escape"];
         using var socket = await ConnectAsync();
 
-        await SendTextAsync(socket, $$"""{"type":"key","key":"{{name}}"}""");
+        foreach (var name in names)
+            await SendTextAsync(socket, $$"""{"type":"key","key":"{{name}}"}""");
 
-        await WaitUntilAsync(() => { lock (_sink.Keys) return _sink.Keys.Count == 1; });
+        await WaitUntilAsync(() => { lock (_sink.Keys) return _sink.Keys.Count == names.Length; });
         lock (_sink.Keys)
-            Assert.Equal(name, Assert.Single(_sink.Keys).ToString().ToLowerInvariant());
+            Assert.Equal(names, _sink.Keys.Select(k => k.ToString().ToLowerInvariant()));
     }
 
     /// <summary>A name this build does not know gets no reply at all, and nothing is pressed.</summary>
@@ -742,15 +693,17 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
     /// own wrong kind, because the guard is by exception type and a per-property one would have covered
     /// whichever was remembered.</para>
     /// </remarks>
-    [Theory]
-    [InlineData("""{"type":"key","key":123}""")]
-    [InlineData("""{"type":42}""")]
-    [InlineData("""{"type":"begin","sampleRate":"lots"}""")]
-    public async Task A_value_of_the_wrong_kind_costs_nothing(string json)
+    [Fact]
+    public async Task A_value_of_the_wrong_kind_costs_nothing()
     {
         using var socket = await ConnectAsync();
 
-        await SendTextAsync(socket, json);
+        foreach (var json in (string[])[
+            """{"type":"key","key":123}""",
+            """{"type":42}""",
+            """{"type":"begin","sampleRate":"lots"}""",
+        ])
+            await SendTextAsync(socket, json);
 
         // Still open, still listening: a key sent afterwards arrives, which it cannot do on a socket
         // Kestrel has dropped.
@@ -1020,36 +973,5 @@ public sealed class PhoneBridgeServerTests(PhoneCertificateFixture certificate)
         public string DescribeActions() =>
             PhoneTileActions.Describe("Terminal #1",
                 [new TileAction("refresh", "Refresh", "refresh")]);
-    }
-}
-
-/// <summary>
-/// One certificate, generated once and shared by every test in the class.
-/// </summary>
-/// <remarks>
-/// Minting an RSA key takes the better part of a second, the names asked for are always the same two, and
-/// there were thirty tests each asking for its own — twenty seconds of the suite spent generating copies
-/// of one certificate. Nothing mutates it and the server only ever reads it, so one will do. What is
-/// deliberately <em>not</em> shared is the server, the pairing and the sink: a test in here revokes
-/// pairings, fills the connection table and counts cancellations, so isolation there is load-bearing.
-/// </remarks>
-public sealed class PhoneCertificateFixture : IDisposable
-{
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "mtiles-phone-tests-" + Guid.NewGuid().ToString("N"));
-
-    internal PhoneTlsMaterial Tls { get; }
-
-    public PhoneCertificateFixture()
-    {
-        var certificate = new SelfSignedCertificateSource(_directory).TryGet(["localhost", "127.0.0.1"]);
-        Assert.NotNull(certificate);
-        Tls = new PhoneTlsMaterial([certificate]);
-    }
-
-    public void Dispose()
-    {
-        Tls.Dispose();                                       // and with it the certificate's key handle
-        try { Directory.Delete(_directory, true); } catch { }
     }
 }

@@ -1,3 +1,4 @@
+using mTiles.Models;
 using Xunit;
 using mTiles.Services;
 
@@ -10,35 +11,33 @@ namespace mTiles.Tests;
 /// </summary>
 public sealed class WorkspaceGitWatcherTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(
-        Path.GetTempPath(), "mtiles-watch-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _temp = new("mtiles-watch");
 
-    public WorkspaceGitWatcherTests()
-    {
-        Directory.CreateDirectory(_dir);
-        // GitDirectoryWatcher watches the working tree only once there is a repository beside it.
-        Directory.CreateDirectory(Path.Combine(_dir, ".git"));
-    }
+    private string Dir => _temp.Path;
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { /* a watcher may still hold it */ }
-    }
+    // GitDirectoryWatcher watches the working tree only once there is a repository beside it.
+    public WorkspaceGitWatcherTests() => Directory.CreateDirectory(_temp[".git"]);
+
+    public void Dispose() => _temp.Dispose();
 
     /// <summary>Long enough for the notification's own debounce plus a slow file system.</summary>
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
 
+    /// <summary>How long to wait before asserting that nothing was heard: well past the debounce, and
+    /// short, because a negative is settled by the first quiet moment.</summary>
+    private static TimeSpan Quiet => TimeSpan.FromMilliseconds(AppDefaults.WatcherDebounceMs * 6);
+
     private static bool Wait(CountdownEvent signal) => signal.Wait(Patience);
 
     private void Touch(string name) =>
-        File.WriteAllText(Path.Combine(_dir, name), Guid.NewGuid().ToString());
+        File.WriteAllText(Path.Combine(Dir, name), Guid.NewGuid().ToString());
 
     /// <summary>A watcher over the test's own directory, told what git ignores rather than asking it.
     /// The default source is git itself, and a temporary folder with an empty <c>.git</c> in it is not
     /// a repository — the point being pinned here is what the watcher does with the answer, not how it
     /// gets one.</summary>
     private WorkspaceGitWatcher Watching(params string[] ignoredDirs) =>
-        new(_dir, new StubIgnoredDirectories(ignoredDirs));
+        new(Dir, new StubIgnoredDirectories(ignoredDirs));
 
     private sealed class StubIgnoredDirectories(IEnumerable<string> dirs) : IIgnoredDirectorySource
     {
@@ -105,7 +104,7 @@ public sealed class WorkspaceGitWatcherTests : IDisposable
     [Fact]
     public void An_ignored_directory_stops_being_ignored_when_its_subscriber_goes()
     {
-        var ignoredDir = Path.Combine(_dir, "ignored");
+        var ignoredDir = Path.Combine(Dir, "ignored");
         Directory.CreateDirectory(ignoredDir);
 
         using var watcher = Watching();
@@ -130,7 +129,7 @@ public sealed class WorkspaceGitWatcherTests : IDisposable
     [Fact]
     public void An_ignored_directory_is_quiet_even_when_no_subscriber_supplies_one()
     {
-        var ignoredDir = Path.Combine(_dir, "obj");
+        var ignoredDir = Path.Combine(Dir, "obj");
         Directory.CreateDirectory(ignoredDir);
 
         using var watcher = Watching(ignoredDir);
@@ -139,14 +138,14 @@ public sealed class WorkspaceGitWatcherTests : IDisposable
 
         using var subscription = watcher.Subscribe(() =>
         {
-            if (!File.Exists(Path.Combine(_dir, "f.txt"))) heardAboutIgnored = true;
+            if (!File.Exists(Path.Combine(Dir, "f.txt"))) heardAboutIgnored = true;
             else if (!heardAboutTheRest.IsSet) heardAboutTheRest.Signal();
         });
 
         // The answer is fetched off the subscription, so give it a moment to land before writing.
-        Thread.Sleep(1000);
+        Thread.Sleep(Quiet);
         File.WriteAllText(Path.Combine(ignoredDir, "build.tmp"), "x");
-        Thread.Sleep(1500);
+        Thread.Sleep(Quiet);
 
         Assert.False(heardAboutIgnored, "a write into an ignored directory is not a change to report");
 
@@ -163,7 +162,7 @@ public sealed class WorkspaceGitWatcherTests : IDisposable
     [Fact]
     public void A_workspace_that_becomes_a_repository_starts_being_watched()
     {
-        var notYetARepository = Path.Combine(_dir, "later");
+        var notYetARepository = Path.Combine(Dir, "later");
         Directory.CreateDirectory(notYetARepository);
 
         using var watcher = new WorkspaceGitWatcher(
@@ -174,11 +173,12 @@ public sealed class WorkspaceGitWatcherTests : IDisposable
         Directory.CreateDirectory(Path.Combine(notYetARepository, ".git"));
 
         // The repository appeared before anything was watching, so it raises nothing by itself: what is
-        // being pinned is that the change *after* it is heard. Long enough for the poll to come round.
-        Thread.Sleep(TimeSpan.FromSeconds(8));
-        File.WriteAllText(Path.Combine(notYetARepository, "g.txt"), "x");
+        // being pinned is that a change *after* it is heard, once the poll has come round.
+        var deadline = DateTime.UtcNow + Patience;
+        do File.WriteAllText(Path.Combine(notYetARepository, "g.txt"), Guid.NewGuid().ToString());
+        while (!heard.Wait(WorkspaceGitWatcher.RepositoryPollInterval) && DateTime.UtcNow < deadline);
 
-        Assert.True(Wait(heard), "the watch should have started once the repository appeared");
+        Assert.True(heard.IsSet, "the watch should have started once the repository appeared");
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public sealed class WorkspaceGitWatcherTests : IDisposable
 
         watcher.Dispose();
         Touch("e.txt");
-        Thread.Sleep(1500);
+        Thread.Sleep(Quiet);
 
         Assert.False(called);
 

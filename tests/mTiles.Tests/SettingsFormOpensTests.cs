@@ -27,7 +27,7 @@ public sealed class SettingsFormOpensTests
     [InlineData("agent")]
     [InlineData("provider")]
     [InlineData("sign-in")]
-    public void Adding_an_entry_opens_its_form(string what) => OnUiThread(() =>
+    public void Adding_an_entry_opens_its_form(string what) => Ui.Run(() =>
     {
         using var settings = new TempSettings();
         using var appData = new TempAppData();
@@ -52,10 +52,4 @@ public sealed class SettingsFormOpensTests
         window.Close();
     });
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(SettingsFormOpensTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

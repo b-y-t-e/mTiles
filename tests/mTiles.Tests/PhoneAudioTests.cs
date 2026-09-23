@@ -195,7 +195,7 @@ public class PhoneAudioTests
     [Fact]
     public void An_armed_route_makes_the_router_available_without_local_audio()
     {
-        var router = new RoutedAudioCapture(new SilentCapture(available: false), new PhoneAudioCapture());
+        var router = new RoutedAudioCapture(new IdleMicrophone { IsAvailable = false }, new PhoneAudioCapture());
 
         Assert.False(router.IsAvailable);
 
@@ -209,7 +209,7 @@ public class PhoneAudioTests
     [Fact]
     public void Cancelling_the_route_gives_the_microphone_back()
     {
-        var local = new FakeCapture();
+        var local = new FakeMicrophone();
         var router = new RoutedAudioCapture(local, new PhoneAudioCapture());
 
         router.Phone.PrepareForStream(16_000);
@@ -222,27 +222,10 @@ public class PhoneAudioTests
         Assert.False(router.IsRecordingFromPhone);
     }
 
-    /// <summary>A capture that is present but records nothing, or reports itself absent.</summary>
-    private sealed class SilentCapture(bool available = true) : IAudioCapture
-    {
-        public bool IsAvailable => available;
-        public bool IsRecording => false;
-
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["silent"];
-
-        public void Start(string deviceName) { }
-
-        public IRecordingHandle? Detach() => null;
-
-        public float[] Finish(IRecordingHandle? recording) => [];
-
-        public void Dispose() { }
-    }
-
     [Fact]
     public void Without_a_route_the_local_microphone_is_used()
     {
-        var local = new FakeCapture();
+        var local = new FakeMicrophone();
         var router = new RoutedAudioCapture(local, new PhoneAudioCapture());
 
         router.Start("default");
@@ -254,7 +237,7 @@ public class PhoneAudioTests
     [Fact]
     public void A_route_sends_one_recording_to_the_phone_and_then_lapses()
     {
-        var local = new FakeCapture();
+        var local = new FakeMicrophone();
         var phone = new PhoneAudioCapture();
         var router = new RoutedAudioCapture(local, phone);
 
@@ -281,7 +264,7 @@ public class PhoneAudioTests
     [Fact]
     public void A_recording_is_finished_by_the_backend_that_started_it()
     {
-        var local = new FakeCapture([0.25f, 0.5f]);
+        var local = new FakeMicrophone { Samples = [0.25f, 0.5f] };
         var phone = new PhoneAudioCapture();
         var router = new RoutedAudioCapture(local, phone);
 
@@ -296,36 +279,5 @@ public class PhoneAudioTests
         var samples = router.Finish(localHandle);
 
         Assert.Equal([0.25f, 0.5f], samples);
-    }
-
-    private sealed class FakeCapture(float[]? samples = null) : IAudioCapture
-    {
-        private readonly float[] _samples = samples ?? [];
-
-        public bool Started { get; private set; }
-        public bool IsAvailable => true;
-        public bool IsRecording { get; private set; }
-
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["default"];
-
-        public void Start(string deviceName)
-        {
-            Started = true;
-            IsRecording = true;
-        }
-
-        public IRecordingHandle? Detach()
-        {
-            if (!IsRecording) return null;
-            IsRecording = false;
-            return new Handle(_samples);
-        }
-
-        public float[] Finish(IRecordingHandle? recording) =>
-            recording is Handle handle ? handle.Samples : [];
-
-        public void Dispose() { }
-
-        private sealed record Handle(float[] Samples) : IRecordingHandle;
     }
 }

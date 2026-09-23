@@ -8,33 +8,37 @@ namespace mTiles.Tests;
 /// </summary>
 public class GoalScopeFilterTests
 {
-    [Fact]
-    public void A_completed_mention_is_read_back_as_its_path()
+    /// <summary>
+    /// Which <c>@</c> tokens the composer's words carry, in order and once each; what a token names is
+    /// the filesystem's answer and then git's, not this class's.
+    /// </summary>
+    [Theory]
+    [InlineData("skup sie tylko na @src/Cart.cs", "src/Cart.cs")]
+    // The quoted spelling a completion writes for a path with spaces in it.
+    [InlineData("review @\"docs/my notes.md\" first", "docs/my notes.md")]
+    // An @ inside a word is prose.
+    [InlineData("write me at someone@example.com about this", "")]
+    [InlineData("@src/A.cs and @src/B.cs, mainly @src/A.cs.", "src/A.cs|src/B.cs")]
+    // A trailing slash is how a folder is typed, not part of its name.
+    [InlineData("tylko @src/Agents/", "src/Agents")]
+    // No slash and no dot is still a mention: a folder is spelled exactly like a word.
+    [InlineData("popraw @frontend", "frontend")]
+    [InlineData("sprawdz @HEAD~1", "HEAD~1")]
+    [InlineData("ping @admin about the failure", "admin")]
+    [InlineData("see @notes.md", "notes.md")]
+    // A trailing range separator survives the sentence trim — exactly two dots, never the run.
+    [InlineData("popraw formularz @master..", "master..")]
+    [InlineData("popraw formularz @master..HEAD", "master..HEAD")]
+    [InlineData("sprawdz @master...", "master..")]
+    [InlineData("sprawdz @master.., potem reszte", "master..")]
+    // An ordinary sentence still loses its full stop.
+    [InlineData("zobacz @src/Cart.cs.", "src/Cart.cs")]
+    [InlineData("od @v1.2.", "v1.2")]
+    public void The_mentions_are_the_at_tokens_the_words_carry(string text, string expected)
     {
-        Assert.Equal(["src/Cart.cs"],
-            GoalScopeFilter.Mentions("skup sie tylko na @src/Cart.cs"));
-    }
+        string[] paths = expected.Length == 0 ? [] : expected.Split('|');
 
-    [Fact]
-    public void A_quoted_mention_is_read_whatever_spaces_it_carries()
-    {
-        // The quoted spelling is what a completion writes for a path with whitespace in it, and the
-        // spaces are the whole reason the quotes exist.
-        Assert.Equal(["docs/my notes.md"],
-            GoalScopeFilter.Mentions("review @\"docs/my notes.md\" first"));
-    }
-
-    [Fact]
-    public void An_at_inside_a_word_is_prose_not_a_mention()
-    {
-        Assert.Empty(GoalScopeFilter.Mentions("write me at someone@example.com about this"));
-    }
-
-    [Fact]
-    public void Several_mentions_are_all_read_and_deduplicated()
-    {
-        Assert.Equal(["src/A.cs", "src/B.cs"],
-            GoalScopeFilter.Mentions("@src/A.cs and @src/B.cs, mainly @src/A.cs."));
+        Assert.Equal(paths, GoalScopeFilter.Mentions(text));
     }
 
     [Fact]
@@ -43,51 +47,7 @@ public class GoalScopeFilterTests
         Assert.True(GoalScopeFilter.Matches("src/Agents/X.cs", ["src/Agents"]));
         Assert.True(GoalScopeFilter.Matches("src/Agents", ["src/Agents"]));
         Assert.False(GoalScopeFilter.Matches("src/Cart.cs", ["src/Agents"]));
-    }
-
-    [Fact]
-    public void A_trailing_slash_is_how_a_folder_is_typed_not_part_of_its_name()
-    {
-        // "@src/Agents/" — the way a half-typed folder mention ends — must scope the folder, not a
-        // directory whose name ends in a slash, which matches nothing at all.
-        Assert.Equal(["src/Agents"], GoalScopeFilter.Mentions("tylko @src/Agents/"));
         Assert.True(GoalScopeFilter.Matches("src/Agents/X.cs", GoalScopeFilter.Mentions("tylko @src/Agents/")));
-    }
-
-    [Fact]
-    public void A_token_with_no_slash_and_no_dot_is_still_a_mention()
-    {
-        // A folder is the commonest thing anybody points at and is spelled exactly like a word, so a
-        // syntax rule here dropped "@frontend" before the filesystem was ever asked: the tree was read
-        // unnarrowed, and in a repository with a branch of that name the token went on to be resolved
-        // as a commit instead. What a token names is the filesystem's answer and then git's — this
-        // class only says which words carry an "@".
-        Assert.Equal(["frontend"], GoalScopeFilter.Mentions("popraw @frontend"));
-        Assert.Equal(["HEAD~1"], GoalScopeFilter.Mentions("sprawdz @HEAD~1"));
-        Assert.Equal(["admin"], GoalScopeFilter.Mentions("ping @admin about the failure"));
-        Assert.Equal(["notes.md"], GoalScopeFilter.Mentions("see @notes.md"));
-    }
-
-    [Fact]
-    public void A_trailing_range_separator_survives_the_sentence_trim()
-    {
-        // "@master.." is the one documented way to name a branch called after an ordinary word:
-        // GoalScopeRef refuses the bare token, because "master", "admin" and "release" are words as
-        // often as they are branches. Trimmed with the sentence punctuation it came back as exactly
-        // that bare word, so the scope never formed and the tree was read from HEAD in silence —
-        // while "@master..HEAD" escaped only because a letter happens to end it.
-        Assert.Equal(["master.."], GoalScopeFilter.Mentions("popraw formularz @master.."));
-        Assert.Equal(["master..HEAD"], GoalScopeFilter.Mentions("popraw formularz @master..HEAD"));
-
-        // Exactly two go back, never the whole run. A third dot is the sentence's, and three of them
-        // are a symmetric difference this tile does not answer.
-        Assert.Equal(["master.."], GoalScopeFilter.Mentions("sprawdz @master..."));
-        Assert.Equal(["master.."], GoalScopeFilter.Mentions("sprawdz @master.., potem reszte"));
-
-        // And an ordinary sentence still loses its full stop: what follows the cut is one dot, not a
-        // separator.
-        Assert.Equal(["src/Cart.cs"], GoalScopeFilter.Mentions("zobacz @src/Cart.cs."));
-        Assert.Equal(["v1.2"], GoalScopeFilter.Mentions("od @v1.2."));
     }
 
     private const string Diff =

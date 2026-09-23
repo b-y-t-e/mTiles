@@ -21,16 +21,10 @@ namespace mTiles.Tests;
 public sealed class StoredAgentNamesTests
 {
     [Fact]
-    public void The_terminal_agent_kind_is_still_stored_as_agent() =>
-        Assert.Equal("agent", TileKindIds.TerminalAgent);
-
-    [Fact]
-    public void The_conversation_kind_is_still_stored_as_agent_conversation() =>
-        Assert.Equal("agent-conversation", TileKindIds.AgentConversation);
-
-    [Fact]
-    public void The_state_keys_keep_the_names_they_were_written_under()
+    public void The_kinds_and_state_keys_keep_the_names_they_were_written_under()
     {
+        Assert.Equal("agent", TileKindIds.TerminalAgent);
+        Assert.Equal("agent-conversation", TileKindIds.AgentConversation);
         Assert.Equal("agentInstanceId", AgentStateKeys.InstanceIdKey);
         Assert.Equal("agentId", AgentStateKeys.AgentIdKey);
         Assert.Equal("shellName", AgentStateKeys.ShellNameKey);

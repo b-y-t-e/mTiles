@@ -61,7 +61,7 @@ public class ComposerHistoryInputTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static void InWindow(Action<Window, TextBox> body) => OnUiThread(() =>
+    private static void InWindow(Action<Window, TextBox> body) => Ui.Run(() =>
     {
         // Control templates on the application: without a theme a TextBox has no presenter and edits nothing.
         var app = Avalonia.Application.Current!;
@@ -83,10 +83,4 @@ public class ComposerHistoryInputTests
         }
     });
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(ComposerHistoryInputTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

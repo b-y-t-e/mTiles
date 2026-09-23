@@ -29,18 +29,12 @@ public class FoldRailTests
     [Fact]
     public void A_patch_and_a_command_are_both_folded_by_a_rail_wide_enough_to_hit()
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(FoldRailTests).Assembly);
-        session.Dispatch(() =>
+        Ui.Run(() =>
         {
             using var settings = new TempSettings();
-            var agent = AiAgentCatalog.Find("claude")!;
-            var instance = AiAgentCatalog.SeedInstanceFor(agent);
-            instance.ApiAccountId = "no-such-account";
+            var instance = AiAgentCatalog.SeedInstanceFor(AiAgentCatalog.Find("claude")!);
             instance.MaxContextTokens = 200_000;
-            var vm = new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
-                new mTiles.AgentSessions.Storage.SqliteConversationStore(
-                    Path.Combine(Path.GetTempPath(), $"mtiles-rail-{Guid.NewGuid():N}.db")),
-                instance, agent, () => "tile", post: action => action());
+            var vm = ConversationTiles.New(settings, instance);
 
             var state = ConversationReducer.Replay(
             [
@@ -50,15 +44,7 @@ public class FoldRailTests
             ]);
 
             var view = new AgentConversationTileView { DataContext = vm };
-            var app = Avalonia.Application.Current!;
-            var theme = new Avalonia.Themes.Fluent.FluentTheme();
-            var tokens = new ResourceInclude(new Uri("avares://mTiles/Styles/"))
-                { Source = new Uri("avares://mTiles/Styles/AppTheme.axaml") };
-            var pickers = new StyleInclude(new Uri("avares://mTiles.Controls/Themes/"))
-                { Source = new Uri("avares://mTiles.Controls/Themes/Picker.axaml") };
-            app.Styles.Add(theme);
-            app.Styles.Add(pickers);
-            app.Resources.MergedDictionaries.Add(tokens);
+            using var theme = new HeadlessTheme();
             // Deliberately no TerminalFontFamily and no TermFontBase: they are written into the
             // application's resources at startup by App.ApplyFontResources, and neither the XAML
             // previewer nor a view hosted on its own ever reaches that. The rail has to be wide
@@ -68,15 +54,10 @@ public class FoldRailTests
             try
             {
                 window.Show();
-                var deadline = DateTime.UtcNow.AddSeconds(10);
-                while (vm.IsStarting && DateTime.UtcNow < deadline)
-                {
-                    Dispatcher.UIThread.RunJobs();
-                    Thread.Sleep(10);
-                }
+                HeadlessTheme.PumpWhile(() => vm.IsStarting);
 
                 vm.Draw(state);
-                Layout();
+                HeadlessTheme.Layout(window);
 
                 // Both blocks open: the command's output, and the file's patch under the turn's summary.
                 vm.Timeline.OfType<WorkGroupItemViewModel>().Single().ToggleCommand.Execute(null);
@@ -91,7 +72,7 @@ public class FoldRailTests
                 turn.ToggleDiffCommand.Execute(null);
                 var file = turn.Files.Single();
                 file.IsExpanded = true;
-                Layout();
+                HeadlessTheme.Layout(window);
 
                 var rails = view.GetVisualDescendants().OfType<Button>()
                     .Where(b => b.Classes.Contains("diff-rail") && b.IsVisible).ToList();
@@ -107,28 +88,14 @@ public class FoldRailTests
 
                 // And it folds what it stands beside.
                 rails[0].Command!.Execute(rails[0].CommandParameter);
-                Layout();
+                HeadlessTheme.Layout(window);
                 Assert.False(group.Items.OfType<ToolCallItemViewModel>().Single().IsExpanded);
             }
             finally
             {
                 window.Close();
                 vm.Dispose();
-                app.Styles.Remove(pickers);
-                app.Styles.Remove(theme);
-                app.Resources.MergedDictionaries.Remove(tokens);
             }
-
-            return Task.FromResult(true);
-
-            void Layout()
-            {
-                for (var pass = 0; pass < 3; pass++)
-                {
-                    Dispatcher.UIThread.RunJobs();
-                    window.UpdateLayout();
-                }
-            }
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        });
     }
 }

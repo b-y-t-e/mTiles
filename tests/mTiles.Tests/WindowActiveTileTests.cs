@@ -1,6 +1,5 @@
 using Avalonia.Headless;
 using mTiles.Models;
-using mTiles.Services;
 using mTiles.ViewModels;
 using Xunit;
 
@@ -19,39 +18,14 @@ namespace mTiles.Tests;
 /// </remarks>
 public class WindowActiveTileTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _dir = new("mtiles-window-active");
 
-    public WindowActiveTileTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() => _dir.Dispose();
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
-        GC.SuppressFinalize(this);
-    }
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WindowActiveTileTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
-    private MainWindowViewModel Window(TempAppData appData)
-    {
-        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
-        workspaces.AddWorkspace(Path.Combine(_dir, "first"), "First");
-        workspaces.AddWorkspace(Path.Combine(_dir, "second"), "Second");
-
-        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-        return new MainWindowViewModel(workspaces, new PersistenceService(Path.Combine(_dir, "layouts")),
-            settings, TestTiles.Catalog(settings),
-            windowCatalog: panel => mTiles.App.BuildWindowTileCatalog(
-                new AiUsageService(settings, sources: _ => []), panel),
-            windowPersistence: new PersistenceService(Path.Combine(appData.Root, "window")));
-    }
+    private MainWindowViewModel Window(TempAppData appData) => TestMainWindow.Create(_dir.Path, appData);
 
     [Fact]
-    public void The_keyboard_is_at_whichever_level_was_last_touched() => OnUiThread(() =>
+    public void The_keyboard_is_at_whichever_level_was_last_touched() => Ui.Run(() =>
     {
         using var appData = new TempAppData();
         var window = Window(appData);
@@ -90,7 +64,7 @@ public class WindowActiveTileTests : IDisposable
     /// <remarks>The rule the workspace already follows for its own tiles: falling back to some other tile
     /// sends the next dictated sentence somewhere nobody chose.</remarks>
     [Fact]
-    public void A_closed_window_tile_does_not_hand_the_keyboard_to_a_terminal() => OnUiThread(() =>
+    public void A_closed_window_tile_does_not_hand_the_keyboard_to_a_terminal() => Ui.Run(() =>
     {
         using var appData = new TempAppData();
         var window = Window(appData);
@@ -115,7 +89,7 @@ public class WindowActiveTileTests : IDisposable
 
     /// <summary>Choosing a workspace is choosing to work in it.</summary>
     [Fact]
-    public void Switching_workspace_takes_the_keyboard_back_from_the_window() => OnUiThread(() =>
+    public void Switching_workspace_takes_the_keyboard_back_from_the_window() => Ui.Run(() =>
     {
         using var appData = new TempAppData();
         var window = Window(appData);
@@ -128,8 +102,9 @@ public class WindowActiveTileTests : IDisposable
             Assert.Same(note, window.ActiveTile);
 
             window.WorkspacesPanel.SelectedWorkspace = window.WorkspacesPanel.Workspaces[1];
-            // Before any tile in it is touched: the note no longer speaks for the window.
+            // Before any tile in it is touched: the note no longer speaks for the window, nor wears the outline.
             Assert.NotSame(note, window.ActiveTile);
+            Assert.False(note.IsActive);
 
             var second = Assert.IsType<LeafTileNodeViewModel>(window.CurrentWorkspace!.RootTile);
             second.Activate();
@@ -146,7 +121,7 @@ public class WindowActiveTileTests : IDisposable
     /// <summary>A workspace saved while a window tile has the keyboard still names the tile it was left on.
     /// </summary>
     [Fact]
-    public void A_workspace_saved_while_a_window_tile_has_the_keyboard_keeps_its_active_tile() => OnUiThread(() =>
+    public void A_workspace_saved_while_a_window_tile_has_the_keyboard_keeps_its_active_tile() => Ui.Run(() =>
     {
         using var appData = new TempAppData();
         var window = Window(appData);
@@ -163,30 +138,6 @@ public class WindowActiveTileTests : IDisposable
             Assert.False(terminal.IsActive);
             Assert.Same(terminal, workspace.ActivationScope.LastActivated);
             Assert.True(workspace.ActiveTile == terminal);
-        }
-        finally
-        {
-            window.DisposeAll();
-        }
-    });
-
-    /// <summary>Choosing a workspace takes the outline off the window tile, even before anything in the
-    /// workspace is activated.</summary>
-    [Fact]
-    public void Switching_workspace_takes_the_outline_off_the_window_tile() => OnUiThread(() =>
-    {
-        using var appData = new TempAppData();
-        var window = Window(appData);
-        try
-        {
-            window.WorkspacesPanel.SelectedWorkspace = window.WorkspacesPanel.Workspaces[0];
-            window.WindowLayout!.AddTile(TileKindIds.Note);
-            var note = TileTreeEdits.LeavesOf(window.WindowLayout!.RootTile).Single(t => t.KindId == TileKindIds.Note);
-            note.Activate();
-
-            window.WorkspacesPanel.SelectedWorkspace = window.WorkspacesPanel.Workspaces[1];
-
-            Assert.False(note.IsActive);
         }
         finally
         {

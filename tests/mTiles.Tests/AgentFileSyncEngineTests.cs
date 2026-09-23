@@ -41,7 +41,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         while (DateTime.UtcNow < deadline)
         {
             if (condition()) return;
-            await Task.Delay(50);
+            await Task.Delay(10);
         }
         Assert.True(condition(), "Condition was not met within the timeout.");
     }
@@ -62,12 +62,12 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         {
             try
             {
-                File.WriteAllText(path, content);
+                TestFiles.WriteWhenFree(path, content);
                 return;
             }
             catch (IOException) when (DateTime.UtcNow < deadline)
             {
-                await Task.Delay(50);
+                await Task.Delay(10);
             }
         }
     }
@@ -78,18 +78,19 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task A_file_that_was_locked_for_a_moment_is_still_mirrored()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
         var held = new FileStream(Agents, FileMode.Open, FileAccess.Read, FileShare.None);
         try
         {
-            File.WriteAllText(Claude, "two");
-            // Long enough for the debounce to fire and find AGENTS.md unreadable at least once. The
-            // handle denies every kind of sharing, so the mirror cannot have run while it was held.
-            await Task.Delay(700);
+            TestFiles.WriteWhenFree(Claude, "two");
+            // Long enough for the debounce to fire and find AGENTS.md unreadable at least once, and
+            // short of the five retries the engine allows itself. The handle denies every kind of
+            // sharing, so the mirror cannot have run while it was held.
+            await Task.Delay(AppDefaults.WatcherDebounceMs * 3);
         }
         finally
         {
@@ -108,8 +109,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task A_restarted_engine_gets_its_own_budget_of_attempts()
     {
-        File.WriteAllText(Agents, "one");
-        File.WriteAllText(Claude, "two");
+        TestFiles.WriteWhenFree(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "two");
         // Named rather than left to the clock: with both files changed against an empty cache the
         // newest wins, and two writes a millisecond apart do not say which that is.
         File.SetLastWriteTimeUtc(Claude, DateTime.UtcNow.AddSeconds(5));
@@ -133,30 +134,18 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Editing_claude_md_mirrors_into_agents_md()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
-        File.WriteAllText(Claude, "two");
+        TestFiles.WriteWhenFree(Claude, "two");
 
         await WaitUntilAsync(() => File.Exists(Agents) && File.ReadAllText(Agents) == "two");
     }
 
-    [Fact]
-    public async Task Editing_agents_md_mirrors_into_claude_md()
-    {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
-        _engine = new AgentFileSyncEngine(_dir);
-        await _engine.StartAsync();
-
-        File.WriteAllText(Agents, "two");
-
-        await WaitUntilAsync(() => File.Exists(Claude) && File.ReadAllText(Claude) == "two");
-    }
-
-    /// <summary>An edit that lands on the same last-write time as the previous one is still an edit.
+    /// <summary>An edit to AGENTS.md crosses into CLAUDE.md even when it lands on the same last-write
+    /// time as the previous one.
     /// The mtime is only as fine as the clock stamping it — two consecutive writes to one file share
     /// it about half the time on this machine — so a checkout or a formatter rewriting a file within
     /// one tick used to be read as this engine's own output and thrown away, leaving the two sides
@@ -165,13 +154,13 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task An_edit_sharing_the_previous_writes_mtime_still_crosses()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         var stamp = File.GetLastWriteTimeUtc(Agents);
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
-        File.WriteAllText(Agents, "two");
+        TestFiles.WriteWhenFree(Agents, "two");
         File.SetLastWriteTimeUtc(Agents, stamp); // exactly what the engine cached at seeding
 
         await WaitUntilAsync(() => File.ReadAllText(Claude) == "two");
@@ -180,8 +169,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Deleting_one_file_recreates_it_from_the_other()
     {
-        File.WriteAllText(Claude, "keep me");
-        File.WriteAllText(Agents, "keep me");
+        TestFiles.WriteWhenFree(Claude, "keep me");
+        TestFiles.WriteWhenFree(Agents, "keep me");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
@@ -193,16 +182,16 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Deleting_both_does_not_crash_and_a_later_creation_reseeds_the_mirror()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
         File.Delete(Claude);
         File.Delete(Agents);
-        await Task.Delay(600); // let the delete events settle without either file existing
+        await Task.Delay(AppDefaults.WatcherDebounceMs * 4); // let the delete events settle without either file existing
 
-        File.WriteAllText(Claude, "reborn");
+        TestFiles.WriteWhenFree(Claude, "reborn");
 
         await WaitUntilAsync(() => File.Exists(Agents) && File.ReadAllText(Agents) == "reborn");
     }
@@ -210,12 +199,12 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task A_disabled_engine_never_mirrors()
     {
-        File.WriteAllText(Claude, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
         _engine = new AgentFileSyncEngine(_dir);
         // Never started.
 
-        File.WriteAllText(Claude, "two");
-        await Task.Delay(600);
+        TestFiles.WriteWhenFree(Claude, "two");
+        await Task.Delay(AppDefaults.WatcherDebounceMs * 4);
 
         Assert.False(File.Exists(Agents));
     }
@@ -227,8 +216,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Starting_on_files_that_drifted_apart_while_nothing_watched_propagates_the_newer_one()
     {
-        File.WriteAllText(Agents, "from the pull");
-        File.WriteAllText(Claude, "stale");
+        TestFiles.WriteWhenFree(Agents, "from the pull");
+        TestFiles.WriteWhenFree(Claude, "stale");
         File.SetLastWriteTimeUtc(Claude, DateTime.UtcNow.AddMinutes(-5));
 
         _engine = new AgentFileSyncEngine(_dir);
@@ -242,7 +231,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Starting_with_only_one_of_the_two_present_seeds_the_other()
     {
-        File.WriteAllText(Claude, "only this one");
+        TestFiles.WriteWhenFree(Claude, "only this one");
 
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
@@ -253,14 +242,14 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Stopping_and_restarting_reseeds_from_disk_rather_than_trusting_stale_state()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
         _engine.Stop();
 
         // Changed while stopped — nothing should have seen this.
-        File.WriteAllText(Claude, "changed while stopped");
+        TestFiles.WriteWhenFree(Claude, "changed while stopped");
 
         // And it is said outright which one that makes newer, rather than left to the clock. The
         // restart's reconcile settles a disagreement by mtime, and all three writes above can land
@@ -279,7 +268,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         await WaitUntilAsync(() => File.ReadAllText(Agents) == "changed while stopped");
 
         // And the mirror is live again afterwards, which is the other half.
-        File.WriteAllText(Agents, "after restart");
+        TestFiles.WriteWhenFree(Agents, "after restart");
         await WaitUntilAsync(() => File.ReadAllText(Claude) == "after restart");
     }
 
@@ -289,8 +278,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Stopping_during_a_start_leaves_nothing_watching()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
 
         var starting = _engine.StartAsync();
@@ -299,8 +288,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
 
         Assert.False(_engine.IsRunning);
 
-        File.WriteAllText(Claude, "two");
-        await Task.Delay(600);
+        TestFiles.WriteWhenFree(Claude, "two");
+        await Task.Delay(AppDefaults.WatcherDebounceMs * 4);
 
         Assert.Equal("one", File.ReadAllText(Agents));
     }
@@ -310,8 +299,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Starting_with_an_authoritative_file_overwrites_the_other_whatever_the_mtimes_say()
     {
-        File.WriteAllText(Claude, "the one the user picked");
-        File.WriteAllText(Agents, "newer but not chosen");
+        TestFiles.WriteWhenFree(Claude, "the one the user picked");
+        TestFiles.WriteWhenFree(Agents, "newer but not chosen");
         File.SetLastWriteTimeUtc(Claude, DateTime.UtcNow.AddMinutes(-5));
 
         _engine = new AgentFileSyncEngine(_dir);
@@ -326,8 +315,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task Seeding_over_a_file_that_disagreed_keeps_a_copy_of_what_it_replaced()
     {
-        File.WriteAllText(Claude, "the one the user picked");
-        File.WriteAllText(Agents, "hours of uncommitted work");
+        TestFiles.WriteWhenFree(Claude, "the one the user picked");
+        TestFiles.WriteWhenFree(Agents, "hours of uncommitted work");
 
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync(AgentFileSyncEngine.ClaudeFileName);
@@ -336,7 +325,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         var backup = Assert.Single(Directory.GetFiles(_dir, "AGENTS.md.pre-sync-*"));
         Assert.Equal("hours of uncommitted work", File.ReadAllText(backup));
 
-        File.WriteAllText(Claude, "an ordinary later edit");
+        TestFiles.WriteWhenFree(Claude, "an ordinary later edit");
         await WaitUntilAsync(() => File.ReadAllText(Agents) == "an ordinary later edit");
         Assert.Single(Directory.GetFiles(_dir, "*.pre-sync-*"));
     }
@@ -349,8 +338,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task An_answer_arriving_for_a_live_mirror_is_not_overruled_by_a_queued_reconcile()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
@@ -358,8 +347,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         {
             // An external edit on each side, the second one newer — so a reconcile deciding by mtime
             // alone would carry AGENTS.md over the file named below.
-            File.WriteAllText(Claude, $"the user's answer {round}");
-            File.WriteAllText(Agents, $"the side that must not win {round}");
+            TestFiles.WriteWhenFree(Claude, $"the user's answer {round}");
+            TestFiles.WriteWhenFree(Agents, $"the side that must not win {round}");
 
             _engine.Stop();
             await _engine.StartAsync(AgentFileSyncEngine.ClaudeFileName);
@@ -386,8 +375,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task An_edit_landing_while_the_mirror_writes_is_not_lost()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
@@ -395,7 +384,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         {
             Write(Claude, $"source {round}");
             Write(Agents, $"target {round}");
-            await Task.Delay(20);
+            await Task.Delay(AppDefaults.WatcherDebounceMs / 2);
         }
 
         await WaitUntilAsync(SidesAgree, timeoutMs: 5000);
@@ -405,7 +394,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         // ordinary case and says nothing about the property under test.
         static void Write(string path, string content)
         {
-            try { File.WriteAllText(path, content); } catch (IOException) { /* the mirror had it */ }
+            try { TestFiles.WriteWhenFree(path, content); } catch (IOException) { /* the mirror had it */ }
         }
 
         bool SidesAgree()
@@ -422,14 +411,14 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task A_failing_watcher_is_rebuilt_and_the_mirror_survives()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
         // An edit the failing watcher never carried across — the lost-events window the rebuild has
         // to heal, the same reconcile an offline window gets.
-        File.WriteAllText(Claude, "two");
+        TestFiles.WriteWhenFree(Claude, "two");
 
         _engine.FailWatcher(new ErrorEventArgs(new InternalBufferOverflowException()));
 
@@ -440,7 +429,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
         await WaitUntilAsync(() => File.ReadAllText(Agents) == "two");
 
         // And the fresh watcher is the one watching from here on.
-        File.WriteAllText(Claude, "three");
+        TestFiles.WriteWhenFree(Claude, "three");
         await WaitUntilAsync(() => File.ReadAllText(Agents) == "three");
     }
 
@@ -450,8 +439,8 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task A_watcher_that_keeps_failing_is_not_rebuilt_for_ever()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
@@ -465,7 +454,7 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
 
         // The three rebuilds each started a reconcile, and one of them may still hold these files.
         await WriteWhenFreeAsync(Claude, "two");
-        await Task.Delay(600); // past the debounce, and nothing is watching to react to the edit
+        await Task.Delay(AppDefaults.WatcherDebounceMs * 4); // past the debounce, and nothing is watching to react to the edit
 
         Assert.Equal("one", File.ReadAllText(Agents));
     }
@@ -478,16 +467,16 @@ public sealed class AgentFileSyncEngineTests : IAsyncLifetime
     [Fact]
     public async Task A_reconcile_caught_inside_the_gate_by_an_answer_does_not_settle_the_pair_by_mtime()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         _engine = new AgentFileSyncEngine(_dir);
         await _engine.StartAsync();
 
         // An external edit on each side, the one that must not win the newer — so a reconcile deciding
         // by mtime alone carries it over the file named below. Named rather than left to the clock,
         // the way every test here that depends on the ordering names it.
-        File.WriteAllText(Claude, "the user's answer");
-        File.WriteAllText(Agents, "the side that must not win");
+        TestFiles.WriteWhenFree(Claude, "the user's answer");
+        TestFiles.WriteWhenFree(Agents, "the side that must not win");
         File.SetLastWriteTimeUtc(Claude, DateTime.UtcNow.AddMinutes(-5));
 
         var inside = new TaskCompletionSource();

@@ -46,7 +46,7 @@ public sealed class SkillChangeWiringTests
     /// not started is that same case, which is why the notice is asserted absent after
     /// <c>AttachControl</c> and present only once the session is running.</remarks>
     [Fact]
-    public void A_terminal_agent_is_told_to_restart_only_once_its_shell_is_running() => OnUiThread(async () =>
+    public void A_terminal_agent_is_told_to_restart_only_once_its_shell_is_running() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
@@ -90,20 +90,18 @@ public sealed class SkillChangeWiringTests
     /// surfaces differ is the one to drive this with.</para>
     /// </remarks>
     [Fact]
-    public void An_idle_agent_tile_restarts_itself_when_the_skills_move() => OnUiThread(async () =>
+    public void An_idle_agent_tile_restarts_itself_when_the_skills_move() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
         var context = new TileContext(directory.Path, settings.Service);
         var files = context.AgentFiles;
-        var starter = new CountingStarter();
+        var starter = new ReadyStarter();
         var claude = AiAgentCatalog.Find("claude")!;
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == claude.Id);
 
-        var tile = (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(
-                TestTiles.ConversationStore(), starter))
-            .Create(context with { TileId = () => Guid.NewGuid().ToString() },
-                new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
+        var tile = ConversationTiles.FromKind(context,
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id }, starter: starter);
         try
         {
             files.WriteSkill(Skill, "one");
@@ -134,19 +132,17 @@ public sealed class SkillChangeWiringTests
     /// states that do, and the one a test can put a tile into without a turn in flight.</para>
     /// </remarks>
     [Fact]
-    public void An_agent_tile_asks_for_a_restart_once_and_stops_asking_when_it_happens() => OnUiThread(async () =>
+    public void An_agent_tile_asks_for_a_restart_once_and_stops_asking_when_it_happens() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
         var context = new TileContext(directory.Path, settings.Service);
         var files = context.AgentFiles;
-        var starter = new CountingStarter();
+        var starter = new ReadyStarter();
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
 
-        var tile = (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(
-                TestTiles.ConversationStore(), starter))
-            .Create(context with { TileId = () => Guid.NewGuid().ToString() },
-                new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
+        var tile = ConversationTiles.FromKind(context,
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id }, starter: starter);
         try
         {
             files.WriteSkill(Skill, "one");
@@ -182,19 +178,17 @@ public sealed class SkillChangeWiringTests
     /// further start is still on its way, rather than that the test looked before the others arrived.</para>
     /// </remarks>
     [Fact]
-    public void A_run_of_skill_changes_restarts_the_agent_once() => OnUiThread(async () =>
+    public void A_run_of_skill_changes_restarts_the_agent_once() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
         var context = new TileContext(directory.Path, settings.Service);
         var files = context.AgentFiles;
-        var starter = new CountingStarter();
+        var starter = new ReadyStarter();
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
 
-        var tile = (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(
-                TestTiles.ConversationStore(), starter))
-            .Create(context with { TileId = () => Guid.NewGuid().ToString() },
-                new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
+        var tile = ConversationTiles.FromKind(context,
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id }, starter: starter);
         try
         {
             files.WriteSkill(Skill, "one");
@@ -225,19 +219,17 @@ public sealed class SkillChangeWiringTests
     /// asked for.</para>
     /// </remarks>
     [Fact]
-    public void A_change_during_a_restart_is_answered_by_one_more() => OnUiThread(async () =>
+    public void A_change_during_a_restart_is_answered_by_one_more() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
         var context = new TileContext(directory.Path, settings.Service);
         var files = context.AgentFiles;
-        var starter = new CountingStarter();
+        var starter = new ReadyStarter();
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
 
-        var tile = (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(
-                TestTiles.ConversationStore(), starter))
-            .Create(context with { TileId = () => Guid.NewGuid().ToString() },
-                new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
+        var tile = ConversationTiles.FromKind(context,
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id }, starter: starter);
         try
         {
             files.WriteSkill(Skill, "one");
@@ -272,7 +264,7 @@ public sealed class SkillChangeWiringTests
     /// same tile, the same notice, one launch refused and one that reaches a process.</para>
     /// </remarks>
     [Fact]
-    public void A_refused_launch_leaves_the_notice_standing_and_a_real_one_takes_it_down() => OnUiThread(async () =>
+    public void A_refused_launch_leaves_the_notice_standing_and_a_real_one_takes_it_down() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
@@ -328,20 +320,18 @@ public sealed class SkillChangeWiringTests
     /// to land on the same sentence. Nothing has read the skill, so there is nothing for a restart to
     /// achieve.</remarks>
     [Fact]
-    public void An_agent_tile_that_could_not_start_is_not_restarted() => OnUiThread(async () =>
+    public void An_agent_tile_that_could_not_start_is_not_restarted() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
         var context = new TileContext(directory.Path, settings.Service);
         var files = context.AgentFiles;
-        var starter = new CountingStarter { Problem = "This instance could not be resolved." };
+        var starter = new ReadyStarter { Problem = "This instance could not be resolved." };
         var claude = AiAgentCatalog.Find("claude")!;
         var instance = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == claude.Id);
 
-        var tile = (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(
-                TestTiles.ConversationStore(), starter))
-            .Create(context with { TileId = () => Guid.NewGuid().ToString() },
-                new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
+        var tile = ConversationTiles.FromKind(context,
+            new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id }, starter: starter);
         try
         {
             files.WriteSkill(Skill, "one");
@@ -355,74 +345,6 @@ public sealed class SkillChangeWiringTests
         }
         finally { tile.Dispose(); }
     });
-
-    /// <summary>Counts the starts and hands back a session that says it is ready without running a CLI:
-    /// what is under test is the decision to start, not a tool the machine running this may not have.
-    /// </summary>
-    /// <remarks>It has to reach a live session rather than stop at a problem, because "is this agent
-    /// running" is the question the tile answers with <c>HasSession</c> — a starter that always refuses
-    /// would leave the restart under test unreachable.</remarks>
-    private sealed class CountingStarter : IAgentSessionStarter
-    {
-        private int _prepared;
-
-        public int Prepared => Volatile.Read(ref _prepared);
-
-        /// <summary>What the preparation answers instead of a launch, for the tile that never starts.</summary>
-        public string? Problem { get; init; }
-
-        private TaskCompletionSource? _holdNextStart;
-
-        /// <summary>Holds the next start open here, which is the real window a restart has: the old CLI is
-        /// gone and the new one has not been spawned. Taken once, so the start it lets through is not held
-        /// again.</summary>
-        public TaskCompletionSource? HoldNextStart
-        {
-            get => Volatile.Read(ref _holdNextStart);
-            set => Volatile.Write(ref _holdNextStart, value);
-        }
-
-        public async Task<(AgentSessionLaunch? Launch, string? Problem)> PrepareAsync(AppSettings settings,
-            IAiAgent agent, AiAgentInstance instance, string workingDirectory, string conversationId,
-            string? resumeToken, CancellationToken ct)
-        {
-            Interlocked.Increment(ref _prepared);
-            if (Interlocked.Exchange(ref _holdNextStart, null) is { } held) await held.Task;
-            if (Problem is { } refused) return (null, refused);
-
-            return (new AgentSessionLaunch(agent.BinaryName, workingDirectory,
-                AgentRuntime.For(settings, instance, agent: agent), new Dictionary<string, string?>(),
-                AiBehaviour.ToolDefault, AiEffort.ToolDefault, resumeToken, conversationId), null);
-        }
-
-        public IAgentSession Create(IAiAgent agent, AgentSessionLaunch launch, IAgentEventSink sink) =>
-            new ReadySession(sink);
-    }
-
-    /// <summary>A session that starts no process and reports itself ready, which is all the tile reads.</summary>
-    private sealed class ReadySession(IAgentEventSink sink) : IAgentSession
-    {
-        public Task StartAsync(CancellationToken ct)
-        {
-            sink.Emit(new SessionStateChanged(AgentSessionState.Ready));
-            return Task.CompletedTask;
-        }
-
-        public Task SendAsync(AgentTurnInput input, CancellationToken ct) => Task.CompletedTask;
-        public Task InterruptAsync(CancellationToken ct) => Task.CompletedTask;
-
-        public Task RespondToApprovalAsync(string requestId, ApprovalDecision decision, CancellationToken ct) =>
-            Task.CompletedTask;
-
-        public Task AnswerQuestionsAsync(string requestId,
-            IReadOnlyDictionary<string, IReadOnlyList<string>>? answers, CancellationToken ct) =>
-            Task.CompletedTask;
-
-        public Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct) =>
-            Task.FromResult(SettingsChangeOutcome.Rejected);
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    }
 
     /// <summary>Lets everything the change posted onto this thread run.</summary>
     /// <remarks>Both tiles answer a skill change off whichever thread wrote the file and get onto the one
@@ -447,12 +369,4 @@ public sealed class SkillChangeWiringTests
             await Task.Delay(5);
         }
     }
-
-    private static void OnUiThread(Func<Task> body) =>
-        HeadlessUnitTestSession.GetOrStartForAssembly(typeof(SkillChangeWiringTests).Assembly)
-            .Dispatch(async () =>
-            {
-                await body();
-                return true;
-            }, CancellationToken.None).GetAwaiter().GetResult();
 }

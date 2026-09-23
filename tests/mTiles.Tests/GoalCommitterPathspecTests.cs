@@ -1,5 +1,4 @@
-using System.Diagnostics;
-using mTiles.Models;
+﻿using mTiles.Models;
 using mTiles.Services;
 using Xunit;
 
@@ -19,12 +18,9 @@ public class GoalCommitterPathspecTests
     [Fact]
     public async Task A_name_full_of_glob_characters_is_committed_as_itself()
     {
-        Assert.True(HasGit(), "git is not on PATH, so this cannot say anything about GoalCommitter.");
-
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "pathspec");
         repo.Write("README.md", "start\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        repo.CommitAll("initial");
 
         // The decoy a glob would match instead, and the file that is actually named.
         repo.Write("Report1.cs", "// not this one\n");
@@ -53,14 +49,12 @@ public class GoalCommitterPathspecTests
     /// from the one the user approved.
     /// </remarks>
     [Fact]
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
     public async Task A_commit_naming_more_files_than_a_command_line_holds_is_still_made()
     {
-        Assert.True(HasGit(), "git is not on PATH, so this cannot say anything about GoalCommitter.");
-
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "pathspec");
         repo.Write("README.md", "start\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        repo.CommitAll("initial");
 
         // Long names on purpose: 400 of these is well past the cap once the quoting is counted.
         var files = Enumerable.Range(0, 400)
@@ -84,13 +78,10 @@ public class GoalCommitterPathspecTests
     [Fact]
     public async Task A_failed_commit_leaves_the_users_own_staging_where_it_was()
     {
-        Assert.True(HasGit(), "git is not on PATH, so this cannot say anything about GoalCommitter.");
-
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "pathspec");
         repo.Write("theirs.cs", "class Theirs { }\n");
         repo.Write("ours.cs", "class Ours { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        repo.CommitAll("initial");
 
         // The user stages a change of their own while the run is going — to a file this run also
         // touched, which is the case that matters: `commit --only` ignores the index, so the staging
@@ -119,75 +110,5 @@ public class GoalCommitterPathspecTests
         // commit — and the run takes back only the intent-to-add entries it made itself, of which a
         // tracked file needs none.
         Assert.Contains("M  ours.cs", repo.Git("status --porcelain"));
-    }
-
-    private static bool HasGit()
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo("git", "--version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            p!.WaitForExit(5000);
-            return p.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private sealed class TempRepo : IDisposable
-    {
-        public string Path { get; }
-
-        public TempRepo()
-        {
-            Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), $"mtiles-pathspec-test-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
-
-            Git("init -q");
-            Git("config user.name tester");
-            Git("config user.email tester@localhost");
-            Git("config commit.gpgsign false");
-        }
-
-        public void Write(string name, string content) =>
-            File.WriteAllText(System.IO.Path.Combine(Path, name), content);
-
-        public string Git(string arguments)
-        {
-            using var p = Process.Start(new ProcessStartInfo("git", arguments)
-            {
-                WorkingDirectory = Path,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            })!;
-            var output = p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
-            p.WaitForExit();
-            return output;
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
-                    File.SetAttributes(file, FileAttributes.Normal);
-                Directory.Delete(Path, recursive: true);
-            }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning($"Cleaning up the test repository failed: {ex.Message}");
-            }
-        }
     }
 }

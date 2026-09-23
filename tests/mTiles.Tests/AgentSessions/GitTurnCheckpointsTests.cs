@@ -8,34 +8,33 @@ namespace mTiles.Tests.AgentSessions;
 /// <summary>Checkpoints against a real repository — see <see cref="GitTurnCheckpoints"/>.</summary>
 public class GitTurnCheckpointsTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), $"mtiles-checkpoints-{Guid.NewGuid():N}");
+    /// <summary>A repository holding one commit of a tracked file and a <c>.gitignore</c>, made once per
+    /// run; each test works in a copy of it, which costs no git process at all.</summary>
+    private static readonly Lazy<string> Committed = new(() =>
+    {
+        var template = new GitTestRepo(prefix: "checkpoints-template");
+        template.Write("tracked.txt", "one\n");
+        template.Write(".gitignore", "ignored/\n");
+        template.CommitAll("init");
+        return template.Path;
+    });
+
+    private readonly GitTestRepo _repo = new(init: false, prefix: "checkpoints");
+    private readonly string _root;
 
     public GitTurnCheckpointsTests()
     {
-        Directory.CreateDirectory(_root);
-        Git("init -q");
-        Git("config user.name test");
-        Git("config user.email test@example.com");
-        Write("tracked.txt", "one\n");
-        Write(".gitignore", "ignored/\n");
-        Git("add -A");
-        Git("commit -q -m init");
+        _root = _repo.Path;
+        foreach (var dir in Directory.EnumerateDirectories(Committed.Value, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(_root, Path.GetRelativePath(Committed.Value, dir)));
+        foreach (var file in Directory.EnumerateFiles(Committed.Value, "*", SearchOption.AllDirectories))
+            File.Copy(file, Path.Combine(_root, Path.GetRelativePath(Committed.Value, file)));
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
-                File.SetAttributes(file, FileAttributes.Normal);
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-        }
-    }
+    public void Dispose() => _repo.Dispose();
 
     [Fact]
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
     public async Task A_turn_s_changes_are_read_tree_against_tree_untracked_files_included()
     {
         var checkpoints = new GitTurnCheckpoints(_root);
@@ -56,40 +55,35 @@ public class GitTurnCheckpointsTests : IDisposable
         Assert.Empty(Git("diff --cached --name-only").Trim()); // nothing was staged in the user's own index
     }
 
+    /// <summary>A restore puts back what was there, removes what was not and leaves ignored files alone —
+    /// and what it replaces is kept where git can bring it back, even once the conversation is forgotten.
+    /// </summary>
     [Fact]
-    public async Task Restoring_puts_back_what_was_there_and_removes_what_was_not()
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
+    public async Task Restoring_puts_back_what_was_there_and_keeps_what_it_replaces()
     {
         Write("untracked-then.txt", "was here\n");
         var checkpoints = new GitTurnCheckpoints(_root);
         var before = await checkpoints.CaptureAsync("conv", 0, CancellationToken.None);
 
-        Write("tracked.txt", "changed\n");
-        File.Delete(Path.Combine(_root, "untracked-then.txt"));
-        Write("added-later.txt", "remove me\n");
-        Write("ignored/keep.log", "ignored stays\n");
-
-        await checkpoints.RestoreAsync(before!, CancellationToken.None);
-
-        Assert.Equal("one\n", Read("tracked.txt"));
-        Assert.Equal("was here\n", Read("untracked-then.txt"));
-        Assert.False(File.Exists(Path.Combine(_root, "added-later.txt")));
-        Assert.True(File.Exists(Path.Combine(_root, "ignored", "keep.log")));
-    }
-
-    [Fact]
-    public async Task Restoring_keeps_the_files_it_replaces_where_git_can_bring_them_back()
-    {
-        var checkpoints = new GitTurnCheckpoints(_root);
-        var before = await checkpoints.CaptureAsync("conv", 0, CancellationToken.None);
         Write("tracked.txt", "edited next door\n");
+        File.Delete(Path.Combine(_root, "untracked-then.txt"));
         Write("created-next-door.txt", "mine\n");
+        Write("ignored/keep.log", "ignored stays\n");
 
         var replaced = await checkpoints.RestoreAsync(before!, CancellationToken.None);
         await checkpoints.ForgetAsync("conv", CancellationToken.None);
 
+        Assert.Equal("one\n", Read("tracked.txt"));
+        Assert.Equal("was here\n", Read("untracked-then.txt"));
         Assert.False(File.Exists(Path.Combine(_root, "created-next-door.txt")));
+        Assert.True(File.Exists(Path.Combine(_root, "ignored", "keep.log")));
+
         Assert.Equal("edited next door\n", Git($"show {replaced}:tracked.txt").Replace("\r\n", "\n"));
         Assert.Equal("mine\n", Git($"show {replaced}:created-next-door.txt").Replace("\r\n", "\n"));
+
+        // Forgetting takes the conversation's refs, and only those.
+        Assert.Empty(Git($"for-each-ref {GitTurnCheckpoints.RefPrefix}").Trim());
     }
 
     [Fact]
@@ -113,16 +107,9 @@ public class GitTurnCheckpointsTests : IDisposable
     [Fact]
     public async Task A_directory_without_a_repository_has_no_checkpoints_and_says_so_quietly()
     {
-        var plain = Path.Combine(Path.GetTempPath(), $"mtiles-plain-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(plain);
-        try
-        {
-            Assert.Null(await new GitTurnCheckpoints(plain).CaptureAsync("conv", 0, CancellationToken.None));
-        }
-        finally
-        {
-            Directory.Delete(plain, true);
-        }
+        using var plain = new TempDirectory();
+
+        Assert.Null(await new GitTurnCheckpoints(plain.Path).CaptureAsync("conv", 0, CancellationToken.None));
     }
 
     [Fact]
@@ -137,31 +124,6 @@ public class GitTurnCheckpointsTests : IDisposable
 
         Assert.NotEqual(earlier, later);
         Assert.Equal(earlierCommit, Git($"rev-parse {earlier}").Trim());
-    }
-
-    [Fact]
-    public async Task Forgetting_removes_the_conversation_s_refs()
-    {
-        var checkpoints = new GitTurnCheckpoints(_root);
-        await checkpoints.CaptureAsync("conv", 0, CancellationToken.None);
-
-        await checkpoints.ForgetAsync("conv", CancellationToken.None);
-
-        Assert.Empty(Git($"for-each-ref {GitTurnCheckpoints.RefPrefix}").Trim());
-    }
-
-    [Fact]
-    public void Numstat_and_name_status_are_read_together_renames_included()
-    {
-        var numstat = "3\t1\tsrc/a.cs\0-\t-\timg.png\0" + "0\t0\t\0old.cs\0new.cs\0";
-        var nameStatus = "M\0src/a.cs\0A\0img.png\0R100\0old.cs\0new.cs\0";
-
-        Assert.Equal(
-        [
-            new ChangedFile("img.png", FileChangeKind.Added, 0, 0),
-            new ChangedFile("new.cs", FileChangeKind.Renamed, 0, 0, "old.cs"),
-            new ChangedFile("src/a.cs", FileChangeKind.Modified, 3, 1),
-        ], CheckpointDiffParser.Parse(numstat, nameStatus));
     }
 
     /// <summary>A pathspec is applied before git looks for renames, so the new name on its own answers

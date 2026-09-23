@@ -22,28 +22,13 @@ namespace mTiles.Tests;
 /// <para>Which is why the assertion here is not "the tiles moved" but "each terminal still answers with
 /// the id its own tile is saved under": that pairing is the thing the swap has broken before.</para>
 /// </remarks>
-public class TileDragDropTests : IDisposable
+public class TileDragDropTests
 {
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
-
-    public TileDragDropTests() => Directory.CreateDirectory(_directory);
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_directory, recursive: true); } catch { }
-        GC.SuppressFinalize(this);
-    }
-
-    private WorkspaceViewModel Build(TempSettings settings) =>
-        new(new Workspace { Name = "test", DirectoryPath = _directory }, settings.Layouts,
-            settings.Service, TestTiles.Catalog(settings.Service));
-
     [Fact]
     public void Swapping_two_tiles_leaves_every_terminal_reading_its_own_tile_id()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, first, second) = TwoTerminals(workspace);
 
@@ -74,7 +59,7 @@ public class TileDragDropTests : IDisposable
     public void A_new_id_after_a_swap_reaches_the_terminal_that_tile_holds()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (_, first, second) = TwoTerminals(workspace);
         var contentOfFirst = Assert.IsType<TerminalTileViewModel>(first.Content);
@@ -95,7 +80,7 @@ public class TileDragDropTests : IDisposable
     public void A_tile_dropped_on_a_gutter_goes_between_the_two_tiles_it_holds()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, first, second) = TwoTerminals(workspace);
         second.SplitVerticalCommand.Execute(null);
@@ -124,7 +109,7 @@ public class TileDragDropTests : IDisposable
     public void A_split_beside_the_dragged_tile_is_measured_after_the_tile_has_left()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, first, second) = TwoTerminals(workspace);
         second.SplitVerticalCommand.Execute(null);
@@ -160,7 +145,7 @@ public class TileDragDropTests : IDisposable
     public void A_split_the_detach_does_not_lift_is_measured_as_it_stands()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, _, second) = TwoTerminals(workspace);
         second.SplitVerticalCommand.Execute(null);
@@ -178,7 +163,7 @@ public class TileDragDropTests : IDisposable
     public void A_tile_dropped_on_its_own_gutter_is_left_where_it_is()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, first, second) = TwoTerminals(workspace);
 
@@ -194,7 +179,7 @@ public class TileDragDropTests : IDisposable
     public void A_tile_dropped_on_the_workspace_edge_becomes_a_column_beside_everything()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, first, second) = TwoTerminals(workspace);
         second.SplitVerticalCommand.Execute(null);
@@ -225,7 +210,7 @@ public class TileDragDropTests : IDisposable
     public void The_edge_drop_builds_on_the_root_the_detach_left_behind()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (split, first, second) = TwoTerminals(workspace);
 
@@ -244,10 +229,10 @@ public class TileDragDropTests : IDisposable
     public void The_workspace_edge_refuses_a_workspace_of_one_tile()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var only = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
-        MakeTerminal(only);
+        TestWorkspace.Make(only, TileKindIds.Terminal);
 
         TileTreeEdits.ExecuteRootEdge(only, () => workspace.RootTile, DropZone.Right);
 
@@ -312,8 +297,8 @@ public class TileDragDropTests : IDisposable
     public void A_drag_is_accepted_only_by_the_tree_its_tile_hangs_in()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
-        using var other = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
+        using var other = TestWorkspace.Open(settings);
 
         var (split, first, _) = TwoTerminals(workspace);
         TwoTerminals(other);
@@ -342,7 +327,7 @@ public class TileDragDropTests : IDisposable
     public void A_moved_tile_belongs_to_the_root_it_was_moved_under()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var (_, _, second) = TwoTerminals(workspace);
 
@@ -359,7 +344,7 @@ public class TileDragDropTests : IDisposable
     public void Ending_a_drag_clears_the_last_hint_shown()
     {
         using var settings = new TempSettings();
-        using var workspace = Build(settings);
+        using var workspace = TestWorkspace.Open(settings);
         var (_, first, _) = TwoTerminals(workspace);
 
         var firstCleared = 0;
@@ -382,28 +367,6 @@ public class TileDragDropTests : IDisposable
 
     /// <summary>A workspace of two terminals side by side, and the split holding them.</summary>
     private static (SplitTileNodeViewModel Split, LeafTileNodeViewModel First, LeafTileNodeViewModel Second)
-        TwoTerminals(WorkspaceViewModel workspace)
-    {
-        var root = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
-        MakeTerminal(root);
-        root.SplitVerticalCommand.Execute(null);
-
-        var split = Assert.IsType<SplitTileNodeViewModel>(workspace.RootTile);
-        var first = Assert.IsType<LeafTileNodeViewModel>(split.First);
-        var second = Assert.IsType<LeafTileNodeViewModel>(split.Second);
-        MakeTerminal(second);
-
-        return (split, first, second);
-    }
-
-    /// <summary>Gives an empty tile a terminal on the default shell.</summary>
-    /// <remarks>Through the chooser, because that is the route a user takes: whether a step comes first
-    /// depends on what profiles this machine's settings hold, and the default shell is the one option
-    /// that carries no state.</remarks>
-    private static void MakeTerminal(LeafTileNodeViewModel leaf)
-    {
-        leaf.SelectKindCommand.Execute(TileKindIds.Terminal);
-        if (leaf.IsChoosingSetup)
-            leaf.SelectSetupOptionCommand.Execute(leaf.SetupOptions.First(o => o.State is null));
-    }
+        TwoTerminals(WorkspaceViewModel workspace) =>
+        TestWorkspace.Split(workspace, TileKindIds.Terminal, TileKindIds.Terminal);
 }

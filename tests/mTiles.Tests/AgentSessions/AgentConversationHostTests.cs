@@ -501,7 +501,7 @@ public class AgentConversationHostTests : IDisposable
     [Fact]
     public async Task Events_a_store_refused_once_are_written_with_the_next_batch()
     {
-        var store = new RefusingOnceStore(new SqliteConversationStore(_path));
+        var store = new TestStore(new SqliteConversationStore(_path));
         var host = new AgentConversationHost(Record(), store, null);
         var session = new FakeSession();
         await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
@@ -517,90 +517,14 @@ public class AgentConversationHostTests : IDisposable
         await reopened.DisposeAsync();
     }
 
-    private sealed class RefusingOnceStore(IConversationStore inner) : IConversationStore
+    /// <summary>The shared fake, reporting what a real session reports on its own: an applied change and
+    /// its process exiting.</summary>
+    private sealed class FakeSession : FakeAgentSession
     {
-        public volatile bool RefuseNextAppend;
-        public TaskCompletionSource Refused { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public ConversationRecord? Find(string conversationId) => inner.Find(conversationId);
-        public IReadOnlyList<ConversationSummary> List(string workingDirectory) => inner.List(workingDirectory);
-        public void Save(ConversationRecord record) => inner.Save(record);
-        public IReadOnlyList<AgentEvent> ReadEvents(string conversationId) => inner.ReadEvents(conversationId);
-        public long LastSequence(string conversationId) => inner.LastSequence(conversationId);
-        public void Delete(string conversationId) => inner.Delete(conversationId);
-
-        public void Append(string conversationId, IReadOnlyList<AgentEvent> events)
+        public FakeSession()
         {
-            if (RefuseNextAppend)
-            {
-                RefuseNextAppend = false;
-                Refused.TrySetResult();
-                throw new IOException("database is locked");
-            }
-
-            inner.Append(conversationId, events);
-        }
-    }
-
-    private sealed class FakeSession : IAgentSession
-    {
-        private IAgentEventSink? _sink;
-        public List<string> Sent { get; } = [];
-        public string? FailStart { get; init; }
-
-        public IAgentSession Bind(IAgentEventSink sink)
-        {
-            _sink = sink;
-            return this;
-        }
-
-        public void Say(AgentEvent e) => _sink!.Emit(e);
-
-        public bool StaysStarting { get; init; }
-
-        public Task StartAsync(CancellationToken ct)
-        {
-            if (FailStart is not null) throw new InvalidOperationException(FailStart);
-            // A real session announces it is ready once its thread exists.
-            if (!StaysStarting) _sink?.Emit(new SessionStateChanged(AgentSessionState.Ready));
-            return Task.CompletedTask;
-        }
-
-        public Exception? FailSend { get; init; }
-
-        public Task SendAsync(AgentTurnInput input, CancellationToken ct)
-        {
-            if (FailSend is not null)
-            {
-                // codex opens the turn and then times out on `turn/start`'s reply.
-                _sink?.Emit(new TurnStarted { TurnId = "t" });
-                throw FailSend;
-            }
-            Sent.Add(input.Text);
-            return Task.CompletedTask;
-        }
-
-        public SettingsChangeOutcome SettingsOutcome { get; init; } = SettingsChangeOutcome.Applied;
-
-        /// <summary>The outcome per change, where a test needs one setting taken and another not.</summary>
-        public Func<SessionSettings, SettingsChangeOutcome>? OutcomeFor { get; init; }
-
-        public Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct)
-        {
-            var outcome = OutcomeFor?.Invoke(settings) ?? SettingsOutcome;
-            if (outcome == SettingsChangeOutcome.Applied)
-                _sink?.Emit(new SessionConfigured(settings.Model, settings.Mode, null, settings.Effort));
-            return Task.FromResult(outcome);
-        }
-
-        public Task InterruptAsync(CancellationToken ct) => Task.CompletedTask;
-        public Task RespondToApprovalAsync(string requestId, ApprovalDecision decision, CancellationToken ct) => Task.CompletedTask;
-        public Task AnswerQuestionsAsync(string requestId, IReadOnlyDictionary<string, IReadOnlyList<string>>? answers, CancellationToken ct) => Task.CompletedTask;
-        public ValueTask DisposeAsync()
-        {
-            // A real session reports its process exiting as it is disposed.
-            _sink?.Emit(new SessionStateChanged(AgentSessionState.Stopped));
-            return ValueTask.CompletedTask;
+            AnnouncesSettings = true;
+            ReportsStopOnDispose = true;
         }
     }
 

@@ -1,4 +1,3 @@
-using mTiles.Services.Agents;
 using mTiles.ViewModels.AgentConversation;
 using Xunit;
 
@@ -10,23 +9,23 @@ namespace mTiles.Tests.AgentSessions;
 /// <remarks>Send and Stop are one slot — the button becomes the other the moment the turn begins — so a
 /// double click is a turn started and stopped before the agent has said a word, with nothing on screen
 /// explaining what happened. The window is the double-click one and no longer, because stopping is the
-/// one thing here somebody wants urgently.</remarks>
+/// one thing here somebody wants urgently. Each hold's end is released by the test rather than waited
+/// out, so nothing here races a real clock.</remarks>
 public class StopButtonHoldTests
 {
-    private static AgentConversationTileViewModel Tile()
+    private static (AgentConversationTileViewModel Tile, Queue<Action> Holds) Tile()
     {
-        var settings = new TempSettings();
-        var agent = AiAgentCatalog.Find("claude")!;
-        return new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
-            new mTiles.AgentSessions.Storage.SqliteConversationStore(
-                Path.Combine(Path.GetTempPath(), $"mtiles-stop-{Guid.NewGuid():N}.db")),
-            AiAgentCatalog.SeedInstanceFor(agent), agent, () => "tile", post: action => action());
+        var tile = ConversationTiles.New(new TempSettings());
+        var holds = new Queue<Action>();
+        tile.AfterStopButtonHold = holds.Enqueue;
+        return (tile, holds);
     }
 
     [Fact]
-    public async Task A_send_holds_the_stop_button_for_the_double_click_window()
+    public void A_send_holds_the_stop_button_until_its_window_ends()
     {
-        using var tile = Tile();
+        var (tile, holds) = Tile();
+        using var _ = tile;
         Assert.True(tile.InterruptCommand.CanExecute(null));
 
         tile.HoldTheStopButton();
@@ -34,7 +33,7 @@ public class StopButtonHoldTests
         Assert.False(tile.CanInterrupt);
         Assert.False(tile.InterruptCommand.CanExecute(null));
 
-        await Task.Delay(AgentConversationTileViewModel.StopButtonHold + TimeSpan.FromMilliseconds(300));
+        holds.Dequeue()();
 
         Assert.True(tile.CanInterrupt);
         Assert.True(tile.InterruptCommand.CanExecute(null));
@@ -44,19 +43,20 @@ public class StopButtonHoldTests
     /// <remarks>Two messages in quick succession: the first one's timer would otherwise unlock the
     /// button under the second, which is the very press this exists to catch.</remarks>
     [Fact]
-    public async Task A_second_send_keeps_the_button_held_past_the_first_ones_window()
+    public void A_second_send_keeps_the_button_held_past_the_first_ones_window()
     {
-        using var tile = Tile();
+        var (tile, holds) = Tile();
+        using var _ = tile;
 
         tile.HoldTheStopButton();
-        await Task.Delay(AgentConversationTileViewModel.StopButtonHold - TimeSpan.FromMilliseconds(150));
         tile.HoldTheStopButton();
-        await Task.Delay(TimeSpan.FromMilliseconds(250));
+        var first = holds.Dequeue();
+        var second = holds.Dequeue();
 
+        first();
         Assert.False(tile.CanInterrupt);
 
-        await Task.Delay(AgentConversationTileViewModel.StopButtonHold + TimeSpan.FromMilliseconds(300));
-
+        second();
         Assert.True(tile.CanInterrupt);
     }
 }

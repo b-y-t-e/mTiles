@@ -424,7 +424,7 @@ public sealed class TileKindChangeTests : IDisposable
     /// terminal's shell name left behind in a note is what an older build would open as a shell.
     /// </remarks>
     [Fact]
-    public void Converting_writes_only_the_new_kinds_fields() => OnUiThread(async () =>
+    public void Converting_writes_only_the_new_kinds_fields() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         using var workspace = new WorkspaceViewModel(
@@ -452,7 +452,7 @@ public sealed class TileKindChangeTests : IDisposable
 
     /// <summary>What was written comes back as the tile that wrote it.</summary>
     [Fact]
-    public void Layout_round_trip_after_a_conversion() => OnUiThread(async () =>
+    public void Layout_round_trip_after_a_conversion() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         var catalog = TestTiles.Catalog(settings.Service);
@@ -482,7 +482,7 @@ public sealed class TileKindChangeTests : IDisposable
     /// happen: a child left running with no UI able to reach it is an orphan process for the life of
     /// the session.</remarks>
     [Fact]
-    public void Converting_a_terminal_ends_its_session() => OnUiThread(async () =>
+    public void Converting_a_terminal_ends_its_session() => Ui.Run(async () =>
     {
         using var settings = new TempSettings();
         FakePty? pty = null;
@@ -517,8 +517,8 @@ public sealed class TileKindChangeTests : IDisposable
         settings.Service.Settings.Speech.Enabled = true;
         settings.Service.Settings.Speech.ModelId = models.ModelId;
 
-        using var dictation = new DictationService(settings.Service, new SilentCapture(),
-            new SilentEngine(), models.Store, action => action());
+        using var dictation = new DictationService(settings.Service, new SilentAudioCapture(),
+            new SilentSpeechEngine(), models.Store, action => action());
 
         var (tile, _) = StubTileNode(settings);
         tile.Dictation = dictation;
@@ -531,37 +531,6 @@ public sealed class TileKindChangeTests : IDisposable
     }
 
     // ── the harness the two speech tests need ───────────────────────────────────────────────────────
-
-    private sealed class SilentCapture : IAudioCapture
-    {
-        private sealed record Handle : IRecordingHandle;
-
-        public bool IsAvailable => true;
-        public bool IsRecording { get; private set; }
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["fake microphone"];
-        public void Start(string deviceName) => IsRecording = true;
-
-        public IRecordingHandle? Detach()
-        {
-            if (!IsRecording) return null;
-            IsRecording = false;
-            return new Handle();
-        }
-
-        public float[] Finish(IRecordingHandle? detached) => [];
-        public void Dispose() { }
-    }
-
-    private sealed class SilentEngine : ISpeechToTextEngine
-    {
-        public bool IsLoaded => false;
-        public Task LoadAsync(string modelPath, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
-        public void Unload() { }
-        public Task<string> TranscribeAsync(float[] samples, TranscriptionOptions options,
-            CancellationToken cancellationToken = default) => Task.FromResult("");
-        public void Dispose() { }
-    }
 
     /// <summary>A store pointed at a file of exactly the right size, so the service believes the model
     /// is downloaded without any hundreds of megabytes being involved.</summary>
@@ -584,10 +553,4 @@ public sealed class TileKindChangeTests : IDisposable
         public void Dispose() => _directory.Dispose();
     }
 
-    private static void OnUiThread(Func<Task> body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(TileKindChangeTests).Assembly);
-        session.Dispatch(async () => { await body(); return true; }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

@@ -12,39 +12,6 @@ namespace mTiles.Tests;
 /// </summary>
 public class SpeechSetupTests : IDisposable
 {
-    private sealed class FakeCapture : IAudioCapture
-    {
-        public bool IsAvailable => true;
-        public bool IsRecording { get; private set; }
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["Yeti"];
-
-        public void Start(string deviceName) => IsRecording = true;
-
-        private sealed record Handle : IRecordingHandle;
-
-        public IRecordingHandle? Detach()
-        {
-            if (!IsRecording)
-                return null;
-
-            IsRecording = false;
-            return new Handle();
-        }
-
-        public float[] Finish(IRecordingHandle? detached) => new float[16_000];
-        public void Dispose() { }
-    }
-
-    private sealed class SilentEngine : ISpeechToTextEngine
-    {
-        public bool IsLoaded => false;
-        public Task LoadAsync(string modelPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public void Unload() { }
-        public Task<string> TranscribeAsync(float[] samples, TranscriptionOptions options,
-            CancellationToken cancellationToken = default) => Task.FromResult("said something");
-        public void Dispose() { }
-    }
-
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
 
@@ -56,12 +23,7 @@ public class SpeechSetupTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private void PlaceOnDisk(string modelId)
-    {
-        var model = SpeechModelCatalog.Find(modelId)!;
-        using var file = File.Create(Path.Combine(_directory, model.FileName));
-        file.SetLength(model.DownloadBytes);
-    }
+    private void PlaceOnDisk(string modelId) => SpeechModelFiles.PlaceOnDisk(_directory, modelId);
 
     /// <summary>
     /// Stands in for the dispatcher timer behind the last step's hint.
@@ -90,16 +52,37 @@ public class SpeechSetupTests : IDisposable
         }
     }
 
-    private (SpeechSetupViewModel Wizard, DictationService Dictation, TempSettings Settings) Build(
-        SpeechModelStore? store = null, ManualSchedule? schedule = null)
+    /// <summary>The wizard, the service under it and the settings they share, disposed together and in
+    /// that order. Disposing the wizard twice is harmless, so a test may close it itself.</summary>
+    private sealed class Setup(SpeechSetupViewModel wizard, DictationService dictation, TempSettings settings)
+        : IDisposable
+    {
+        public void Deconstruct(out SpeechSetupViewModel w, out DictationService d, out TempSettings s) =>
+            (w, d, s) = (wizard, dictation, settings);
+
+        public void Dispose()
+        {
+            wizard.Dispose();
+            dictation.Dispose();
+            settings.Dispose();
+        }
+    }
+
+    /// <param name="configure">What the settings say before anything reads them.</param>
+    private Setup Build(SpeechModelStore? store = null, ManualSchedule? schedule = null,
+        Action<SpeechSettings>? configure = null)
     {
         var settings = new TempSettings();
-        var dictation = new DictationService(settings.Service, new FakeCapture(), new SilentEngine(),
-            store ?? new SpeechModelStore(_directory), action => action());
+        configure?.Invoke(settings.Service.Settings.Speech);
+        var dictation = NewDictation(settings, store);
 
-        return (new SpeechSetupViewModel(dictation, settings.Service, schedule is null ? null : schedule.Schedule),
+        return new Setup(new SpeechSetupViewModel(dictation, settings.Service, schedule is null ? null : schedule.Schedule),
             dictation, settings);
     }
+
+    private DictationService NewDictation(TempSettings settings, SpeechModelStore? store = null) =>
+        new(settings.Service, new FakeMicrophone(), new FakeSpeechEngine(),
+            store ?? new SpeechModelStore(_directory), action => action());
 
     /// <summary>A server that accepts the request and then says nothing until it is cancelled.</summary>
     private sealed class NeverAnsweringServer : HttpMessageHandler
@@ -153,10 +136,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void A_fresh_installation_starts_on_the_model_step_and_cannot_leave_it()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         Assert.Equal(SpeechSetupStep.Model, wizard.Step);
         Assert.False(wizard.IsModelReady);
@@ -172,10 +153,8 @@ public class SpeechSetupTests : IDisposable
     public void With_a_model_on_disk_the_first_step_is_already_satisfied()
     {
         PlaceOnDisk("base");
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         settings.Service.Settings.Speech.ModelId = "base";
 
@@ -211,14 +190,8 @@ public class SpeechSetupTests : IDisposable
     public void Opening_it_does_not_replace_a_model_that_is_not_on_the_list()
     {
         PlaceOnDisk("medium-q5");
-        var settings = new TempSettings();
-        using var _ = settings;
-        settings.Service.Settings.Speech.ModelId = "medium-q5";
-
-        var dictation = new DictationService(settings.Service, new FakeCapture(), new SilentEngine(),
-            new SpeechModelStore(_directory), action => action());
-        using var _d = dictation;
-        using var wizard = new SpeechSetupViewModel(dictation, settings.Service);
+        using var setup = Build(configure: s => s.ModelId = "medium-q5");
+        var (wizard, dictation, settings) = setup;
 
         Assert.Equal("medium-q5", settings.Service.Settings.Speech.ModelId);
         Assert.Contains(wizard.Models, m => m.Id == "medium-q5");
@@ -241,14 +214,8 @@ public class SpeechSetupTests : IDisposable
     public void Choosing_a_model_and_leaving_without_it_puts_the_working_one_back()
     {
         PlaceOnDisk("medium-q5");
-        var settings = new TempSettings();
-        using var _ = settings;
-        settings.Service.Settings.Speech.ModelId = "medium-q5";
-
-        var dictation = new DictationService(settings.Service, new FakeCapture(), new SilentEngine(),
-            new SpeechModelStore(_directory), action => action());
-        using var _d = dictation;
-        var wizard = new SpeechSetupViewModel(dictation, settings.Service);
+        using var setup = Build(configure: s => s.ModelId = "medium-q5");
+        var (wizard, dictation, settings) = setup;
 
         wizard.Selected = wizard.Models.First(m => m.Id == "parakeet-v3");   // nothing on disk for it
         Assert.Equal("parakeet-v3", settings.Service.Settings.Speech.ModelId);
@@ -263,9 +230,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void With_nothing_configured_the_choice_survives_closing()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         wizard.Selected = wizard.Models.First(m => m.Id == "small");
         wizard.Dispose();
@@ -276,10 +242,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void Choosing_a_microphone_writes_it_to_settings()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         wizard.Device = "Yeti";
         Assert.Equal("Yeti", settings.Service.Settings.Speech.InputDeviceName);
@@ -295,10 +259,8 @@ public class SpeechSetupTests : IDisposable
     public async Task The_last_step_records_and_shows_the_transcript()
     {
         PlaceOnDisk("base");
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         settings.Service.Settings.Speech.ModelId = "base";
         wizard.Step = SpeechSetupStep.Test;
@@ -329,10 +291,8 @@ public class SpeechSetupTests : IDisposable
     public void Clicking_record_during_transcription_is_refused_out_loud()
     {
         PlaceOnDisk("base");
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         settings.Service.Settings.Speech.ModelId = "base";
         wizard.Step = SpeechSetupStep.Test;
@@ -358,9 +318,8 @@ public class SpeechSetupTests : IDisposable
     public void Closing_it_while_recording_takes_the_microphone_back()
     {
         PlaceOnDisk("base");
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         settings.Service.Settings.Speech.ModelId = "base";
         wizard.Step = SpeechSetupStep.Test;
@@ -385,9 +344,8 @@ public class SpeechSetupTests : IDisposable
     public async Task Closing_it_stops_a_download_it_started()
     {
         var server = new NeverAnsweringServer();
-        var (wizard, dictation, settings) = Build(new SpeechModelStore(_directory, () => new HttpClient(server)));
-        using var _ = settings;
-        using var _d = dictation;
+        using var setup = Build(new SpeechModelStore(_directory, () => new HttpClient(server)));
+        var (wizard, _, _) = setup;
 
         var row = wizard.Models[0];
         var download = row.DownloadCommand.ExecuteAsync(null);
@@ -414,10 +372,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void The_last_step_shows_the_shortcut_as_keys()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         Assert.Equal("Alt+Space", settings.Service.Settings.Speech.Hotkey);
         Assert.True(wizard.HasHotkey);
@@ -440,14 +396,8 @@ public class SpeechSetupTests : IDisposable
     [InlineData(DictationMode.Toggle, "Press", true)]
     public void The_instruction_matches_the_mode(DictationMode mode, string verb, bool needsFollowUp)
     {
-        var settings = new TempSettings();
-        using var _ = settings;
-        settings.Service.Settings.Speech.Mode = mode;
-
-        var dictation = new DictationService(settings.Service, new FakeCapture(), new SilentEngine(),
-            new SpeechModelStore(_directory), action => action());
-        using var _d = dictation;
-        using var wizard = new SpeechSetupViewModel(dictation, settings.Service);
+        using var setup = Build(configure: s => s.Mode = mode);
+        var (wizard, dictation, settings) = setup;
 
         Assert.Equal(mode == DictationMode.PushToTalk, wizard.IsPushToTalk);
         Assert.Equal(verb, wizard.HotkeyVerb);
@@ -462,10 +412,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void Capturing_a_shortcut_writes_it_and_ends_the_mode()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         wizard.BeginCaptureHotkeyCommand.Execute(null);
         Assert.True(wizard.IsCapturingHotkey);
@@ -478,52 +426,26 @@ public class SpeechSetupTests : IDisposable
     }
 
     /// <summary>
-    /// Reaching for a combination does not bind the modifier on the way.
+    /// What one keystroke does to the capture mode: a modifier alone is not an answer yet (Ctrl+Shift+D
+    /// arrives as four events), Escape is never one (the window turns its refusal into cancelling), and a
+    /// bare key is bound and explained with the sentence the Speech tab shows.
     /// </summary>
-    /// <remarks>
-    /// The keystrokes that make up <c>Ctrl+Shift+D</c> arrive as four separate events, three of them
-    /// modifiers. Acting on the first would store "Ctrl" and drop the user out of the mode before they
-    /// had finished pressing what they meant — and the whole point of a mode that ends by itself is that
-    /// it ends on the <em>answer</em>.
-    /// </remarks>
-    [Fact]
-    public void A_modifier_on_its_own_does_not_end_the_capture()
+    [Theory]
+    [InlineData(Key.LeftCtrl, KeyModifiers.Control, false, "Alt+Space")]
+    [InlineData(Key.Escape, KeyModifiers.None, false, "Alt+Space")]
+    [InlineData(Key.F13, KeyModifiers.None, true, "F13")]
+    public void One_keystroke_in_the_capture_mode(Key key, KeyModifiers modifiers, bool answers, string hotkey)
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, _, settings) = setup;
 
         wizard.BeginCaptureHotkeyCommand.Execute(null);
 
-        Assert.False(wizard.CaptureHotkey(Key.LeftCtrl, KeyModifiers.Control));
-        Assert.True(wizard.IsCapturingHotkey);
-        Assert.Equal("Alt+Space", settings.Service.Settings.Speech.Hotkey);
-    }
-
-    /// <summary>
-    /// Escape is not an answer here, so the window keeps it.
-    /// </summary>
-    /// <remarks>
-    /// It has to mean "leave it as it was", and it can only mean that if this refuses it — the window is
-    /// what turns the refusal into cancelling the mode. Bound instead, it would give the key that
-    /// cancels a recording the job of starting one.
-    /// </remarks>
-    [Fact]
-    public void Escape_is_not_captured()
-    {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
-
-        wizard.BeginCaptureHotkeyCommand.Execute(null);
-
-        Assert.False(wizard.CaptureHotkey(Key.Escape, KeyModifiers.None));
-        Assert.Equal("Alt+Space", settings.Service.Settings.Speech.Hotkey);
-
-        wizard.CancelCaptureHotkeyCommand.Execute(null);
-        Assert.False(wizard.IsCapturingHotkey);
+        Assert.Equal(answers, wizard.CaptureHotkey(key, modifiers));
+        Assert.Equal(!answers, wizard.IsCapturingHotkey);
+        Assert.Equal(hotkey, settings.Service.Settings.Speech.Hotkey);
+        if (answers)
+            Assert.NotNull(wizard.HotkeyWarning);
     }
 
     /// <summary>
@@ -542,10 +464,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void Leaving_the_step_stops_the_next_key_becoming_a_shortcut()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         wizard.Step = SpeechSetupStep.Test;
         wizard.BeginCaptureHotkeyCommand.Execute(null);
@@ -564,10 +484,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void The_shortcut_can_be_turned_off()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         wizard.BeginCaptureHotkeyCommand.Execute(null);
         Assert.True(wizard.CaptureHotkey(Key.Back, KeyModifiers.None));
@@ -601,14 +519,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void An_unusable_shortcut_is_not_reported_as_having_none()
     {
-        var settings = new TempSettings();
-        using var _ = settings;
-        settings.Service.Settings.Speech.Hotkey = "Alt+9999";
-
-        var dictation = new DictationService(settings.Service, new FakeCapture(), new SilentEngine(),
-            new SpeechModelStore(_directory), action => action());
-        using var _d = dictation;
-        using var wizard = new SpeechSetupViewModel(dictation, settings.Service);
+        using var setup = Build(configure: s => s.Hotkey = "Alt+9999");
+        var (wizard, dictation, settings) = setup;
 
         Assert.False(wizard.HasHotkey);              // there are no keys to show
         Assert.False(wizard.IsShortcutBlank);        // but the user did not ask for none
@@ -628,10 +540,8 @@ public class SpeechSetupTests : IDisposable
     public void Choosing_a_new_shortcut_ends_a_recording_first()
     {
         PlaceOnDisk("base");
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         settings.Service.Settings.Speech.ModelId = "base";
         wizard.Step = SpeechSetupStep.Test;
@@ -643,22 +553,6 @@ public class SpeechSetupTests : IDisposable
 
         Assert.False(wizard.IsRecordingHere);
         Assert.True(wizard.IsCapturingHotkey);
-    }
-
-    /// <summary>A bare key is bound, and said out loud — the same sentence the Speech tab shows.</summary>
-    [Fact]
-    public void A_shortcut_with_no_modifier_is_allowed_and_explained()
-    {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
-
-        wizard.BeginCaptureHotkeyCommand.Execute(null);
-        wizard.CaptureHotkey(Key.F13, KeyModifiers.None);
-
-        Assert.Equal("F13", settings.Service.Settings.Speech.Hotkey);
-        Assert.NotNull(wizard.HotkeyWarning);
     }
 
     /// <summary>
@@ -674,9 +568,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void Closing_the_wizard_keeps_the_shortcut_that_was_chosen()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         wizard.BeginCaptureHotkeyCommand.Execute(null);
         wizard.CaptureHotkey(Key.D, KeyModifiers.Control | KeyModifiers.Alt);
@@ -703,13 +596,9 @@ public class SpeechSetupTests : IDisposable
     [InlineData("Alt+Space", false)]
     public void The_speech_tab_explains_a_shortcut_it_did_not_type(string stored, bool warns)
     {
-        var settings = new TempSettings();
-        using var _ = settings;
+        using var settings = new TempSettings();
         settings.Service.Settings.Speech.Hotkey = stored;
-
-        var dictation = new DictationService(settings.Service, new FakeCapture(), new SilentEngine(),
-            new SpeechModelStore(_directory), action => action());
-        using var _d = dictation;
+        using var dictation = NewDictation(settings);
 
         var tab = new SettingsViewModel(settings.Service, dictation: dictation);
 
@@ -735,15 +624,8 @@ public class SpeechSetupTests : IDisposable
     {
         PlaceOnDisk("base");
         var schedule = new ManualSchedule();
-        var settings = new TempSettings();
-        using var _ = settings;
-        settings.Service.Settings.Speech.ModelId = "base";
-        settings.Service.Settings.Speech.Enabled = false;
-
-        var dictation = new DictationService(settings.Service, new FakeCapture(), new SilentEngine(),
-            new SpeechModelStore(_directory), action => action());
-        using var _d = dictation;
-        using var wizard = new SpeechSetupViewModel(dictation, settings.Service, schedule.Schedule);
+        using var setup = Build(schedule: schedule, configure: s => { s.ModelId = "base"; s.Enabled = false; });
+        var (wizard, dictation, settings) = setup;
 
         Assert.True(wizard.IsDictationOff);
 
@@ -775,10 +657,8 @@ public class SpeechSetupTests : IDisposable
     public void A_shortcut_that_never_arrives_is_eventually_explained()
     {
         var schedule = new ManualSchedule();
-        var (wizard, dictation, settings) = Build(schedule: schedule);
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build(schedule: schedule);
+        var (wizard, dictation, settings) = setup;
 
         Assert.False(wizard.ShowHotkeyHint);
         Assert.Equal(0, schedule.Scheduled);         // nothing is waiting before the step is reached
@@ -804,10 +684,8 @@ public class SpeechSetupTests : IDisposable
     public void The_hint_stands_down_while_a_shortcut_is_being_chosen()
     {
         var schedule = new ManualSchedule();
-        var (wizard, dictation, settings) = Build(schedule: schedule);
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build(schedule: schedule);
+        var (wizard, dictation, settings) = setup;
 
         wizard.Step = SpeechSetupStep.Test;
         schedule.Elapse();
@@ -833,10 +711,8 @@ public class SpeechSetupTests : IDisposable
     public void A_shortcut_that_does_arrive_answers_the_hint()
     {
         var schedule = new ManualSchedule();
-        var (wizard, dictation, settings) = Build(schedule: schedule);
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build(schedule: schedule);
+        var (wizard, dictation, settings) = setup;
 
         wizard.Step = SpeechSetupStep.Test;
         wizard.NoteHotkeyPressed();
@@ -850,10 +726,8 @@ public class SpeechSetupTests : IDisposable
     public void The_hint_does_not_follow_the_user_off_the_step()
     {
         var schedule = new ManualSchedule();
-        var (wizard, dictation, settings) = Build(schedule: schedule);
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build(schedule: schedule);
+        var (wizard, dictation, settings) = setup;
 
         wizard.Step = SpeechSetupStep.Test;
         wizard.Step = SpeechSetupStep.Microphone;
@@ -873,10 +747,8 @@ public class SpeechSetupTests : IDisposable
     public void Turning_the_shortcut_off_takes_the_hint_with_it()
     {
         var schedule = new ManualSchedule();
-        var (wizard, dictation, settings) = Build(schedule: schedule);
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build(schedule: schedule);
+        var (wizard, dictation, settings) = setup;
 
         wizard.Step = SpeechSetupStep.Test;
         wizard.ClearHotkeyCommand.Execute(null);
@@ -897,10 +769,8 @@ public class SpeechSetupTests : IDisposable
     public void The_shortcut_and_the_button_run_the_same_trial()
     {
         PlaceOnDisk("base");
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         settings.Service.Settings.Speech.ModelId = "base";
         wizard.Step = SpeechSetupStep.Test;
@@ -929,10 +799,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void A_refused_start_is_reported_rather_than_swallowed()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         wizard.Step = SpeechSetupStep.Test;
 
@@ -952,10 +820,8 @@ public class SpeechSetupTests : IDisposable
     [Fact]
     public void Running_the_wizard_does_not_bring_the_first_run_prompt_back()
     {
-        var (wizard, dictation, settings) = Build();
-        using var _ = settings;
-        using var _d = dictation;
-        using var _w = wizard;
+        using var setup = Build();
+        var (wizard, dictation, settings) = setup;
 
         dictation.MarkModelPromptAnswered();
         Assert.True(settings.Service.Settings.Speech.ModelPromptAnswered);

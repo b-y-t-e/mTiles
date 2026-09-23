@@ -150,7 +150,6 @@ public class ScriptContractTests
     }
 
     // ---- a command → the shell that runs it ------------------------------------
-    // ---- a command → the shell that runs it ------------------------------------
 
     public static TheoryData<IShellTerminal, string> CommandFlags => new()
     {
@@ -161,6 +160,8 @@ public class ScriptContractTests
         { new FishTerminal(), "-c" },
     };
 
+    /// <summary>Exactly the flag and the command: a shell's interactive startup arguments (Git Bash's
+    /// <c>--login -i</c>) stay out, since <c>-i</c> with <c>-c</c> asks for both at once.</summary>
     [Theory]
     [MemberData(nameof(CommandFlags))]
     public void A_command_is_wrapped_with_the_flag_its_shell_understands(IShellTerminal shell, string flag)
@@ -169,19 +170,6 @@ public class ScriptContractTests
 
         Assert.Equal("shell", executable);
         Assert.Equal([flag, "echo hi"], args);
-    }
-
-    /// <summary>The shell's own startup arguments are the interactive ones (<c>--login -i</c>), and
-    /// this is the non-interactive form — <c>-i</c> with <c>-c</c> asks for both at once.</summary>
-    [Fact]
-    public void Wrapping_a_command_leaves_the_interactive_startup_flags_out()
-    {
-        var gitBash = new GitBashTerminal();
-        Assert.Equal(["--login", "-i"], gitBash.InteractiveArgs);
-
-        var (_, args) = new ShellInstallation(gitBash, "bash").CommandLineFor("echo hi");
-
-        Assert.Equal(["-c", "echo hi"], args);
     }
 
     /// <summary>The seeded OpenCode fallback is two commands joined by <c>;</c>, and it has to reach the

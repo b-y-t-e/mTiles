@@ -86,44 +86,64 @@ public class GoalResumeTests
         Assert.Equal(GoalPhase.Review, reloaded.CurrentPhase);
     }
 
-    [Fact]
-    public void A_tile_waiting_for_an_answer_is_not_an_interrupted_one()
+    /// <summary>
+    /// Whether a saved tile was cut off mid-run. Clarify covers both asking the tool and waiting for the
+    /// user, so the transcript and the pending questions decide which.
+    /// </summary>
+    [Theory]
+    // The tool spoke last: waiting for the user.
+    [InlineData("assistant last", false)]
+    // The user's own message is last: the prompt went out and nothing came back.
+    [InlineData("user last", true)]
+    // Structured questions leave the transcript, so the user's goal is last and yet the tile is waiting.
+    [InlineData("questions pending", false)]
+    [InlineData("fresh", false)]
+    public void A_tile_is_interrupted_only_when_the_tool_owes_an_answer(string shape, bool interrupted)
     {
-        // Clarify and Plan each cover two situations with one value: asking the tool, and waiting for
-        // the user. Calling both interrupted would have every tile ever closed at a question come back
-        // claiming to be paused, and Resume would ask the same questions over again.
-        var waiting = new GoalTileState
+        var state = shape switch
         {
-            CurrentPhase = GoalPhase.Clarify,
-            Messages = [new GoalMessage { Role = GoalMessageRole.Assistant, Text = "What should it do?" }]
+            "assistant last" => new GoalTileState
+            {
+                CurrentPhase = GoalPhase.Clarify,
+                Messages = [new GoalMessage { Role = GoalMessageRole.Assistant, Text = "What should it do?" }],
+            },
+            "user last" => new GoalTileState
+            {
+                CurrentPhase = GoalPhase.Clarify,
+                Messages = [new GoalMessage { Role = GoalMessageRole.User, Text = "a goal" }],
+            },
+            "questions pending" => new GoalTileState
+            {
+                CurrentPhase = GoalPhase.Clarify,
+                Messages = [new GoalMessage { Role = GoalMessageRole.User, Text = "a goal" }],
+                PendingQuestions = [new GoalQuestion { Question = "Which file?" }],
+            },
+            _ => new GoalTileState(),
         };
 
-        Assert.False(GoalWorkflowEngine.WasInterrupted(waiting));
-    }
+        Assert.Equal(interrupted, GoalWorkflowEngine.WasInterrupted(state));
 
-    [Fact]
-    public void A_question_that_was_never_answered_is_an_interrupted_one()
-    {
-        // The other half: the prompt went out and the application closed before the answer came back,
-        // so the user's own message is still the last thing in the transcript. Without this the tile
-        // came back saying "answer the questions above" with no questions above it.
-        var cutOff = new GoalTileState
-        {
-            CurrentPhase = GoalPhase.Clarify,
-            Messages = [new GoalMessage { Role = GoalMessageRole.User, Text = "make it faster" }]
-        };
-
-        Assert.True(GoalWorkflowEngine.WasInterrupted(cutOff));
-
+        // Loading an interrupted state is what pauses it.
         var engine = new GoalWorkflowEngine();
-        engine.LoadFrom(cutOff);
-        Assert.True(engine.IsPaused);
+        engine.LoadFrom(state);
+        Assert.Equal(interrupted, engine.IsPaused);
     }
 
+    /// <summary>A file written before "reviews existing work" and "read from the tree" were two facts
+    /// reads the second off the first: absent means "ask the older field", never false.</summary>
     [Fact]
-    public void A_fresh_tile_is_neither()
+    public void A_state_written_before_the_split_reads_its_claim_off_the_older_flag()
     {
-        Assert.False(GoalWorkflowEngine.WasInterrupted(new GoalTileState()));
+        var engine = new GoalWorkflowEngine();
+
+        engine.LoadFrom(new GoalTileState
+        {
+            OriginalGoal = "Finish the cart",
+            ReviewsExistingWork = true,
+            GoalReadFromTheTree = null,
+        });
+
+        Assert.True(engine.GoalReadFromTheTree);
     }
 
     /// <summary>The save-and-load a restart puts the state through, without touching a disk.</summary>
@@ -133,37 +153,5 @@ public class GoalResumeTests
         var reloaded = new GoalWorkflowEngine();
         reloaded.LoadFrom(state);
         return reloaded;
-    }
-
-    /// <summary>
-    /// A tile waiting on questions is waiting, not interrupted.
-    /// </summary>
-    /// <remarks>
-    /// The signal used to be read off the transcript — the tool having spoken last — and that stopped
-    /// being true the moment structured questions moved out of the transcript and into a panel of their
-    /// own. The last turn is then the user's goal, so every tile with questions on screen came back from
-    /// a restart calling itself interrupted, offering Resume, and Resume asks the same round again.
-    /// </remarks>
-    [Fact]
-    public void Questions_waiting_for_an_answer_are_not_an_interrupted_run()
-    {
-        var waiting = new GoalTileState
-        {
-            CurrentPhase = GoalPhase.Clarify,
-            Messages = [new GoalMessage { Role = GoalMessageRole.User, Text = "a goal" }],
-            PendingQuestions = [new GoalQuestion { Question = "Which file?" }],
-        };
-
-        Assert.False(GoalWorkflowEngine.WasInterrupted(waiting));
-
-        // And the same state with nothing pending is interrupted, which is what makes the line above
-        // load-bearing rather than incidental.
-        var cutOff = new GoalTileState
-        {
-            CurrentPhase = GoalPhase.Clarify,
-            Messages = [new GoalMessage { Role = GoalMessageRole.User, Text = "a goal" }],
-        };
-
-        Assert.True(GoalWorkflowEngine.WasInterrupted(cutOff));
     }
 }

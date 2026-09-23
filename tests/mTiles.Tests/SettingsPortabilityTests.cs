@@ -10,13 +10,9 @@ namespace mTiles.Tests;
 /// </summary>
 public class SettingsPortabilityTests : IDisposable
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("mtiles-portability").FullName;
+    private readonly TempDirectory _dir = new("mtiles-portability");
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { /* a temp directory */ }
-        GC.SuppressFinalize(this);
-    }
+    public void Dispose() => _dir.Dispose();
 
     private static AppSettings WithSecrets() => new()
     {
@@ -36,7 +32,7 @@ public class SettingsPortabilityTests : IDisposable
     [Fact]
     public void Export_keeps_the_configuration_and_drops_the_secrets()
     {
-        var path = Path.Combine(_dir, "out.json");
+        var path = Path.Combine(_dir.Path, "out.json");
         SettingsPortability.Export(WithSecrets(), path);
 
         var read = SettingsPortability.Import(path, out var problem);
@@ -57,7 +53,7 @@ public class SettingsPortabilityTests : IDisposable
     [Fact]
     public void The_exported_file_is_owner_only()
     {
-        var path = Path.Combine(_dir, "out.json");
+        var path = Path.Combine(_dir.Path, "out.json");
         SettingsPortability.Export(WithSecrets(), path);
 
         if (!OperatingSystem.IsWindows())
@@ -73,7 +69,7 @@ public class SettingsPortabilityTests : IDisposable
     public void Export_does_not_disturb_the_settings_it_was_given()
     {
         var settings = WithSecrets();
-        SettingsPortability.Export(settings, Path.Combine(_dir, "out.json"));
+        SettingsPortability.Export(settings, Path.Combine(_dir.Path, "out.json"));
 
         Assert.Equal("sk-secret", settings.AiProviderInstances[0].ApiKey);
         Assert.Equal("db-secret", settings.Database.SqlServer.Password);
@@ -88,12 +84,12 @@ public class SettingsPortabilityTests : IDisposable
     [Fact]
     public void Import_keeps_the_keys_this_machine_already_has()
     {
-        var service = new SettingsService(Path.Combine(_dir, "settings.json"));
+        var service = new SettingsService(Path.Combine(_dir.Path, "settings.json"));
         service.Settings.AiProviderInstances.Add(
             new AiProviderInstance { Id = "p1", ProviderId = "openrouter", ApiKey = "sk-secret" });
         service.Settings.Database.SqlServer.Password = "db-secret";
 
-        var path = Path.Combine(_dir, "out.json");
+        var path = Path.Combine(_dir.Path, "out.json");
         SettingsPortability.Export(WithSecrets(), path);
         service.Replace(SettingsPortability.Import(path, out _)!);
 
@@ -111,14 +107,14 @@ public class SettingsPortabilityTests : IDisposable
     [Fact]
     public void Import_keeps_the_manual_connection_passwords_this_machine_already_has()
     {
-        var service = new SettingsService(Path.Combine(_dir, "settings.json"));
+        var service = new SettingsService(Path.Combine(_dir.Path, "settings.json"));
         var mine = new ManualDatabaseConnection { Id = "c1", Alias = "Lab", Password = "conn-secret" };
         service.Settings.Database.ManualConnections.Add(mine);
 
         var exported = new AppSettings();
         exported.Database.ManualConnections.Add(
             new ManualDatabaseConnection { Id = "c1", Alias = "Lab", Password = "conn-secret" });
-        var path = Path.Combine(_dir, "out.json");
+        var path = Path.Combine(_dir.Path, "out.json");
         SettingsPortability.Export(exported, path);
 
         service.Replace(SettingsPortability.Import(path, out _)!);
@@ -135,11 +131,11 @@ public class SettingsPortabilityTests : IDisposable
     [Fact]
     public void Import_seeds_the_agents_the_file_does_not_know_about()
     {
-        var service = new SettingsService(Path.Combine(_dir, "settings.json"));
+        var service = new SettingsService(Path.Combine(_dir.Path, "settings.json"));
         var seeded = service.Settings.AiAgentInstances.Count;
         Assert.True(seeded > 0);
 
-        var path = Path.Combine(_dir, "out.json");
+        var path = Path.Combine(_dir.Path, "out.json");
         SettingsPortability.Export(new AppSettings(), path);
         service.Replace(SettingsPortability.Import(path, out _)!);
 
@@ -152,7 +148,7 @@ public class SettingsPortabilityTests : IDisposable
     [Fact]
     public void Import_runs_the_legacy_migration()
     {
-        var service = new SettingsService(Path.Combine(_dir, "settings.json"));
+        var service = new SettingsService(Path.Combine(_dir.Path, "settings.json"));
 
         var older = new AppSettings { LegacyGitIgnoreMTerminalDir = false };
         service.Replace(older);
@@ -170,7 +166,7 @@ public class SettingsPortabilityTests : IDisposable
     [Fact]
     public async Task Import_refreshes_the_pages_that_save_as_you_type()
     {
-        var service = new SettingsService(Path.Combine(_dir, "settings.json"));
+        var service = new SettingsService(Path.Combine(_dir.Path, "settings.json"));
         service.Settings.Speech.Hotkey = "Alt+Space";
         service.Settings.Speech.AutoSubmitEnter = false;
         service.Settings.Phone.Port = 1;
@@ -179,7 +175,7 @@ public class SettingsPortabilityTests : IDisposable
         incoming.Speech.Hotkey = "Ctrl+Alt+D";
         incoming.Speech.AutoSubmitEnter = true;
         incoming.Phone.Port = 4321;
-        var path = Path.Combine(_dir, "in.json");
+        var path = Path.Combine(_dir.Path, "in.json");
         SettingsPortability.Export(incoming, path);
 
         var vm = new SettingsViewModel(service)
@@ -204,7 +200,7 @@ public class SettingsPortabilityTests : IDisposable
     [Fact]
     public void An_unreadable_file_is_reported_rather_than_thrown()
     {
-        var path = Path.Combine(_dir, "not-settings.json");
+        var path = Path.Combine(_dir.Path, "not-settings.json");
         File.WriteAllText(path, "{ this is not json");
 
         Assert.Null(SettingsPortability.Import(path, out var problem));

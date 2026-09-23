@@ -184,12 +184,9 @@ public class SpeechModelStoreTests : IDisposable
     }
 
     [Fact]
-    public void The_default_model_is_in_the_catalogue()
-        => Assert.NotNull(SpeechModelCatalog.Find(SpeechModelCatalog.DefaultModelId));
-
-    [Fact]
-    public void Every_model_has_a_distinct_id_and_a_digest()
+    public void Every_model_has_a_distinct_id_and_a_digest_and_the_default_is_one_of_them()
     {
+        Assert.NotNull(SpeechModelCatalog.Find(SpeechModelCatalog.DefaultModelId));
         Assert.Equal(SpeechModelCatalog.All.Count,
             SpeechModelCatalog.All.Select(m => m.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
 

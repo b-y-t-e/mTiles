@@ -1,5 +1,4 @@
-using System.Diagnostics;
-using mTiles.Models;
+﻿using mTiles.Models;
 using mTiles.Services;
 using Xunit;
 
@@ -23,14 +22,14 @@ namespace mTiles.Tests;
 public class GoalBaselineTests
 {
     [Fact]
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
     public async Task It_captures_untracked_files_without_disturbing_the_repository()
     {
         RequireGit();
 
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "baseline");
         repo.Write("tracked.txt", "committed");
-        repo.Git("add -A");
-        repo.Git("commit -m first");
+        repo.CommitAll("first");
 
         // The three states that matter, and the second is the whole point: `git diff HEAD` cannot see
         // an untracked file and `git checkout HEAD -- path` cannot bring one back, so a new file is
@@ -81,7 +80,7 @@ public class GoalBaselineTests
     {
         RequireGit();
 
-        using var plain = new TempRepo(init: false);
+        using var plain = new GitTestRepo(init: false, prefix: "baseline");
         plain.Write("notes.txt", "no git here");
 
         var result = await new GoalBaseline(plain.Path, "git").CaptureAsync("g1", default);
@@ -99,7 +98,7 @@ public class GoalBaselineTests
     {
         RequireGit();
 
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "baseline");
         repo.Write("a.txt", "written before the first commit");
 
         var result = await new GoalBaseline(repo.Path, "git").CaptureAsync("g1", default);
@@ -116,7 +115,7 @@ public class GoalBaselineTests
     [Fact]
     public async Task A_git_that_cannot_be_run_is_not_reported_as_a_missing_repository()
     {
-        using var repo = new TempRepo(init: false);
+        using var repo = new GitTestRepo(init: false, prefix: "baseline");
 
         var result = await new GoalBaseline(repo.Path, "git-that-does-not-exist").CaptureAsync("g1", default);
 
@@ -140,16 +139,16 @@ public class GoalBaselineTests
     /// model could hold a quote or a newline.
     /// </remarks>
     [Fact]
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
     public async Task It_commits_this_runs_work_and_nothing_else()
     {
         RequireGit();
 
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "baseline");
         repo.Write("ours.txt", "v1");
         repo.Write("theirs.txt", "v1");
         repo.Write("renamed-from.txt", "v1");
-        repo.Git("add -A");
-        repo.Git("commit -m first");
+        repo.CommitAll("first");
 
         // The user is already mid-change when the goal starts. This file is the one that must survive
         // untouched: a commit takes the whole file, so committing it would carry their work along.
@@ -229,14 +228,14 @@ public class GoalBaselineTests
     /// commit is something the user has to be told about.</para>
     /// </remarks>
     [Fact]
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
     public async Task One_goal_tile_does_not_commit_anothers_work()
     {
         RequireGit();
 
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "baseline");
         repo.Write("shared.txt", "v1");
-        repo.Git("add -A");
-        repo.Git("commit -m first");
+        repo.CommitAll("first");
 
         var git = new GoalBaseline(repo.Path, "git");
 
@@ -290,21 +289,23 @@ public class GoalBaselineTests
     }
 
     /// <summary>
-    /// A run that finished before anybody else moved commits everything it wrote.
+    /// A run that finished before anybody else moved commits everything it wrote — and once its closing
+    /// snapshot has been pruned, the scope degrades to unbounded rather than unreadable.
     /// </summary>
     /// <remarks>
-    /// The other side of the test above, and the one that would catch a boundary drawn too tightly: a
-    /// single tile in a quiet workspace must still commit its whole run, closing snapshot or not.
+    /// The first half catches a boundary drawn too tightly. The second is a goal reopened after twenty
+    /// later summaries, whose <c>EndRef</c> git has collected: a missing upper end is exactly what
+    /// <c>Bounded: false</c> already describes, so the commit must not be blocked by it.
     /// </remarks>
     [Fact]
-    public async Task A_run_nobody_disturbed_commits_all_of_its_own_work()
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
+    public async Task A_run_nobody_disturbed_commits_all_of_its_own_work_even_after_its_end_is_collected()
     {
         RequireGit();
 
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "baseline");
         repo.Write("start.txt", "v1");
-        repo.Git("add -A");
-        repo.Git("commit -m first");
+        repo.CommitAll("first");
 
         var git = new GoalBaseline(repo.Path, "git");
         var baseline = Assert.IsType<string>((await git.CaptureAsync("g1", default)).Ref);
@@ -314,56 +315,26 @@ public class GoalBaselineTests
 
         var end = Assert.IsType<string>((await git.CaptureEndAsync("g1", default)).Ref);
 
-        var scope = await new GoalCommitter(repo.Path, "git").ScopeAsync(baseline, end, default);
+        var committer = new GoalCommitter(repo.Path, "git");
+        var scope = await committer.ScopeAsync(baseline, end, default);
 
         Assert.True(scope.Bounded);
         Assert.Equal(["added.txt", "start.txt"], scope.Files.OrderBy(f => f).ToList());
         Assert.Empty(scope.TouchedSince);
         Assert.Empty(scope.LeftAlone);
-    }
-
-    /// <summary>Fails loudly rather than passing quietly. See <see cref="RequiresGit"/>.</summary>
-    private static void RequireGit() => RequiresGit.OrFail("GoalBaseline");
-
-    /// <summary>
-    /// A closing snapshot git no longer has degrades the scope, it does not block the commit.
-    /// </summary>
-    /// <remarks>
-    /// <para>These refs are pruned to the newest twenty of their namespace and a tile keeps its
-    /// <c>EndRef</c> for as long as the tile exists, so a goal reopened after twenty later summaries in
-    /// the same workspace holds a ref that has been collected. Used unchecked, the first <c>diff</c>
-    /// against it fails and the whole scope comes back <c>Unreadable</c> — the dialog says git could
-    /// not be asked, and a run that committed perfectly well before closing snapshots existed becomes
-    /// one that cannot be committed <em>because</em> of them.</para>
-    /// <para>A missing upper end is exactly what <c>Bounded: false</c> already describes and the dialog
-    /// already explains, so that is where it lands.</para>
-    /// </remarks>
-    [Fact]
-    public async Task A_closing_snapshot_that_has_been_collected_falls_back_to_an_unbounded_scope()
-    {
-        RequireGit();
-
-        using var repo = new TempRepo();
-        repo.Write("start.txt", "v1");
-        repo.Git("add -A");
-        repo.Git("commit -m first");
-
-        var git = new GoalBaseline(repo.Path, "git");
-        var baseline = Assert.IsType<string>((await git.CaptureAsync("g1", default)).Ref);
-
-        repo.Write("start.txt", "v2");
-
-        var end = Assert.IsType<string>((await git.CaptureEndAsync("g1", default)).Ref);
 
         // What the prune does to an older tile's end while its state file still names it.
         repo.Git($"update-ref -d {end}");
 
-        var scope = await new GoalCommitter(repo.Path, "git").ScopeAsync(baseline, end, default);
+        var degraded = await committer.ScopeAsync(baseline, end, default);
 
-        Assert.True(scope.Readable, "a collected end ref made the whole scope unreadable");
-        Assert.False(scope.Bounded);
-        Assert.Contains("start.txt", scope.Files);
+        Assert.True(degraded.Readable, "a collected end ref made the whole scope unreadable");
+        Assert.False(degraded.Bounded);
+        Assert.Contains("start.txt", degraded.Files);
     }
+
+    /// <summary>Fails loudly rather than passing quietly. See <see cref="RequiresGit"/>.</summary>
+    private static void RequireGit() => RequiresGit.OrFail("GoalBaseline");
 
     /// <summary>
     /// Two runs that overlap in time are <b>not</b> told apart, and this is what that costs.
@@ -386,14 +357,14 @@ public class GoalBaselineTests
     /// with no warning attached to it.</para>
     /// </remarks>
     [Fact]
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
     public async Task Two_runs_that_overlap_in_time_are_not_told_apart()
     {
         RequireGit();
 
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "baseline");
         repo.Write("start.txt", "v1");
-        repo.Git("add -A");
-        repo.Git("commit -m first");
+        repo.CommitAll("first");
 
         var git = new GoalBaseline(repo.Path, "git");
 
@@ -420,62 +391,5 @@ public class GoalBaselineTests
 
         // And nothing warns, because as far as the boundaries are concerned the run is well bounded.
         Assert.True(scope.Bounded);
-    }
-
-    private sealed class TempRepo : IDisposable
-    {
-        public string Path { get; }
-
-        public TempRepo(bool init = true)
-        {
-            Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), $"mtiles-baseline-test-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
-
-            if (!init) return;
-
-            Git("init -q");
-            // Set on the repository rather than relied on from the machine: a build agent has no global
-            // identity, and `commit` would fail there for a reason that has nothing to do with what is
-            // being tested. GoalBaseline passes its own identity for the same reason.
-            Git("config user.name tester");
-            Git("config user.email tester@localhost");
-            Git("config commit.gpgsign false");
-        }
-
-        public void Write(string name, string content) =>
-            File.WriteAllText(System.IO.Path.Combine(Path, name), content);
-
-        public string Git(string arguments)
-        {
-            using var p = Process.Start(new ProcessStartInfo("git", arguments)
-            {
-                WorkingDirectory = Path,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            })!;
-            var output = p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
-            p.WaitForExit();
-            return output;
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                // Git leaves read-only files under .git/objects on Windows, which Directory.Delete
-                // refuses. Clearing the attribute is cheaper than leaving a temp repository per test.
-                foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
-                    File.SetAttributes(file, FileAttributes.Normal);
-                Directory.Delete(Path, recursive: true);
-            }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning($"Cleaning up the test repository failed: {ex.Message}");
-            }
-        }
     }
 }

@@ -28,49 +28,22 @@ public class UnrecognizedModelTests
         "is set and takes precedence over your claude.ai login\n" +
         "[claude-code:unrecognized_model] {\"model\":\"z-ai/glm-5.3-flash\",\"query_source\":\"sdk\"}";
 
-    [Fact]
-    public void The_plain_run_refusal_is_named_by_the_tag_in_its_stderr_dump()
-    {
-        Assert.True(UnrecognizedModel.Named(PlainRefusal));
-    }
-
-    [Fact]
-    public void The_streamed_run_refusal_is_named_by_the_cli_tag_alone()
-    {
-        // The stdout sentence never reaches this shape — a streamed run's plain lines are dropped — so
-        // the tag on stderr is the only signal there is.
-        Assert.True(UnrecognizedModel.Named(StreamedRefusal));
-    }
-
+    /// <summary>The CLI's own tag is the one signal matched, because a quoted sentence cannot fake it.
+    /// </summary>
     [Theory]
-    [InlineData("")]
-    [InlineData(null)]
-    public void Nothing_printed_is_nothing_named(string? toolOutput)
-    {
-        Assert.False(UnrecognizedModel.Named(toolOutput));
-    }
-
-    [Fact]
-    public void An_ordinary_failure_is_not_read_as_the_model_refusal()
-    {
-        Assert.False(UnrecognizedModel.Named(
-            "I got as far as renaming Cart.cs.\n\n[error] Credit balance is too low"));
-        Assert.False(UnrecognizedModel.Named(
-            "[stderr] opencode run [message..]\nrun opencode with a message"));
-    }
-
-    [Fact]
-    public void A_failed_run_quoting_the_sentence_is_not_read_as_the_refusal()
-    {
-        // This tile's goals are goals about this application, whose sources contain the sentence — a
-        // run that failed for an unrelated reason would carry its diff into the failure text. The tag
-        // is the one signal matched, precisely because a quoted sentence cannot fake it; the sentence
-        // alone names nothing.
-        var quoted = "The guard message \"There's an issue with the selected model\" is user-hostile.";
-        Assert.False(UnrecognizedModel.Named(quoted));
-        Assert.False(UnrecognizedModel.Named(
-            "The CLI prints \"is not a model this version of Claude Code recognizes\" on stderr."));
-    }
+    // A plain run's stderr dump, and a streamed run, where the tag on stderr is all there is.
+    [InlineData(PlainRefusal, true)]
+    [InlineData(StreamedRefusal, true)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    // Ordinary failures.
+    [InlineData("I got as far as renaming Cart.cs.\n\n[error] Credit balance is too low", false)]
+    [InlineData("[stderr] opencode run [message..]\nrun opencode with a message", false)]
+    // A run about this application carries its sources, which quote the sentence; the sentence names nothing.
+    [InlineData("The guard message \"There's an issue with the selected model\" is user-hostile.", false)]
+    [InlineData("The CLI prints \"is not a model this version of Claude Code recognizes\" on stderr.", false)]
+    public void Only_the_clis_own_tag_names_the_refusal(string? toolOutput, bool named) =>
+        Assert.Equal(named, UnrecognizedModel.Named(toolOutput));
 
     [Fact]
     public void The_advice_names_the_route_that_still_works()

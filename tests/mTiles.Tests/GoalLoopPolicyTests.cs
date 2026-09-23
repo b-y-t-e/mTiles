@@ -65,40 +65,25 @@ public class GoalLoopPolicyTests
     [InlineData(0, 5, 1)]
     [InlineData(1, 5, 2)]
     [InlineData(4, 5, 5)]
-    public void A_fresh_lap_opens_the_next_attempt(int spent, int max, int expected)
+    // Five attempts at the goal, and that is where it ends.
+    [InlineData(5, 5, null)]
+    public void A_fresh_lap_opens_the_next_attempt_until_the_budget_is_spent(int spent, int max, int? expected)
     {
         Assert.Equal(expected, GoalLoopPolicy.NextAttempt(spent, max, finishInterrupted: false));
     }
 
-    [Fact]
-    public void The_budget_is_five_attempts_at_the_goal_and_that_is_where_it_ends()
-    {
-        Assert.Null(GoalLoopPolicy.NextAttempt(spent: 5, max: 5, finishInterrupted: false));
-    }
-
+    /// <summary>
+    /// Resuming finishes the attempt already paid for rather than charging for a new one — even the last
+    /// of the budget, which the resume question is asked before — and a run that never started one starts
+    /// the first.
+    /// </summary>
     [Theory]
-    [InlineData(1)]
-    [InlineData(3)]
-    public void Resuming_finishes_the_attempt_already_paid_for(int spent)
+    [InlineData(1, 1)]
+    [InlineData(3, 3)]
+    [InlineData(5, 5)]
+    [InlineData(0, 1)]
+    public void Resuming_finishes_the_attempt_already_paid_for(int spent, int expected)
     {
-        // Not spent + 1. Charging twice for one attempt meant a run stopped and continued a few times
-        // gave up while the user still had attempts left.
-        Assert.Equal(spent, GoalLoopPolicy.NextAttempt(spent, max: 5, finishInterrupted: true));
-    }
-
-    [Fact]
-    public void An_attempt_interrupted_as_the_last_of_the_budget_is_still_finishable()
-    {
-        // The budget question is asked after the resume question, not before it: `spent < max` alone
-        // would refuse to reopen the loop and the fifth attempt would be lost half-done.
-        Assert.Equal(5, GoalLoopPolicy.NextAttempt(spent: 5, max: 5, finishInterrupted: true));
-    }
-
-    [Fact]
-    public void Resuming_a_run_that_never_started_one_starts_the_first()
-    {
-        // Reachable only from a state written before the first attempt was recorded. Opening attempt 1
-        // is the answer that loses nothing; returning 0 would run an attempt the label counts as "0/5".
-        Assert.Equal(1, GoalLoopPolicy.NextAttempt(spent: 0, max: 5, finishInterrupted: true));
+        Assert.Equal(expected, GoalLoopPolicy.NextAttempt(spent, max: 5, finishInterrupted: true));
     }
 }

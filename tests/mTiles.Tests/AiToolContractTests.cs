@@ -105,33 +105,19 @@ public class AiToolContractTests
     }
 
     /// <summary>
-    /// The two that take the prompt as a positional, after their subcommand and after their flags.
+    /// opencode takes its prompt on standard input, so nothing of it is on the command line or fitted to
+    /// a budget; its one permission flag is our bypass (<c>AiAgentTests</c> pins the mapping).
     /// </summary>
-    /// <remarks>
-    /// <para>opencode's control is a <em>boolean</em> and its name is a trap: <c>--auto</c> is
-    /// documented as "auto-approve permissions that are not explicitly denied (dangerous!)", which is
-    /// this application's bypass. Canonical auto therefore passes nothing, and asking for bypass is the
-    /// only thing that puts the flag on the line.</para>
-    /// <para>codex has two orthogonal axes and no single flag, and its effort is a <em>config key</em>
-    /// — <c>-c model_reasoning_effort=high</c>. Both were passing nothing at all, so every goal run on
-    /// codex used whatever the user's <c>config.toml</c> happened to say. Only one of the two axes
-    /// reaches <c>exec</c>, which refuses <c>-a</c> outright.</para>
+    /// <remarks>Measured 2026-09-01: <c>opencode run</c> with no message argument answers the prompt it is
+    /// piped, which keeps it clear of the npm <c>.cmd</c> shim's re-parsing and cmd.exe's line limit.
     /// </remarks>
     [Fact]
-    public void Opencode_leaves_the_prompt_to_stdin_and_codex_takes_it_after_its_subcommand()
+    public void Opencode_leaves_the_prompt_to_stdin()
     {
-        // Measured 2026-09-01: `opencode run` with no message argument answers the prompt it is
-        // piped, so the prompt stays off the command line — which is what removes the npm `.cmd`
-        // shim's re-parsing of it, and the ~8 000 characters past which cmd.exe refuses the line.
         Assert.Equal(["run"], Args("opencode"));
         Assert.Equal(["run", "--auto"], Args("opencode", AiBehaviour.BypassPermissions));
-
-        // No -a: measured, codex exec refuses it — the axis exists on codex and codex resume alone.
-        Assert.Equal(
-            ["exec", "--sandbox", "workspace-write", "-c", "model_reasoning_effort=high", "the prompt"],
-            Args("codex"));
-        Assert.Equal(["exec", "--dangerously-bypass-approvals-and-sandbox", "the prompt"],
-            Args("codex", AiBehaviour.BypassPermissions, AiEffort.ToolDefault));
+        Assert.True(((IAiAgent)new OpenCodeAgent()).AcceptsPromptOnStdin);
+        Assert.Null(AiProcessRunner.PromptBudget("opencode.cmd", new OpenCodeAgent()));
     }
 
     /// <summary>
@@ -140,6 +126,9 @@ public class AiToolContractTests
     [Fact]
     public void An_unknown_tool_falls_back_to_the_prompt_as_a_plain_argument()
     {
+        // Not Claude Code's flags and a stdin pipe it never agreed to read: that fallback was a hang.
+        Assert.IsType<GenericAgent>(AiProcessRunner.GetRunner("something-nobody-has-heard-of"));
+        Assert.False(AiProcessRunner.GetRunner("something-nobody-has-heard-of").AcceptsPromptOnStdin);
         Assert.Equal(["the prompt"], Args("something-nobody-has-heard-of"));
 
         // And openclaude is now one of those: it was a Claude Code fork whose support was removed, so

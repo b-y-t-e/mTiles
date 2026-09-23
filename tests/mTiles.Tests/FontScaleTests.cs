@@ -1,6 +1,5 @@
 using mTiles.Models;
 using mTiles.Services;
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -33,17 +32,17 @@ public class FontScaleTests
     {
         var offenders = new List<string>();
 
-        foreach (var file in MarkupFiles())
+        foreach (var file in RepoSources.AppAxaml)
         {
             var line = 0;
 
-            foreach (var text in File.ReadLines(file))
+            foreach (var text in file.Lines)
             {
                 line++;
 
                 foreach (var value in FontSizeValues(text))
                     if (!IsScaleToken(value))
-                        offenders.Add($"{Path.GetFileName(file)}:{line} sets FontSize to {value}");
+                        offenders.Add($"{file.Name}:{line} sets FontSize to {value}");
             }
         }
 
@@ -68,8 +67,8 @@ public class FontScaleTests
     {
         var used = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var file in MarkupFiles())
-            foreach (var text in File.ReadLines(file))
+        foreach (var file in RepoSources.AppAxaml)
+            foreach (var text in file.Lines)
                 foreach (var value in FontSizeValues(text))
                     if (TokenOf(value) is { } token)
                         used.Add(token);
@@ -95,7 +94,7 @@ public class FontScaleTests
         // Both families, so a Term* default that drifts is caught by the same rule as a bare one.
         var pattern = new Regex("""<x:Double x:Key="(?<key>\w*Font\w*)">(?<value>[\d.]+)</x:Double>""");
 
-        foreach (var text in File.ReadLines(Path.Combine(Source(), "Styles", "AppTheme.axaml")))
+        foreach (var text in RepoSources.AppFile("Styles/AppTheme.axaml").Lines)
             if (pattern.Match(text) is { Success: true } m)
                 declared[m.Groups["key"].Value] = double.Parse(m.Groups["value"].Value,
                     System.Globalization.CultureInfo.InvariantCulture);
@@ -160,7 +159,7 @@ public class FontScaleTests
         var offenders = new List<string>();
         var line = 0;
 
-        foreach (var text in File.ReadLines(Path.Combine(Source(), file.Replace('/', Path.DirectorySeparatorChar))))
+        foreach (var text in RepoSources.AppFile(file).Lines)
         {
             line++;
 
@@ -228,14 +227,4 @@ public class FontScaleTests
         var key = m.Groups["key"].Value;
         return UiFontScale.AllNames.Contains(key) ? key : null;
     }
-
-    private static IEnumerable<string> MarkupFiles() =>
-        Directory.EnumerateFiles(Source(), "*.axaml", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                        && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"));
-
-    /// <inheritdoc cref="XmlDocPlacementTests"/>
-    private static string Source([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(
-            Path.GetDirectoryName(thisFile)!, "..", "..", "src", "mTiles"));
 }

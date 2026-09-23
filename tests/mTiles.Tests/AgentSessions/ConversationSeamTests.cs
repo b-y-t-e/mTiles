@@ -198,74 +198,29 @@ public class ConversationSeamTests
         Assert.Contains("bypass", asked ?? "", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <remarks>Everything on this path runs under the tile's own catch-and-log, so a store that will not
-    /// write left the picker on the agent arriving, the tile on the agent leaving and the user with nothing
-    /// but a line in the log. And the two writes are one move: a row naming the new agent over a transcript
-    /// that never says it moved is refused by the next start with no account of where it came from.</remarks>
+    /// <remarks>The two writes are one move, and a failure is said rather than only logged; the sentence
+    /// comes down again once a retry works, since it claims the work stayed where it was.</remarks>
     [Fact]
-    public async Task A_seam_that_cannot_be_written_leaves_the_conversation_where_it_was_and_says_so()
+    public async Task A_seam_that_cannot_be_written_leaves_the_conversation_where_it_was_until_one_works()
     {
         using var settings = new TempSettings();
-        var store = new RefusesToAppend(TestTiles.ConversationStore());
+        var store = new TestStore();
         var (tile, record) = await OnAConversationWithSomethingSaid(settings, store);
         using var owned = tile;
         tile.ConfirmAction = _ => Task.FromResult(true);
 
-        store.Refusing = true;
+        store.RefusingAppends = true;
         await tile.SwitchInstanceAsync(InstanceOf(settings, "codex"));
-
         Assert.Equal("claude", tile.Agent.Id);
         Assert.Equal("claude", store.Find(record.Id)!.AgentId);
         Assert.Equal("claude-session-id", store.Find(record.Id)!.ResumeToken);
         Assert.Contains(AgentConversationTileViewModel.HandoverNotWrittenNotice, tile.LaunchNotice);
-    }
 
-    /// <remarks>The sentence says the work "stays with the agent it was already running", which stops being
-    /// true the moment a retry works. Left standing, it would go on saying so over a conversation that has
-    /// just moved, until somebody dismissed it by hand.</remarks>
-    [Fact]
-    public async Task The_sentence_about_a_failed_handover_comes_down_when_one_works()
-    {
-        using var settings = new TempSettings();
-        var store = new RefusesToAppend(TestTiles.ConversationStore());
-        var (tile, _) = await OnAConversationWithSomethingSaid(settings, store);
-        using var owned = tile;
-        tile.ConfirmAction = _ => Task.FromResult(true);
-
-        store.Refusing = true;
-        await tile.SwitchInstanceAsync(InstanceOf(settings, "codex"));
-        Assert.Contains(AgentConversationTileViewModel.HandoverNotWrittenNotice, tile.LaunchNotice);
-
-        store.Refusing = false;
+        store.RefusingAppends = false;
         await tile.SwitchInstanceAsync(InstanceOf(settings, "codex"));
 
         Assert.Equal("codex", tile.Agent.Id);
         Assert.DoesNotContain(AgentConversationTileViewModel.HandoverNotWrittenNotice, tile.LaunchNotice);
-    }
-
-    /// <summary>A store whose append fails, which is the half of the seam that cannot be retried in place.
-    /// </summary>
-    private sealed class RefusesToAppend(IConversationStore inner) : IConversationStore
-    {
-        public bool Refusing { get; set; }
-
-        public ConversationRecord? Find(string conversationId) => inner.Find(conversationId);
-
-        public IReadOnlyList<ConversationSummary> List(string workingDirectory) => inner.List(workingDirectory);
-
-        public void Save(ConversationRecord record) => inner.Save(record);
-
-        public IReadOnlyList<AgentEvent> ReadEvents(string conversationId) => inner.ReadEvents(conversationId);
-
-        public long LastSequence(string conversationId) => inner.LastSequence(conversationId);
-
-        public void Append(string conversationId, IReadOnlyList<AgentEvent> events)
-        {
-            if (Refusing) throw new IOException("The conversation store is busy.");
-            inner.Append(conversationId, events);
-        }
-
-        public void Delete(string conversationId) => inner.Delete(conversationId);
     }
 
     /// <remarks>
@@ -280,12 +235,11 @@ public class ConversationSeamTests
     {
         using var settings = new TempSettings();
         var store = TestTiles.ConversationStore();
-        var starter = new LiveSession();
+        var starter = new ReadyStarter();
 
         using var tile = await OnAHandedOverConversation(settings, store, starter);
 
-        var deadline = DateTime.UtcNow.AddSeconds(20);
-        while (starter.Session!.Sent.Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(20);
+        await ConversationTiles.WaitUntil(() => starter.Session?.Sent.Count > 0, "the brief to be sent");
 
         var told = Assert.Single(starter.Session!.Sent);
         Assert.Contains("Make it sort pinned rows first.", told);
@@ -308,69 +262,10 @@ public class ConversationSeamTests
         HandoverWriter.Write(store, record, new SessionAccount("claude"), new SessionAccount("codex", codex.Id),
             ConversationHandover.Write(ConversationReducer.Replay(store.ReadEvents(record.Id))));
 
-        var tile = (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(store, starter))
-            .Create(
-                new TileContext(Path.GetTempPath(), settings.Service) { TileId = () => tileId },
-                new JsonObject { [AgentStateKeys.InstanceIdKey] = codex.Id });
-
-        tile.EnsureStarted();
-        var deadline = DateTime.UtcNow.AddSeconds(20);
-        while (tile.IsStarting && DateTime.UtcNow < deadline) await Task.Delay(20);
-        Assert.Null(tile.LaunchProblem);
+        var tile = ConversationTiles.FromKind(settings, new JsonObject { [AgentStateKeys.InstanceIdKey] = codex.Id },
+            store, starter, tileId);
+        await ConversationTiles.StartUntilRunning(tile);
         return tile;
-    }
-
-    /// <summary>Starts no CLI and hands back a session that records what it was sent.</summary>
-    private sealed class LiveSession : IAgentSessionStarter
-    {
-        public RecordingSession? Session { get; private set; }
-
-        public Task<(AgentSessionLaunch? Launch, string? Problem)> PrepareAsync(AppSettings settings,
-            IAiAgent agent, AiAgentInstance instance, string workingDirectory, string conversationId,
-            string? resumeToken, CancellationToken ct) =>
-            Task.FromResult<(AgentSessionLaunch?, string?)>((new AgentSessionLaunch(agent.BinaryName,
-                workingDirectory, mTiles.Services.Providers.AgentRuntime.For(settings, instance, agent: agent),
-                new Dictionary<string, string?>(), AiBehaviour.ToolDefault, AiEffort.ToolDefault, resumeToken,
-                conversationId), null));
-
-        public mTiles.AgentSessions.IAgentSession Create(IAiAgent agent, AgentSessionLaunch launch,
-            mTiles.AgentSessions.IAgentEventSink sink)
-        {
-            var session = new RecordingSession(sink);
-            Session = session;
-            return session;
-        }
-    }
-
-    private sealed class RecordingSession(mTiles.AgentSessions.IAgentEventSink sink) : mTiles.AgentSessions.IAgentSession
-    {
-        public List<string> Sent { get; } = [];
-
-        public Task StartAsync(CancellationToken ct)
-        {
-            sink.Emit(new SessionStateChanged(AgentSessionState.Ready));
-            return Task.CompletedTask;
-        }
-
-        public Task SendAsync(AgentTurnInput input, CancellationToken ct)
-        {
-            Sent.Add(input.Text);
-            return Task.CompletedTask;
-        }
-
-        public Task InterruptAsync(CancellationToken ct) => Task.CompletedTask;
-
-        public Task RespondToApprovalAsync(string requestId, ApprovalDecision decision, CancellationToken ct) =>
-            Task.CompletedTask;
-
-        public Task AnswerQuestionsAsync(string requestId,
-            IReadOnlyDictionary<string, IReadOnlyList<string>>? answers, CancellationToken ct) =>
-            Task.CompletedTask;
-
-        public Task<SettingsChangeOutcome> ChangeSettingsAsync(SessionSettings settings, CancellationToken ct) =>
-            Task.FromResult(SettingsChangeOutcome.Applied);
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private static ConversationRecord Stored(IConversationStore store, string agentId, string? token)
@@ -402,11 +297,8 @@ public class ConversationSeamTests
         // One id, asked for many times: a tile's conversation is named after it, and a TileId that answered
         // differently on each call would give the start and the store two different conversations.
         var tileId = Guid.NewGuid().ToString();
-        var tile = (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(
-                store, NoLaunch.Instance))
-            .Create(
-                new TileContext(Path.GetTempPath(), settings.Service) { TileId = () => tileId },
-                new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
+        var tile = ConversationTiles.FromKind(settings, new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id },
+            store, tileId: tileId);
 
         var record = new ConversationRecord(tile.ConversationId, "claude", Path.GetTempPath(), "claude-session-id",
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
@@ -416,24 +308,7 @@ public class ConversationSeamTests
             new AssistantMessageCompleted("a1", "Done.") { Sequence = 2 },
         ]);
 
-        tile.EnsureStarted();
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (tile.LaunchProblem is null && DateTime.UtcNow < deadline) await Task.Delay(20);
-        Assert.NotNull(tile.LaunchProblem);
+        await ConversationTiles.StartUntilRefused(tile);
         return (tile, record);
-    }
-
-    private sealed class NoLaunch : IAgentSessionStarter
-    {
-        public static NoLaunch Instance { get; } = new();
-
-        public Task<(AgentSessionLaunch? Launch, string? Problem)> PrepareAsync(AppSettings settings,
-            IAiAgent agent, AiAgentInstance instance, string workingDirectory, string conversationId,
-            string? resumeToken, CancellationToken ct) =>
-            Task.FromResult<(AgentSessionLaunch?, string?)>((null, "No agent is started in these tests."));
-
-        public mTiles.AgentSessions.IAgentSession Create(IAiAgent agent, AgentSessionLaunch launch,
-            mTiles.AgentSessions.IAgentEventSink sink) =>
-            throw new InvalidOperationException("No agent is started in these tests.");
     }
 }

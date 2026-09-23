@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Layout;
 using mTiles.Models;
@@ -22,24 +23,11 @@ namespace mTiles.Tests;
 /// </remarks>
 public class WindowLayoutTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _dir = new();
 
-    public WindowLayoutTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() => _dir.Dispose();
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
-        GC.SuppressFinalize(this);
-    }
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WindowLayoutTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
-    private string WindowDir => Path.Combine(_dir, "window");
+    private string WindowDir => Path.Combine(_dir.Path, "window");
     private string LayoutFile => Path.Combine(WindowDir, WindowLayoutViewModel.LayoutId + ".json");
 
     /// <summary>Everything a window layout needs, built against this test's own directory.</summary>
@@ -73,9 +61,9 @@ public class WindowLayoutTests : IDisposable
     // ---- the default -------------------------------------------------------------------------------
 
     [Fact]
-    public void A_window_never_rearranged_is_the_list_on_the_left_and_the_workspace_beside_it() => OnUiThread(() =>
+    public void A_window_never_rearranged_is_the_list_on_the_left_and_the_workspace_beside_it() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         using var layout = fixture.Layout(listWidth: 310);
 
         var root = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
@@ -95,12 +83,13 @@ public class WindowLayoutTests : IDisposable
 
     /// <summary>Opening the window writes nothing: a layout nobody has changed is not a change.</summary>
     [Fact]
-    public void The_default_layout_is_not_written_down() => OnUiThread(() =>
+    public void The_default_layout_is_not_written_down() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         using var layout = fixture.Layout();
 
-        Thread.Sleep(AppDefaults.SaveDebounceMs + 300);
+        // A save that had been scheduled would be written now.
+        fixture.Persistence.FlushLayout(WindowLayoutViewModel.LayoutId);
 
         Assert.False(File.Exists(LayoutFile));
     });
@@ -108,15 +97,17 @@ public class WindowLayoutTests : IDisposable
     // ---- persistence -------------------------------------------------------------------------------
 
     [Fact]
-    public void A_rearranged_window_comes_back_as_it_was_left() => OnUiThread(() =>
+    public void A_rearranged_window_comes_back_as_it_was_left() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
 
         using (var layout = fixture.Layout())
         {
             Assert.NotNull(layout.AddTile(TileKindIds.Note));
-            WaitForFile(LayoutFile);
         }
+
+        // Disposing the layout flushes the pending save.
+        Assert.True(File.Exists(LayoutFile));
 
         using var reopened = fixture.Layout();
 
@@ -133,7 +124,7 @@ public class WindowLayoutTests : IDisposable
     [Theory]
     [InlineData(0)]
     [InlineData(2)]
-    public void A_file_without_exactly_one_list_opens_as_the_default(int lists) => OnUiThread(() =>
+    public void A_file_without_exactly_one_list_opens_as_the_default(int lists) => Ui.Run(() =>
     {
         Directory.CreateDirectory(WindowDir);
         var leaves = Enumerable.Range(0, lists)
@@ -143,7 +134,7 @@ public class WindowLayoutTests : IDisposable
         var root = leaves.Skip(1).Aggregate(leaves[0], (first, second) =>
             new TileNode { IsLeaf = false, First = first, Second = second });
 
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         fixture.Persistence.SaveLayout(WindowLayoutViewModel.LayoutId, root);
 
         using var layout = fixture.Layout();
@@ -156,9 +147,9 @@ public class WindowLayoutTests : IDisposable
     // ---- what the permanent tiles refuse -----------------------------------------------------------
 
     [Fact]
-    public void The_list_and_the_workspace_cannot_be_closed_or_changed() => OnUiThread(() =>
+    public void The_list_and_the_workspace_cannot_be_closed_or_changed() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         using var layout = fixture.Layout();
         var root = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
 
@@ -176,9 +167,9 @@ public class WindowLayoutTests : IDisposable
 
     /// <summary>A tile beside them can become anything the window allows — except one of them.</summary>
     [Fact]
-    public void Nothing_offers_a_second_list_or_a_second_workspace() => OnUiThread(() =>
+    public void Nothing_offers_a_second_list_or_a_second_workspace() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         using var layout = fixture.Layout();
 
         Assert.Null(layout.AddTile(TileKindIds.Workspaces));
@@ -192,28 +183,11 @@ public class WindowLayoutTests : IDisposable
         Assert.DoesNotContain(note.AvailableKinds, kind => kind.IsPermanent);
     });
 
-    /// <summary>The window holds only what needs no repository.</summary>
-    [Fact]
-    public void The_window_offers_no_terminal_agent_git_database_or_goal() => OnUiThread(() =>
-    {
-        using var fixture = new Fixture(_dir, WindowDir);
-
-        var ids = fixture.Catalog.Entries.Select(entry => entry.Kind.Id).ToHashSet();
-
-        Assert.Equal(
-            new HashSet<string>
-            {
-                TileKindIds.Workspaces, TileKindIds.WorkspaceHost,
-                TileKindIds.Note, TileKindIds.Todo, TileKindIds.Usage
-            },
-            ids);
-    });
-
     /// <summary>A note beside the workspaces keeps its file in the window's directory.</summary>
     [Fact]
-    public void A_window_note_keeps_its_file_in_the_window_directory() => OnUiThread(() =>
+    public void A_window_note_keeps_its_file_in_the_window_directory() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         using var layout = fixture.Layout();
 
         var note = Assert.IsType<LeafTileNodeViewModel>(layout.AddTile(TileKindIds.Note));
@@ -224,12 +198,15 @@ public class WindowLayoutTests : IDisposable
 
     // ---- the list's size ---------------------------------------------------------------------------
 
-    /// <summary>Beside the layout the list is as wide as it last was; along it, one strip of tabs.</summary>
+    /// <summary>Beside the layout the list is as wide as it last was; along it, one strip of tabs — at any
+    /// window size.</summary>
     [Fact]
-    public void The_list_keeps_its_width_through_a_trip_to_the_top() => OnUiThread(() =>
+    public void The_list_keeps_its_width_through_a_trip_to_the_top() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         using var layout = fixture.Layout();
+        // A window too small for a note's pixels: the list keeps its own size all the same.
+        layout.Size = new Size(500, 700);
         var root = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
         var list = Assert.IsType<LeafTileNodeViewModel>(root.First);
         var host = Assert.IsType<LeafTileNodeViewModel>(root.Second);
@@ -254,13 +231,15 @@ public class WindowLayoutTests : IDisposable
         Assert.Equal(SplitFixedSide.First, left.FixedSide);
         Assert.Equal(300, left.FixedExtent);
 
+        // The workspace gives no size of its own on either route.
         Assert.Null(layout.FixedExtentFor(host, Orientation.Vertical));
+        Assert.Null(layout.DropSizeFor(host, Orientation.Vertical));
     });
 
     [Fact]
-    public void Swapping_the_list_with_the_workspace_keeps_the_width_on_the_list() => OnUiThread(() =>
+    public void Swapping_the_list_with_the_workspace_keeps_the_width_on_the_list() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         using var layout = fixture.Layout();
         var root = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
         var list = Assert.IsType<LeafTileNodeViewModel>(root.First);
@@ -275,7 +254,7 @@ public class WindowLayoutTests : IDisposable
     });
 
     [Fact]
-    public void A_permanent_kind_spelled_in_other_letters_still_counts() => OnUiThread(() =>
+    public void A_permanent_kind_spelled_in_other_letters_still_counts() => Ui.Run(() =>
     {
         Directory.CreateDirectory(WindowDir);
         var root = new TileNode
@@ -290,7 +269,7 @@ public class WindowLayoutTests : IDisposable
             }
         };
 
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         fixture.Persistence.SaveLayout(WindowLayoutViewModel.LayoutId, root);
 
         using var layout = fixture.Layout();
@@ -306,10 +285,11 @@ public class WindowLayoutTests : IDisposable
     /// between the list and the workspace, taking its third from the workspace's side. Split downwards, it
     /// stays in the column: that axis is not the fixed one.</remarks>
     [Fact]
-    public void Splitting_the_list_sideways_puts_the_new_tile_beside_its_column() => OnUiThread(() =>
+    public void Splitting_the_list_sideways_puts_the_new_tile_beside_its_column() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir, WindowDir);
+        using var fixture = new Fixture(_dir.Path, WindowDir);
         using var layout = fixture.Layout();
+        layout.Size = new Size(1600, 900);
         var root = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
         var list = Assert.IsType<LeafTileNodeViewModel>(root.First);
         var host = Assert.IsType<LeafTileNodeViewModel>(root.Second);
@@ -325,8 +305,11 @@ public class WindowLayoutTests : IDisposable
         var newcomer = Assert.IsType<LeafTileNodeViewModel>(beside.First);
         Assert.Equal(TileKindIds.None, newcomer.KindId);
         Assert.Same(host, beside.Second);
+        // On a wide window, a narrow column of fixed width.
+        Assert.True(beside.IsFixed(newcomer));
+        Assert.Equal(WindowTileSize.Width, beside.FixedExtent);
 
-        // The empty tile offers what the window may hold, and nothing permanent.
+        // The window holds only what needs no repository, and offers nothing permanent.
         Assert.Equal(
             new[] { TileKindIds.Note, TileKindIds.Todo, TileKindIds.Usage }.Order(),
             newcomer.AvailableKinds.Select(kind => kind.Id).Order());
@@ -336,12 +319,4 @@ public class WindowLayoutTests : IDisposable
         Assert.Equal(Orientation.Horizontal, column.Orientation);
         Assert.Same(list, column.First);
     });
-
-    private static void WaitForFile(string path)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!File.Exists(path) && DateTime.UtcNow < deadline)
-            Thread.Sleep(50);
-        Assert.True(File.Exists(path), $"{path} was never written.");
-    }
 }

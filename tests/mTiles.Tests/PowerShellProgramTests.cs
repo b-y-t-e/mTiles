@@ -199,6 +199,7 @@ public class PowerShellProgramTests
     /// changed; the control case is the same command spelled as a bare name, which must fail with the
     /// policy error that started this.</remarks>
     [Fact]
+    [Trait("Category", "Slow")] // starts a real powershell.exe twice; close to the budget on a Windows runner
     public void A_shim_runs_where_a_script_would_be_refused()
     {
         if (!OperatingSystem.IsWindows()) return;

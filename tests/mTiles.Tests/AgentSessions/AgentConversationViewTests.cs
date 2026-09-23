@@ -28,22 +28,14 @@ public class AgentConversationViewTests
     [Fact]
     public void Every_kind_of_entry_lays_out()
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(AgentConversationViewTests).Assembly);
-        session.Dispatch(() =>
+        Ui.Run(() =>
         {
             using var settings = new TempSettings();
-            var agent = AiAgentCatalog.Find("claude")!;
-            // An account that does not exist refuses the launch before anything is spawned. Left to start, the
-            // tile runs the real CLI, which a test has no business doing and a CI runner does not have.
-            var instance = AiAgentCatalog.SeedInstanceFor(agent);
-            instance.ApiAccountId = "no-such-account";
+            var instance = AiAgentCatalog.SeedInstanceFor(AiAgentCatalog.Find("claude")!);
             // A window of its own, so no lookup of one runs: its answer redraws the host's conversation — empty
             // here, since the state under test is drawn straight onto the tile — over all seven entries.
             instance.MaxContextTokens = 200_000;
-            var vm = new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
-                new mTiles.AgentSessions.Storage.SqliteConversationStore(
-                    Path.Combine(Path.GetTempPath(), $"mtiles-view-{Guid.NewGuid():N}.db")),
-                instance, agent, () => "tile", post: action => action());
+            var vm = ConversationTiles.New(settings, instance);
 
             var state = ConversationReducer.Replay(
             [
@@ -72,25 +64,7 @@ public class AgentConversationViewTests
                 new QuestionsAsked("q1", [new UserQuestion("y", null, "Proceed?", [new QuestionOption("Yes", "go on"), new QuestionOption("No")], true, true)]),
             ]);
             var view = new AgentConversationTileView { DataContext = vm };
-            // Control templates on the application, never the window: a theme added to a window leaves an
-            // ItemsControl untemplated (GoalFindingsDialogTests measured it). Taken off again at the end,
-            // because the test application is shared by the whole assembly.
-            var app = Avalonia.Application.Current!;
-            var theme = new Avalonia.Themes.Fluent.FluentTheme();
-            var tokens = new ResourceInclude(new Uri("avares://mTiles/Styles/"))
-            {
-                Source = new Uri("avares://mTiles/Styles/AppTheme.axaml"),
-            };
-            // The composer's model, effort and permission controls come from mTiles.Controls, and an
-            // untemplated control draws nothing at all — which would let this test pass over a composer
-            // that is, on screen, an empty row.
-            var pickers = new StyleInclude(new Uri("avares://mTiles.Controls/Themes/"))
-            {
-                Source = new Uri("avares://mTiles.Controls/Themes/Picker.axaml"),
-            };
-            app.Styles.Add(theme);
-            app.Styles.Add(pickers);
-            app.Resources.MergedDictionaries.Add(tokens);
+            using var theme = new HeadlessTheme();
 
             var window = new Window { Content = view, Width = 700, Height = 900 };
             try
@@ -99,19 +73,10 @@ public class AgentConversationViewTests
 
             // Showing the view starts the tile, which reads its (empty) stored conversation off the UI thread
             // and draws it; the state under test is drawn over it once that start has finished.
-            var deadline = DateTime.UtcNow.AddSeconds(10);
-            while (vm.IsStarting && DateTime.UtcNow < deadline)
-            {
-                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-                Thread.Sleep(10);
-            }
+            HeadlessTheme.PumpWhile(() => vm.IsStarting);
 
             vm.Draw(state);
-            for (var pass = 0; pass < 3; pass++)
-            {
-                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-                window.UpdateLayout();
-            }
+            HeadlessTheme.Layout(window);
 
             Assert.Equal(7, vm.Timeline.Count);
             Assert.Single(vm.PendingApprovals);
@@ -163,7 +128,6 @@ public class AgentConversationViewTests
             Assert.DoesNotContain(scroller, composer.GetVisualAncestors());
             Assert.Equal(Dock.Bottom, DockPanel.GetDock(composer));
 
-
             // What you typed sits on the right, at most three quarters across; what the agent said runs
             // the full width from the left. The column and the span are the whole of it — see
             // Views/BubbleLayout.cs — so they are what is asserted rather than a measured position.
@@ -212,12 +176,7 @@ public class AgentConversationViewTests
             {
                 window.Close();
                 vm.Dispose();
-                app.Styles.Remove(pickers);
-                app.Styles.Remove(theme);
-                app.Resources.MergedDictionaries.Remove(tokens);
             }
-
-            return Task.FromResult(true);
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        });
     }
 }

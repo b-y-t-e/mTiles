@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using mTiles.Views;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -62,11 +61,11 @@ public class SingleWindowTests
     {
         var offenders = new List<string>();
 
-        foreach (var file in SourceFiles())
+        foreach (var file in RepoSources.AppCSharp)
         {
             var line = 0;
 
-            foreach (var text in File.ReadLines(file))
+            foreach (var text in file.Lines)
             {
                 line++;
 
@@ -74,7 +73,7 @@ public class SingleWindowTests
                 if (trimmed.StartsWith("//", StringComparison.Ordinal)) continue;
 
                 if (Opener.Match(text) is { Success: true } m)
-                    offenders.Add($"{Path.GetFileName(file)}:{line} {m.Value.Trim()}");
+                    offenders.Add($"{file.Name}:{line} {m.Value.Trim()}");
             }
         }
 
@@ -90,15 +89,4 @@ public class SingleWindowTests
     /// </remarks>
     private static readonly Regex Opener =
         new(@"new\s+Window\s*[({]|\.ShowDialog\b|\bMessageBox\b|\bMessageBoxManager\b");
-
-    /// <inheritdoc cref="XmlDocPlacementTests"/>
-    private static IEnumerable<string> SourceFiles() =>
-        Directory.EnumerateFiles(Source(), "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                        && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"));
-
-    /// <inheritdoc cref="XmlDocPlacementTests"/>
-    private static string Source([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(
-            Path.GetDirectoryName(thisFile)!, "..", "..", "src", "mTiles"));
 }

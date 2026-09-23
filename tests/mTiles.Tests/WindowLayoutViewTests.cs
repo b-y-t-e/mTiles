@@ -24,35 +24,27 @@ namespace mTiles.Tests;
 /// </remarks>
 public class WindowLayoutViewTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _dir = new("mtiles-window-view");
 
-    public WindowLayoutViewTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() => _dir.Dispose();
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
-        GC.SuppressFinalize(this);
-    }
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WindowLayoutViewTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
+    /// <remarks>Also: the list is never handed the tile that stands for it as its data context, not even
+    /// for a moment — its bindings are compiled against <c>WorkspacesPanelViewModel</c>, and built the way
+    /// <c>App</c> builds the window (the data context before <c>BindWindowState</c>) it once threw on
+    /// start-up.</remarks>
     [Fact]
-    public void The_list_is_moved_not_rebuilt_and_a_window_tile_is_a_card() => OnUiThread(() =>
+    public void The_list_is_moved_not_rebuilt_and_a_window_tile_is_a_card() => Ui.Run(() =>
     {
         using var appData = new TempAppData();
-        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
+        var settings = new SettingsService(_dir["settings.json"]);
+        var vm = TestMainWindow.Create(_dir.Path, appData, settings, workspaces: false);
 
-        var vm = new MainWindowViewModel(workspaces, new PersistenceService(Path.Combine(_dir, "layouts")),
-            settings, TestTiles.Catalog(settings),
-            windowCatalog: panel => mTiles.App.BuildWindowTileCatalog(
-                new AiUsageService(settings, sources: _ => []), panel),
-            windowPersistence: new PersistenceService(Path.Combine(_dir, "window")));
+        var seen = new List<Type?>();
+        using var subscription = StyledElement.DataContextProperty.Changed.Subscribe(
+            new AnonymousObserver<AvaloniaPropertyChangedEventArgs<object?>>(e =>
+            {
+                if (e.Sender is WorkspacesPanelView) seen.Add(e.NewValue.GetValueOrDefault()?.GetType());
+            }));
 
         var window = new MainWindow { DataContext = vm, Width = 1000, Height = 700 };
         window.BindWindowState(settings);
@@ -61,6 +53,10 @@ public class WindowLayoutViewTests : IDisposable
 
         try
         {
+            Assert.NotEmpty(seen);
+            Assert.All(seen, type => Assert.True(type is null || type == typeof(WorkspacesPanelViewModel),
+                $"The list was handed a {type?.Name} as its data context."));
+
             // Only the workspace is a frame; the list is a card like any other tile, with a header.
             Assert.Single(window.GetVisualDescendants().OfType<WindowTileFrame>());
 
@@ -92,53 +88,6 @@ public class WindowLayoutViewTests : IDisposable
                 .Select(tile => tile.KindId)
                 .ToList();
             Assert.Equal(new[] { TileKindIds.Workspaces, TileKindIds.Note }.Order(), cards.Order());
-        }
-        finally
-        {
-            window.Close();
-            vm.DisposeAll();
-        }
-    });
-
-    /// <summary>The list is never handed the tile that stands for it as its data context, not even for a
-    /// moment.</summary>
-    /// <remarks>Its bindings are compiled against <c>WorkspacesPanelViewModel</c>. Put into its frame before
-    /// being given one, it inherited the <c>LeafTileNodeViewModel</c> above it and its <c>FilterText</c>
-    /// binding threw <c>InvalidCastException</c> on start-up. Built the way <c>App</c> builds the window —
-    /// the data context in the initialiser, before <c>BindWindowState</c> — since that ordering is the one
-    /// that produced it.</remarks>
-    [Fact]
-    public void The_list_never_inherits_its_tile_as_a_data_context() => OnUiThread(() =>
-    {
-        using var appData = new TempAppData();
-        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
-
-        var vm = new MainWindowViewModel(workspaces, new PersistenceService(Path.Combine(_dir, "layouts")),
-            settings, TestTiles.Catalog(settings),
-            windowCatalog: panel => mTiles.App.BuildWindowTileCatalog(
-                new AiUsageService(settings, sources: _ => []), panel),
-            windowPersistence: new PersistenceService(Path.Combine(_dir, "window")));
-
-        var seen = new List<Type?>();
-        using var subscription = StyledElement.DataContextProperty.Changed.Subscribe(
-            new AnonymousObserver<AvaloniaPropertyChangedEventArgs<object?>>(e =>
-            {
-                if (e.Sender is WorkspacesPanelView) seen.Add(e.NewValue.GetValueOrDefault()?.GetType());
-            }));
-
-        var window = new MainWindow { DataContext = vm, Width = 1000, Height = 700 };
-        window.BindWindowState(settings);
-        window.Show();
-        window.UpdateLayout();
-
-        try
-        {
-            Assert.NotEmpty(seen);
-            Assert.All(seen, type => Assert.True(type is null || type == typeof(WorkspacesPanelViewModel),
-                $"The list was handed a {type?.Name} as its data context."));
-            Assert.Same(vm.WorkspacesPanel,
-                Assert.Single(window.GetVisualDescendants().OfType<WorkspacesPanelView>()).DataContext);
         }
         finally
         {

@@ -98,7 +98,7 @@ public class ClaudeModelCatalogTests
     {
         // Free and authoritative: the id itself says it, so there is nothing for the endpoint to add.
         var seen = new List<HttpRequestMessage>();
-        ClaudeModelCatalog.HandlerFactory = () => new CapturingHandler(seen, RealAnswer);
+        ClaudeModelCatalog.HandlerFactory = () => FakeHttpHandler.Canned(RealAnswer, seen: seen);
         var credentials = Path.Combine(Path.GetTempPath(), "mtiles-cred-" + Guid.NewGuid().ToString("N"));
         File.WriteAllText(credentials,
             """{"claudeAiOauth":{"accessToken":"live-token","expiresAt":32503680000000}}""");
@@ -136,7 +136,7 @@ public class ClaudeModelCatalogTests
         // because every failure here becomes "no window", the symptom was a bar that silently never
         // appeared rather than anything anybody could see.
         var seen = new List<HttpRequestMessage>();
-        ClaudeModelCatalog.HandlerFactory = () => new CapturingHandler(seen, RealAnswer);
+        ClaudeModelCatalog.HandlerFactory = () => FakeHttpHandler.Canned(RealAnswer, seen: seen);
         var credentials = Path.Combine(Path.GetTempPath(), "mtiles-cred-" + Guid.NewGuid().ToString("N"));
         File.WriteAllText(credentials,
             """{"claudeAiOauth":{"accessToken":"live-token","expiresAt":32503680000000}}""");
@@ -155,20 +155,6 @@ public class ClaudeModelCatalogTests
         {
             ClaudeModelCatalog.HandlerFactory = null;
             File.Delete(credentials);
-        }
-    }
-
-    /// <summary>Answers every request with one document and keeps what it was asked.</summary>
-    private sealed class CapturingHandler(List<HttpRequestMessage> seen, string answer) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            seen.Add(request);
-            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent(answer),
-            });
         }
     }
 }

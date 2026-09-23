@@ -12,78 +12,52 @@ namespace mTiles.Tests;
 /// certificate that does not name the address the phone used produces a security warning the user cannot
 /// act on, on the one page in this feature that must not look broken.
 /// </remarks>
-public sealed class PhoneCertificateTests : IDisposable
+public sealed class PhoneCertificateTests
 {
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "mtiles-cert-tests-" + Guid.NewGuid().ToString("N"));
-
-    private SelfSignedCertificateSource Source => new(_directory);
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_directory, true); } catch { }
-    }
+    /// <summary>The run's one generated certificate (<see cref="PhoneTestCertificate"/>) answers everything
+    /// about what a fresh one looks like, so this asks for no key of its own.</summary>
+    private static PhoneCertificate Generated => PhoneTestCertificate.Generated;
 
     [Fact]
-    public void A_generated_certificate_names_every_address_it_will_be_served_for()
+    public void A_generated_certificate_names_every_address_it_will_be_served_for_and_is_already_valid()
     {
-        var certificate = Source.TryGet(["192.168.1.20", "10.0.0.5", "pc.local"]);
+        Assert.False(Generated.Trusted);
+        Assert.True(SelfSignedCertificateSource.Covers(Generated.Certificate, PhoneTestCertificate.Hosts));
 
-        Assert.NotNull(certificate);
-        Assert.False(certificate.Trusted);
-        Assert.True(SelfSignedCertificateSource.Covers(
-            certificate.Certificate, ["192.168.1.20", "10.0.0.5", "pc.local"]));
+        // Backdated, so a phone whose clock runs slightly behind does not reject it as "not yet valid".
+        Assert.True(Generated.Certificate.NotBefore < DateTime.Now);
+        Assert.True(Generated.Certificate.NotAfter > DateTime.Now.AddDays(365));
     }
 
-    /// <summary>
-    /// Every, not any. One covering three addresses out of four passes an "any" check and then fails on
-    /// the fourth — in the browser, as a warning with no way forward.
-    /// </summary>
+    /// <summary>Every, not any: one covering three addresses out of four fails on the fourth, in the
+    /// browser, as a warning with no way forward.</summary>
     [Fact]
     public void Coverage_is_all_or_nothing()
     {
-        var certificate = Source.TryGet(["192.168.1.20"])!;
-
         Assert.False(SelfSignedCertificateSource.Covers(
-            certificate.Certificate, ["192.168.1.20", "10.0.0.5"]));
+            Generated.Certificate, ["192.168.1.20", "10.9.9.9"]));
     }
 
     /// <summary>
-    /// Kept on disk, because a new certificate every launch means a new browser warning every launch —
-    /// and a user trained to dismiss those is a worse outcome than the warning.
+    /// Kept on disk, because a new certificate every launch is a new browser warning every launch; and
+    /// replaced when the machine gains an address, because a certificate is only accepted for a host in
+    /// its SANs.
     /// </summary>
     [Fact]
-    public void The_same_addresses_get_the_same_certificate_back()
+    public void The_same_addresses_get_the_same_certificate_back_and_a_new_address_forces_a_new_one()
     {
-        var first = Source.TryGet(["192.168.1.20"])!;
-        var again = Source.TryGet(["192.168.1.20"])!;
+        using var directory = new TempDirectory("mtiles-cert-tests");
+        var source = new SelfSignedCertificateSource(PhoneTestCertificate.CopyTo(directory.Path));
 
+        var first = source.TryGet(["192.168.1.20"])!;
+        var again = source.TryGet(["192.168.1.20"])!;
+        Assert.Equal(Generated.Certificate.Thumbprint, first.Certificate.Thumbprint);
         Assert.Equal(first.Certificate.Thumbprint, again.Certificate.Thumbprint);
-    }
 
-    /// <summary>A laptop changes networks; a certificate is only accepted for a host in its SANs.</summary>
-    [Fact]
-    public void A_new_address_forces_a_new_certificate()
-    {
-        var first = Source.TryGet(["192.168.1.20"])!;
-        var afterMoving = Source.TryGet(["192.168.1.20", "10.0.0.5"])!;
-
+        var afterMoving = source.TryGet(["192.168.1.20", "10.9.9.9"])!;
         Assert.NotEqual(first.Certificate.Thumbprint, afterMoving.Certificate.Thumbprint);
         Assert.True(SelfSignedCertificateSource.Covers(
-            afterMoving.Certificate, ["192.168.1.20", "10.0.0.5"]));
-    }
-
-    /// <summary>
-    /// Backdated an hour, so a phone whose clock runs slightly behind does not reject a certificate minted
-    /// seconds ago as "not yet valid" — which reads to the user as a broken feature.
-    /// </summary>
-    [Fact]
-    public void A_fresh_certificate_is_already_valid()
-    {
-        var certificate = Source.TryGet(["192.168.1.20"])!;
-
-        Assert.True(certificate.Certificate.NotBefore < DateTime.Now);
-        Assert.True(certificate.Certificate.NotAfter > DateTime.Now.AddDays(365));
+            afterMoving.Certificate, ["192.168.1.20", "10.9.9.9"]));
     }
 
     // ── choosing between several ────────────────────────────────────────────────────────────────────

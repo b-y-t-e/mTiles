@@ -37,7 +37,7 @@ public class OverlayHostTests
     }
 
     [Fact]
-    public void A_dialog_with_a_header_of_its_own_is_drawn() => OnUiThread(() =>
+    public void A_dialog_with_a_header_of_its_own_is_drawn() => Ui.Run(() =>
     {
         var (window, host) = Scene();
         var content = new WithHeader();
@@ -52,7 +52,7 @@ public class OverlayHostTests
     });
 
     [Fact]
-    public void The_settings_page_supplies_a_header_that_has_no_parent() => OnUiThread(() =>
+    public void The_settings_page_supplies_a_header_that_has_no_parent() => Ui.Run(() =>
     {
         // The exact shape of the fault: asking twice must give two controls, because the host puts
         // what it is given into a tree of its own. SettingsView answering with one piece of its own
@@ -82,7 +82,10 @@ public class OverlayHostTests
     [Theory]
     [InlineData("typed text")]
     [InlineData(true)]
-    public void A_dialog_answers_with_what_it_was_closed_with(object answer) => OnUiThread(async () =>
+    // Dismissed rather than answered, it still answers — with nothing — so a fix that made the result
+    // stick cannot do it by leaving the Escape and X paths hanging for ever.
+    [InlineData(new object?[] { null })]
+    public void A_dialog_answers_with_what_it_was_closed_with(object? answer) => Ui.Run(async () =>
     {
         var (window, host) = Scene();
         var content = new UserControl { Content = new TextBlock { Text = "body" } };
@@ -97,30 +100,11 @@ public class OverlayHostTests
         window.Close();
     });
 
-    /// <summary>A dialog dismissed rather than answered still answers, with nothing.</summary>
-    /// <remarks>The other half of the same rule, so a fix that made the result stick cannot do it by
-    /// leaving the Escape and X paths hanging for ever.</remarks>
-    [Fact]
-    public void A_dismissed_dialog_answers_with_nothing() => OnUiThread(async () =>
-    {
-        var (window, host) = Scene();
-        var content = new UserControl { Content = new TextBlock { Text = "body" } };
-
-        var asked = host.ShowAsync<object>(content, width: 200);
-        window.UpdateLayout();
-
-        OverlayHost.CloseWith(content, null);
-
-        Assert.Null(await asked);
-
-        window.Close();
-    });
-
     /// <summary>A window taken down with a dialog still on it does not leave its caller waiting.</summary>
     /// <remarks>What <c>OnDetachedFromVisualTree</c> is actually for. It is also the reason the answer
     /// has to be set before the entry is removed rather than the override being deleted.</remarks>
     [Fact]
-    public void Closing_the_window_answers_an_open_dialog() => OnUiThread(async () =>
+    public void Closing_the_window_answers_an_open_dialog() => Ui.Run(async () =>
     {
         var (window, host) = Scene();
         var content = new UserControl { Content = new TextBlock { Text = "body" } };
@@ -143,7 +127,7 @@ public class OverlayHostTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void Confirming_answers_with_the_button_that_was_pressed(bool yes) => OnUiThread(async () =>
+    public void Confirming_answers_with_the_button_that_was_pressed(bool yes) => Ui.Run(async () =>
     {
         var (window, _) = Scene();
 
@@ -165,16 +149,4 @@ public class OverlayHostTests
         window.Close();
     });
 
-    private static void OnUiThread(Action body) => OnUiThread(() => { body(); return Task.CompletedTask; });
-
-    /// <summary>The same, for a body that has to wait on the dispatcher.</summary>
-    /// <remarks>A dialog's answer arrives through <c>RunContinuationsAsynchronously</c> onto the UI
-    /// thread's own queue, so it is never ready on the line after <c>CloseWith</c> — asserting
-    /// <c>IsCompleted</c> there measures the scheduler and not the result.</remarks>
-    private static void OnUiThread(Func<Task> body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(OverlayHostTests).Assembly);
-        session.Dispatch(async () => { await body(); return true; }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

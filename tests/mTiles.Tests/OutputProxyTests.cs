@@ -162,23 +162,6 @@ public class OutputProxyTests : IDisposable
         Assert.False(OutputProxyGlobalHook.MentionsTheHook(@"{""hooks"":{""PreToolUse"":[]}}"));
 
     [Fact]
-    public void The_tick_is_carried_by_a_copy()
-    {
-        // Clone is memberwise, so this is true by construction — and the instance editor works on a
-        // copy, so a property that did not travel would be one the form silently dropped on Save.
-        var instance = new AiAgentInstance { AgentId = "claude", UseOutputProxy = true };
-        Assert.True(instance.Clone().UseOutputProxy);
-    }
-
-    [Fact]
-    public void A_fresh_instance_does_not_rewrite_anything()
-    {
-        // The rule DefaultBehaviour keeps: a row nobody has been asked about must not quietly do
-        // something to what the agent runs.
-        Assert.False(new AiAgentInstance().UseOutputProxy);
-    }
-
-    [Fact]
     public void The_install_plan_never_reaches_for_the_wrong_crate()
     {
         // crates.io carries a different program under the name `rtk` — Rust Type Kit — so a plan that

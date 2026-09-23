@@ -27,10 +27,8 @@ namespace mTiles.Tests.AgentSessions;
 /// on which other view tests had run first.</remarks>
 public class MessageBubbleTests
 {
-    private static readonly Avalonia.Themes.Fluent.FluentTheme Theme = new();
-
     [Fact]
-    public void A_long_message_wraps_inside_its_bubble() => OnUiThread(() =>
+    public void A_long_message_wraps_inside_its_bubble() => Ui.Run(() =>
     {
         // Long enough that no font this test could be run under fits it on one line at the narrow width:
         // the headless session is shared, another class's theme can be gone by the time this runs, and a
@@ -40,22 +38,11 @@ public class MessageBubbleTests
                             + "a single line, whichever font it happens to be set in";
 
         using var settings = new TempSettings();
-        var agent = AiAgentCatalog.Find("claude")!;
-        using var tile = new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
-            new mTiles.AgentSessions.Storage.SqliteConversationStore(
-                Path.Combine(Path.GetTempPath(), $"mtiles-bubble-{Guid.NewGuid():N}.db")),
-            AiAgentCatalog.SeedInstanceFor(agent), agent, () => "tile", post: action => action());
+        using var tile = ConversationTiles.New(settings);
 
         var view = new AgentConversationTileView { DataContext = tile };
-        // Added once and left: the headless session is shared, and a class that removed its theme while
-        // another was measuring against it turned this into a test that failed by running order.
-        var app = Avalonia.Application.Current!;
-        if (!app.Styles.Contains(Theme)) app.Styles.Add(Theme);
+        using var theme = new HeadlessTheme();
         var window = new Window { Content = view, Width = 1560, Height = 400 };
-        window.Resources.MergedDictionaries.Add(new ResourceInclude(new Uri("avares://mTiles/Styles/"))
-        {
-            Source = new Uri("avares://mTiles/Styles/AppTheme.axaml"),
-        });
 
         try
         {
@@ -88,11 +75,4 @@ public class MessageBubbleTests
     /// </remarks>
     private static Border Bubble(Control view) =>
         view.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("row-user"));
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(MessageBubbleTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

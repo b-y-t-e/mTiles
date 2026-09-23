@@ -118,7 +118,7 @@ public sealed class ContextWindowFollowerTests
         await Until(() => follower.Window is not null, TimeSpan.FromSeconds(5));
 
         follower.Follow("some-local-model");
-        await Task.Delay(100);
+        await Until(() => !follower.IsAsking, TimeSpan.FromSeconds(5));
 
         Assert.Null(follower.Window);
     }

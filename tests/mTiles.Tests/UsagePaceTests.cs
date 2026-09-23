@@ -19,31 +19,20 @@ public class UsagePaceTests
     private static AiUsageWindow Week(double? used, DateTimeOffset? resets) =>
         new("7d", TimeSpan.FromDays(7), UsedPercent: used, ResetsAt: resets);
 
-    [Fact]
-    public void HalfWayThroughAndHalfSpentIsOnPace()
+    /// <summary>Half-way through a week, the spending is compared with the half of the clock gone.
+    /// </summary>
+    [Theory]
+    [InlineData(50, UsagePaceState.OnPace, 0)]
+    [InlineData(80, UsagePaceState.Ahead, 30)]
+    [InlineData(20, UsagePaceState.Behind, -30)]
+    public void Spending_is_compared_with_the_share_of_the_window_gone(
+        double used, UsagePaceState expected, double delta)
     {
-        var pace = UsagePace.For(Week(50, Now.AddDays(3.5)), Now);
+        var pace = UsagePace.For(Week(used, Now.AddDays(3.5)), Now);
 
-        Assert.Equal(UsagePaceState.OnPace, pace.State);
+        Assert.Equal(expected, pace.State);
         Assert.Equal(50, pace.ExpectedPercent!.Value, 3);
-        Assert.Equal(0, pace.DeltaPoints!.Value, 3);
-    }
-
-    [Fact]
-    public void SpendingFasterThanTheClockIsAhead()
-    {
-        var pace = UsagePace.For(Week(80, Now.AddDays(3.5)), Now);
-
-        Assert.Equal(UsagePaceState.Ahead, pace.State);
-        Assert.Equal(30, pace.DeltaPoints!.Value, 3);
-    }
-
-    [Fact]
-    public void SpendingSlowerThanTheClockIsBehind()
-    {
-        var pace = UsagePace.For(Week(20, Now.AddDays(3.5)), Now);
-
-        Assert.Equal(UsagePaceState.Behind, pace.State);
+        Assert.Equal(delta, pace.DeltaPoints!.Value, 3);
     }
 
     /// <summary>The dead band is what keeps a card from flipping between two words every refresh.</summary>

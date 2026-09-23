@@ -26,7 +26,7 @@ public class OpenRouterUsageTests
     [Fact]
     public async Task A_limited_key_reports_its_windows_and_what_is_left()
     {
-        using var _ = new StubHttp("""
+        using var _ = new HttpStub("""
             { "data": { "limit": 20, "limit_remaining": 14.6, "usage_daily": 1.18,
                         "usage_weekly": 5.4, "usage_monthly": 12.0,
                         "limit_reset": "2026-09-04T00:00:00Z" } }
@@ -48,7 +48,7 @@ public class OpenRouterUsageTests
     [Fact]
     public async Task An_unlimited_key_falls_back_to_the_credits_endpoint()
     {
-        using var _ = new RoutedHttp(request => request.RequestUri!.AbsolutePath.EndsWith("credits")
+        using var _ = new HttpStub(request => request.RequestUri!.AbsolutePath.EndsWith("credits")
             ? """{ "data": { "total_credits": 25.0, "total_usage": 4.4 } }"""
             : """{ "data": { "usage_daily": 0.5 } }""");
 
@@ -62,7 +62,7 @@ public class OpenRouterUsageTests
     [Fact]
     public async Task A_missing_amount_is_null_rather_than_zero()
     {
-        using var _ = new StubHttp("""{ "data": { "limit_remaining": 3.0 } }""");
+        using var _ = new HttpStub("""{ "data": { "limit_remaining": 3.0 } }""");
 
         var report = await new OpenRouterProvider().UsageAsync(Instance());
 
@@ -74,7 +74,7 @@ public class OpenRouterUsageTests
     [Fact]
     public async Task A_refused_key_is_a_problem_rather_than_an_empty_card()
     {
-        using var _ = new StubHttp("""{"error":"nope"}""", HttpStatusCode.Unauthorized);
+        using var _ = new HttpStub("""{"error":"nope"}""", HttpStatusCode.Unauthorized);
 
         var report = await new OpenRouterProvider().UsageAsync(Instance());
 
@@ -133,7 +133,7 @@ public class OpenRouterUsageTests
     [InlineData("""{ "data": [] }""")]
     public async Task AnAnswerThatIsNotThisServicesShapeIsReportedRatherThanThrown(string body)
     {
-        using var _ = new StubHttp(body);
+        using var _ = new HttpStub(body);
 
         var report = await new OpenRouterProvider().UsageAsync(Instance());
 
@@ -152,7 +152,7 @@ public class OpenRouterUsageTests
     [Fact]
     public async Task TheReasonAKeyCouldNotBeAskedIsTraced()
     {
-        using var _ = new StubHttp("[]");
+        using var _ = new HttpStub("[]");
         using var listener = new CapturedTrace();
 
         var service = new AiUsageService(new SettingsService(), null,
@@ -184,36 +184,10 @@ public class OpenRouterUsageTests
     [Fact]
     public async Task TheKeyTestSurvivesAnAnswerThatIsNotAnObject()
     {
-        using var _ = new StubHttp("[]");
+        using var _ = new HttpStub("[]");
 
         var check = await new OpenRouterProvider().TestAsync(Instance());
 
         Assert.Null(check.Balance);
-    }
-
-    private sealed class StubHttp(string body, HttpStatusCode status = HttpStatusCode.OK)
-        : RoutedHttp(_ => body, status);
-
-    /// <summary>One canned reply per request, chosen by the address it was sent to.</summary>
-    /// <remarks>The two-call path is the point: the credits endpoint is asked only when the key
-    /// endpoint left the balance unknown, and one body for both would not show which was which.</remarks>
-    private class RoutedHttp : IDisposable
-    {
-        public RoutedHttp(Func<HttpRequestMessage, string> body,
-            HttpStatusCode status = HttpStatusCode.OK) =>
-            AiProvider.HandlerFactory = () => new RoutingHandler(body, status);
-
-        public void Dispose() => AiProvider.HandlerFactory = null;
-
-        private sealed class RoutingHandler(Func<HttpRequestMessage, string> body, HttpStatusCode status)
-            : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken) =>
-                Task.FromResult(new HttpResponseMessage(status)
-                {
-                    Content = new StringContent(body(request), Encoding.UTF8, "application/json"),
-                });
-        }
     }
 }

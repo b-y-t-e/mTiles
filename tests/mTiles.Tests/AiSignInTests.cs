@@ -151,33 +151,22 @@ public class AiSignInTests : IDisposable
     /// <c>ANTHROPIC_AUTH_TOKEN</c> or <c>OPENAI_BASE_URL</c> globally had the login run on somebody
     /// else's token, or against somebody else's gateway, with the row saying otherwise.</remarks>
     [Theory]
-    [InlineData("claude", "ANTHROPIC_AUTH_TOKEN")]
-    [InlineData("claude", "ANTHROPIC_BASE_URL")]
+    [InlineData("claude", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")]
     [InlineData("codex", "OPENAI_BASE_URL")]
-    [InlineData("codex", "OPENAI_API_KEY")]
-    public void A_sign_in_clears_what_would_point_the_tool_elsewhere(string agentId, string variable)
+    [InlineData("opencode")]
+    [InlineData("pi")]
+    public void A_sign_in_clears_what_would_point_the_tool_elsewhere(string agentId, params string[] own)
     {
         var (settings, instance, _) = WithSignIn(agentId);
 
         var environment = Agent(agentId).EnvFor(AgentRuntime.For(settings, instance));
 
-        Assert.True(environment.ContainsKey(variable), $"{variable} is left inherited");
-        Assert.Null(environment[variable]);
-    }
-
-    /// <summary>
-    /// An instance on no account at all is left alone, including these.
-    /// </summary>
-    /// <remarks>"The agent's own configuration" is a choice somebody made, and a globally exported
-    /// endpoint is part of it. Removing it would be this application overruling a decision it was never
-    /// asked about.</remarks>
-    [Fact]
-    public void An_instance_on_no_account_keeps_the_machines_own_environment()
-    {
-        var settings = new AppSettings();
-        var instance = AiAgentCatalog.SeedInstanceFor(Agent("claude"));
-
-        Assert.Empty(Agent("claude").EnvFor(AgentRuntime.For(settings, instance)));
+        // Every hosted service's key, because nothing inherited may authenticate instead of the login.
+        foreach (var variable in own.Concat(["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "ZAI_API_KEY"]))
+        {
+            Assert.True(environment.ContainsKey(variable), $"{agentId} leaves {variable} inherited");
+            Assert.Null(environment[variable]);
+        }
     }
 
     /// <summary>A sign-in belonging to another agent is not this agent's to use.</summary>
@@ -194,16 +183,26 @@ public class AiSignInTests : IDisposable
         Assert.Empty(Agent("claude").EnvFor(AgentRuntime.For(settings, instance)));
     }
 
-    /// <summary>What the user set by hand still wins, which is the rule <c>EnvFor</c> exists to keep.
-    /// </summary>
+    /// <summary>What the user set by hand still wins, which is the rule <c>EnvFor</c> exists to keep —
+    /// and the reason it is not virtual.</summary>
     [Fact]
-    public void The_users_own_variables_still_win_over_the_sign_in()
+    public void The_users_own_variables_are_merged_last_over_a_sign_in_and_over_a_provider()
     {
         var (settings, instance, _) = WithSignIn("claude");
         instance.ExtraEnv["CLAUDE_CONFIG_DIR"] = "/mine";
-
         Assert.Equal("/mine",
             Agent("claude").EnvFor(AgentRuntime.For(settings, instance))["CLAUDE_CONFIG_DIR"]);
+
+        // Including putting back a variable the agent asked to remove.
+        var provider = new AiProviderInstance { ProviderId = "zai", ApiKey = "zzz" };
+        var onProvider = AiAgentCatalog.SeedInstanceFor(Agent("claude"));
+        onProvider.ApiAccountId = provider.Id;
+        onProvider.ExtraEnv["ANTHROPIC_API_KEY"] = "mine";
+        var withProvider = new AppSettings();
+        withProvider.AiProviderInstances.Add(provider);
+        withProvider.AiAgentInstances.Add(onProvider);
+        Assert.Equal("mine",
+            Agent("claude").EnvFor(AgentRuntime.For(withProvider, onProvider))["ANTHROPIC_API_KEY"]);
     }
 
     // ── Where the directory is ───────────────────────────────────────────────────────────────────
@@ -307,18 +306,11 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void An_empty_directory_reads_as_not_signed_in()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            Assert.False(Agent("claude").ReadSignIn(directory).SignedIn);
-            Assert.False(Agent("codex").ReadSignIn(directory).SignedIn);
-            Assert.False(Agent("opencode").ReadSignIn(directory).SignedIn);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        Assert.False(Agent("claude").ReadSignIn(directory).SignedIn);
+        Assert.False(Agent("codex").ReadSignIn(directory).SignedIn);
+        Assert.False(Agent("opencode").ReadSignIn(directory).SignedIn);
     }
 
     /// <summary>
@@ -331,26 +323,19 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void A_claude_directory_names_the_account_it_is_logged_into()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, ".credentials.json"),
-                """{"claudeAiOauth":{"accessToken":"secret","subscriptionType":"max"}}""");
-            File.WriteAllText(Path.Combine(directory, ".claude.json"),
-                """{"oauthAccount":{"emailAddress":"a@b.c"}}""");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, ".credentials.json"),
+            """{"claudeAiOauth":{"accessToken":"secret","subscriptionType":"max"}}""");
+        File.WriteAllText(Path.Combine(directory, ".claude.json"),
+            """{"oauthAccount":{"emailAddress":"a@b.c"}}""");
 
-            var status = Agent("claude").ReadSignIn(directory);
+        var status = Agent("claude").ReadSignIn(directory);
 
-            Assert.True(status.SignedIn);
-            Assert.Contains("a@b.c", status.Detail);
-            Assert.Contains("Max", status.Detail);
-            Assert.DoesNotContain("secret", status.Detail);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.True(status.SignedIn);
+        Assert.Contains("a@b.c", status.Detail);
+        Assert.Contains("Max", status.Detail);
+        Assert.DoesNotContain("secret", status.Detail);
     }
 
     /// <summary>
@@ -365,26 +350,19 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void A_claude_json_that_grew_large_is_still_read_to_the_field()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, ".credentials.json"),
-                """{"claudeAiOauth":{"subscriptionType":"max"}}""");
-            var history = new string('x', 200_000);
-            var longName = new string('k', 20_000);
-            File.WriteAllText(Path.Combine(directory, ".claude.json"),
-                "{\"" + longName + "\":\"" + history
-                + "\",\"oauthAccount\":{\"emailAddress\":\"late@b.c\"}}");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, ".credentials.json"),
+            """{"claudeAiOauth":{"subscriptionType":"max"}}""");
+        var history = new string('x', 200_000);
+        var longName = new string('k', 20_000);
+        File.WriteAllText(Path.Combine(directory, ".claude.json"),
+            "{\"" + longName + "\":\"" + history
+            + "\",\"oauthAccount\":{\"emailAddress\":\"late@b.c\"}}");
 
-            var status = Agent("claude").ReadSignIn(directory);
+        var status = Agent("claude").ReadSignIn(directory);
 
-            Assert.Contains("late@b.c", status.Detail);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.Contains("late@b.c", status.Detail);
     }
 
     /// <summary>
@@ -399,32 +377,25 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void Naming_the_account_does_not_read_the_whole_of_a_large_claude_json()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, ".credentials.json"),
-                """{"claudeAiOauth":{"subscriptionType":"max"}}""");
-            var history = new string('h', 1024 * 1024);
-            File.WriteAllText(Path.Combine(directory, ".claude.json"),
-                "{\"oauthAccount\":{\"emailAddress\":\"early@b.c\"},"
-                + "\"projects\":{\"p\":{\"history\":\"" + history + "\"}}}");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, ".credentials.json"),
+            """{"claudeAiOauth":{"subscriptionType":"max"}}""");
+        var history = new string('h', 1024 * 1024);
+        File.WriteAllText(Path.Combine(directory, ".claude.json"),
+            "{\"oauthAccount\":{\"emailAddress\":\"early@b.c\"},"
+            + "\"projects\":{\"p\":{\"history\":\"" + history + "\"}}}");
 
-            // The first read pays for JIT, not the measurement.
-            Agent("claude").ReadSignIn(directory);
+        // The first read pays for JIT, not the measurement.
+        Agent("claude").ReadSignIn(directory);
 
-            var before = GC.GetAllocatedBytesForCurrentThread();
-            var status = Agent("claude").ReadSignIn(directory);
-            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var status = Agent("claude").ReadSignIn(directory);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
-            Assert.Contains("early@b.c", status.Detail);
-            Assert.True(allocated < 256 * 1024,
-                $"naming the account allocated {allocated:N0} B — the whole file was read");
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.Contains("early@b.c", status.Detail);
+        Assert.True(allocated < 256 * 1024,
+            $"naming the account allocated {allocated:N0} B — the whole file was read");
     }
 
     /// <summary>
@@ -437,24 +408,17 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void An_emailAddress_passing_through_is_not_mistaken_for_the_paths_own()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, ".credentials.json"),
-                """{"claudeAiOauth":{"subscriptionType":"max"}}""");
-            File.WriteAllText(Path.Combine(directory, ".claude.json"),
-                """{"decoy":{"emailAddress":"wrong@b.c"},"oauthAccount":{"emailAddress":"right@b.c"}}""");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, ".credentials.json"),
+            """{"claudeAiOauth":{"subscriptionType":"max"}}""");
+        File.WriteAllText(Path.Combine(directory, ".claude.json"),
+            """{"decoy":{"emailAddress":"wrong@b.c"},"oauthAccount":{"emailAddress":"right@b.c"}}""");
 
-            var status = Agent("claude").ReadSignIn(directory);
+        var status = Agent("claude").ReadSignIn(directory);
 
-            Assert.Contains("right@b.c", status.Detail);
-            Assert.DoesNotContain("wrong@b.c", status.Detail);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.Contains("right@b.c", status.Detail);
+        Assert.DoesNotContain("wrong@b.c", status.Detail);
     }
 
     /// <summary>
@@ -471,43 +435,29 @@ public class AiSignInTests : IDisposable
     [InlineData("""{"oauthAccount":{"emailAddress":42}}""")]
     public void A_settings_file_the_answer_cannot_come_from_still_says_logged_in(string json)
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            // Deliberately a credentials file that names no plan, so the detail can only come from
-            // the settings file — an invented one would show here.
-            File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"somethingElse":{}}""");
-            File.WriteAllText(Path.Combine(directory, ".claude.json"), json);
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        // Deliberately a credentials file that names no plan, so the detail can only come from
+        // the settings file — an invented one would show here.
+        File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"somethingElse":{}}""");
+        File.WriteAllText(Path.Combine(directory, ".claude.json"), json);
 
-            var status = Agent("claude").ReadSignIn(directory);
+        var status = Agent("claude").ReadSignIn(directory);
 
-            Assert.True(status.SignedIn);
-            Assert.Equal("", status.Detail);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.True(status.SignedIn);
+        Assert.Equal("", status.Detail);
     }
 
     /// <summary>Settings without credentials is signed out, which is the half that decides.</summary>
     [Fact]
     public void A_claude_directory_with_no_credentials_is_signed_out()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, ".claude.json"),
-                """{"oauthAccount":{"emailAddress":"a@b.c"}}""");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, ".claude.json"),
+            """{"oauthAccount":{"emailAddress":"a@b.c"}}""");
 
-            Assert.False(Agent("claude").ReadSignIn(directory).SignedIn);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.False(Agent("claude").ReadSignIn(directory).SignedIn);
     }
 
     /// <summary>
@@ -520,23 +470,16 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void A_codex_directory_says_whether_it_is_on_a_subscription()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, "auth.json"),
-                """{"auth_mode":"chatgpt","tokens":{"refresh_token":"secret"}}""");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, "auth.json"),
+            """{"auth_mode":"chatgpt","tokens":{"refresh_token":"secret"}}""");
 
-            var status = Agent("codex").ReadSignIn(directory);
+        var status = Agent("codex").ReadSignIn(directory);
 
-            Assert.True(status.SignedIn);
-            Assert.Contains("ChatGPT", status.Detail);
-            Assert.DoesNotContain("secret", status.Detail);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.True(status.SignedIn);
+        Assert.Contains("ChatGPT", status.Detail);
+        Assert.DoesNotContain("secret", status.Detail);
     }
 
     /// <summary>
@@ -548,18 +491,11 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void A_codex_file_that_cannot_be_parsed_is_still_signed_in()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, "auth.json"), "{ not json");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, "auth.json"), "{ not json");
 
-            Assert.True(Agent("codex").ReadSignIn(directory).SignedIn);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.True(Agent("codex").ReadSignIn(directory).SignedIn);
     }
 
     /// <summary>
@@ -572,18 +508,11 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void A_claude_directory_with_credentials_but_no_plan_is_still_signed_in()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"somethingElse":{}}""");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"somethingElse":{}}""");
 
-            Assert.True(Agent("claude").ReadSignIn(directory).SignedIn);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.True(Agent("claude").ReadSignIn(directory).SignedIn);
     }
 
     /// <summary>
@@ -598,21 +527,14 @@ public class AiSignInTests : IDisposable
     [Fact]
     public void An_unreadable_credentials_file_is_still_signed_in()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            File.WriteAllText(Path.Combine(directory, ".credentials.json"), "{ not json");
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        File.WriteAllText(Path.Combine(directory, ".credentials.json"), "{ not json");
 
-            var status = Agent("claude").ReadSignIn(directory);
+        var status = Agent("claude").ReadSignIn(directory);
 
-            Assert.True(status.SignedIn);
-            Assert.Equal("", status.Detail);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.True(status.SignedIn);
+        Assert.Equal("", status.Detail);
     }
 
     /// <summary>
@@ -685,23 +607,16 @@ public class AiSignInTests : IDisposable
     public void Each_agent_reads_its_status_from_the_directory_it_is_launched_with(
         string agentId, string relativePath)
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(directory);
-        try
-        {
-            Assert.False(Agent(agentId).ReadSignIn(directory).SignedIn);
+        using var temp = new TempDirectory();
+        var directory = temp.Path;
+        Assert.False(Agent(agentId).ReadSignIn(directory).SignedIn);
 
-            var file = Path.Combine(directory, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            File.WriteAllText(file, "{}");
+        var file = Path.Combine(directory, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "{}");
 
-            Assert.True(Agent(agentId).ReadSignIn(directory).SignedIn,
-                $"{agentId} does not read the directory its own SignInEnv points at");
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.True(Agent(agentId).ReadSignIn(directory).SignedIn,
+            $"{agentId} does not read the directory its own SignInEnv points at");
     }
 
     /// <summary>

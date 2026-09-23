@@ -264,19 +264,12 @@ public class AgentPickedInTheConversationTests
         Assert.Equal(later.Id, tile.Instance.Id);
     }
 
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        for (var i = 0; i < 200 && !condition(); i++) await Task.Delay(10);
-        Assert.True(condition());
-    }
+    private static Task WaitUntil(Func<bool> condition) => ConversationTiles.WaitUntil(condition, "the chooser");
 
     private static AgentConversationTileViewModel StoredTile(TempSettings settings,
-        mTiles.AgentSessions.Storage.IConversationStore store, AiAgentInstance instance)
-    {
-        var context = new TileContext(Path.GetTempPath(), settings.Service) { TileId = () => "stored" };
-        return (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(store, NoSessionStarter.Instance))
-            .Create(context, new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id });
-    }
+        mTiles.AgentSessions.Storage.IConversationStore store, AiAgentInstance instance) =>
+        ConversationTiles.FromKind(settings, new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id },
+            store, tileId: "stored");
 
     [Fact]
     public void Drawing_the_conversation_rebuilds_the_chooser_only_when_the_binding_moves()
@@ -304,25 +297,6 @@ public class AgentPickedInTheConversationTests
         settings.Service.Settings.AiAgentInstances
             .Where(i => AiAgentCatalog.Find(i.AgentId) is mTiles.Services.Agents.Sessions.IConversationalAgent);
 
-    /// <summary>A tile whose kind starts no CLI: these tests are about which agent holds the conversation, and
-    /// must not spawn whichever agents are installed on the machine running them.</summary>
     private static AgentConversationTileViewModel NewTile(TempSettings settings, JsonObject state) =>
-        (AgentConversationTileViewModel)((ITileKind)new AgentConversationTileKind(
-                TestTiles.ConversationStore(), NoSessionStarter.Instance))
-            .Create(new TileContext(Path.GetTempPath(), settings.Service), state);
-
-    /// <summary>Prepares no launch, so a start stops with a problem before any process exists.</summary>
-    private sealed class NoSessionStarter : IAgentSessionStarter
-    {
-        public static NoSessionStarter Instance { get; } = new();
-
-        public Task<(AgentSessionLaunch? Launch, string? Problem)> PrepareAsync(AppSettings settings, IAiAgent agent,
-            AiAgentInstance instance, string workingDirectory, string conversationId, string? resumeToken,
-            CancellationToken ct) =>
-            Task.FromResult<(AgentSessionLaunch?, string?)>((null, "No agent is started in these tests."));
-
-        public mTiles.AgentSessions.IAgentSession Create(IAiAgent agent, AgentSessionLaunch launch,
-            mTiles.AgentSessions.IAgentEventSink sink) =>
-            throw new InvalidOperationException("No agent is started in these tests.");
-    }
+        ConversationTiles.FromKind(settings, state);
 }

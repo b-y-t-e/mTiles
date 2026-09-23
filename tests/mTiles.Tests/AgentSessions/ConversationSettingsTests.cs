@@ -200,16 +200,6 @@ public class ConversationSettingsTests
         Assert.Equal(1, opened);
     }
 
-    private static AgentConversationTileViewModel NewTile(TempSettings settings, Action? requestSave)
-    {
-        var agent = AiAgentCatalog.Find("claude")!;
-        // One id for the life of the tile, which is what a tile's id is: asked again for a fresh guid,
-        // ConversationId names a different conversation every time anybody reads it.
-        var tileId = Guid.NewGuid().ToString();
-        return new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
-            new mTiles.AgentSessions.Storage.SqliteConversationStore(
-                Path.Combine(Path.GetTempPath(), $"mtiles-settings-{Guid.NewGuid():N}.db")),
-            AiAgentCatalog.SeedInstanceFor(agent), agent, () => tileId,
-            requestSave: requestSave, post: action => action());
-    }
+    private static AgentConversationTileViewModel NewTile(TempSettings settings, Action? requestSave) =>
+        ConversationTiles.New(settings, requestSave: requestSave);
 }

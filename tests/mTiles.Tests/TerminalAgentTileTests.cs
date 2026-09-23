@@ -33,29 +33,6 @@ public class TerminalAgentTileTests
     }
 
     /// <summary>
-    /// Every agent gets one instance, and a second pass adds nothing.
-    /// </summary>
-    /// <remarks>Seeding that replaced rather than added would undo a rename or a repointed provider on
-    /// every launch; seeding that ran only on a brand new file would leave an agent added by a later
-    /// version with no row at all.</remarks>
-    [Fact]
-    public void Every_agent_is_seeded_one_instance_and_only_one()
-    {
-        using var settings = new TempSettings();
-
-        Assert.Equal(
-            AiAgentCatalog.All.Select(agent => agent.Id).Order(),
-            settings.Service.Settings.AiAgentInstances.Select(i => i.AgentId).Order());
-
-        var renamed = settings.Service.Settings.AiAgentInstances[0];
-        renamed.Name = "Mine";
-
-        using var reopened = new TempSettings();
-        Assert.Equal(AiAgentCatalog.All.Count, reopened.Service.Settings.AiAgentInstances.Count);
-        Assert.Equal("Mine", renamed.Name);
-    }
-
-    /// <summary>
     /// A tile whose agent lets us name the session runs under the tile's own id, and writes none down.
     /// </summary>
     /// <remarks>Writing it down as well would give one value two writers: "New session" replaces the

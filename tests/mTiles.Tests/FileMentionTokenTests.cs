@@ -42,100 +42,47 @@ public class FileMentionTokenTests
         Assert.Null(FileMentionToken.At("@Goal", -1));
     }
 
-    [Fact]
-    public void Taking_a_file_replaces_what_was_typed_and_closes_the_mention()
+    /// <summary>
+    /// Taking a file replaces the whole word under the caret — though only what precedes the caret was
+    /// searched — quotes a path with a space in it, and closes the mention with a space.
+    /// </summary>
+    [Theory]
+    [InlineData("look at @Goal", 13, "src/mTiles/ViewModels/GoalTileViewModel.cs", "look at @src/mTiles/ViewModels/GoalTileViewModel.cs ", 52)]
+    // A mention ends at the first space, so a path holding one is quoted.
+    [InlineData("see @my", 7, "docs/my notes.md", "see @\"docs/my notes.md\" ", 24)]
+    // The whole word goes, not only the part before the caret.
+    [InlineData("@fi.cs", 3, "Goal.cs", "@Goal.cs ", 9)]
+    [InlineData("see @fi.cs now", 7, "Goal.cs", "see @Goal.cs  now", 13)]
+    public void Taking_a_file_replaces_the_word_and_closes_the_mention(
+        string text, int caret, string path, string expected, int expectedCaret)
     {
-        var token = FileMentionToken.At("look at @Goal", 13)!.Value;
+        var completed = FileMentionToken.At(text, caret)!.Value.Complete(text, path);
 
-        var completed = token.Complete("look at @Goal", "src/mTiles/ViewModels/GoalTileViewModel.cs");
+        Assert.Equal(expected, completed.Text);
+        Assert.Equal(expectedCaret, completed.CaretIndex);
 
-        Assert.Equal("look at @src/mTiles/ViewModels/GoalTileViewModel.cs ", completed.Text);
-        Assert.Equal(completed.Text.Length, completed.CaretIndex);
-
-        // The trailing space is what shuts the popup: there is no token under the new caret.
+        // The space is what shuts the popup: there is no token under the new caret.
         Assert.Null(FileMentionToken.At(completed.Text, completed.CaretIndex));
     }
 
-    /// <summary>
-    /// A mention ends at the first space, so a path holding one has to be quoted or it names half a
-    /// file and leaves the rest of the name loose in the sentence.
-    /// </summary>
-    [Fact]
-    public void A_path_with_a_space_in_it_is_quoted()
-    {
-        var token = FileMentionToken.At("see @my", 7)!.Value;
-
-        var completed = token.Complete("see @my", "docs/my notes.md");
-
-        Assert.Equal("see @\"docs/my notes.md\" ", completed.Text);
-        Assert.Equal(completed.Text.Length, completed.CaretIndex);
-    }
-
-    /// <summary>
-    /// A quote inside the name is left as it is, not escaped.
-    /// </summary>
-    /// <remarks>
-    /// It cannot happen on Windows, where the character is illegal in a file name, and the backslash
-    /// this used to write was worse than nothing: the parser on the other side reads
-    /// <c>@"([^"]+)"</c>, so an escaped quote ends the mention exactly where a bare one does — and the
-    /// backslash is then delivered as part of the name. Tools of this kind do not escape it either.
-    /// </remarks>
-    [Fact]
-    public void A_quote_in_the_name_is_left_alone() =>
-        Assert.Equal("@\"a \"b\".cs\"", FileMentionToken.Mention("a \"b\".cs"));
-
-    [Fact]
-    public void A_path_without_whitespace_is_left_bare() =>
-        Assert.Equal("@src/Goal.cs", FileMentionToken.Mention("src/Goal.cs"));
-
-    /// <summary>
-    /// The query stops at the caret, but the replacement takes the whole word.
-    /// </summary>
-    /// <remarks>
-    /// The usual rule. Fixing a typo in the middle of a path is then a matter of picking the right
-    /// row; the opposite rule left the tail of the old path stranded after the new one.
-    /// </remarks>
-    [Fact]
-    public void The_whole_word_is_replaced_though_only_what_precedes_the_caret_is_searched()
-    {
-        var token = FileMentionToken.At("@fi.cs", 3)!.Value;
-
-        Assert.Equal("fi", token.Query);
-        Assert.Equal("@Goal.cs ", token.Complete("@fi.cs", "Goal.cs").Text);
-    }
-
-    [Fact]
-    public void A_word_the_caret_sits_at_the_end_of_is_replaced_whole()
-    {
-        var token = FileMentionToken.At("see @fi.cs now", 7)!.Value;
-
-        Assert.Equal("see @Goal.cs  now", token.Complete("see @fi.cs now", "Goal.cs").Text);
-    }
+    /// <summary>A path without whitespace is left bare; a quote inside a name is not escaped, because the
+    /// parser reads <c>@"([^"]+)"</c> and a backslash would only be delivered as part of the name.</summary>
+    [Theory]
+    [InlineData("src/Goal.cs", "@src/Goal.cs")]
+    [InlineData("a \"b\".cs", "@\"a \"b\".cs\"")]
+    public void A_mention_is_quoted_only_for_whitespace(string path, string mention) =>
+        Assert.Equal(mention, FileMentionToken.Mention(path));
 
     // ── Tab: the part every row agrees on ───────────────
 
-    [Fact]
-    public void The_common_prefix_of_one_path_is_that_path() =>
-        Assert.Equal("src/Goal.cs", FileMentionToken.CommonPrefix(["src/Goal.cs"]));
-
-    [Fact]
-    public void The_common_prefix_stops_where_the_paths_disagree() =>
-        Assert.Equal(
-            "src/tools/Bash",
-            FileMentionToken.CommonPrefix(["src/tools/BashTool.cs", "src/tools/Bashful.cs"]));
-
-    [Fact]
-    public void Paths_that_share_nothing_have_no_common_prefix() =>
-        Assert.Equal("", FileMentionToken.CommonPrefix(["src/a.cs", "docs/b.md"]));
-
-    /// <summary>Compared without case, but spelled the way the first path is.</summary>
-    [Fact]
-    public void The_prefix_is_spelled_the_way_the_file_is() =>
-        Assert.Equal("Goal", FileMentionToken.CommonPrefix(["GoalTile.cs", "goalPolicy.cs"]));
-
-    [Fact]
-    public void Nothing_has_no_common_prefix() =>
-        Assert.Equal("", FileMentionToken.CommonPrefix([]));
+    [Theory]
+    [InlineData("src/Goal.cs", "src/Goal.cs")]
+    [InlineData("src/tools/BashTool.cs|src/tools/Bashful.cs", "src/tools/Bash")]  // stops where they disagree
+    [InlineData("src/a.cs|docs/b.md", "")]
+    [InlineData("GoalTile.cs|goalPolicy.cs", "Goal")]  // compared without case, spelled as the first path
+    [InlineData("", "")]
+    public void The_common_prefix_is_what_every_path_agrees_on(string paths, string prefix) =>
+        Assert.Equal(prefix, FileMentionToken.CommonPrefix(paths.Length == 0 ? [] : paths.Split('|')));
 
     // ── The caret inside a quoted mention ───────────────
 

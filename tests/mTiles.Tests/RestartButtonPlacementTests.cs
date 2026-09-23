@@ -15,42 +15,22 @@ namespace mTiles.Tests;
 /// </remarks>
 public sealed class RestartButtonPlacementTests
 {
-    /// <summary>A shell's restart is pressed every few minutes, so it keeps its button.</summary>
-    [Fact]
-    public void A_restart_reached_often_is_a_header_button()
+    /// <summary>Whether the header draws Restart is the action's own answer; whether it can be done at all
+    /// (the menu entry and Ctrl+Shift+R read <see cref="LeafTileNodeViewModel.CanRestart"/>) is not.</summary>
+    [Theory]
+    // A shell's restart is pressed every few minutes, so it keeps its button.
+    [InlineData(false, true, true, true)]
+    // A cold resume of a conversation is left to the menu by the tile itself, and can still be done.
+    [InlineData(true, true, true, false)]
+    // A tile with nothing to restart has neither.
+    [InlineData(false, false, false, false)]
+    public void Restart_is_a_header_button_only_where_the_tile_does_not_leave_it_to_the_menu(
+        bool preferOverflow, bool offersRestart, bool canRestart, bool hasButton)
     {
-        var leaf = Leaf(new RestartingTile(preferOverflow: false));
+        var leaf = Leaf(new RestartingTile(preferOverflow, offersRestart));
 
-        Assert.True(leaf.CanRestart);
-        Assert.True(leaf.RestartHasHeaderButton);
-    }
-
-    /// <summary>A cold resume of a conversation is not, and the tile says so itself.</summary>
-    [Fact]
-    public void A_restart_the_tile_leaves_to_the_menu_gets_no_button()
-    {
-        var leaf = Leaf(new RestartingTile(preferOverflow: true));
-
-        Assert.False(leaf.RestartHasHeaderButton);
-    }
-
-    /// <summary>Leaving it to the menu is about where it is drawn, never about whether it can be
-    /// done: the menu entry and Ctrl+Shift+R both read <see cref="LeafTileNodeViewModel.CanRestart"/>,
-    /// which must stay true.</summary>
-    [Fact]
-    public void A_restart_left_to_the_menu_can_still_be_done()
-    {
-        Assert.True(Leaf(new RestartingTile(preferOverflow: true)).CanRestart);
-    }
-
-    /// <summary>A tile with nothing to restart has neither.</summary>
-    [Fact]
-    public void A_tile_that_restarts_nothing_has_no_button()
-    {
-        var leaf = Leaf(new RestartingTile(preferOverflow: false, offersRestart: false));
-
-        Assert.False(leaf.CanRestart);
-        Assert.False(leaf.RestartHasHeaderButton);
+        Assert.Equal(canRestart, leaf.CanRestart);
+        Assert.Equal(hasButton, leaf.RestartHasHeaderButton);
     }
 
     private static LeafTileNodeViewModel Leaf(ITile content) =>

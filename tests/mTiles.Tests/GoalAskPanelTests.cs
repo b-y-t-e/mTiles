@@ -36,13 +36,6 @@ public class GoalAskPanelTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* a temp directory */ }
     }
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(GoalAskPanelTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     private GoalTileViewModel Tile()
     {
         var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
@@ -105,7 +98,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void Only_the_panel_for_what_is_being_asked_is_on_screen()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -133,7 +126,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void A_tile_with_nothing_in_it_can_be_asked_every_question_the_markup_asks()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
 
@@ -169,7 +162,7 @@ public class GoalAskPanelTests : IDisposable
     [InlineData(GoalMessageRole.System, false)]
     public void A_message_is_drawn_by_exactly_one_control(GoalMessageRole role, bool markdown)
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -194,7 +187,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void Only_the_tools_own_words_are_rendered_as_markdown()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -245,7 +238,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void The_markdown_view_wears_this_applications_colours_and_not_its_own()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var view = new GoalMarkdownView { MarkdownText = "## Plan" };
             var window = new Window { Content = view, Width = 400, Height = 300 };
@@ -300,7 +293,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void A_selection_in_a_rendered_answer_is_not_answered_with_text_from_a_terminal()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             // The window-level Ctrl+C handler runs before the focused control sees the key, so anything
             // holding a selection of its own has to be named or the copy is served from whichever
@@ -321,7 +314,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void The_question_list_is_bound_to_the_questions()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
 
@@ -366,7 +359,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void What_the_tile_asks_scrolls_and_what_you_type_in_does_not()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -408,7 +401,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void In_a_short_tile_the_transcript_gives_way_rather_than_drawing_over_the_strip()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm, height: 120);
@@ -441,7 +434,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void The_composer_gives_way_to_a_round_of_questions()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
 
@@ -471,7 +464,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void The_plan_and_the_finished_run_actions_are_blocks_too()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var waitingForApproval = TileWith(new GoalTileState
             {
@@ -508,7 +501,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void A_stopped_run_offers_Resume_in_the_conversation()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var stopped = TileWith(new GoalTileState
             {

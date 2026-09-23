@@ -94,7 +94,7 @@ public sealed class AiSettingsPageTests : IDisposable
     [Fact]
     public async Task Opening_a_form_asks_the_account_what_it_serves()
     {
-        using var http = new StubModels("""{"data":[{"id":"z-ai/glm-5.3-flash"}]}""");
+        using var http = new HttpStub("""{"data":[{"id":"z-ai/glm-5.3-flash"}]}""");
         _settings.Service.Settings.AiProviderInstances.Add(new AiProviderInstance
         {
             Id = "router", ProviderId = "openrouter", Name = "Work", ApiKey = "sk-test",
@@ -126,25 +126,6 @@ public sealed class AiSettingsPageTests : IDisposable
             await Task.Delay(10);
 
         return vm.ModelSuggestions;
-    }
-
-    /// <summary>One canned reply for whatever the provider layer asks, restored on disposal.</summary>
-    private sealed class StubModels : IDisposable
-    {
-        public StubModels(string body) =>
-            AiProvider.HandlerFactory = () => new CannedHandler(body);
-
-        public void Dispose() => AiProvider.HandlerFactory = null;
-
-        private sealed class CannedHandler(string body) : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken) =>
-                Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-                {
-                    Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
-                });
-        }
     }
 
     /// <summary>
@@ -188,41 +169,51 @@ public sealed class AiSettingsPageTests : IDisposable
     }
 
     /// <summary>
-    /// A new provider starts unnamed, and cannot be saved until somebody names it.
+    /// A new provider, agent instance or sign-in starts unnamed, and cannot be saved until somebody
+    /// names it — whitespace is not a name.
     /// </summary>
-    /// <remarks>It used to open holding the first provider's display name. Nothing rewrites that field
-    /// when Service changes — nothing can tell a default from a deliberate answer that matches it — so
-    /// picking LM Studio left a row called "Anthropic" pointing at a local server, and the account
-    /// chooser then identified it by that name.</remarks>
-    [Fact]
-    public void A_new_provider_is_unnamed_and_cannot_be_saved_until_it_is_named()
+    /// <remarks>The name is what every chooser identifies a row by, and nothing rewrites a seeded one
+    /// when the service or agent changes: a provider form that opened on the first provider's name left a
+    /// row called "Anthropic" pointing at a local server.</remarks>
+    [Theory]
+    [InlineData("provider")]
+    [InlineData("agent")]
+    [InlineData("sign-in")]
+    public void A_new_entry_is_unnamed_and_cannot_be_saved_until_it_is_named(string form)
     {
         var vm = OnTheAiTab();
-        vm.AddProviderInstanceCommand.Execute(null);
+        var settings = _settings.Service.Settings;
+        (Action Add, Func<string> Name, Action<string> Rename, Func<bool> CanSave, Action Save,
+            Func<List<string>> Stored) entry = form switch
+        {
+            "provider" => (() => vm.AddProviderInstanceCommand.Execute(null), () => vm.EditProviderName,
+                name => vm.EditProviderName = name, () => vm.CanSaveProviderInstance,
+                () => vm.SaveProviderInstanceCommand.Execute(null),
+                () => settings.AiProviderInstances.Select(i => i.Name).ToList()),
+            "agent" => (() => vm.AddAgentInstanceCommand.Execute(null), () => vm.EditAgentName,
+                name => vm.EditAgentName = name, () => vm.CanSaveAgentInstance,
+                () => vm.SaveAgentInstanceCommand.Execute(null),
+                () => settings.AiAgentInstances.Select(i => i.Name).ToList()),
+            _ => (() => vm.AddSignInCommand.Execute(null), () => vm.EditSignInName,
+                name => vm.EditSignInName = name, () => vm.CanSaveSignIn,
+                () => vm.SaveSignInCommand.Execute(null),
+                () => settings.AiSignIns.Select(i => i.Name).ToList()),
+        };
+        var before = entry.Stored().Count;
 
-        Assert.Equal("", vm.EditProviderName);
-        Assert.False(vm.CanSaveProviderInstance);
+        entry.Add();
+        Assert.Equal("", entry.Name());
+        Assert.False(entry.CanSave());
+        entry.Save();
+        Assert.Equal(before, entry.Stored().Count);
 
-        vm.SaveProviderInstanceCommand.Execute(null);
-        Assert.True(vm.IsEditingProviderInstance);
-        Assert.Empty(_settings.Service.Settings.AiProviderInstances);
+        entry.Rename("   ");
+        Assert.False(entry.CanSave());
 
-        vm.EditProviderName = "my lm studio";
-        Assert.True(vm.CanSaveProviderInstance);
-
-        vm.SaveProviderInstanceCommand.Execute(null);
-        Assert.Equal("my lm studio", Assert.Single(_settings.Service.Settings.AiProviderInstances).Name);
-    }
-
-    /// <summary>Whitespace is not a name.</summary>
-    [Fact]
-    public void A_provider_named_only_with_spaces_cannot_be_saved()
-    {
-        var vm = OnTheAiTab();
-        vm.AddProviderInstanceCommand.Execute(null);
-        vm.EditProviderName = "   ";
-
-        Assert.False(vm.CanSaveProviderInstance);
+        entry.Rename("Mine");
+        Assert.True(entry.CanSave());
+        entry.Save();
+        Assert.Contains("Mine", entry.Stored());
     }
 
     /// <summary>
@@ -254,21 +245,6 @@ public sealed class AiSettingsPageTests : IDisposable
             Assert.True(row.IsUnavailable, $"{name} is unavailable and its row says nothing");
             Assert.NotEmpty(row.UnavailableNote);
         }
-    }
-
-    /// <summary>A sign-in needs a name too — the rule the other two forms already had.</summary>
-    [Fact]
-    public void A_new_sign_in_cannot_be_saved_unnamed()
-    {
-        var vm = OnTheAiTab();
-        vm.AddSignInCommand.Execute(null);
-
-        Assert.False(vm.CanSaveSignIn);
-        vm.SaveSignInCommand.Execute(null);
-        Assert.Empty(_settings.Service.Settings.AiSignIns);
-
-        vm.EditSignInName = "Work";
-        Assert.True(vm.CanSaveSignIn);
     }
 
     /// <summary>
@@ -548,8 +524,20 @@ public sealed class AiSettingsPageTests : IDisposable
     [Fact]
     public async Task A_slower_answer_does_not_overwrite_a_newer_choice()
     {
-        using var http = new SlowThenFast(
-            """{"data":[{"id":"slow/model"}]}""", """{"data":[{"id":"fast/model"}]}""");
+        // The first request is held back and every later one answers at once: a second choice made while
+        // the first is still in flight, the only ordering under which this can happen.
+        // Held on a gate rather than a delay, so the order is the test's and not the clock's: the slow
+        // reply can only ever arrive by being cancelled, or by the gate the test never opens.
+        var calls = 0;
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slowCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var http = new HttpStub(async (_, ct) =>
+        {
+            if (Interlocked.Increment(ref calls) > 1) return FakeHttpHandler.Json("""{"data":[{"id":"fast/model"}]}""");
+            try { await gate.Task.WaitAsync(ct); }
+            catch (OperationCanceledException) { slowCancelled.TrySetResult(); throw; }
+            return FakeHttpHandler.Json("""{"data":[{"id":"slow/model"}]}""");
+        });
 
         _settings.Service.Settings.AiProviderInstances.Add(new AiProviderInstance
         {
@@ -570,43 +558,12 @@ public sealed class AiSettingsPageTests : IDisposable
         for (var i = 0; i < 200 && vm.ModelSuggestions.Count == 0; i++)
             await Task.Delay(10);
 
-        // Long enough for the first reply to have arrived and overwritten this one, if it could.
-        await Task.Delay(200);
+        // The newer choice cancelled the older request; the bound only turns a regression into a failure
+        // instead of a hang.
+        await slowCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Contains("fast/model", vm.ModelSuggestions);
         Assert.DoesNotContain("slow/model", vm.ModelSuggestions);
-    }
-
-    /// <summary>The first request is held back; every later one answers at once.</summary>
-    /// <remarks>Which is what a second choice made while the first is still in flight looks like, and
-    /// the only ordering under which the bug this pins can happen at all.</remarks>
-    private sealed class SlowThenFast : IDisposable
-    {
-        /// <summary>Shared by every <see cref="Handler"/> the factory builds, because
-        /// <c>AiProvider.ClientFor</c> makes a fresh handler per HTTP call — per-instance counters
-        /// would answer "first" to both requests and both would take the slow path.</summary>
-        private readonly int[] _answered = new int[1];
-
-        public SlowThenFast(string first, string rest) =>
-            AiProvider.HandlerFactory = () => new Handler(first, rest, _answered);
-
-        public void Dispose() => AiProvider.HandlerFactory = null;
-
-        private sealed class Handler(string first, string rest, int[] answered) : HttpMessageHandler
-        {
-            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken)
-            {
-                var isFirst = Interlocked.Increment(ref answered[0]) == 1;
-                if (isFirst) await Task.Delay(150, cancellationToken);
-
-                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-                {
-                    Content = new StringContent(isFirst ? first : rest, System.Text.Encoding.UTF8,
-                        "application/json"),
-                };
-            }
-        }
     }
 
     /// <summary>The tool is chosen once and then fixed, because the directory is named after the
@@ -710,33 +667,6 @@ public sealed class AiSettingsPageTests : IDisposable
         reopened.EditAgentAgentName = "Claude Code";
 
         Assert.False(reopened.HasNoAccountToChoose);
-    }
-
-    /// <summary>
-    /// A new agent instance starts unnamed and cannot be saved until somebody names it.
-    /// </summary>
-    /// <remarks>Same rule as the provider form, same reason: the name is what the tile chooser and the
-    /// Goal tile's list identify the row by, and a seeded one meant a second instance of an agent
-    /// arrived spelled exactly like the first.</remarks>
-    [Fact]
-    public void A_new_agent_instance_is_unnamed_and_cannot_be_saved_until_it_is_named()
-    {
-        var vm = OnTheAiTab();
-        var before = _settings.Service.Settings.AiAgentInstances.Count;
-        vm.AddAgentInstanceCommand.Execute(null);
-
-        Assert.Equal("", vm.EditAgentName);
-        Assert.False(vm.CanSaveAgentInstance);
-
-        vm.SaveAgentInstanceCommand.Execute(null);
-        Assert.Equal(before, _settings.Service.Settings.AiAgentInstances.Count);
-
-        vm.EditAgentName = "Claude on OpenRouter";
-        Assert.True(vm.CanSaveAgentInstance);
-
-        vm.SaveAgentInstanceCommand.Execute(null);
-        Assert.Equal("Claude on OpenRouter",
-            _settings.Service.Settings.AiAgentInstances[^1].Name);
     }
 
     /// <summary>Two providers named alike are still two providers: the one that was chosen is the one

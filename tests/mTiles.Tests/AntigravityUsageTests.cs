@@ -248,25 +248,14 @@ public class AntigravityUsageTests : IDisposable
 
         public StubExchange(string body, HttpStatusCode status = HttpStatusCode.OK) =>
             AntigravityCredentialStore.HandlerFactory =
-                () => new CannedHandler(body, status, () => Interlocked.Increment(ref _calls));
+                () => new FakeHttpHandler((_, _) =>
+                {
+                    Interlocked.Increment(ref _calls);
+                    return Task.FromResult(FakeHttpHandler.Json(body, status));
+                });
 
         public int Calls => Volatile.Read(ref _calls);
 
         public void Dispose() => AntigravityCredentialStore.HandlerFactory = null;
-
-        private sealed class CannedHandler(string body, HttpStatusCode status, Action entered)
-            : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken)
-            {
-                entered();
-
-                return Task.FromResult(new HttpResponseMessage(status)
-                {
-                    Content = new StringContent(body),
-                });
-            }
-        }
     }
 }

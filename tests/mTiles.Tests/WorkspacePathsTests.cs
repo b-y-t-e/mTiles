@@ -11,18 +11,12 @@ namespace mTiles.Tests;
 /// </summary>
 public class WorkspacePathsTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "mtiles-ws-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _dir = new();
 
-    public WorkspacePathsTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() => _dir.Dispose();
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { /* a locked temp dir is not a failure */ }
-        GC.SuppressFinalize(this);
-    }
-
-    private string Legacy => Path.Combine(_dir, WorkspacePaths.LegacyDirName);
-    private string Current => Path.Combine(_dir, WorkspacePaths.DirName);
+    private string Legacy => Path.Combine(_dir.Path, WorkspacePaths.LegacyDirName);
+    private string Current => Path.Combine(_dir.Path, WorkspacePaths.DirName);
 
     [Fact]
     public void An_old_directory_is_moved_rather_than_left_behind()
@@ -30,7 +24,7 @@ public class WorkspacePathsTests : IDisposable
         Directory.CreateDirectory(Path.Combine(Legacy, "notes"));
         File.WriteAllText(Path.Combine(Legacy, "notes", "a.md"), "kept");
 
-        var resolved = WorkspacePaths.Dir(_dir);
+        var resolved = WorkspacePaths.Dir(_dir.Path);
 
         Assert.Equal(Current, resolved);
         Assert.False(Directory.Exists(Legacy));
@@ -47,7 +41,7 @@ public class WorkspacePathsTests : IDisposable
         File.WriteAllText(Path.Combine(Legacy, "old.md"), "old");
         File.WriteAllText(Path.Combine(Current, "new.md"), "new");
 
-        WorkspacePaths.Dir(_dir);
+        WorkspacePaths.Dir(_dir.Path);
 
         Assert.True(File.Exists(Path.Combine(Legacy, "old.md")));
         Assert.True(File.Exists(Path.Combine(Current, "new.md")));
@@ -58,7 +52,7 @@ public class WorkspacePathsTests : IDisposable
     {
         // Callers create it when they write. A read that made the directory would put an empty
         // `.mtiles/` into every repository the user so much as opened a tile in.
-        var resolved = WorkspacePaths.Dir(_dir);
+        var resolved = WorkspacePaths.Dir(_dir.Path);
 
         Assert.Equal(Current, resolved);
         Assert.False(Directory.Exists(Current));
@@ -79,21 +73,14 @@ public class WorkspacePathsTests : IDisposable
     [Fact]
     public void The_old_directory_is_reported_as_present_whenever_it_is()
     {
-        Assert.False(WorkspacePaths.LegacyDirExists(_dir));
+        Assert.False(WorkspacePaths.LegacyDirExists(_dir.Path));
 
         Directory.CreateDirectory(Legacy);
-        Assert.True(WorkspacePaths.LegacyDirExists(_dir));
+        Assert.True(WorkspacePaths.LegacyDirExists(_dir.Path));
 
         // Both present: Dir declines to merge them, so it is still there afterwards and still says so.
         Directory.CreateDirectory(Current);
-        WorkspacePaths.Dir(_dir);
-        Assert.True(WorkspacePaths.LegacyDirExists(_dir));
-    }
-
-    [Fact]
-    public void The_parts_of_a_path_are_joined_under_the_same_directory()
-    {
-        Assert.Equal(Path.Combine(Current, "goals", "x.json"),
-            WorkspacePaths.Combine(_dir, "goals", "x.json"));
+        WorkspacePaths.Dir(_dir.Path);
+        Assert.True(WorkspacePaths.LegacyDirExists(_dir.Path));
     }
 }

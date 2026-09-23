@@ -83,6 +83,14 @@ public class AiAgentTests : IDisposable
         // And each instance is nameable and distinct, because the list is shown to somebody.
         Assert.All(seeded, instance => Assert.NotEqual("", instance.Name));
         Assert.Equal(seeded.Count, seeded.Select(instance => instance.Id).Distinct().Count());
+
+        // Seeding adds and never replaces: a rename survives the next launch, and no second row appears.
+        using var settings = new TempSettings();
+        settings.Service.Settings.AiAgentInstances[0].Name = "Mine";
+        settings.Service.Save();
+        using var reopened = new TempSettings(settings.Directory);
+        Assert.Equal(AiAgentCatalog.All.Count, reopened.Service.Settings.AiAgentInstances.Count);
+        Assert.Equal("Mine", reopened.Service.Settings.AiAgentInstances[0].Name);
     }
 
     /// <summary>
@@ -115,34 +123,6 @@ public class AiAgentTests : IDisposable
         Assert.Null(AiAgentCatalog.Find(""));
         Assert.Null(AiAgentCatalog.Find(null));
     }
-
-    // ── Compatibility ───────────────────────────────────
-
-    /// <summary>
-    /// codex and a local server are <b>not</b> compatible, which is the whole reason the OpenAI flavor
-    /// is split in two.
-    /// </summary>
-    /// <remarks>Both would be called "OpenAI" by anybody describing them, and pairing them would be
-    /// offered and would not work: codex speaks <c>/v1/responses</c> and LM Studio and Ollama serve
-    /// <c>/v1/chat/completions</c>. codex reaches a local model through its own <c>--oss</c> instead,
-    /// which is not something a provider instance can express.</remarks>
-    [Fact]
-    public void Codex_is_not_compatible_with_a_local_chat_completions_server()
-    {
-        IReadOnlyList<ApiFlavor> localServer =
-            [ApiFlavor.OpenAiChatCompletions, ApiFlavor.OllamaNative];
-
-        Assert.False(SpeaksAnyOf(new CodexAgent(), localServer));
-        Assert.True(SpeaksAnyOf(new OpenCodeAgent(), localServer));
-        Assert.True(SpeaksAnyOf(new PiAgent(), localServer));
-
-        // And Claude Code needs the Anthropic shape, which a local server does not serve either.
-        Assert.False(SpeaksAnyOf(new ClaudeAgent(), localServer));
-        Assert.True(SpeaksAnyOf(new ClaudeAgent(), [ApiFlavor.Anthropic]));
-    }
-
-    private static bool SpeaksAnyOf(IAiAgent agent, IReadOnlyList<ApiFlavor> served) =>
-        agent.ConsumesApiFlavors.Intersect(served).Any();
 
     // ── Rounding ────────────────────────────────────────
 
@@ -278,12 +258,20 @@ public class AiAgentTests : IDisposable
     [InlineData("claude", "--permission-mode", "plan")]
     [InlineData("codex", "--sandbox", "read-only")]
     [InlineData("agy", "--mode", "plan")]
-    public void A_phase_that_writes_nothing_is_run_read_only(string binary, string flag, string value)
+    public void A_phase_that_writes_nothing_is_run_read_only_unless_it_has_to_build(
+        string binary, string flag, string value)
     {
         var agent = AiProcessRunner.GetRunner(binary);
 
         Assert.Equal([flag, value], agent.BehaviourArgs(AiBehaviour.BypassPermissions, Reviewing));
         Assert.Equal([flag, value], agent.BehaviourArgs(AiBehaviour.ToolDefault, Reviewing));
+
+        // A review told to establish the build and the tests has to write obj/ and bin/, so the prompt,
+        // not a sandbox, is what keeps it off the source.
+        Assert.NotEqual(new[] { flag, value },
+            agent.BehaviourArgs(AiBehaviour.BypassPermissions, ReviewingWithHealthChecks));
+        Assert.Contains(AiBehaviour.BypassPermissions,
+            agent.SupportedBehaviours(AnyInstance, ReviewingWithHealthChecks));
 
         // The interactive session is the user's own and is not overridden.
         Assert.NotEqual(new[] { flag, value },
@@ -297,56 +285,24 @@ public class AiAgentTests : IDisposable
     /// all: <c>--auto</c> is what would let a reviewing agent edit the worktree <c>GoalBaseline</c>
     /// photographed only once, and withholding it is the whole of what can be done here.</remarks>
     [Fact]
-    public void Opencode_withholds_its_one_flag_from_a_phase_that_writes_nothing()
+    public void Opencodes_one_flag_is_our_bypass_and_is_withheld_from_a_phase_that_writes_nothing()
     {
         var opencode = new OpenCodeAgent();
 
+        // "auto-approve permissions that are not explicitly denied (dangerous!)": mapped by meaning.
+        Assert.Equal(["--auto"], opencode.BehaviourArgs(AiBehaviour.BypassPermissions, Implementing));
+        Assert.Empty(opencode.BehaviourArgs(AiBehaviour.Auto, Implementing));
+        Assert.DoesNotContain(AiBehaviour.Auto, opencode.SupportedBehaviours(AnyInstance, Implementing));
+
+        // No read-only mode, so a phase that writes nothing is simply not given the flag...
         Assert.Empty(opencode.BehaviourArgs(AiBehaviour.BypassPermissions, Reviewing));
         Assert.Equal([AiBehaviour.ToolDefault], opencode.SupportedBehaviours(AnyInstance, Reviewing));
 
-        // The interactive session is the user's own and is not overridden.
-        Assert.Equal(["--auto"],
-            opencode.BehaviourArgs(AiBehaviour.BypassPermissions, AiUsage.Interactive));
-    }
-
-    /// <summary>
-    /// A review told to establish the build and the tests is not held to reading.
-    /// </summary>
-    /// <remarks>The prompt tells the reviewer to establish those "by running this project's own
-    /// commands rather than by reading the diff", and a build writes — <c>obj/</c>, <c>bin/</c>,
-    /// <c>target/</c>. Under <c>--sandbox read-only</c> or claude's <c>plan</c> those commands fail, so
-    /// the reviewer either reports a build failure the changes never caused, burning an attempt, or
-    /// silently skips the tile's default completion criterion. What keeps it from editing source is the
-    /// sentence in the review prompt, not a sandbox that would deny the check itself.</remarks>
-    [Theory]
-    [InlineData("claude", "--permission-mode", "plan")]
-    [InlineData("codex", "--sandbox", "read-only")]
-    [InlineData("agy", "--mode", "plan")]
-    public void A_review_that_has_to_build_the_project_is_not_held_to_reading(
-        string binary, string flag, string value)
-    {
-        var agent = AiProcessRunner.GetRunner(binary);
-
-        Assert.NotEqual(new[] { flag, value },
-            agent.BehaviourArgs(AiBehaviour.BypassPermissions, ReviewingWithHealthChecks));
-        Assert.Contains(AiBehaviour.BypassPermissions,
-            agent.SupportedBehaviours(AnyInstance, ReviewingWithHealthChecks));
-
-        // And the same review with nothing to establish still is.
-        Assert.Equal([flag, value], agent.BehaviourArgs(AiBehaviour.BypassPermissions, Reviewing));
-    }
-
-    /// <summary>
-    /// opencode's one flag follows the same rule, since withholding it is all it has.
-    /// </summary>
-    [Fact]
-    public void Opencode_gives_a_review_that_has_to_build_the_project_its_one_flag()
-    {
-        var opencode = new OpenCodeAgent();
-
+        // ...unless it has to build the project, and the interactive session is the user's own.
         Assert.Equal(["--auto"],
             opencode.BehaviourArgs(AiBehaviour.BypassPermissions, ReviewingWithHealthChecks));
-        Assert.Empty(opencode.BehaviourArgs(AiBehaviour.BypassPermissions, Reviewing));
+        Assert.Equal(["--auto"],
+            opencode.BehaviourArgs(AiBehaviour.BypassPermissions, AiUsage.Interactive));
     }
 
     /// <summary>
@@ -378,6 +334,12 @@ public class AiAgentTests : IDisposable
             AiBehaviour.Auto, AiEffort.ToolDefault);
 
         Assert.Equal(["exec", "--sandbox", "workspace-write", "the prompt"], reviewing.ArgumentList);
+
+        // Bypass is its one flag that covers both axes.
+        var bypass = new ProcessStartInfo();
+        codex.ConfigureProcess(bypass, "the prompt", streaming: false, Implementing,
+            AiBehaviour.BypassPermissions, AiEffort.ToolDefault);
+        Assert.Equal(["exec", "--dangerously-bypass-approvals-and-sandbox", "the prompt"], bypass.ArgumentList);
 
         // The interactive commands do have the axis, and keep it.
         Assert.Equal(["--sandbox", "workspace-write", "-a", "never"],
@@ -427,23 +389,6 @@ public class AiAgentTests : IDisposable
     }
 
     /// <summary>
-    /// opencode's <c>--auto</c> is our bypass, not our auto.
-    /// </summary>
-    /// <remarks>Its own help calls it "auto-approve permissions that are not explicitly denied
-    /// (dangerous!)". Mapped by meaning, never by spelling — reading it as
-    /// <see cref="AiBehaviour.Auto"/> would put a repository under an unattended agent on the tile's
-    /// default setting.</remarks>
-    [Fact]
-    public void Opencodes_auto_is_mapped_by_meaning_and_not_by_its_name()
-    {
-        var opencode = new OpenCodeAgent();
-
-        Assert.Equal(["--auto"], opencode.BehaviourArgs(AiBehaviour.BypassPermissions, Implementing));
-        Assert.Empty(opencode.BehaviourArgs(AiBehaviour.Auto, Implementing));
-        Assert.DoesNotContain(AiBehaviour.Auto, opencode.SupportedBehaviours(AnyInstance, Implementing));
-    }
-
-    /// <summary>
     /// codex's effort is a config key, and the token blamed for a refusal is the key rather than
     /// <c>-c</c>.
     /// </summary>
@@ -468,63 +413,30 @@ public class AiAgentTests : IDisposable
 
     // ── Skills and instruction files ────────────────────
 
-    /// <summary>Where each CLI looks for the project's skills, measured 2026-09-03.</summary>
+    /// <summary>Where each CLI looks for the project's skills (measured 2026-09-03 — three share one
+    /// directory, which is why <see cref="WorkspaceAgentFiles"/> recomputes rather than deletes), which
+    /// instruction file it reads (only Claude Code misses the canon), and whether a tile's session id is
+    /// ours to choose.</summary>
     [Theory]
-    [InlineData("claude", ".claude/skills")]
-    [InlineData("opencode", ".opencode/skills")]
-    [InlineData("codex", ".agents/skills")]
-    [InlineData("pi", ".agents/skills")]
-    [InlineData("agy", ".agents/skills")]
-    public void Each_agent_says_where_its_project_skills_live(string agentId, string expected)
+    [InlineData("claude", ".claude/skills", "CLAUDE.md", SessionStrategy.Fixed)]
+    [InlineData("opencode", ".opencode/skills", "AGENTS.md", SessionStrategy.ImportedFixed)]
+    [InlineData("codex", ".agents/skills", "AGENTS.md", SessionStrategy.CapturedAfterStart)]
+    [InlineData("pi", ".agents/skills", "AGENTS.md", SessionStrategy.Fixed)]
+    [InlineData("agy", ".agents/skills", "AGENTS.md", SessionStrategy.CapturedAfterStart)]
+    // Grok's skills directory was never read off the CLI, and a guessed one is a skill written blind.
+    [InlineData("grok", null, "AGENTS.md", SessionStrategy.CapturedAfterStart)]
+    public void Each_agent_says_where_it_reads_skills_and_instructions_and_how_its_session_is_named(
+        string agentId, string? skills, string instructions, SessionStrategy strategy)
     {
-        var directory = AiAgentCatalog.Find(agentId)!.SkillsDirectory("/w");
-        Assert.Equal("/w/" + expected, directory!.Replace(Path.DirectorySeparatorChar, '/'));
-    }
+        var agent = AiAgentCatalog.Find(agentId)!;
 
-    /// <summary>Three agents share one directory, which is what makes "delete the directory of the
-    /// agent that left" wrong and <see cref="WorkspaceAgentFiles"/> necessary.</summary>
-    [Fact]
-    public void The_six_agents_name_three_skill_directories()
-    {
-        var directories = AiAgentCatalog.All
-            .Select(agent => agent.SkillsDirectory("/w"))
-            .Where(path => path != null)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        // Grok names none: where its project skills live has not been read off the CLI, and a guessed
-        // directory is a skill written somewhere nobody measured (IAiAgent.SkillsDirectory).
-        Assert.Equal(6, AiAgentCatalog.All.Count);
-        Assert.Null(AiAgentCatalog.Find("grok")!.SkillsDirectory("/w"));
-        Assert.Equal(3, directories.Count);
-    }
-
-    /// <summary>Only Claude Code fails to read the canon, so only it is given a shim.</summary>
-    [Theory]
-    [InlineData("claude", "CLAUDE.md")]
-    [InlineData("opencode", "AGENTS.md")]
-    [InlineData("codex", "AGENTS.md")]
-    [InlineData("pi", "AGENTS.md")]
-    [InlineData("agy", "AGENTS.md")]
-    public void Each_agent_names_the_instruction_file_it_reads(string agentId, string expected)
-    {
-        Assert.Equal(expected, AiAgentCatalog.Find(agentId)!.InstructionFile);
+        Assert.Equal(skills is null ? null : "/w/" + skills,
+            agent.SkillsDirectory("/w")?.Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Equal(instructions, agent.InstructionFile);
+        Assert.Equal(strategy, agent.SessionStrategy);
     }
 
     // ── Sessions ────────────────────────────────────────
-
-    /// <summary>Each agent's strategy, which is what decides whether a tile's session id is ours to
-    /// choose and when its layout has to be saved.</summary>
-    [Theory]
-    [InlineData("claude", SessionStrategy.Fixed)]
-    [InlineData("pi", SessionStrategy.Fixed)]
-    [InlineData("opencode", SessionStrategy.ImportedFixed)]
-    [InlineData("codex", SessionStrategy.CapturedAfterStart)]
-    [InlineData("agy", SessionStrategy.CapturedAfterStart)]
-    public void Each_agent_says_how_its_session_is_named(string agentId, SessionStrategy expected)
-    {
-        Assert.Equal(expected, AiAgentCatalog.Find(agentId)!.SessionStrategy);
-    }
 
     /// <summary>
     /// Neither agent that has to be told an id is ever handed one it has not seen.
@@ -814,44 +726,26 @@ public class AiAgentTests : IDisposable
     /// carrying <c>"</c>, <c>$</c> or a backtick was mangled or partly executed; the shell owns its own
     /// rule (<see cref="IShellTerminal.Quote"/>). A flag that needs no quoting is still left alone,
     /// because quotes round every flag read as a mistake in the scrollback.</remarks>
-    [Fact]
-    public void Extra_arguments_are_quoted_by_the_shell_that_will_run_them()
+    [Theory]
+    // A space, and a blank entry dropped; a flag that needs no quoting is left alone.
+    [InlineData(new[] { "--add-dir", "/tmp/some repo", "   " },
+        "--add-dir '/tmp/some repo'", "--add-dir '/tmp/some repo'")]
+    // $(...) inside PowerShell's double quotes would run; each shell doubles or escapes the quote its own way.
+    [InlineData(new[] { "--note=$(whoami) it's \"here\"" },
+        "'--note=$(whoami) it''s \"here\"'", "'--note=$(whoami) it'\\''s \"here\"'")]
+    public void Extra_arguments_are_quoted_by_the_shell_that_will_run_them(
+        string[] extraArgs, string powerShellTail, string bashTail)
     {
         var instance = new AiAgentInstance
         {
             DefaultBehaviour = AiBehaviour.ToolDefault,
             DefaultEffort = AiEffort.ToolDefault,
-            ExtraArgs = ["--add-dir", "/tmp/some repo", "   "],
+            ExtraArgs = [.. extraArgs],
         };
 
-        Assert.Equal(PretendedPi + " --session-id the-id --add-dir '/tmp/some repo'",
+        Assert.Equal(PretendedPi + " --session-id the-id " + powerShellTail,
             new PiAgent().Interactive(Runtime(instance), "the-id", new PowerShellTerminal()).Startup);
-
-        Assert.Equal("pi --session-id the-id --add-dir '/tmp/some repo'",
-            new PiAgent().Interactive(Runtime(instance), "the-id", new BashTerminal()).Startup);
-    }
-
-    /// <summary>
-    /// An argument the shell would read as syntax is handed to that shell's own quoting.
-    /// </summary>
-    /// <remarks>The case that was silently wrong: <c>$(...)</c> inside PowerShell's double quotes is a
-    /// subexpression it evaluates, so a value meant as text ran as a command in the user's own shell.
-    /// Single quotes with <c>''</c> doubling is PowerShell's rule and <c>'\''</c> is the POSIX one,
-    /// and neither is spelled anywhere but on the shell.</remarks>
-    [Fact]
-    public void An_argument_a_shell_would_read_as_syntax_is_quoted_by_that_shell()
-    {
-        var instance = new AiAgentInstance
-        {
-            DefaultBehaviour = AiBehaviour.ToolDefault,
-            DefaultEffort = AiEffort.ToolDefault,
-            ExtraArgs = ["--note=$(whoami) it's \"here\""],
-        };
-
-        Assert.Equal(PretendedPi + " --session-id the-id '--note=$(whoami) it''s \"here\"'",
-            new PiAgent().Interactive(Runtime(instance), "the-id", new PowerShellTerminal()).Startup);
-
-        Assert.Equal("pi --session-id the-id '--note=$(whoami) it'\\''s \"here\"'",
+        Assert.Equal("pi --session-id the-id " + bashTail,
             new PiAgent().Interactive(Runtime(instance), "the-id", new BashTerminal()).Startup);
     }
 

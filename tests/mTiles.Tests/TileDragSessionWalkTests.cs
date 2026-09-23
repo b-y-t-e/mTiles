@@ -15,13 +15,6 @@ namespace mTiles.Tests;
 /// walk anyway leaves a window-level tile impossible to drop anywhere inside a workspace.</remarks>
 public class TileDragSessionWalkTests
 {
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(TileDragSessionWalkTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     /// <summary>A surface that answers as it is told and writes down that it was asked.</summary>
     private sealed class RecordingSurface(string name, bool answers, List<string> asked) : Border, ITileDragSurface
     {
@@ -48,7 +41,7 @@ public class TileDragSessionWalkTests
     private static readonly Point Anywhere = new(10, 10);
 
     [Fact]
-    public void An_inner_surface_that_does_not_answer_leaves_the_drag_to_the_outer_one() => OnUiThread(() =>
+    public void An_inner_surface_that_does_not_answer_leaves_the_drag_to_the_outer_one() => Ui.Run(() =>
     {
         var asked = new List<string>();
         var hit = NestedSurfaces(innerAnswers: false, outerAnswers: true, asked);
@@ -60,7 +53,7 @@ public class TileDragSessionWalkTests
     });
 
     [Fact]
-    public void An_inner_surface_that_answers_ends_the_walk() => OnUiThread(() =>
+    public void An_inner_surface_that_answers_ends_the_walk() => Ui.Run(() =>
     {
         var asked = new List<string>();
         var hit = NestedSurfaces(innerAnswers: true, outerAnswers: true, asked);

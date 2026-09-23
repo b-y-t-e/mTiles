@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using mTiles.Models;
+﻿using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Agents;
 using mTiles.ViewModels;
@@ -17,118 +16,28 @@ namespace mTiles.Tests;
 /// <em>not</em> quietly moved onto whatever else is installed, which is what the last one does.
 /// </remarks>
 [Collection(GoalSeamCollection.Name)]
-public class GoalAgentSelectionTests : IDisposable
+public class GoalAgentSelectionTests : GoalTileFixture
 {
-    private readonly string _dir =
-        Path.Combine(Path.GetTempPath(), "mtiles-agents-" + Guid.NewGuid().ToString("N"));
-
-    public GoalAgentSelectionTests()
-    {
-        Directory.CreateDirectory(_dir);
-        // A different tree on every read. The loop stops when an implementation changed nothing, so a
-        // reader answering the same string twice ends the run before the review it is about.
-        var reads = 0;
-        WorktreeReader.Factory = (_, _) => Task.FromResult<string?>(
-            $"diff --git a/x b/x\n+ line {Interlocked.Increment(ref reads)}");
-        GoalBaseline.Factory = (_, _) => Task.FromResult(GoalBaselineResult.None);
-    }
-
-    public void Dispose()
-    {
-        GoalTileViewModel.AiRunnerFactory = null;
-        WorktreeReader.Factory = null;
-        GoalBaseline.Factory = null;
-        GoalAgents.Factory = null;
-        try { Directory.Delete(_dir, recursive: true); } catch { /* not a test failure */ }
-    }
-
-    private sealed class FakeAgent : StubAgent;
-
-    private static GoalAgentChoice Choice(string id, string name) => new(
-        new AiAgentInstance { Id = id, AgentId = "stub", Name = name },
-        new FakeAgent(),
-        typeof(GoalAgentSelectionTests).Assembly.Location);
-
-    private static readonly GoalAgentChoice Worker = Choice("worker", "Worker");
-    private static readonly GoalAgentChoice Reviewer = Choice("reviewer", "Reviewer");
-    private static readonly GoalAgentChoice Planner = Choice("planner", "Planner");
-
-    private static void OnUiThread(Func<Task> body)
-    {
-        var session = Avalonia.Headless.HeadlessUnitTestSession.GetOrStartForAssembly(
-            typeof(GoalAgentSelectionTests).Assembly);
-        session.Dispatch(async () => { await body(); return true; }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
-    private GoalTileViewModel NewTile() =>
-        new(_dir, new SettingsService(Path.Combine(_dir, "settings.json")))
-        {
-            ConfirmAction = _ => Task.FromResult(true)
-        };
-
-    private const string NoMoreQuestions = "```json\n{\"needsClarification\":false}\n```";
+    private static readonly GoalAgentChoice Worker = FakeChoice("Worker", "worker");
+    private static readonly GoalAgentChoice Reviewer = FakeChoice("Reviewer", "reviewer");
+    private static readonly GoalAgentChoice Planner = FakeChoice("Planner", "planner");
 
     /// <summary>
-    /// The review goes to the reviewer and everything else to the worker.
+    /// Working the goal out and planning go to the planning agent, the review to the review agent, and
+    /// only the work itself to the execution agent.
     /// </summary>
-    /// <remarks>A second opinion that is actually the first one again is the failure this exists to
-    /// rule out, and it is invisible from the transcript — both agents write the same kind of text.
-    /// </remarks>
+    /// <remarks>Nothing in the transcript tells the models apart, so a slot that is never reached — or a
+    /// planner that also implemented, behind the worktree <c>GoalBaseline</c> photographs once — is
+    /// invisible without this.</remarks>
     [Fact]
-    public void The_review_runs_on_the_review_agent_and_the_rest_on_the_execution_one()
+    public void Each_phase_runs_on_the_agent_chosen_for_it()
     {
-        OnUiThread(async () =>
-        {
-            GoalAgents.Factory = _ => [Worker, Reviewer];
-
-            var asked = new List<(string Agent, string Answer)>();
-            string[] answers =
-                ["Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS"];
-            var next = 0;
-
-            GoalTileViewModel.AiRunnerFactory = (choice, _, _, _) =>
-            {
-                var answer = answers[Math.Min(next++, answers.Length - 1)];
-                asked.Add((choice.Label, answer));
-                return Task.FromResult<AiOutput>(answer);
-            };
-
-            using var vm = NewTile();
-            vm.ReviewAgentInstanceId = Reviewer.InstanceId;
-
-            vm.InputText = "make the tile resumable";
-            await vm.SubmitCommand.ExecuteAsync(null);   // Goal   → Clarify
-            vm.InputText = "all of them";
-            await vm.SubmitCommand.ExecuteAsync(null);   // Clarify → Plan
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);   // Plan   → Implement → Review
-
-            Assert.Contains(asked, run => run.Answer.StartsWith("VERDICT") && run.Agent == "Reviewer");
-
-            Assert.DoesNotContain(asked,
-                run => !run.Answer.StartsWith("VERDICT") && run.Agent == "Reviewer");
-        });
-    }
-
-    /// <summary>
-    /// Working the goal out, asking the questions and writing the plan go to the planning agent, and
-    /// carrying the plan out does not.
-    /// </summary>
-    /// <remarks>The half of the split that writes is the half that must not move: a planner that also
-    /// implemented would be a second agent editing the repository behind the worktree
-    /// <c>GoalBaseline</c> photographs once. And a planner that is never reached is a feature that is
-    /// simply dead — nothing in the transcript tells the two models apart.</remarks>
-    [Fact]
-    public void The_planning_phases_run_on_the_planning_agent_and_the_work_on_the_execution_one()
-    {
-        OnUiThread(async () =>
+        Ui.Run(async () =>
         {
             GoalAgents.Factory = _ => [Worker, Reviewer, Planner];
 
             var asked = new List<(string Agent, string Answer)>();
-            string[] answers =
-                ["Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS"];
+            string[] answers = [.. UpToTheReview, "VERDICT: PASS"];
             var next = 0;
 
             GoalTileViewModel.AiRunnerFactory = (choice, _, _, _) =>
@@ -140,24 +49,14 @@ public class GoalAgentSelectionTests : IDisposable
 
             using var vm = NewTile();
             vm.PlanningAgentInstanceId = Planner.InstanceId;
+            vm.ReviewAgentInstanceId = Reviewer.InstanceId;
 
-            vm.InputText = "make the tile resumable";
-            await vm.SubmitCommand.ExecuteAsync(null);   // Goal   → Clarify
-            vm.InputText = "all of them";
-            await vm.SubmitCommand.ExecuteAsync(null);   // Clarify → Plan
-            vm.InputText = "ok";
-            await vm.SubmitCommand.ExecuteAsync(null);   // Plan   → Implement → Review
+            await RunToSummary(vm);
 
-            Assert.Contains(asked, run => run.Answer == "Which files?" && run.Agent == "Planner");
-            Assert.Contains(asked, run => run.Answer == "The plan" && run.Agent == "Planner");
-
-            // The two that are the execution agent's: the work itself, and the review, which nobody
-            // here moved elsewhere.
-            Assert.Contains(asked, run => run.Answer == "Implemented it" && run.Agent == "Worker");
-            Assert.DoesNotContain(asked,
-                run => run.Answer.StartsWith("Implemented") && run.Agent == "Planner");
-            Assert.DoesNotContain(asked,
-                run => run.Answer.StartsWith("VERDICT") && run.Agent == "Planner");
+            Assert.Equal(
+                [("Planner", "Which files?"), ("Planner", NoMoreQuestions), ("Planner", "The plan"),
+                 ("Worker", "Implemented it"), ("Reviewer", "VERDICT: PASS")],
+                asked.Select(a => (a.Agent, a.Answer)));
         });
     }
 
@@ -165,7 +64,7 @@ public class GoalAgentSelectionTests : IDisposable
     [Fact]
     public void Planning_falls_back_to_the_execution_agent_when_none_is_chosen()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             GoalAgents.Factory = _ => [Worker, Planner];
 
@@ -176,7 +75,6 @@ public class GoalAgentSelectionTests : IDisposable
             vm.PlanningAgentInstanceId = Planner.InstanceId;
             Assert.Equal(Planner.InstanceId, vm.PlanningAgent?.InstanceId);
 
-            return Task.CompletedTask;
         });
     }
 
@@ -189,26 +87,23 @@ public class GoalAgentSelectionTests : IDisposable
     [Fact]
     public void A_planning_agent_is_written_to_the_goal_file_and_read_back()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             GoalAgents.Factory = _ => [Worker, Planner];
 
-            var path = Path.Combine(_dir, "planned-goal.json");
+            var path = Path.Combine(Dir, "planned-goal.json");
             File.WriteAllText(path, """
                 {"OriginalGoal":"a goal","ExecutionAgentInstanceId":"worker","CurrentPhase":"Goal"}
                 """);
 
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-
-            using (var vm = new GoalTileViewModel(path, _dir, settings))
+            using (var vm = Open(path))
                 vm.PlanningAgentInstanceId = Planner.InstanceId;
 
-            using var reopened = new GoalTileViewModel(path, _dir, settings);
+            using var reopened = Open(path);
 
             Assert.Equal(Planner.InstanceId, reopened.PlanningAgentInstanceId);
             Assert.Equal(Planner.InstanceId, reopened.PlanningAgent?.InstanceId);
             Assert.Equal(Worker.InstanceId, reopened.ExecutionAgent?.InstanceId);
-            return Task.CompletedTask;
         });
     }
 
@@ -216,7 +111,7 @@ public class GoalAgentSelectionTests : IDisposable
     [Fact]
     public void Reviewing_falls_back_to_the_execution_agent_when_none_is_chosen()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             GoalAgents.Factory = _ => [Worker, Reviewer];
 
@@ -228,7 +123,6 @@ public class GoalAgentSelectionTests : IDisposable
             vm.ReviewAgentInstanceId = Reviewer.InstanceId;
             Assert.Equal(Reviewer.InstanceId, vm.ReviewAgent?.InstanceId);
 
-            return Task.CompletedTask;
         });
     }
 
@@ -241,20 +135,18 @@ public class GoalAgentSelectionTests : IDisposable
     [Fact]
     public void A_goal_saved_with_a_tool_name_reopens_on_the_matching_agent()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             GoalAgents.Factory = _ => [Worker, Reviewer];
 
-            var path = Path.Combine(_dir, "old-goal.json");
+            var path = Path.Combine(Dir, "old-goal.json");
             File.WriteAllText(path, """
                 {"OriginalGoal":"a goal","SelectedToolName":"Reviewer","CurrentPhase":"Goal"}
                 """);
 
-            using var vm = new GoalTileViewModel(path, _dir,
-                new SettingsService(Path.Combine(_dir, "settings.json")));
+            using var vm = Open(path);
 
             Assert.Equal(Reviewer.InstanceId, vm.ExecutionAgent?.InstanceId);
-            return Task.CompletedTask;
         });
     }
 
@@ -267,21 +159,19 @@ public class GoalAgentSelectionTests : IDisposable
     [Fact]
     public void A_goal_whose_agent_is_gone_keeps_naming_it()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             GoalAgents.Factory = _ => [Worker, Reviewer];
 
-            var path = Path.Combine(_dir, "goal.json");
+            var path = Path.Combine(Dir, "goal.json");
             File.WriteAllText(path, """
                 {"OriginalGoal":"a goal","ExecutionAgentInstanceId":"deleted","CurrentPhase":"Goal"}
                 """);
 
-            using var vm = new GoalTileViewModel(path, _dir,
-                new SettingsService(Path.Combine(_dir, "settings.json")));
+            using var vm = Open(path);
 
             Assert.Equal("deleted", vm.ExecutionAgentInstanceId);
             Assert.Null(vm.ExecutionAgent);
-            return Task.CompletedTask;
         });
     }
 
@@ -295,23 +185,21 @@ public class GoalAgentSelectionTests : IDisposable
     [Fact]
     public void A_review_agent_that_is_gone_does_not_fall_back_to_the_execution_agent()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             GoalAgents.Factory = _ => [Worker];
 
-            var path = Path.Combine(_dir, "reviewed-goal.json");
+            var path = Path.Combine(Dir, "reviewed-goal.json");
             File.WriteAllText(path, """
                 {"OriginalGoal":"a goal","ExecutionAgentInstanceId":"worker",
                  "ReviewAgentInstanceId":"deleted","CurrentPhase":"Goal"}
                 """);
 
-            using var vm = new GoalTileViewModel(path, _dir,
-                new SettingsService(Path.Combine(_dir, "settings.json")));
+            using var vm = Open(path);
 
             Assert.Equal(Worker.InstanceId, vm.ExecutionAgent?.InstanceId);
             Assert.Equal("deleted", vm.ReviewAgentInstanceId);
             Assert.Null(vm.ReviewAgent);
-            return Task.CompletedTask;
         });
     }
 
@@ -333,7 +221,7 @@ public class GoalAgentSelectionTests : IDisposable
     [Fact]
     public void The_permission_strip_offers_only_what_the_agent_has()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var narrow = new GoalAgentChoice(
                 new AiAgentInstance { Id = "narrow", AgentId = "stub", Name = "Narrow" },
@@ -350,7 +238,6 @@ public class GoalAgentSelectionTests : IDisposable
             // And the word shown is one of the rows: the default setting is "auto", which this agent
             // does not have, so a chooser that kept it would sit blank on a mode no run would use.
             Assert.Contains(vm.PermissionModeLabel, vm.AvailablePermissionModes);
-            return Task.CompletedTask;
         });
     }
 
@@ -371,7 +258,7 @@ public class GoalAgentSelectionTests : IDisposable
     [Fact]
     public void A_null_written_by_a_binding_reads_back_as_no_agent()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             GoalAgents.Factory = _ => [Worker, Reviewer];
 
@@ -390,7 +277,6 @@ public class GoalAgentSelectionTests : IDisposable
             Assert.Null(vm.ReviewAgent);
             Assert.NotEmpty(vm.AvailablePermissionModes);
 
-            return Task.CompletedTask;
         });
     }
 }

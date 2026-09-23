@@ -10,23 +10,22 @@ namespace mTiles.Tests;
 public sealed class AgentSessionWatcherTests
 {
     [Theory]
-    [InlineData(null, "known")]
-    [InlineData(-5, "known")]
-    [InlineData(5, "new")]
+    [InlineData(null, true, "known")]
+    [InlineData(-5, true, "known")]
+    [InlineData(5, true, "new")]
+    // A tile that says nothing about submissions takes any new conversation.
+    [InlineData(null, false, "new")]
     public async Task A_new_conversation_is_taken_only_after_a_submission_the_known_one_did_not_answer(
-        int? submittedSecondsAfterKnownWrite, string expected)
+        int? submittedSecondsAfterKnownWrite, bool tileTellsSubmissions, string expected)
     {
         var knownWrittenAt = DateTimeOffset.UtcNow.AddMinutes(-1);
         DateTimeOffset? submittedAt = submittedSecondsAfterKnownWrite is { } seconds
             ? knownWrittenAt.AddSeconds(seconds)
             : null;
 
-        Assert.Equal(expected, await FirstReading(new TwoConversationLog(knownWrittenAt), () => submittedAt));
+        Assert.Equal(expected, await FirstReading(new TwoConversationLog(knownWrittenAt),
+            tileTellsSubmissions ? () => submittedAt : null));
     }
-
-    [Fact]
-    public async Task A_tile_that_says_nothing_about_submissions_takes_any_new_conversation() =>
-        Assert.Equal("new", await FirstReading(new TwoConversationLog(DateTimeOffset.UtcNow), lastSubmission: null));
 
     private static async Task<string> FirstReading(IAgentSessionLog log, Func<DateTimeOffset?>? lastSubmission)
     {

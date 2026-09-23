@@ -15,14 +15,6 @@ namespace mTiles.Tests;
 public class GoalEscapeTests
 {
     [Fact]
-    public void A_wholly_escaped_sentence_is_decoded()
-    {
-        Assert.Equal(
-            "Esencje działów generowane przez distill_course.py",
-            GoalResponseParser.Readable(@"Esencje dzia\u0142\u00f3w generowane przez distill_course.py"));
-    }
-
-    [Fact]
     public void A_detected_goal_carrying_them_is_read_the_same_way()
     {
         Assert.Equal(
@@ -32,23 +24,16 @@ public class GoalEscapeTests
     }
 
     [Theory]
+    // Wholly escaped: decoded.
+    [InlineData(@"Esencje dzia\u0142\u00f3w generowane przez distill_course.py", "Esencje działów generowane przez distill_course.py")]
     // Already readable: nothing to do, and touching it would be inventing.
-    [InlineData("Esencje działów generowane przez distill_course.py")]
-    // A sentence *about* an escape, in text that has its own accented letters — a review of i18n code
-    // says exactly this, and rewriting it would destroy the thing being reviewed.
-    [InlineData(@"Kontrola pisze \u0142 zamiast ł w nazwie pliku")]
-    // Nothing that looks like an escape at all.
-    [InlineData("A plain English goal with no escapes in it")]
-    [InlineData("")]
-    public void Anything_else_is_left_exactly_as_it_came(string text) =>
-        Assert.Equal(text, GoalResponseParser.Readable(text));
-
-    [Fact]
-    public void An_ascii_only_sentence_that_merely_mentions_an_escape_is_the_case_this_cannot_win()
-    {
-        // Stated rather than hidden: a wholly-ASCII review sentence quoting an escape is decoded too.
-        // The trade is deliberate — that sentence is rare and survives as its own character, while the
-        // alternative leaves every Polish goal unreadable.
-        Assert.Equal("writes ł instead", GoalResponseParser.Readable(@"writes \u0142 instead"));
-    }
+    [InlineData("Esencje działów generowane przez distill_course.py", "Esencje działów generowane przez distill_course.py")]
+    // A sentence about an escape in text with its own accented letters is left as written.
+    [InlineData(@"Kontrola pisze \u0142 zamiast ł w nazwie pliku", @"Kontrola pisze \u0142 zamiast ł w nazwie pliku")]
+    [InlineData("A plain English goal with no escapes in it", "A plain English goal with no escapes in it")]
+    [InlineData("", "")]
+    // The case this cannot win, stated: a wholly-ASCII sentence quoting an escape is decoded too.
+    [InlineData(@"writes \u0142 instead", "writes ł instead")]
+    public void Escapes_are_decoded_only_where_the_whole_text_is_escaped(string text, string expected) =>
+        Assert.Equal(expected, GoalResponseParser.Readable(text));
 }

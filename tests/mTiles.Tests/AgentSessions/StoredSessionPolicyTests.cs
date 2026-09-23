@@ -56,6 +56,8 @@ public class StoredSessionPolicyTests
             SessionOverrides.None, true, new SessionSettings() },
         { "never overrules the user", new SessionSettings("opus", "Plan", "Max"),
             new SessionOverrides("haiku", AiBehaviour.Ask, AiEffort.Low), true, new SessionSettings() },
+        { "fills only what the user left", new SessionSettings("opus", "Plan", "Max"),
+            new SessionOverrides("haiku", AiBehaviour.Ask, null), true, new SessionSettings(null, null, "Max") },
         { "leaves a model spelled for another account", new SessionSettings("opus", "Plan", null),
             SessionOverrides.None, false, new SessionSettings(null, "Plan") },
     };

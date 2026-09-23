@@ -23,28 +23,15 @@ public class SolidPrinciplesTests
         new(() => new GoalCompletionCriteria { Solid = solid });
 
     /// <summary>
-    /// Nobody who never opens the panel loses a rule. The switches exist to take something away, so
-    /// their default has to be the behaviour that was there before them.
-    /// </summary>
-    [Fact]
-    public void All_five_are_on_by_default()
-    {
-        var criteria = new GoalCompletionCriteria();
-
-        Assert.All(SolidPrincipleCatalog.All, p => Assert.True(p.IsOn(criteria.Solid)));
-        Assert.True(criteria.Solid.Any);
-        Assert.False(criteria.Solid.Partial);
-    }
-
-    /// <summary>
-    /// Every principle that is on is stated outright. The constant this replaced named two of the five
+    /// Every principle that is on is stated outright — and on the defaults that is all five, so nobody who
+    /// never opens the panel loses a rule. The constant this replaced named two of the five
     /// and waved at the rest with "especially", which left the reviewer to decide for itself what it
     /// was reviewing against.
     /// </summary>
     [Fact]
     public void Every_principle_that_is_on_is_named_in_the_prompt()
     {
-        var prompt = Rules(new SolidPrinciples());
+        var prompt = Rules(new GoalCompletionCriteria().Solid);
 
         Assert.All(SolidPrincipleCatalog.All, p => Assert.Contains(p.Rule, prompt));
         // Nothing to exclude when nothing is excluded — the sentence would be noise in every prompt of

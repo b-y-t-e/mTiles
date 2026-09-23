@@ -103,7 +103,7 @@ public class ModelContextWindowTests
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
 
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
         ModelContextWindow.Reset();
 
@@ -128,7 +128,7 @@ public class ModelContextWindowTests
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
 
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":1310720}]}""");
         ModelContextWindow.Reset();
 
@@ -155,7 +155,7 @@ public class ModelContextWindowTests
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "gemma-3-4b";
 
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"gemma-3-4b","context_length":32768}]}""");
         ModelContextWindow.Reset();
 
@@ -202,19 +202,28 @@ public class ModelContextWindowTests
             .ContainsKey("CLAUDE_CODE_AUTO_COMPACT_WINDOW"));
     }
 
-    [Fact]
-    public void A_window_typed_on_the_row_is_honoured_on_the_clis_own_account_too()
+    /// <summary>Typed on the row is a decision wherever the CLI reads it, the CLI's own account included;
+    /// only the <em>resolution</em> and the haiku fallback wait for a provider.</summary>
+    [Theory]
+    [InlineData(nameof(AiAgentInstance.AutoCompactWindow), "250000", "CLAUDE_CODE_AUTO_COMPACT_WINDOW")]
+    [InlineData(nameof(AiAgentInstance.MaxContextTokens), "262144", "CLAUDE_CODE_MAX_CONTEXT_TOKENS")]
+    [InlineData(nameof(AiAgentInstance.FastModel), "claude-haiku-4-5", "ANTHROPIC_DEFAULT_HAIKU_MODEL")]
+    public void A_value_typed_on_the_row_is_honoured_on_the_clis_own_account_too(
+        string field, string typed, string variable)
     {
-        var instance = new AiAgentInstance { Model = "claude-opus-4-8", AutoCompactWindow = 250_000 };
+        var instance = new AiAgentInstance { Model = "claude-opus-4-8" };
+        switch (field)
+        {
+            case nameof(AiAgentInstance.AutoCompactWindow): instance.AutoCompactWindow = long.Parse(typed); break;
+            case nameof(AiAgentInstance.MaxContextTokens): instance.MaxContextTokens = long.Parse(typed); break;
+            default: instance.FastModel = typed; break;
+        }
 
+        // A resolved window is handed in too, and the typed one still wins.
         var runtime = AgentRuntime.For(new AppSettings(), instance, agent: Agent("claude"),
             autoCompactWindow: 160_000);
 
-        // Typed is a decision, wherever the CLI reads it — the same rule the fast model follows, and
-        // the promise the field's hint makes. Only the *resolution* waits for a provider, because
-        // that is the one account where the CLI's own window assumption can be wrong by half.
-        Assert.Equal("250000",
-            Agent("claude").EnvFor(runtime)["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]);
+        Assert.Equal(typed, Agent("claude").EnvFor(runtime)[variable]);
     }
 
     [Fact]
@@ -226,7 +235,7 @@ public class ModelContextWindowTests
 
         // The provider advertises one thing and the upstream serves another: the row is where that
         // is corrected, and the typed value outranks the resolution.
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":1310720}]}""");
         ModelContextWindow.Reset();
 
@@ -239,17 +248,6 @@ public class ModelContextWindowTests
 
         Assert.Equal(262_144, resolved?.MaxContextTokens);
         Assert.Equal("262144", environment["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
-    }
-
-    [Fact]
-    public void A_max_context_typed_on_the_row_is_honoured_on_the_clis_own_account_too()
-    {
-        var instance = new AiAgentInstance { Model = "claude-opus-4-8", MaxContextTokens = 262_144 };
-
-        var runtime = AgentRuntime.For(new AppSettings(), instance, agent: Agent("claude"));
-
-        Assert.Equal("262144",
-            Agent("claude").EnvFor(runtime)["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
     }
 
     [Fact]
@@ -347,18 +345,6 @@ public class ModelContextWindowTests
         Assert.False(environment.ContainsKey("ANTHROPIC_DEFAULT_HAIKU_MODEL"));
     }
 
-    [Fact]
-    public void A_fast_model_typed_on_the_row_is_honoured_on_the_own_account_too()
-    {
-        var instance = new AiAgentInstance { Model = "claude-opus-4-8", FastModel = "claude-haiku-4-5" };
-
-        var environment = Agent("claude").EnvFor(
-            AgentRuntime.For(new AppSettings(), instance));
-
-        // Typed is a decision, wherever the CLI reads it; only the *fallback* is provider-only.
-        Assert.Equal("claude-haiku-4-5", environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"]);
-    }
-
     // ── The resolver's gates ─────────────────────────────────────────────────────────────────────
 
     /// <summary>Only opencode's slot lives in a generated document; the question is the agent's own.
@@ -383,7 +369,7 @@ public class ModelContextWindowTests
         // The stub would answer a window if it were asked; null is therefore the gate's own answer,
         // not the network's. One typed alone does ask — the other window is then derived from the
         // model's context, which the typed field does not replace.
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
         ModelContextWindow.Reset();
 
@@ -398,7 +384,7 @@ public class ModelContextWindowTests
         instance.Model = "z-ai/glm-5.3-flash";
         instance.AutoCompactWindow = 250_000;
 
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
         ModelContextWindow.Reset();
 
@@ -415,7 +401,7 @@ public class ModelContextWindowTests
         var (settings, instance) = Configured("codex", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
 
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
         ModelContextWindow.Reset();
 
@@ -429,7 +415,7 @@ public class ModelContextWindowTests
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
 
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
         ModelContextWindow.Reset();
 
@@ -447,10 +433,9 @@ public class ModelContextWindowTests
         var (settings, instance) = Configured("claude", "openrouter", "sk-test");
         instance.Model = "z-ai/glm-5.3-flash";
 
-        using var _ = new ModelContextWindowTestsHttp(
+        using var http = new HttpStub(
             """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":200000}]}""");
         ModelContextWindow.Reset();
-        ModelContextWindowTestsHttp.Requests = 0;
 
         var first = ModelContextWindow.ResolveAsync(settings, Agent("claude"), instance,
             "z-ai/glm-5.3-flash").GetAwaiter().GetResult();
@@ -458,32 +443,7 @@ public class ModelContextWindowTests
             "z-ai/glm-5.3-flash").GetAwaiter().GetResult();
 
         Assert.Equal(first, second);
-        Assert.Equal(1, ModelContextWindowTestsHttp.Requests);
-    }
-
-    /// <summary>One canned reply for every request, counting what was asked — the seam
-    /// <c>AiProviderTests</c> uses, plus the counter the cache test needs.</summary>
-    private sealed class ModelContextWindowTestsHttp : IDisposable
-    {
-        public static int Requests;
-
-        public ModelContextWindowTestsHttp(string body) =>
-            AiProvider.HandlerFactory = () => new Canned(body);
-
-        public void Dispose() => AiProvider.HandlerFactory = null;
-
-        private sealed class Canned(string body) : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken)
-            {
-                Interlocked.Increment(ref Requests);
-                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-                {
-                    Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
-                });
-            }
-        }
+        Assert.Single(http.Requests);
     }
 
     // ── The tolerant converter ───────────────────────────────────────────────────────────────────
@@ -491,25 +451,21 @@ public class ModelContextWindowTests
     /// <summary>A hand-typed string reads as the number it spells, and rubbish reads as unset —
     /// anything else would be a JsonException that quarantines the whole settings file.</summary>
     [Theory]
-    [InlineData("""{"AutoCompactWindow":500000}""", 500_000L)]     // what this application writes
-    [InlineData("""{"AutoCompactWindow":"500000"}""", 500_000L)]   // what a hand edit writes
-    [InlineData("""{"AutoCompactWindow":null}""", null)]           // unset
-    [InlineData("""{"AutoCompactWindow":"abc"}""", null)]          // rubbish reads as unset
-    [InlineData("""{"AutoCompactWindow":true}""", null)]           // the wrong shape entirely
-    [InlineData("""{"AutoCompactWindow":-5}""", null)]             // negative: the CLI would clamp it
-    [InlineData("""{"AutoCompactWindow":"-5"}""", null)]           // negative spelled as a string
-    [InlineData("""{}""", null)]                                   // absent
-    public void The_auto_compact_window_is_read_tolerantly(string json, long? expected) =>
-        Assert.Equal(expected, JsonSerializer.Deserialize<AiAgentInstance>(json)?.AutoCompactWindow);
-
-    [Theory]
-    [InlineData("""{"MaxContextTokens":1310720}""", 1_310_720L)]  // what this application writes
-    [InlineData("""{"MaxContextTokens":"1310720"}""", 1_310_720L)]// what a hand edit writes
-    [InlineData("""{"MaxContextTokens":null}""", null)]           // unset
-    [InlineData("""{"MaxContextTokens":"abc"}""", null)]          // rubbish reads as unset
-    [InlineData("""{"MaxContextTokens":true}""", null)]           // the wrong shape entirely
-    [InlineData("""{"MaxContextTokens":-5}""", null)]             // negative: not a window
-    [InlineData("""{}""", null)]                                  // absent
-    public void The_max_context_is_read_tolerantly(string json, long? expected) =>
-        Assert.Equal(expected, JsonSerializer.Deserialize<AiAgentInstance>(json)?.MaxContextTokens);
+    [InlineData("500000", 500_000L)]     // what this application writes
+    [InlineData("\"500000\"", 500_000L)] // what a hand edit writes
+    [InlineData("null", null)]           // unset
+    [InlineData("\"abc\"", null)]        // rubbish reads as unset
+    [InlineData("true", null)]           // the wrong shape entirely
+    [InlineData("-5", null)]             // negative: not a window, and the CLI would clamp it
+    [InlineData("\"-5\"", null)]         // negative spelled as a string
+    [InlineData(null, null)]             // absent
+    public void Both_typed_windows_are_read_tolerantly(string? value, long? expected)
+    {
+        foreach (var field in new[] { nameof(AiAgentInstance.AutoCompactWindow), nameof(AiAgentInstance.MaxContextTokens) })
+        {
+            var read = JsonSerializer.Deserialize<AiAgentInstance>(value is null ? "{}" : $"{{\"{field}\":{value}}}")!;
+            Assert.Equal(expected,
+                field == nameof(AiAgentInstance.AutoCompactWindow) ? read.AutoCompactWindow : read.MaxContextTokens);
+        }
+    }
 }

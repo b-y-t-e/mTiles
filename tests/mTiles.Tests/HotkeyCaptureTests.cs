@@ -149,10 +149,9 @@ public class HotkeyCaptureTests
     }
 
     /// <summary>A setting naming something unusable says so, rather than leaving a dead feature
-    /// unexplained.</summary>
+    /// unexplained. Which texts fail to parse is <c>HotkeyGestureTests</c>' table; these are one of each
+    /// kind.</summary>
     [Theory]
-    [InlineData("Alt+9999")]
-    [InlineData("Alt+None")]
     [InlineData("Ctrl")]
     [InlineData("nonsense")]
     public void A_stored_shortcut_that_cannot_be_listened_for_says_so(string stored)

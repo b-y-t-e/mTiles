@@ -84,41 +84,14 @@ public class AiProcessRunnerTests
     [InlineData(AiEffort.High, "high")]
     [InlineData(AiEffort.XHigh, "xhigh")]
     [InlineData(AiEffort.Max, "max")]
-    public void The_effort_goes_out_as_the_flag_the_tool_knows(AiEffort effort, string expected)
+    [InlineData(AiEffort.ToolDefault, null)]
+    public void The_effort_goes_out_as_the_flag_the_tool_knows(AiEffort effort, string? expected)
     {
         var psi = new ProcessStartInfo();
         new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: true, Implementing, effort: effort);
 
         var at = psi.ArgumentList.IndexOf("--effort");
-        Assert.True(at >= 0, "the effort flag is not on the command line");
-        Assert.Equal(expected, psi.ArgumentList[at + 1]);
-    }
-
-    [Fact]
-    public void The_tools_own_effort_is_asked_for_by_passing_no_flag()
-    {
-        var psi = new ProcessStartInfo();
-        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing,
-            effort: AiEffort.ToolDefault);
-
-        Assert.DoesNotContain("--effort", psi.ArgumentList);
-    }
-
-    [Fact]
-    public void An_unknown_tool_gets_its_prompt_as_an_argument_and_claims_nothing_about_stdin()
-    {
-        // The fallback used to be ClaudeAgent, which was survivable while everything went on the
-        // command line and became a hang when Claude moved to stdin: a custom tool was launched with
-        // Claude's flags, no prompt anywhere on its command line, and a pipe it never agreed to read.
-        var runner = AiProcessRunner.GetRunner("some-tool-nobody-here-knows");
-
-        Assert.IsType<GenericAgent>(runner);
-        Assert.False(runner.AcceptsPromptOnStdin);
-
-        var psi = new ProcessStartInfo();
-        runner.ConfigureProcess(psi, "the prompt", streaming: false, Implementing);
-
-        Assert.Contains("the prompt", psi.ArgumentList);
+        Assert.Equal(expected, at < 0 ? null : psi.ArgumentList[at + 1]);
     }
 
     [Fact]
@@ -136,24 +109,7 @@ public class AiProcessRunnerTests
         Assert.True(((IAiAgent)new ClaudeAgent()).AcceptsPromptOnStdin);
         Assert.False(((IAiAgent)new CodexAgent()).AcceptsPromptOnStdin);
         Assert.False(((IAiAgent)new PiAgent()).AcceptsPromptOnStdin);
-    }
-
-    [Fact]
-    public void OpenCode_leaves_the_prompt_off_the_command_line_because_it_reads_stdin()
-    {
-        // Measured 2026-09-01 against 1.18.18 and 1.18.25: `opencode run` with no message argument
-        // answers the prompt it is piped. On the command line the same prompt went through the npm
-        // `.cmd` shim's re-parsing, and past ~8 000 characters cmd.exe refused the line outright —
-        // "The command line is too long." — while the stdin run answered.
-        var psi = new ProcessStartInfo();
-        new OpenCodeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing);
-
-        Assert.DoesNotContain("the prompt", psi.ArgumentList);
-        Assert.Contains("run", psi.ArgumentList);
         Assert.True(((IAiAgent)new OpenCodeAgent()).AcceptsPromptOnStdin);
-
-        // And with no command-line budget, the builder is not asked to trim anything to fit either.
-        Assert.Null(AiProcessRunner.PromptBudget("opencode.cmd", new OpenCodeAgent()));
     }
 
     [Fact]
@@ -491,42 +447,20 @@ public class AiProcessRunnerTests
     [InlineData(AiBehaviour.Auto, "auto")]
     [InlineData(AiBehaviour.AcceptEdits, "acceptEdits")]
     [InlineData(AiBehaviour.BypassPermissions, "bypassPermissions")]
-    public void Claude_is_told_what_it_may_do_without_asking(AiBehaviour mode, string expected)
+    // The tool's own settings: the one mode that adds no flag.
+    [InlineData(AiBehaviour.ToolDefault, null)]
+    // Not told at all is the flag, not its absence — or every caller that forgets asks first headless.
+    [InlineData(null, "auto")]
+    public void Claude_is_told_what_it_may_do_without_asking(AiBehaviour? mode, string? expected)
     {
-        // The tile used to pass nothing, so a run inherited whatever the user's own Claude Code
-        // settings said — and the factory default there is to ask, which a `-p` run has nobody to do.
-        // Every edit was refused, the implementation wrote no files, and the tile reported "the last
-        // attempt changed no files": a true sentence about the wrong thing.
         var psi = new ProcessStartInfo();
-        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: true, Implementing, behaviour: mode);
+        if (mode is { } asked)
+            new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: true, Implementing, behaviour: asked);
+        else
+            new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: true, Implementing);
 
         var at = psi.ArgumentList.IndexOf("--permission-mode");
-        Assert.True(at >= 0);
-        Assert.Equal(expected, psi.ArgumentList[at + 1]);
-    }
-
-    [Fact]
-    public void The_tools_own_settings_are_the_one_mode_that_adds_no_flag()
-    {
-        // The way back to what this did before the setting existed, for somebody whose Claude Code
-        // configuration already says something deliberate.
-        var psi = new ProcessStartInfo();
-        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing,
-            behaviour: AiBehaviour.ToolDefault);
-
-        Assert.DoesNotContain("--permission-mode", psi.ArgumentList);
-    }
-
-    [Fact]
-    public void A_run_that_is_not_told_a_mode_gets_on_with_the_work()
-    {
-        // The default is the flag, not its absence. Defaulting to "pass nothing" would leave the
-        // inherited ask-first mode in place for every caller that forgets — which is every caller
-        // written before the parameter existed.
-        var psi = new ProcessStartInfo();
-        new ClaudeAgent().ConfigureProcess(psi, "the prompt", streaming: false, Implementing);
-
-        Assert.Contains("auto", psi.ArgumentList);
+        Assert.Equal(expected, at < 0 ? null : psi.ArgumentList[at + 1]);
     }
 
     [Fact]

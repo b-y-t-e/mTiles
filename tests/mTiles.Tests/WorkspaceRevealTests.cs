@@ -25,19 +25,9 @@ namespace mTiles.Tests;
 /// </remarks>
 public class WorkspaceRevealTests : IDisposable
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("mtiles-reveal").FullName;
+    private readonly TempDirectory _dir = new("mtiles-reveal");
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { /* not a test failure */ }
-    }
-
-    private static void OnUiThread(Func<Task> body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WorkspaceRevealTests).Assembly);
-        session.Dispatch(async () => { await body(); return true; }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
+    public void Dispose() => _dir.Dispose();
 
     private static void Pump()
     {
@@ -50,32 +40,20 @@ public class WorkspaceRevealTests : IDisposable
         }
     }
 
-    /// <summary>Gives the headless session the control themes an <c>ItemsControl</c> needs.</summary>
-    /// <remarks>The test application carries no styles, so without this an <c>ItemsControl</c> has no
-    /// template, no <c>ItemsPresenter</c> and therefore no containers — it lays out 224x0 with 41 items
-    /// in it, and every assertion here would be about the harness rather than about the panel. Added
-    /// once and left in place: the session is shared by the whole assembly.</remarks>
-    private static void EnsureControlThemes()
-    {
-        var app = Avalonia.Application.Current;
-        if (app == null || app.Styles.Any(s => s is Avalonia.Themes.Fluent.FluentTheme)) return;
-        app.Styles.Insert(0, new Avalonia.Themes.Fluent.FluentTheme());
-    }
-
     [Fact]
     public void A_workspace_added_below_the_fold_is_scrolled_to()
-        => OnUiThread(async () =>
+        => Ui.Run(async () =>
         {
-            var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
+            var workspaces = new WorkspaceService(Path.Combine(_dir.Path, "workspaces.json"));
             // Enough rows that the last one cannot be on screen in a 260px panel, and named so the one
             // added below sorts to the end rather than into the middle.
             for (var i = 0; i < 40; i++)
-                workspaces.AddWorkspace(Path.Combine(_dir, $"ws{i:00}"), $"Workspace {i:00}");
+                workspaces.AddWorkspace(Path.Combine(_dir.Path, $"ws{i:00}"), $"Workspace {i:00}");
 
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            var settings = new SettingsService(Path.Combine(_dir.Path, "settings.json"));
             var panel = new WorkspacesPanelViewModel(workspaces, settings);
 
-            EnsureControlThemes();
+            ControlThemes.EnsureFluent();
 
             var view = new WorkspacesPanelView { DataContext = panel, Width = 240 };
             var window = new Window { Content = view, Width = 240, Height = 260 };
@@ -86,7 +64,7 @@ public class WorkspaceRevealTests : IDisposable
                 .First(s => s.GetVisualDescendants().OfType<ItemsControl>().Any(c => c.Name == "WorkspaceList"));
             Assert.Equal(0, scroller.Offset.Y);
 
-            var added = Path.Combine(_dir, "zz-last");
+            var added = Path.Combine(_dir.Path, "zz-last");
             panel.FolderPicker = () => Task.FromResult<string?>(added);
             await panel.AddWorkspaceCommand.ExecuteAsync(null);
             Pump();
@@ -116,7 +94,7 @@ public class WorkspaceRevealTests : IDisposable
     /// than the panel.</remarks>
     [Fact]
     public void The_restored_workspace_is_scrolled_to_when_the_panel_opens()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var (panel, _) = APanelOfForty();
 
@@ -124,6 +102,7 @@ public class WorkspaceRevealTests : IDisposable
             var restored = panel.Workspaces[^1];
             panel.SelectedWorkspace = restored;
 
+            ControlThemes.EnsureFluent();
             var (view, scroller) = Shown(panel);
 
             AssertInView(view, scroller, restored);
@@ -139,7 +118,7 @@ public class WorkspaceRevealTests : IDisposable
     [InlineData(true)]
     [InlineData(false)]
     public void Pinning_a_row_scrolls_to_where_it_moved(bool startsPinned)
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var (panel, _) = APanelOfForty();
             var row = panel.Workspaces[^1];
@@ -149,6 +128,7 @@ public class WorkspaceRevealTests : IDisposable
                 Assert.Same(row, panel.Workspaces[0]);
             }
 
+            ControlThemes.EnsureFluent();
             var (view, scroller) = Shown(panel);
 
             // Parked at the far end from where the row is about to land: pinning sends it to the top,
@@ -170,18 +150,16 @@ public class WorkspaceRevealTests : IDisposable
 
     private (WorkspacesPanelViewModel Panel, WorkspaceService Service) APanelOfForty()
     {
-        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
+        var workspaces = new WorkspaceService(Path.Combine(_dir.Path, "workspaces.json"));
         for (var i = 0; i < 40; i++)
-            workspaces.AddWorkspace(Path.Combine(_dir, $"ws{i:00}"), $"Workspace {i:00}");
+            workspaces.AddWorkspace(Path.Combine(_dir.Path, $"ws{i:00}"), $"Workspace {i:00}");
 
-        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+        var settings = new SettingsService(Path.Combine(_dir.Path, "settings.json"));
         return (new WorkspacesPanelViewModel(workspaces, settings), workspaces);
     }
 
     private static (WorkspacesPanelView View, ScrollViewer Scroller) Shown(WorkspacesPanelViewModel panel)
     {
-        EnsureControlThemes();
-
         var view = new WorkspacesPanelView { DataContext = panel, Width = 240 };
         var window = new Window { Content = view, Width = 240, Height = 260 };
         window.Show();
