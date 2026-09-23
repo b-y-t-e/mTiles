@@ -260,8 +260,12 @@ public partial class SettingsViewModel
 
     /// <summary>The sentence itself.</summary>
     public string OutputProxyNotice =>
-        $"An agent here is set to filter command output through {OutputProxy.BinaryName}, which is not "
-        + "installed on this machine. Those sessions run unfiltered until it is.";
+        OutputProxy.IsInstalled
+            ? $"An agent here is set to filter command output through {OutputProxy.BinaryName}, which is "
+              + $"installed at {OutputProxy.Locate()} but is not on PATH. Those sessions run unfiltered "
+              + "until that folder is on PATH and mTiles is restarted."
+            : $"An agent here is set to filter command output through {OutputProxy.BinaryName}, which is not "
+              + "installed on this machine. Those sessions run unfiltered until it is.";
 
     /// <summary>Whether there is a command to offer as well as the sentence.</summary>
     /// <remarks>False wherever <see cref="OutputProxy.Plan"/> is null — today, everything that is not
@@ -280,11 +284,30 @@ public partial class SettingsViewModel
             && AiAgentCatalog.Find(instance.AgentId) is
                 { OutputProxySupport: OutputProxy.Support.GeneratedFile });
 
-        ShowsOutputProxyNotice = wanted && !OutputProxy.IsInstalled;
-        _outputProxyInstall = ShowsOutputProxyNotice ? OutputProxy.Plan : null;
+        // Installed but off PATH is as useless as missing: the hook is never written, so it gets the
+        // notice too — but no Install… button, since installing again would not change where it is.
+        // Not while the login shell's PATH is still being read: rtk found only there would be named
+        // "not on PATH" until the page happened to refresh.
+        ShowsOutputProxyNotice = wanted && OutputProxy.IsShellsPathKnown && !OutputProxy.IsUsableByAShell;
+        _outputProxyInstall = ShowsOutputProxyNotice && !OutputProxy.IsInstalled ? OutputProxy.Plan : null;
         OnPropertyChanged(nameof(ShowsOutputProxyNotice));
+        OnPropertyChanged(nameof(OutputProxyNotice));
         OnPropertyChanged(nameof(CanInstallOutputProxy));
         OnPropertyChanged(nameof(CanOpenOutputProxyPage));
+        RefreshOnceTheShellsPathIsKnown(wanted);
+    }
+
+    /// <summary>Works the rtk notice and hint out again once the login shell's <c>PATH</c> has been
+    /// read, when they were worked out before it was — nothing else would bring them up to date.</summary>
+    private void RefreshOnceTheShellsPathIsKnown(bool wanted)
+    {
+        if (!wanted && !ShowsOutputProxy || OutputProxy.IsShellsPathKnown) return;
+        OutputProxy.WhenShellsPathIsKnownAsync().ContinueWith(_ =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                RefreshOutputProxy();
+                RefreshOutputProxyHint();
+            }), TaskScheduler.Default);
     }
 
     /// <summary>Shows what installing rtk would run, and runs it in the background.</summary>
@@ -297,6 +320,8 @@ public partial class SettingsViewModel
 
         await InstallInBackgroundAsync($"Install {OutputProxy.BinaryName}?", OutputProxy.BinaryName, plan, () =>
         {
+            // Installed is success: winget puts rtk in a folder this running process's PATH will not
+            // see until a restart, which the row and the notice then say in so many words.
             RefreshOutputProxy();
             return OutputProxy.IsInstalled;
         });
@@ -432,14 +457,19 @@ public partial class SettingsViewModel
                 _editingAgentInstance ?? AiAgentCatalog.SeedInstanceFor(agent), AiUsage.Interactive)
             : AiBehaviours.All;
 
+        // Read before the list is cleared: clearing it makes the bound combo write null back into
+        // EditAgentBehaviour, so asking afterwards found nothing and reset every stored mode to default.
+        var chosen = EditAgentBehaviour;
+
         BehaviourLabels.Clear();
         foreach (var behaviour in AiBehaviours.All.Where(allowed.Contains))
             BehaviourLabels.Add(AiBehaviours.Label(behaviour));
 
         // A stored mode this agent has no gate for falls to the tool's own default rather than staying
         // selected in a chooser that no longer offers it — the same rule the effort chooser follows.
-        if (!BehaviourLabels.Contains(EditAgentBehaviour))
-            EditAgentBehaviour = AiBehaviours.Label(AiBehaviour.ToolDefault);
+        EditAgentBehaviour = BehaviourLabels.Contains(chosen)
+            ? chosen
+            : AiBehaviours.Label(AiBehaviour.ToolDefault);
     }
 
     private void RefreshEffortLabels()
@@ -452,14 +482,18 @@ public partial class SettingsViewModel
         var model = _agentModels.FirstOrDefault(info => info.Id == EditAgentModel.Trim());
         var allowed = AiProviderCatalog.NarrowEfforts(agentEfforts, model?.SupportedEfforts);
 
+        // Read before the list is cleared, for the reason RefreshBehaviourLabels gives.
+        var chosen = EditAgentEffort;
+
         EffortLabels.Clear();
         foreach (var effort in allowed)
             EffortLabels.Add(AiEfforts.Label(effort));
 
         // A stored level the agent or the model no longer accepts falls to the tool's own default
         // rather than staying selected in a chooser that no longer offers it.
-        if (!EffortLabels.Contains(EditAgentEffort))
-            EditAgentEffort = AiEfforts.Label(AiEffort.ToolDefault);
+        EditAgentEffort = EffortLabels.Contains(chosen)
+            ? chosen
+            : AiEfforts.Label(AiEffort.ToolDefault);
     }
 
     partial void OnEditAgentAgentNameChanged(string value)
@@ -506,15 +540,33 @@ public partial class SettingsViewModel
         OnPropertyChanged(nameof(OutputProxyHint));
         OnPropertyChanged(nameof(HasOutputProxyWarning));
         OnPropertyChanged(nameof(IsOutputProxyActive));
+        if (ShowsOutputProxy) RefreshOnceTheShellsPathIsKnown(wanted: true);
     }
 
-    private string DescribeOutputProxyOnThisMachine() =>
-        !OutputProxy.IsInstalled
-            ? $"{OutputProxy.BinaryName} is not installed on this machine, so this does nothing yet."
-            : AgentBeingEdited?.IsOutputProxyAlreadyHooked(SignInBeingEdited) == true
-                ? $"{OutputProxy.BinaryName} is already hooked into {AgentBeingEdited?.DisplayName}'s own settings, so "
-                  + "mTiles adds nothing — your sessions are rewritten either way."
-                : "";
+    private string DescribeOutputProxyOnThisMachine()
+    {
+        if (!OutputProxy.IsInstalled)
+            return $"{OutputProxy.BinaryName} is not installed on this machine, so this does nothing yet.";
+
+        if (!OutputProxy.IsShellsPathKnown)
+            return $"Checking whether a shell here can find {OutputProxy.BinaryName}…";
+
+        // Installed, but nowhere a shell looks. The rewrite this hook produces is a bare name, so the
+        // agent's commands would fail rather than merely run unfiltered — the one state here where
+        // switching the proxy on is worse than leaving it off, and the only one the user cannot work
+        // out from the tick.
+        if (!OutputProxy.IsUsableByAShell)
+        {
+            return $"{OutputProxy.BinaryName} is installed at {OutputProxy.Locate()} but is not on "
+                + "PATH, so the commands it rewrites would not run. This stays off until it is — add "
+                + "that folder to PATH and restart mTiles.";
+        }
+
+        return AgentBeingEdited?.IsOutputProxyAlreadyHooked(SignInBeingEdited) == true
+            ? $"{OutputProxy.BinaryName} is already hooked into {AgentBeingEdited?.DisplayName}'s own settings, so "
+              + "mTiles adds nothing — your sessions are rewritten either way."
+            : "";
+    }
 
     /// <summary>The sign-in the form's account names, or null for the CLI's default one.</summary>
     private AiSignIn? SignInBeingEdited =>

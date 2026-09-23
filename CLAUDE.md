@@ -1065,8 +1065,9 @@ per-run flag at all, so it answers `WritesOutsideOurDirectories` — a route nam
 one nobody found, because taking it would turn a tick on one instance into a change to every opencode
 session on the machine, the ones started from a shell included, with nothing here able to take it back off.
 
-**Three facts decide it and the tick is only one.** rtk has to be on this machine
-(`ExecutableFinder.Anywhere`, so a GUI process finds `~/.local/bin`), and Claude Code's own settings
+**Three facts decide it and the tick is only one.** rtk has to be **where the tile's own shell will
+find it** (`OutputProxy.OnTheShellsPath` — our `PATH`, plus the login shell's on Unix — and
+deliberately *not* `ExecutableFinder.Anywhere`), and Claude Code's own settings
 must **not** already carry an rtk hook — the CLI runs every matching entry, so ours beside theirs is one
 command handed to the proxy twice, which is a behaviour nobody chose arrived at by two pieces of
 configuration that cannot see each other. Asked at the moment the file is written rather than
@@ -1097,6 +1098,26 @@ for it. The notice above the lists appears **only where an instance asked for th
 missing**, which is the difference from the clipboard notice beside it: that one is about a capability
 every agent on the platform lacks, this one about a decision already made that has quietly been doing
 nothing.
+
+**What the hook produces is a bare name, and that is why the `PATH` question is the one asked.**
+Measured 2026-09-23 against rtk 0.46.0 by feeding it a `PreToolUse` payload: it answers
+`{"updatedInput":{"command":"rtk git status"}}`. So however carefully the hook's *own* command is
+spelled — and it is spelled with the full path, which is what makes it survive a `PATH` ours does not
+carry — what finally runs is `rtk …` in the tile's shell. On a machine where rtk sits somewhere no
+shell searches, that is `rtk: command not found` on **every** Bash call the agent makes: the command
+*fails* rather than merely missing its saving, which is worse than having no proxy at all. Hence a
+fourth state on the Settings row, naming where rtk is and saying the tick stays off until that folder
+is on `PATH`.
+
+**And `rtk gain` cannot see any of this, which misleads in the one direction that costs something.**
+It reports on the hook in the CLI's *own* settings — the one `rtk init -g` writes — so on a machine
+hooked from here it prints *No hook installed — run `rtk init -g`* whatever our hook is doing.
+Measured 2026-09-23 on a machine where the proxy was verifiably rewriting: the counter rose by exactly
+one per rewritten shell call while that warning stayed on screen. Following its advice adds a second
+hook beside ours and hands one command to the proxy twice, so the active state on the Settings row
+says the warning is expected and names the command not to run. **The counter is also a weak
+instrument in the other direction**: rtk records what it *rewrote*, and a command it has no rule for
+passes through uncounted — so a flat counter is not evidence that the hook failed to fire.
 
 ## Agent-facing files
 

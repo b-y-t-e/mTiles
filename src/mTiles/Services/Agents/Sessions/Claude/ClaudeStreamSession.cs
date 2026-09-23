@@ -168,6 +168,9 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
         else arguments.Add($"--session-id={Guid.NewGuid()}");
         arguments.AddRange(agent.BehaviourArgs(launch.Behaviour, AiUsage.Interactive));
         arguments.AddRange(agent.EffortArgs(launch.Effort, AiUsage.Interactive));
+        // Whether the rtk hook is written depends on the login shell's PATH; a tile restored at startup
+        // must not launch unfiltered only because that read had not finished.
+        if (launch.Runtime.Instance.UseOutputProxy) await OutputProxy.WhenShellsPathIsKnownAsync();
         arguments.AddRange(agent.SessionDefaultArgs(launch.Runtime));
         arguments.AddRange(launch.ExtraArgs);
 

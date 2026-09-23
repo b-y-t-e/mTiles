@@ -961,6 +961,29 @@ public sealed class AiSettingsPageTests : IDisposable
         Assert.Equal(AiBehaviours.Label(AiBehaviour.ToolDefault), vm.EditAgentBehaviour);
     }
 
+    /// <summary>Rebuilding the choosers keeps a stored mode and effort the agent still offers.</summary>
+    /// <remarks>A bound combo box writes null back into its selection the moment its list is cleared;
+    /// the handlers below stand in for that binding, which is what reset every stored value to the
+    /// tool's default.</remarks>
+    [Fact]
+    public void Rebuilding_the_choosers_keeps_what_was_chosen()
+    {
+        var vm = OnTheAiTab();
+        vm.AddAgentInstanceCommand.Execute(null);
+        vm.EditAgentBehaviour = AiBehaviours.Label(AiBehaviour.BypassPermissions);
+        var effort = vm.EffortLabels.First(label => label != AiEfforts.Label(AiEffort.ToolDefault));
+        vm.EditAgentEffort = effort;
+        vm.BehaviourLabels.CollectionChanged += (_, _) => { if (vm.BehaviourLabels.Count == 0) vm.EditAgentBehaviour = null!; };
+        vm.EffortLabels.CollectionChanged += (_, _) => { if (vm.EffortLabels.Count == 0) vm.EditAgentEffort = null!; };
+
+        vm.EditAgentModel = vm.EditAgentModel + " ";
+        Assert.Equal(effort, vm.EditAgentEffort);
+
+        // pi offers bypass too, so switching to it rebuilds the list without taking bypass away.
+        vm.EditAgentAgentName = "Pi Agent";
+        Assert.Equal(AiBehaviours.Label(AiBehaviour.BypassPermissions), vm.EditAgentBehaviour);
+    }
+
     /// <summary>
     /// Turning every safeguard off is asked about, and an unwired dialog answers no.
     /// </summary>

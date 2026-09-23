@@ -52,11 +52,61 @@ public static class OutputProxy
     /// <summary>Where this machine's <c>rtk</c> is, or null.</summary>
     /// <remarks>Through <see cref="ExecutableFinder.Anywhere"/> rather than a bare <c>PATH</c> lookup,
     /// for the reason that method exists: a GUI process does not inherit the <c>PATH</c> a login shell
-    /// builds, and rtk installs itself under <c>~/.local/bin</c>.</remarks>
-    public static string? Locate() => ExecutableFinder.Anywhere(BinaryName);
+    /// builds, and rtk installs itself under <c>~/.local/bin</c>.
+    /// Also the login shell's <c>PATH</c> once it has been read, so rtk a tile's shell can run is never
+    /// reported missing — but never waits for that read: this is asked on the UI thread.</remarks>
+    public static string? Locate() =>
+        ExecutableFinder.Anywhere(BinaryName) ?? OnThePathsOf(() => LoginShellPath.ValueIfRead);
 
     /// <summary>Whether it is on this machine at all.</summary>
     public static bool IsInstalled => Locate() is not null;
+
+    /// <summary>
+    /// Where a shell we launch would find <c>rtk</c> by its bare name, or null.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A different question from <see cref="Locate"/>, and the hook depends on this one.</b>
+    /// Measured 2026-09-23 by feeding a <c>PreToolUse</c> payload to <c>rtk hook claude</c>: it answers
+    /// <c>{"updatedInput":{"command":"rtk git status"}}</c> — the rewrite is spelled with the <b>bare
+    /// name</b>. So whatever path we put in the hook, what finally runs is <c>rtk …</c> in the tile's
+    /// own shell, and a machine where rtk sits somewhere that shell does not search answers
+    /// <c>rtk: command not found</c> — the agent's command <em>fails</em> rather than merely missing
+    /// its saving. That is worse than having no proxy, which is why this is checked before the hook is
+    /// written rather than hoped for.</para>
+    /// <para><b>Both paths a child of ours can have</b>: ours, which a tile inherits, and — on Unix —
+    /// the login shell's, since the tile's shell reads the rc files that nvm, asdf and friends write
+    /// into and this application's own <c>PATH</c> does not carry them. The same pair
+    /// <see cref="BackgroundInstaller"/> searches, for the same reason.</para>
+    /// <para>Deliberately <b>not</b> <see cref="ExecutableFinder.Anywhere"/>: that looks in places no
+    /// shell searches, which is right for a binary we start ourselves by its full path and exactly
+    /// wrong for a name somebody else's rewrite is about to emit.</para>
+    /// <para><b>Never waits for the login shell</b>: this is asked on the way to starting a tile, on
+    /// the UI thread, and that read is a process with a ten-second deadline. Until it has finished, rtk
+    /// found only there reads as absent — the hook is left out of that one launch, which costs a saving
+    /// and never a command.</para>
+    /// </remarks>
+    public static string? OnTheShellsPath() => OnThePathsOf(() => LoginShellPath.ValueIfRead);
+
+    /// <summary>Whether <see cref="OnTheShellsPath"/> is already a final answer: rtk is on our own
+    /// <c>PATH</c>, or the login shell's has been read.</summary>
+    public static bool IsShellsPathKnown =>
+        ExecutableFinder.OnPathRunnable(BinaryName) is not null || LoginShellPath.IsRead;
+
+    /// <summary>Waits, off the UI thread, until <see cref="OnTheShellsPath"/> is final — for a launch
+    /// that is about to decide whether to write the hook, so a tile restored at startup is not left
+    /// unfiltered only because the login shell had not answered yet.</summary>
+    public static Task WhenShellsPathIsKnownAsync() =>
+        IsShellsPathKnown ? Task.CompletedTask : LoginShellPath.ReadAsync();
+
+    /// <summary>Whether a tile's shell could run the rewrite this hook produces; safe on the UI thread
+    /// for the reason <see cref="OnTheShellsPath"/> gives.</summary>
+    public static bool IsUsableByAShell => OnTheShellsPath() is not null;
+
+    /// <summary>Our <c>PATH</c>, then — on Unix — the login shell's, read only when ours misses:
+    /// reading it can take seconds and this is asked on the way to starting a tile.</summary>
+    private static string? OnThePathsOf(Func<string?> loginShellPath) =>
+        ExecutableFinder.OnPathRunnable(BinaryName)
+        ?? (OperatingSystem.IsWindows() ? null : LoginShellPath.Find(BinaryName, loginShellPath()));
 
     /// <summary>What an Install… button would run, or <c>null</c> where this application has no route
     /// it has actually checked — in which case the row offers <see cref="InstallUrl"/> and nothing

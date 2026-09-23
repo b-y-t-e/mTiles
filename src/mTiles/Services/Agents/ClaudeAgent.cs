@@ -549,9 +549,16 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
         ClaudeSessionSettings.Write(OutputProxyFor(runtime)) is { } path ? ["--settings", path] : [];
 
     /// <summary>Where rtk is, when this session should run through it; null otherwise.</summary>
+    /// <remarks><b>The shell's <c>PATH</c> and not <see cref="OutputProxy.Locate"/>.</b> Measured
+    /// 2026-09-23 against rtk 0.46.0: the hook answers <c>{"updatedInput":{"command":"rtk git
+    /// status"}}</c> — a <em>bare</em> name — so however carefully the hook's own command is spelled,
+    /// what finally runs is <c>rtk …</c> in the tile's shell. On a machine where rtk sits somewhere no
+    /// shell searches, that is <c>rtk: command not found</c> on every Bash call the agent makes: the
+    /// command fails rather than merely missing its saving, which is worse than having no proxy at
+    /// all. So the question asked here is the one the rewrite depends on.</remarks>
     private string? OutputProxyFor(AgentRuntime runtime) =>
         runtime.Instance.UseOutputProxy && !IsOutputProxyAlreadyHooked(runtime.SignIn, runtime.WorkingDirectory)
-            ? OutputProxy.Locate()
+            ? OutputProxy.OnTheShellsPath()
             : null;
 
     /// <inheritdoc />

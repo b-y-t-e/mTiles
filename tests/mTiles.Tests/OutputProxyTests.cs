@@ -14,6 +14,7 @@ namespace mTiles.Tests;
 /// <remarks>The hook's shape is <b>somebody else's CLI contract</b> — rtk's, measured against 0.46.0
 /// on 2026-09-22 — so it is pinned here the way <c>AiAgentTests</c> pins the agents' flags: when rtk
 /// moves it, this fails as a build rather than as sessions that quietly stop being filtered.</remarks>
+[Collection(ProcessPathCollection.Name)]
 public class OutputProxyTests : IDisposable
 {
     // The launch writes its settings file under the application's directory; this keeps it out of
@@ -137,11 +138,12 @@ public class OutputProxyTests : IDisposable
         var arguments = claude.SessionDefaultArgs(new AgentRuntime(instance, null, null, ""));
         Assert.Equal("--settings", arguments[0]);
 
-        // Three facts decide it and none of them is the tick alone: rtk has to be on this machine, and
+        // Three facts decide it and none of them is the tick alone: rtk has to be where the tile's shell finds it by name
+        // (the rewrite is a bare `rtk …`), and
         // Claude Code's own settings must not already carry the hook — two of them on one command is
         // one command handed to the proxy twice. This asserts the rule rather than a machine, so it
         // passes on a build agent with no rtk and on a developer's box with one.
-        var expected = OutputProxy.IsInstalled && !OutputProxyGlobalHook.IsHookedForClaude(null);
+        var expected = OutputProxy.IsUsableByAShell && !OutputProxyGlobalHook.IsHookedForClaude(null);
         Assert.Equal(ClaudeSessionSettings.PathFor(expected), arguments[1]);
     }
 
@@ -265,5 +267,60 @@ public class OutputProxyTests : IDisposable
         Assert.False(outcome.Succeeded);
         Assert.Contains("exit code", outcome.Problem!);
         Assert.Contains("nosuchcommandforthistest", outcome.Problem!);
+    }
+
+    [Fact]
+    public void Rtk_off_the_shells_path_gets_no_hook_whatever_else_the_machine_has()
+    {
+        // With nothing on PATH the rewrite's bare `rtk …` would fail, so the launch must not write the
+        // hook — whether or not rtk sits somewhere ExecutableFinder.Anywhere looks. Nothing is planted
+        // in the real home folder: a run killed before cleanup would leave an empty rtk.exe that
+        // Locate then reports as installed. Windows only: on Unix the login shell's PATH is not ours
+        // to empty.
+        if (!OperatingSystem.IsWindows()) return;
+        var emptyPath = Directory.CreateTempSubdirectory("rtk-nopath-").FullName;
+        var original = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PATH", emptyPath);
+
+            var instance = new AiAgentInstance { AgentId = "claude", UseOutputProxy = true };
+            var arguments = AiAgentCatalog.Find("claude")!.SessionDefaultArgs(new AgentRuntime(instance, null, null, ""));
+
+            Assert.Null(OutputProxy.OnTheShellsPath());
+            Assert.Equal(ClaudeSessionSettings.PathFor(false), arguments[1]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", original);
+            Directory.Delete(emptyPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void What_a_shell_can_run_is_also_installed()
+    {
+        // The row must never say "not installed" while the hook is being written: Locate asks the
+        // shell's PATH first, so rtk found only on a login shell's PATH still counts as installed.
+        if (OutputProxy.IsUsableByAShell) Assert.True(OutputProxy.IsInstalled);
+    }
+
+    [Fact]
+    public void A_shell_finds_rtk_by_its_bare_name_whatever_extension_the_platform_needs()
+    {
+        var directory = Directory.CreateTempSubdirectory("rtk-path-").FullName;
+        var file = Path.Combine(directory, OperatingSystem.IsWindows() ? "rtk.exe" : "rtk");
+        File.WriteAllText(file, "");
+        var original = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PATH", directory);
+            Assert.Equal(file, OutputProxy.OnTheShellsPath());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", original);
+            Directory.Delete(directory, recursive: true);
+        }
     }
 }

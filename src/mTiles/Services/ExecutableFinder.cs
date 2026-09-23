@@ -51,12 +51,15 @@ internal static class ExecutableFinder
         if (!OperatingSystem.IsWindows())
             return OnPath(name) ?? InHomeDirectories(name, "");
 
-        return OnPath(name + ".exe")
-            ?? OnPath(name + ".cmd")
-            ?? OnPath(name + ".bat")
-            ?? OnPath(name)
-            ?? InHomeDirectories(name, ".exe", ".cmd");
+        return OnPathRunnable(name) ?? InHomeDirectories(name, ".exe", ".cmd");
     }
+
+    /// <summary>What a shell would run for <paramref name="name"/> typed bare: <c>PATH</c> alone, with
+    /// the extensions Windows resolves a bare name through (<c>.exe</c>, <c>.cmd</c>, <c>.bat</c>).</summary>
+    public static string? OnPathRunnable(string name) =>
+        OperatingSystem.IsWindows()
+            ? OnPath(name + ".exe") ?? OnPath(name + ".cmd") ?? OnPath(name + ".bat") ?? OnPath(name)
+            : OnPath(name);
 
     /// <summary>The places an install puts a binary without asking <c>PATH</c> about it.</summary>
     /// <param name="extensions">Tried in turn before the bare name, so a <c>.cmd</c> shim is preferred

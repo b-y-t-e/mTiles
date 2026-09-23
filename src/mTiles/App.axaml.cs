@@ -44,6 +44,10 @@ public partial class App : Application
             Avalonia.Threading.Dispatcher.UIThread.Post(_settingsService.NotifyChanged));
         _textScale.Start();
 
+        // Early, off the UI thread: whether rtk is where a tile's shell finds it is asked of the login
+        // shell's PATH without waiting, so the read must be under way before a tile or Settings asks.
+        LoginShellPath.StartReading();
+
         var workspaceService = new WorkspaceService();
         var persistenceService = new PersistenceService();
 
