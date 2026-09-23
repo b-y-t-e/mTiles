@@ -91,6 +91,11 @@ public static class AiAgentCatalog
         Located.Clear();
     }
 
+    /// <summary>Drops what <see cref="Locate"/> remembers, so the next question looks again.</summary>
+    /// <remarks>For an install that has just finished: held for <see cref="LocationValidFor"/>, the
+    /// old answer would keep the row saying NOT INSTALLED with its button still offered.</remarks>
+    public static void ForgetLocations() => Located.Clear();
+
     /// <summary>Where <see cref="PretendEveryAgentIsInstalled"/> claims binaries are.</summary>
     /// <remarks>Nothing executes it — the callers this serves ask only whether the answer is null —
     /// and it is deliberately somewhere no binary could be, so a path that escapes into a launch is

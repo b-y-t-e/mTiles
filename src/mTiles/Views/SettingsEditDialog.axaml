@@ -272,9 +272,17 @@
                                     IsVisible="{Binding EditProviderIsCcs}">
                             <Button Classes="outlined"
                                     IsVisible="{Binding ShowCcsInstall}"
+                                    IsEnabled="{Binding CanStartAnInstall}"
                                     Command="{Binding InstallCcsCommand}"
                                     Content="Install CCS"
                                     Padding="12,5" />
+                            <!-- The page's own progress line is under this form, so the form says it
+                                 too: an npm install is minutes of a button that otherwise looks dead. -->
+                            <TextBlock VerticalAlignment="Center"
+                                       IsVisible="{Binding IsInstalling}"
+                                       Text="{Binding InstallStatus}"
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}" />
                             <Button Classes="outlined"
                                     IsVisible="{Binding ShowCcsAuth}"
                                     Command="{Binding AuthCcsCodexCommand}"

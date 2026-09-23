@@ -222,7 +222,8 @@ public partial class MainWindowViewModel : ObservableObject
         }
         _settings = new SettingsViewModel(settingsService, dbManager, dictation);
 
-        // An install command runs in a tile, and only this object knows which workspace is open. Null
+        // A sign-in (and an install that needs a password typed) runs in a tile, and only this object
+        // knows which workspace is open. Null
         // when there is none, which the settings page answers by showing the command instead of
         // running it — never by running it somewhere the user cannot see.
         _settings.RunInstallPlan = plan =>
@@ -408,6 +409,7 @@ public partial class MainWindowViewModel : ObservableObject
     public void DisposeAll()
     {
         WindowLayout?.Dispose();
+        _settings.CancelInstall();
         _memoryTimer.Stop();
         _settingsService.SettingsChanged -= OnSettingsChanged;
         _updateService.Dispose();

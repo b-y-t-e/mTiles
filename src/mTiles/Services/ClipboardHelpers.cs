@@ -91,10 +91,9 @@ internal static class ClipboardHelpers
     /// The package managers this knows how to ask, and how each one is asked.
     /// </summary>
     /// <remarks>
-    /// <b>None of them is told to skip its confirmation.</b> The command runs in a tile the user is
-    /// looking at, which is the only reason offering it is honest at all, and a prompt answered there is
-    /// worth more than one fewer keystroke — an install that has already happened by the time the tile
-    /// is drawn is the shape of thing this whole route exists to avoid.
+    /// <b>None of them is told to skip its confirmation here.</b> The plan with sudo or doas runs in a
+    /// tile the user is looking at, and a prompt answered there is worth more than one fewer keystroke;
+    /// only the plan with no elevator, which runs in the background, adds <see cref="SkipConfirmation"/>.
     /// </remarks>
     internal static readonly (string Manager, string[] Arguments)[] Managers =
     [
@@ -107,7 +106,44 @@ internal static class ClipboardHelpers
     ];
 
     /// <summary>How a command is raised to root here, best first.</summary>
-    private static readonly string[] Elevators = ["sudo", "doas"];
+    /// <remarks><c>pkexec</c> first: polkit asks for the password in a window of its own, so that plan
+    /// needs no terminal and runs in the background like every other install. sudo and doas read it from
+    /// a TTY and are the fallback for a machine with no polkit agent.</remarks>
+    private static readonly string[] Elevators = [GraphicalElevator, "sudo", "doas"];
+
+    /// <summary>The first elevator on this machine that can actually ask for a password here.</summary>
+    /// <remarks>pkexec only with a polkit authentication agent running: without one — a bare window
+    /// manager with no polkit-gnome or hyprpolkitagent started — it answers "No authentication agent
+    /// found" and stops, and choosing it anyway would hide the sudo plan that works in a tile.</remarks>
+    internal static string? ChooseElevator(Func<string, bool> isPresent, bool hasPolkitAgent) =>
+        Elevators.FirstOrDefault(name => isPresent(name) && (name != GraphicalElevator || hasPolkitAgent));
+
+    /// <summary>Whether a polkit authentication agent is among this session's processes.</summary>
+    /// <remarks>Read off <c>/proc/*/comm</c>: every agent carries "polkit" in its name
+    /// (polkit-gnome-authentication-agent-1, polkit-kde-authentication-agent-1, hyprpolkitagent,
+    /// lxpolkit, mate-polkit) and the daemon itself is <c>polkitd</c>, which answers nobody. Any failure
+    /// is no — the sudo tile is the plan that cannot hang.</remarks>
+    private static bool PolkitAgentIsRunning()
+    {
+        try
+        {
+            return Directory.EnumerateDirectories("/proc").Any(dir =>
+            {
+                try
+                {
+                    var name = File.ReadAllText(Path.Combine(dir, "comm")).Trim();
+                    return name.Contains("polkit", StringComparison.OrdinalIgnoreCase) && name != "polkitd";
+                }
+                catch (IOException) { return false; }
+                catch (UnauthorizedAccessException) { return false; }
+            });
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>The elevator that asks for a password without a terminal.</summary>
+    internal const string GraphicalElevator = "pkexec";
 
     /// <summary>Whether this machine is one where the question arises at all.</summary>
     /// <remarks>Linux only, and not for want of measuring the others: Claude Code reads the clipboard
@@ -135,7 +171,8 @@ internal static class ClipboardHelpers
             var manager = Managers.FirstOrDefault(m => ExecutableFinder.OnPath(m.Manager) is not null);
             if (manager.Manager is null) return null;
 
-            var elevator = Elevators.FirstOrDefault(name => ExecutableFinder.OnPath(name) is not null);
+            var elevator = ChooseElevator(name => ExecutableFinder.OnPath(name) is not null,
+                PolkitAgentIsRunning());
             return PlanFor(manager.Manager, manager.Arguments, elevator);
         }
     }
@@ -163,6 +200,19 @@ internal static class ClipboardHelpers
             $"{until}, pasting a screenshot into a terminal agent tile does nothing and says nothing.";
     }
 
+    /// <summary>What tells a manager not to ask "[Y/n]", for the plan that runs with nobody to answer.</summary>
+    /// <remarks>Only a plan that runs in the background — none or pkexec — needs this: with nothing
+    /// on stdin apt-get and dnf read EOF as "no" and abort, and one that inherits a stdin waits until
+    /// <c>BackgroundInstaller.Timeout</c>. The plan with sudo or doas keeps its tile and its question.
+    /// <c>apk add</c> never asks.</remarks>
+    internal static IReadOnlyList<string> SkipConfirmation(string manager) => manager switch
+    {
+        "pacman" => ["--noconfirm"],
+        "apt-get" or "dnf" or "zypper" or "xbps-install" => ["-y"],
+        _ => [],
+    };
+
+
     /// <summary>
     /// The command, given a manager and whatever raises it to root.
     /// </summary>
@@ -170,16 +220,24 @@ internal static class ClipboardHelpers
     /// separated from the chain: what gets run on somebody's machine with elevation should be readable
     /// in a table rather than only by installing six distributions. A null <paramref name="elevator"/>
     /// yields the bare command, which is right for a session that is already root and honest everywhere
-    /// else — it fails saying it needs privileges, in a tile, which names the problem better than a
-    /// <c>sudo</c> that is not installed either.</remarks>
+    /// else — it runs in the background and, without root, fails saying it needs privileges; that
+    /// message reaches the failure dialog and names the problem better than a <c>sudo</c> that is not
+    /// installed either.</remarks>
     internal static InstallPlan PlanFor(string manager, IReadOnlyList<string> arguments, string? elevator)
     {
-        var note = elevator is null
-            ? $"Installs {string.Join(" and ", Packages)} with {manager}. Run it as root."
-            : $"Installs {string.Join(" and ", Packages)} with {manager}. It asks for your password in the tile.";
-
-        return elevator is null
-            ? new InstallPlan(manager, [.. arguments], note)
-            : new InstallPlan(elevator, [manager, .. arguments], note);
+        var installs = $"Installs {string.Join(" and ", Packages)} with {manager}.";
+        return elevator switch
+        {
+            null => new InstallPlan(manager, [.. arguments, .. SkipConfirmation(manager)],
+                $"{installs} It runs in the background and needs this session to be root."),
+            GraphicalElevator => new InstallPlan(elevator, [manager, .. arguments, .. SkipConfirmation(manager)],
+                $"{installs} It runs in the background; your system asks for your password in a window of its own."),
+            // sudo and doas read the password from a terminal, so this one keeps its tile even though
+            // every other install on that page now runs in the background. Headless, sudo answers
+            // "no tty present and no askpass program specified" and stops — which the background
+            // installer would report faithfully and which is still a feature that cannot be used.
+            _ => new InstallPlan(elevator, [manager, .. arguments],
+                $"{installs} It asks for your password in the tile.") { NeedsATerminal = true },
+        };
     }
 }

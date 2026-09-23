@@ -117,6 +117,10 @@ release. Never a manual `git push` or a hand-written version bump.
   **`cmd` is not in the catalog, and that is a decision.** It cannot run what this application asks a shell to run: it does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, runs only the first line of a multi-line command, and does not treat `;` as a separator — all measured, and the last of those silently reduced OpenCode's own two-command chain to a bare shell. It used to be offered and then swapped for PowerShell behind the user's back, which meant a shell that was neither the one they picked nor the one running their commands. A stored `CMD` now finds nothing and falls back to the default — and so does a `$SHELL` the old Unix detection offered (`nu`, `ksh`, `dash`), which is why `SettingsService.ReportUnknownDefaultShell` logs the name once — remembering in `ReportedUnknownShellName` that it has, so the warning does not return every launch — and **leaves the name in the file**: a name this build cannot match is also what a shell added by a newer version looks like after a Velopack rollback, so clearing it would let the older build settle the question for the newer one for good. `DropCustomShell` is the one that does clear, because a path to an arbitrary binary is an answer nothing here could ever honour.
   **A name does not name a file, and on PowerShell it names the wrong one** (`IShellTerminal.Program(name, path)`). npm installs three shims per tool on Windows — `claude`, `claude.cmd` and `claude.ps1` — and PowerShell's own lookup prefers the `.ps1`, which Windows' default `Restricted` execution policy then refuses to load: `claude.ps1 cannot be loaded because running scripts is disabled on this system`, on a machine where the CLI is installed and this application has just said so. Reported from a fresh Windows 11 Home, where every agent tile and the Sign in button failed that way; invisible on a developer's machine, where something changed the policy years ago. So the shell answers how it is told to run a program: every other shell keeps the name — which is also what keeps a per-directory shim (mise, asdf, volta, nvm) working, and on POSIX a name cannot resolve to something the platform then refuses to run — and PowerShell takes the path this machine found, through the call operator. **Except a batch shim handed an argument outside `ShellArgument.IsBatchSafe`** (no `&`, `|`, `<`, `>`, `^`, `%`, `!`, `"` or parentheses — a space or a backslash is fine, so a path under a profile such as `C:\Users\Jan Kowalski` still reaches the shim): a `.cmd` passes its arguments through `cmd.exe`, which reads `&`, `|` and `%VAR%` in them after PowerShell has taken its own quotes off, so a session id like `x&calc` would run a second command — that line falls back to the name, failing closed on a `Restricted` machine rather than running it. **Where** the binary is stays this application's answer (`ExecutableFinder.Anywhere`, `AiAgentCatalog.Locate`, which ask for `.exe`, then the `.cmd` shim, and never a `.ps1`), so the shell is handed a fact rather than sent looking. It is asked in one place per route — `AiAgent.Interactive` for both of an agent's commands, `InstallCommand.For` for Install…, and the Sign in line — for the reason `Interactive` is not virtual: six `Resume` bodies spelling their own binary is six chances to spell it as a bare name, and `PowerShellProgramTests` asserts that none of them does. **Deliberately not `-ExecutionPolicy RemoteSigned` on the process we start**: that works, and it also lets every other `.ps1` in that tile run on a machine where an administrator switched scripts off on purpose — while still failing wherever the policy comes from group policy, which is exactly the managed machine it would be weakening. The claim is about somebody else's command lookup and somebody else's policy, so it is measured against a real `powershell.exe` under `-ExecutionPolicy Restricted`, with the bare name as the control case.
   **Why the environment members are on the shell and not only in `PtyOptions.Environment`.** Anything secret goes through the process environment — a startup script is *typed into a live PTY*, so it lands in the scrollback and in the shell's history file, which is why a key must never go that way. Since **Terminal.Avalonia 0.3.0** that block can also *remove*: a `null` value in `PtyOptions.Environment` unsets the variable, so a machine with a global `ANTHROPIC_API_KEY` **can** be given a child that authenticates through `ANTHROPIC_AUTH_TOKEN` instead. That was one line in our own `PtyEnvironment.Build`, and it is the right route — `ShellEnvironmentTests` proves it against a real child rather than a fake that would only report what it was handed. What the shell's own `SetEnv`/`UnsetEnv` are still for is everything that has to happen *inside a shell that is already running*, and `NoProfileArgs` covers the other half of the same trap — the user's own profile overwriting what we set
+- `Services/BackgroundInstaller.cs` — an `InstallPlan` run as a process of this application's own:
+  no shell, no tile, `ArgumentList` rather than a composed command line, both output streams kept,
+  and a timeout for the installer that is waiting for an answer nobody can give it. See *Where AI
+  tools went*
 - `Services/ChainPolicy.cs` + `Services/RelaunchBudget.cs` — the launch chain's rules and its rate limit, pure and separate from the loop that carries them out
 - `Services/UiFontScale.cs` + `Services/InterfaceScale.cs` + `Services/TextScale.cs` /
   `Services/DesktopTextScale.cs` — the answers to "how big is this": the scale, the whole-window
@@ -694,9 +698,11 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   everything, rather than as a hand-kept list of two dozen property names
 - **AI** — the agent instances a tile can be created from and the providers they authenticate through.
   An agent row carries its name, its CLI, a `NOT INSTALLED` chip and, when an `InstallPlan` exists,
-  **Install…** — which shows the command, then runs it in a **terminal tile in the current workspace**
-  (`TerminalTileKind.StartupScriptKey`, set at creation, never saved and **consumed at the first launch**,
-  so neither reopening the layout nor Restart shell installs anything again). A provider row is edited on the same overlay the manual database connection
+  **Install…** — which shows the command, then runs it **in the background** through
+  `BackgroundInstaller` (no shell, no tile; a line above the lists while it runs, the installer's last
+  lines in a dialog if it fails — see *Where AI tools went*). Only a plan that `NeedsATerminal` (a
+  sign-in, or a package install that asks for a password) still opens a terminal tile, through
+  `TerminalTileKind.StartupScriptKey`, consumed at the first launch. A provider row is edited on the same overlay the manual database connection
   uses, with Test (`IAiProvider.TestAsync`), Models and — for a local server — Discover
   (`LocalProviderDiscovery`, on demand, network sweep opt-in). The model field is an `AutoCompleteBox`
   over the provider's own list rather than a combo box, because that list runs to hundreds. The agent
@@ -735,7 +741,7 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   through the *startup script* rather than the process environment, which is the opposite of what a
   launch does and deliberately: the rule exists because a script lands in the scrollback and the shell's
   history, which is fatal for a key and harmless for a directory the user just named. It reaches the tile
-  through `InstallCommand.For` — the same route an install takes, and **not** `InstallPlan.CommandLine`,
+  through `InstallCommand.For` — the tile route only a plan that `NeedsATerminal` takes (an install runs in the background), and **not** `InstallPlan.CommandLine`,
   whose quoting is for reading: every part of a shell line has a space in it, so the tile was handed the
   whole command inside quotes and printed it instead of running it, while the row went on saying "not
   signed in". The row's status
@@ -784,7 +790,21 @@ list of them is closed, and what the user configures is an **instance** of one.
 agent, never on the instance. `InstallUrl` is the tool's own page — the Settings AI row renders it as a
 link that opens the browser. `InstallPlan` is the install command, offered by the row's **Install…**
 button only while the CLI is not on this machine (`CanBeInstalled`), shown to the user before it runs,
-and run in a terminal tile — never a hidden process. Leaving either null hides that agent's link or
+and then run **in the background** — `Services/BackgroundInstaller.cs`, the plan's argv started as a
+process of this application's own, no shell and no tile. That is a reversal: it ran in a visible tile,
+on the reasoning that something writing outside our directories must be watched. What the tile was
+actually carrying, and where each half went, is in ADR
+[0005](docs/adr/0005-an-output-proxy-per-agent-instance.md) → *Amendment*: the confirmation is still the
+place the command is read; the questions an installer would have asked are answered in the plan
+(`--accept-source-agreements` and friends) with `BackgroundInstaller.Timeout` killing what still hangs;
+and the installer's own output is captured from both streams, logged whole, and its last lines carried
+into the failure dialog, since with no tile that is the only account of what happened. **No shell is
+what fixes the other half**: `IShellTerminal.Program` hands a resolved path to PowerShell alone and
+every other shell keeps the bare name — right for a per-directory shim, wrong for an installer whose
+binary is not on `PATH` at all. **A sign-in is not an install and keeps its tile**
+(`InstallPlan.NeedsATerminal`): a login only *starts* at the command and then waits for the user, so in
+the background it is a process hung on a prompt nobody can see. One install at a time for the whole
+page, with a line above the lists saying which. Leaving either null hides that agent's link or
 button and is a decision, not an omission.
 
 Two pieces of the old code were kept because the mechanism was right: `ExecutableFinder.Anywhere` is its
@@ -1063,8 +1083,13 @@ being wrong the other way is the double rewrite.
 adding it now would also hand every goal run the `Concise` output style its parser has never seen —
 a separate change with its own risk.
 
-**Installing it is Windows-only for now** (winget, `rtk-ai.rtk`). On Linux the published route is a
-piped shell installer and this application does not put `curl … | sh` behind a button, because the
+**Installing it is Windows-only, and only where winget can be found** (`rtk-ai.rtk`). Measured
+2026-09-23: `%LOCALAPPDATA%\Microsoft\WindowsApps` is in *no* process' `PATH` on a good many Windows 11
+machines — not the GUI's, not PowerShell's, not Git Bash's — so the alias sits there pointing at a
+working binary while every shell answers `command not found`. `ExecutableFinder` now walks that
+directory too, and `OutputProxy.Plan` is asked **per call** and answers `null` where winget is still
+not found, so the row shows the link rather than a button certain to fail. On Linux the published route
+is a piped shell installer and this application does not put `curl … | sh` behind a button, because the
 confirmation could not say what is being approved; that row gets the link. **`cargo install rtk` is
 never offered anywhere**: crates.io carries a different program under that exact name — Rust *Type*
 Kit — which answers `rtk --version` and fails every hook, and a test asserts the plan does not reach

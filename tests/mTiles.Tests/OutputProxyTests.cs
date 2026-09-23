@@ -1,6 +1,7 @@
 using System.Text.Json;
 using mTiles.Models;
 using mTiles.Services.Agents;
+using mTiles.Services;
 using mTiles.Services.Providers;
 using Xunit;
 
@@ -184,5 +185,85 @@ public class OutputProxyTests : IDisposable
 
         Assert.DoesNotContain("cargo", plan.Executable, StringComparison.OrdinalIgnoreCase);
         Assert.NotEmpty(plan.Note);
+    }
+
+    [Fact]
+    public void There_is_no_install_where_winget_cannot_be_found()
+    {
+        // Measured 2026-09-23: %LOCALAPPDATA%\Microsoft\WindowsApps is in no process' PATH on a good
+        // many Windows 11 machines, so a plan built unconditionally gave the row a button whose command
+        // answered "command not found" in every shell. No winget, no plan — the row shows the link.
+        Assert.Null(OutputProxy.PlanFor(_ => null));
+    }
+
+    [Fact]
+    public void The_install_answers_every_question_winget_could_ask()
+    {
+        // Nothing is watching it, so a prompt is a process hung until BackgroundInstaller.Timeout kills
+        // it. Skipped off Windows, where there is deliberately no plan at all.
+        if (!OperatingSystem.IsWindows()) return;
+
+        var plan = OutputProxy.PlanFor(_ => @"C:\winget.exe");
+        Assert.NotNull(plan);
+        Assert.Contains("--accept-source-agreements", plan!.Arguments);
+        Assert.Contains("--accept-package-agreements", plan.Arguments);
+        Assert.Contains("--disable-interactivity", plan.Arguments);
+
+        // The package, exactly — winget's fuzzy search would otherwise answer with whatever it likes.
+        Assert.Contains("--exact", plan.Arguments);
+        Assert.Contains("rtk-ai.rtk", plan.Arguments);
+    }
+
+    [Fact]
+    public void An_install_is_not_a_sign_in()
+    {
+        // The split that decides tile or no tile. An install runs to an exit code; a sign-in only
+        // starts at the command and then waits for the user, so it keeps its terminal.
+        if (OutputProxy.PlanFor(_ => @"C:\winget.exe") is { } plan) Assert.False(plan.NeedsATerminal);
+    }
+
+    [Fact]
+    public async Task A_plan_needing_a_terminal_is_refused_by_the_background_installer()
+    {
+        var signIn = new InstallPlan("claude /login", [], "a login") { NeedsATerminal = true };
+
+        var outcome = await BackgroundInstaller.RunAsync(signIn, _ => @"C:\claude.exe", childPath: null);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("terminal", outcome.Problem!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task An_installer_that_is_not_there_is_named_rather_than_thrown()
+    {
+        // This starts a process directly, so there is no shell lookup behind it to fall back on — which
+        // is the whole point, and also why a missing binary has to be said out loud rather than arriving
+        // as an opaque Win32Exception.
+        var outcome = await BackgroundInstaller.RunAsync(
+            new InstallPlan("nosuchinstaller", ["--version"], ""), _ => null, childPath: null);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("nosuchinstaller", outcome.Problem!);
+    }
+
+    [Fact]
+    public async Task An_installer_that_exits_cleanly_succeeds()
+    {
+        var outcome = await BackgroundInstaller.RunAsync(
+            new InstallPlan("dotnet", ["--version"], ""), _ => "dotnet", childPath: null);
+
+        Assert.True(outcome.Succeeded, outcome.Problem);
+    }
+
+    [Fact]
+    public async Task A_failing_installer_names_its_exit_code_and_its_last_lines()
+    {
+        // The tail is the only account of a failed install the user gets, so it must reach Problem.
+        var outcome = await BackgroundInstaller.RunAsync(
+            new InstallPlan("dotnet", ["nosuchcommandforthistest"], ""), _ => "dotnet", childPath: null);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("exit code", outcome.Problem!);
+        Assert.Contains("nosuchcommandforthistest", outcome.Problem!);
     }
 }

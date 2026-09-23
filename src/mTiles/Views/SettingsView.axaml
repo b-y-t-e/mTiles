@@ -373,6 +373,25 @@
             <StackPanel Spacing="12" Margin="20,16,20,24"
                         IsVisible="{Binding IsAiTab}">
 
+                <!-- An install is running with no tile to watch it in, so this line is the whole of
+                     what the user can see of it. Above the lists, where the buttons that started it
+                     are, and it takes the same card the two notices below it use. -->
+                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
+                        IsVisible="{Binding IsInstalling}">
+                    <Border Background="{DynamicResource BgSurface}" Padding="12,10">
+                        <DockPanel>
+                            <Arc DockPanel.Dock="Left" Classes="busy-arc spinning"
+                                 Width="13" Height="13" Margin="0,1,8,0"
+                                 VerticalAlignment="Top" />
+                            <TextBlock Text="{Binding InstallStatus}"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center"
+                                       FontSize="{DynamicResource FontSm}"
+                                       Foreground="{DynamicResource TextPrimary}" />
+                        </DockPanel>
+                    </Border>
+                </Border>
+
                 <!-- Linux with neither wl-paste nor xclip: every agent here is about to fail to take a
                      screenshot, silently. Above the lists because it is true of all of them, and a card
                      rather than a chip for the same reason - there is no row it belongs to. -->
@@ -386,8 +405,9 @@
                                     VerticalAlignment="Center"
                                     IsVisible="{Binding CanInstallClipboardHelpers}"
                                     Command="{Binding InstallClipboardHelpersCommand}"
+                                    IsEnabled="{Binding CanStartAnInstall}"
                                     Content="Install…"
-                                    ToolTip.Tip="Shows the command, then runs it in a terminal tile" />
+                                    ToolTip.Tip="Shows the command, then installs it in the background (in a terminal tile when it needs your password)" />
                             <mi:MaterialIcon DockPanel.Dock="Left"
                                              Kind="AlertCircleOutline"
                                              Width="14" Height="14"
@@ -417,8 +437,9 @@
                                     VerticalAlignment="Center"
                                     IsVisible="{Binding CanInstallOutputProxy}"
                                     Command="{Binding InstallOutputProxyCommand}"
+                                    IsEnabled="{Binding CanStartAnInstall}"
                                     Content="Install…"
-                                    ToolTip.Tip="Shows the command, then runs it in a terminal tile" />
+                                    ToolTip.Tip="Shows the command, then installs it in the background" />
                             <Button DockPanel.Dock="Right"
                                     Classes="outlined-sm"
                                     Margin="10,0,0,0"
@@ -469,9 +490,10 @@
                                                 <Button Classes="outlined-sm"
                                                         IsVisible="{Binding CanBeInstalled}"
                                                         Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).InstallAgentCommand}"
+                                                        IsEnabled="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).CanStartAnInstall}"
                                                         CommandParameter="{Binding}"
                                                         Content="Install…"
-                                                        ToolTip.Tip="Shows the command, then runs it in a terminal tile" />
+                                                        ToolTip.Tip="Shows the command, then installs it in the background" />
                                                 <Button Classes="tile-btn"
                                                         IsVisible="{Binding HasInstallUrl}"
                                                         Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).OpenAgentUrlCommand}"

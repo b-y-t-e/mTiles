@@ -69,19 +69,41 @@ public static class OutputProxy
     /// different program under that exact name — Rust <em>Type</em> Kit — so the obvious command
     /// installs something else entirely, which then answers <c>rtk --version</c> and fails every
     /// hook. rtk's own installation notes lead with that warning.</para>
-    /// <para><b>Windows only, for now.</b> winget names it <c>rtk-ai.rtk</c> and puts the binary in
-    /// <c>%USERPROFILE%\.local\bin</c>, which is where <see cref="ExecutableFinder.Anywhere"/> already
-    /// looks. On Linux the published route is a piped shell installer, and this application does not
+    /// <para><b>Windows only, and only where winget itself can be found.</b> It names the package
+    /// <c>rtk-ai.rtk</c> and puts the binary in <c>%USERPROFILE%\.local\bin</c>, which is where
+    /// <see cref="ExecutableFinder.Anywhere"/> already looks. <b>Asked per call rather than held in a
+    /// static</b>, because the answer is a fact about this machine: winget lives in
+    /// <c>%LOCALAPPDATA%\Microsoft\WindowsApps</c>, which on a good many Windows 11 installations is in
+    /// no process' <c>PATH</c> at all — measured 2026-09-23, where the alias was present and reachable
+    /// from neither PowerShell nor Git Bash — so a plan built unconditionally gave the row a button
+    /// whose command answered "command not found" in every shell. Where winget cannot be found this
+    /// answers null and the row shows the link instead, the rule an agent with no plan already keeps.
+    /// On Linux the published route is a piped shell installer, and this application does not
     /// put <c>curl … | sh</c> behind a button: what the user would be approving is a URL whose
     /// contents nobody here has read, and the confirmation could not say what it does. That row shows
     /// the link instead — which is less convenient and is the honest amount of help.</para>
     /// </remarks>
-    public static InstallPlan? Plan { get; } = OperatingSystem.IsWindows()
-        ? new InstallPlan("winget", ["install", "--exact", "--id", "rtk-ai.rtk"],
+    public static InstallPlan? Plan => PlanFor(ExecutableFinder.Anywhere);
+
+    /// <summary>As above, with where a binary is found supplied by the caller.</summary>
+    internal static InstallPlan? PlanFor(Func<string, string?> locate)
+    {
+        if (!OperatingSystem.IsWindows() || locate("winget") is null) return null;
+
+        return new InstallPlan("winget",
+            [
+                "install", "--exact", "--id", "rtk-ai.rtk",
+                // Nothing is watching this one, so every question it could ask is answered up front.
+                // Measured need rather than belt and braces: winget's source and package agreements are
+                // an interactive y/n on a machine that has not accepted them, which in the background
+                // is a process hung until BackgroundInstaller.Timeout kills it.
+                "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity",
+                "--silent",
+            ],
             "Installs the rtk CLI. rtk rewrites shell commands your agents run so their output costs "
             + "fewer tokens; mTiles passes it to the agent instances you tick and writes nothing into "
-            + "your own configuration.")
-        : null;
+            + "your own configuration.");
+    }
 
     /// <summary>The command rtk's own hook runs, for the agent it names itself.</summary>
     /// <remarks><para>Measured against rtk 0.46.0 on 2026-09-22, by running

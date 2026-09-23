@@ -77,9 +77,48 @@ shape would answer *no* for a hook written by hand, spelled with an absolute pat
 shell — all of which are live. Being wrong towards "already there" costs one tick and says why on the
 row; being wrong the other way is the double rewrite.
 
-**Installing it is Windows-only for now.** winget names it `rtk-ai.rtk`. On Linux the published route
+**Installing it is Windows-only, and only where winget can be found.** winget names it `rtk-ai.rtk`. On Linux the published route
 is a piped shell installer, and this application does not put `curl … | sh` behind a button — the
 confirmation could not say what the user is approving. Those rows get the link instead, which is less
 help and is the honest amount. `cargo install rtk` is never offered on any platform: crates.io carries
 a *different* program under that exact name (Rust Type Kit), which then answers `rtk --version` and
 fails every hook.
+
+## Amendment, 2026-09-23 — the install runs in the background, and winget had to be found first
+
+Two things came out of the first machine this was used on, and both were reported as one symptom:
+`winget: command not found` in a terminal tile.
+
+**winget was not on the PATH of any process.** `%LOCALAPPDATA%\Microsoft\WindowsApps` — where Windows
+keeps its app-execution aliases — was absent from the PATH of the GUI, of PowerShell and of Git Bash
+alike, while the alias itself sat there pointing at a perfectly good binary. `ExecutableFinder` did not
+look there either, so the plan fell back to the bare name. Two corrections: that directory joins the
+five developer-tool directories `ExecutableFinder.InHomeDirectories` already walks — it is exactly the
+category that list exists for, a place installs put binaries that PATH may not carry — and
+`OutputProxy.Plan` became a **per-call question** that answers `null` where winget cannot be found, so
+the row shows the link rather than a button whose command is certain to fail.
+
+**And the tile was the wrong shape for an install.** Even found, the binary would not have been used:
+`IShellTerminal.Program(name, path)` hands the resolved path to PowerShell alone and every other shell
+keeps the *name*, which is right for per-directory shims (mise, nvm, volta) and wrong for an installer.
+Rather than weaken that rule, installs left the shell entirely: `BackgroundInstaller` starts the plan's
+argv as a process of this application's own, with `ArgumentList` and no shell, so nothing is quoted,
+nothing is parsed twice, and a profile directory with a space in it is not a special case.
+
+**What that costs, and what was done about each part.** The tile was carrying three things for free.
+*Visibility of what writes outside our directories* — the confirmation stays, and is now the only place
+the command is read, which is a reason for it to be more careful rather than less. *A place for
+interactive questions* — gone, so the plan answers them up front (`--accept-source-agreements`,
+`--accept-package-agreements`, `--disable-interactivity`) and `BackgroundInstaller.Timeout` kills what
+still hangs, naming the likely cause. *The installer's own output as the only diagnostic* — captured
+from both streams, logged whole, and the last few lines carried into the failure dialog.
+
+**Sign-ins did not move and could not.** They go through the same `RunInstallPlan` Func and are plans
+only in shape: a login *starts* at the command and then prints a URL and waits for the user.
+`InstallPlan.NeedsATerminal` is what says so — stated on the plan rather than inferred from `Arguments`
+being empty, which is what the two sign-in plans happen to look like today and is a coincidence of how
+they are built.
+
+**One install at a time for the whole page**, because two package managers writing to one machine is a
+lock file and a failure nobody asked for; the four buttons go down together and a line above the lists
+says what is running, which is the whole of what the user can now see of it.

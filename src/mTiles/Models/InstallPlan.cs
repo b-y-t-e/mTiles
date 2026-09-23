@@ -19,6 +19,21 @@ namespace mTiles.Models;
 /// </remarks>
 public sealed record InstallPlan(string Executable, IReadOnlyList<string> Arguments, string Note)
 {
+    /// <summary>Whether this has to run in a terminal tile the user can type into, rather than as a
+    /// background process.</summary>
+    /// <remarks>
+    /// <para><b>False for an install and true for a sign-in</b>, which is the whole of the
+    /// distinction. An install is a command that runs to an exit code; a sign-in only *starts* there —
+    /// the CLI prints a URL, waits for a code, and the user answers it. Run in the background that is
+    /// a process hung on a prompt nobody can see, and a row that goes on saying "not signed in"
+    /// forever.</para>
+    /// <para>Stated on the plan rather than inferred from <see cref="Arguments"/> being empty, which is
+    /// what the two sign-in plans happen to look like today: that is a coincidence of how they are
+    /// built, and reading it as the rule would put the next single-token install command — a plan whose
+    /// executable needs no arguments — into a tile nobody asked for, or worse, the reverse.</para>
+    /// </remarks>
+    public bool NeedsATerminal { get; init; }
+
     /// <summary>The command as the user will see it before agreeing to it.</summary>
     /// <remarks>Naive quoting — a space means quotes — because that is what makes it readable, and it
     /// is never what runs: <c>InstallCommand.For</c> composes that, from <see cref="Arguments"/> and

@@ -23,9 +23,10 @@ namespace mTiles.ViewModels;
 /// <para><b>Two lists, one form at a time</b>, on the overlay the manual database connection already
 /// uses: these forms are taller than the dialog, and a row that grows into one pushes the list it came
 /// from off screen with Save below the fold.</para>
-/// <para><b>Installing shows the plan and runs it in a terminal</b> — never silently. It writes outside
-/// every directory this application owns, sometimes with elevation, and the only honest place for that
-/// is a tile the user can read afterwards.</para>
+/// <para><b>Installing shows the plan, then runs it in the background</b> through
+/// <see cref="BackgroundInstaller"/> — the confirmation is where the command is read, a line above the
+/// lists says it is running, and a failure carries the installer's last lines. Only a plan that
+/// <see cref="InstallPlan.NeedsATerminal"/> (a sign-in, a password typed into sudo) goes to a tile.</para>
 /// </remarks>
 public partial class SettingsViewModel
 {
@@ -35,12 +36,134 @@ public partial class SettingsViewModel
     public ObservableCollection<AiProviderInstanceViewModel> ProviderInstances { get; } = [];
     public ObservableCollection<AiSignInViewModel> SignIns { get; } = [];
 
-    /// <summary>Runs an agent's install command where the user can see it — wired to the workspace,
-    /// because a plan shown and then run out of sight is the thing this exists to prevent.</summary>
+    /// <summary>Runs a plan that <see cref="InstallPlan.NeedsATerminal"/> — a sign-in, or an install
+    /// whose elevator reads a password from a TTY — in a terminal tile of the open workspace. Ordinary
+    /// installs never come here; they go to <see cref="BackgroundInstaller"/>.</summary>
     /// <remarks>Answers whether it ran: a workspace has to be open for there to be a tile to run it in,
-    /// and an install that quietly did nothing is worse than one that says where it would have gone.
+    /// and a sign-in that quietly did nothing is worse than one that says where it would have gone.
     /// </remarks>
     public Func<InstallPlan, Task<bool>>? RunInstallPlan { get; set; }
+
+    /// <summary>What the page says while an install is running, or empty.</summary>
+    /// <remarks><b>The whole of what "in the background" costs the user is this line.</b> An install
+    /// takes a minute or two and writes nothing they can see, so without it the button is one that
+    /// appears to do nothing — twice, if they press it again. Deliberately a sentence on the page and
+    /// not a dialog: a modal over a two-minute download is worse than the tile it replaced.</remarks>
+    [ObservableProperty] private string _installStatus = "";
+
+    /// <summary>Whether an install is in flight, which is what puts the buttons down.</summary>
+    /// <remarks>One at a time for the whole page rather than per row: two package managers writing to
+    /// the same machine at once is a lock file and a failure nobody asked for.</remarks>
+    public bool IsInstalling => InstallStatus.Length > 0;
+
+    /// <summary>The same answer the other way round, for the buttons.</summary>
+    /// <remarks>A property rather than a converter in the markup: there are three buttons and one
+    /// question, and a negation spelled three times in AXAML is three places to get it wrong.</remarks>
+    public bool CanStartAnInstall => !IsInstalling;
+
+    partial void OnInstallStatusChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsInstalling));
+        OnPropertyChanged(nameof(CanStartAnInstall));
+    }
+
+    /// <summary>
+    /// Asks, then runs a plan without a tile, then says what became of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>The one route every <em>install</em> on this page takes. A sign-in is not one and does not
+    /// come here: it carries <see cref="InstallPlan.NeedsATerminal"/> and goes through
+    /// <see cref="RunInstallPlan"/>, because a login only <em>starts</em> at the command — the CLI then
+    /// prints a URL and waits for the user.</para>
+    /// <para><b>The confirmation stays.</b> Moving the work out of sight is a reason for the question to
+    /// be more careful, not less: it is the last place the user reads the command before something
+    /// writes outside every directory this application owns.</para>
+    /// <para><b>A failure is shown and a success is not.</b> Success is visible in the thing the user
+    /// came for — the chip stops saying NOT INSTALLED — while a failure has nowhere else to appear,
+    /// which is the half the tile used to carry for free.</para>
+    /// </remarks>
+    /// <param name="title">What the question is called.</param>
+    /// <param name="toolName">What is being installed, as the progress line names it — never the package manager that installs it.</param>
+    /// <param name="plan">What to run.</param>
+    /// <param name="refreshAndFind">Re-reads whatever this install has just made true, and answers
+    /// whether the tool can now be found. An installer that exits 0 and puts the binary somewhere this
+    /// application does not look (an nvm or volta prefix, a custom npm prefix) would otherwise leave the
+    /// row saying NOT INSTALLED with no word of why — a button that appears to have done nothing.</param>
+    private Task InstallInBackgroundAsync(string title, string toolName, InstallPlan plan, Func<bool> refreshAndFind) =>
+        RunClaimedInstallAsync(title, plan, $"Installing {toolName}…", async () =>
+        {
+            using var cancelling = _installCancellation = new CancellationTokenSource();
+            try
+            {
+                var outcome = await BackgroundInstaller.RunAsync(plan, cancelling.Token);
+                if (cancelling.IsCancellationRequested) return;
+                if (!outcome.Succeeded) await ShowProblemAsync(title, $"{outcome.Problem}\n\n{plan.CommandLine}");
+                else if (!refreshAndFind()) await ShowProblemAsync(title, InstalledButNotFound(toolName, plan));
+            }
+            finally
+            {
+                _installCancellation = null;
+            }
+        });
+
+    /// <summary>Hands a plan that <see cref="InstallPlan.NeedsATerminal"/> to a tile, under the same
+    /// claim a background install takes.</summary>
+    private Task InstallInTerminalAsync(string title, string toolName, InstallPlan plan) =>
+        RunClaimedInstallAsync(title, plan, $"Opening a terminal to install {toolName}…", async () =>
+        {
+            if (RunInstallPlan is not { } run || !await run(plan))
+            {
+                await ShowProblemAsync("Install",
+                    $"Open a workspace first — the command runs in a tile there.\n\n{plan.CommandLine}");
+            }
+        });
+
+    /// <summary>The one skeleton every Install… shares: claim the page, ask, say what is happening,
+    /// do the work, and give the page back whatever happened.</summary>
+    private async Task RunClaimedInstallAsync(string title, InstallPlan plan, string status, Func<Task> install)
+    {
+        if (!TryClaimInstall()) return;
+        try
+        {
+            if (!await ConfirmedAsync(title, plan)) return;
+
+            InstallStatus = status;
+            await install();
+        }
+        finally
+        {
+            // In a finally because ShowProblemAsync awaits a dialog: a throw on that path would
+            // otherwise leave the page saying it is installing for the rest of the session, with every
+            // install button down.
+            InstallStatus = "";
+            _installClaimed = false;
+        }
+    }
+
+    /// <summary>Whether an install — confirmed or still being asked about — already holds the page.</summary>
+    /// <remarks>Taken before the confirmation, not after it: two clicks landing before the overlay is
+    /// drawn would otherwise both pass and start two package managers at once.</remarks>
+    private bool _installClaimed;
+
+    /// <summary>Cancels the background install in flight, if any.</summary>
+    private CancellationTokenSource? _installCancellation;
+
+    private bool TryClaimInstall()
+    {
+        if (_installClaimed || IsInstalling) return false;
+        _installClaimed = true;
+        return true;
+    }
+
+    /// <summary>Stops a background install on the way out of the application, so no installer outlives
+    /// the window and no failure dialog is raised over a window that is gone.</summary>
+    public void CancelInstall() => _installCancellation?.Cancel();
+
+    /// <summary>What an install that succeeded and left nothing findable says.</summary>
+    private static string InstalledButNotFound(string toolName, InstallPlan plan) =>
+        $"The installer finished without an error, but mTiles still cannot find {toolName}. It was "
+        + "probably installed somewhere not on this application's PATH — restart mTiles, or add that "
+        + $"directory to PATH.\n\n{plan.CommandLine}";
 
     /// <summary>Asks for a file to write settings to, and one to read them from.</summary>
     public Func<string, Task<string?>>? BrowseSaveFile { get; set; }
@@ -144,7 +267,11 @@ public partial class SettingsViewModel
     /// <remarks>False wherever <see cref="OutputProxy.Plan"/> is null — today, everything that is not
     /// Windows — and the notice stays up regardless, the rule the clipboard row already keeps: saying
     /// what is missing is the half that is always worth saying.</remarks>
-    public bool CanInstallOutputProxy => ShowsOutputProxyNotice && OutputProxy.Plan is not null;
+    public bool CanInstallOutputProxy => ShowsOutputProxyNotice && _outputProxyInstall is not null;
+
+    /// <summary><see cref="OutputProxy.Plan"/> as it was when the notice was worked out — asked once
+    /// there, because finding winget walks the disk and a binding reads this on every pass.</summary>
+    private InstallPlan? _outputProxyInstall;
 
     private void RefreshOutputProxy()
     {
@@ -154,31 +281,30 @@ public partial class SettingsViewModel
                 { OutputProxySupport: OutputProxy.Support.GeneratedFile });
 
         ShowsOutputProxyNotice = wanted && !OutputProxy.IsInstalled;
+        _outputProxyInstall = ShowsOutputProxyNotice ? OutputProxy.Plan : null;
         OnPropertyChanged(nameof(ShowsOutputProxyNotice));
         OnPropertyChanged(nameof(CanInstallOutputProxy));
         OnPropertyChanged(nameof(CanOpenOutputProxyPage));
     }
 
-    /// <summary>Shows what installing rtk would run, and runs it where it can be watched.</summary>
-    /// <remarks>The same route every other install here takes. The notice stays up afterwards — the
-    /// command has only just started in a tile — and opening the page again is what re-asks.</remarks>
+    /// <summary>Shows what installing rtk would run, and runs it in the background.</summary>
+    /// <remarks>The same route every other install here takes; the notice is re-asked once the install
+    /// has succeeded.</remarks>
     [RelayCommand]
     private async Task InstallOutputProxyAsync()
     {
-        if (OutputProxy.Plan is not { } plan) return;
+        if (_outputProxyInstall is not { } plan) return;
 
-        if (!await ConfirmedAsync($"Install {OutputProxy.BinaryName}?", plan)) return;
-
-        if (RunInstallPlan is not { } run || !await run(plan))
+        await InstallInBackgroundAsync($"Install {OutputProxy.BinaryName}?", OutputProxy.BinaryName, plan, () =>
         {
-            await ShowProblemAsync("Install",
-                $"Open a workspace first — the command runs in a tile there.\n\n{plan.CommandLine}");
-        }
+            RefreshOutputProxy();
+            return OutputProxy.IsInstalled;
+        });
     }
 
     /// <summary>Whether the notice offers rtk's own page instead of a command — wherever there is no
     /// <see cref="OutputProxy.Plan"/> to run, so a user who ticked the proxy still has a way to it.</summary>
-    public bool CanOpenOutputProxyPage => ShowsOutputProxyNotice && OutputProxy.Plan is null;
+    public bool CanOpenOutputProxyPage => ShowsOutputProxyNotice && _outputProxyInstall is null;
 
     /// <summary>Opens rtk's own page in the browser.</summary>
     [RelayCommand]
@@ -194,25 +320,33 @@ public partial class SettingsViewModel
     }
 
     /// <summary>
-    /// Shows what installing the clipboard helpers would run, and runs it where it can be watched.
+    /// Shows what installing the clipboard helpers would run, and runs it — in the background, or in a
+    /// tile where sudo or doas has to read a password.
     /// </summary>
     /// <remarks>The same route an agent's own Install… takes, down to the confirmation carrying the
     /// command: this one asks for elevation, which is all the more reason for the user to have read the
-    /// line before agreeing to it. The notice stays up afterwards — the command has only just started in
-    /// a tile, and re-checking now would answer about the machine as it was a moment ago. Opening the
-    /// page again is what re-asks.</remarks>
+    /// line before agreeing to it. A background install re-asks the notice once it has succeeded; one run
+    /// in a tile has only just started when this returns, so opening the page again is what re-asks.</remarks>
     [RelayCommand]
     private async Task InstallClipboardHelpersAsync()
     {
         if (_clipboardHelperInstall is not { } plan) return;
 
-        if (!await ConfirmedAsync("Install the clipboard helpers?", plan)) return;
-
-        if (RunInstallPlan is not { } run || !await run(plan))
+        // The one install that can still want a tile: with sudo or doas in front of it, the password is
+        // read from a terminal. InstallPlan.NeedsATerminal is what says so, and it is asked here rather
+        // than assumed, because the same plan without an elevator — a session already root — has no
+        // reason to take one.
+        if (plan.NeedsATerminal)
         {
-            await ShowProblemAsync("Install",
-                $"Open a workspace first — the command runs in a tile there.\n\n{plan.CommandLine}");
+            await InstallInTerminalAsync("Install the clipboard helpers?", "the clipboard helpers", plan);
+            return;
         }
+
+        await InstallInBackgroundAsync("Install the clipboard helpers?", "the clipboard helpers", plan, () =>
+        {
+            RefreshClipboardHelpers();
+            return ClipboardHelpers.ArePresent;
+        });
     }
 
     // ─────────────────────────── Agent instances ───────────────────────────
@@ -935,7 +1069,7 @@ public partial class SettingsViewModel
     }
 
     /// <summary>
-    /// Shows what installing an agent would run, and runs it where it can be watched.
+    /// Shows what installing an agent would run, and runs it in the background.
     /// </summary>
     /// <remarks>The plan is in the question, not beside it: an install writes outside every directory
     /// this application owns and sometimes asks for elevation, so agreeing to it has to mean agreeing to
@@ -945,13 +1079,17 @@ public partial class SettingsViewModel
     {
         if (row.InstallPlan is not { } plan) return;
 
-        if (!await ConfirmedAsync($"Install {row.AgentName}?", plan)) return;
+        await InstallInBackgroundAsync($"Install {row.AgentName}?", row.AgentName, plan,
+            () => ReloadAfterAgentInstall(row.Agent));
+    }
 
-        if (RunInstallPlan is not { } run || !await run(plan))
-        {
-            await ShowProblemAsync("Install",
-                $"Open a workspace first — the command runs in a tile there.\n\n{plan.CommandLine}");
-        }
+    /// <summary>Looks for the binaries again before redrawing the rows, or the answer cached from
+    /// before the install keeps the row saying NOT INSTALLED.</summary>
+    private bool ReloadAfterAgentInstall(IAiAgent? agent)
+    {
+        AiAgentCatalog.ForgetLocations();
+        LoadAiInstances();
+        return agent is not null && AiAgentCatalog.Locate(agent) is not null;
     }
 
     /// <summary>Opens the agent's own page in the browser.</summary>
@@ -1114,7 +1252,12 @@ public partial class SettingsViewModel
     /// reason: what the tile is about to do is in the question rather than beside it.</remarks>
     private async Task<bool> ConfirmedAsync(string title, InstallPlan plan) =>
         ConfirmAction != null && await ConfirmAction($"{title}\n\n{plan.CommandLine}\n\n{plan.Note}\n\n"
-            + "It will run in a terminal tile in the current workspace.");
+            + WhereItRuns(plan));
+
+    /// <summary>The confirmation's last sentence: where the command will actually run.</summary>
+    private static string WhereItRuns(InstallPlan plan) => plan.NeedsATerminal
+        ? "It will run in a terminal tile in the current workspace."
+        : "It will run in the background, without a terminal; this page says when it has finished.";
 
     /// <summary>
     /// Stores the sign-in and makes its directory, which is the whole of setting one up here.
@@ -1168,8 +1311,8 @@ public partial class SettingsViewModel
     /// <summary>
     /// Opens a tile signed in to nothing yet, so the user can run the CLI's own login command.
     /// </summary>
-    /// <remarks>Through the same <see cref="RunInstallPlan"/> route an install takes, and for the same
-    /// reason: it needs a terminal in the current workspace, and an OAuth flow prints a URL somebody has
+    /// <remarks>Through <see cref="RunInstallPlan"/>, the tile route kept for plans that need a terminal:
+    /// it needs a terminal in the current workspace, and an OAuth flow prints a URL somebody has
     /// to read. The command is the bare CLI — its login is a command typed inside it, not a flag.
     /// </remarks>
     [RelayCommand]
@@ -1205,7 +1348,12 @@ public partial class SettingsViewModel
         // run it in. A second type for the same three fields would be two things to keep in step.
         var plan = new InstallPlan(command, [],
             $"Signs in as a separate account, kept in {directory}. "
-            + "Run the tool's own login command in the tile that opens — /login for Claude Code.");
+            + "Run the tool's own login command in the tile that opens — /login for Claude Code.")
+        {
+            // A login only *starts* at the command: the CLI then prints a URL and waits for the user.
+            // In the background that is a process hung on a prompt nobody can see.
+            NeedsATerminal = true,
+        };
 
         // Asked, so that the note is read rather than written and discarded: the route a plan takes to
         // a tile carries the command alone, and without this the tile opened on an empty prompt with
@@ -1448,9 +1596,9 @@ public partial class SettingsViewModel
 
     /// <summary>Re-reads what this machine says about CCS, after anything that could have changed it.
     /// </summary>
-    /// <remarks>The install and the login both happen in a tile this dialog does not own, so their
-    /// effect arrives whenever the user gets round to it — the properties are asked again when the form
-    /// opens or the kind changes, which is the moment the answer could have moved.</remarks>
+    /// <remarks>Asked after a background install succeeds, and when the form opens or the kind changes:
+    /// the login happens in a tile this dialog does not own, so its effect arrives whenever the user
+    /// gets round to it.</remarks>
     private void RefreshCcsState()
     {
         OnPropertyChanged(nameof(EditProviderIsCcs));
@@ -1692,21 +1840,17 @@ public partial class SettingsViewModel
         }
     }
 
-    /// <summary>Installs CCS in a visible tile, through the route every agent install takes.</summary>
-    /// <remarks>Shown only while <c>ccs</c> is missing; once it is on the machine the button stands down
-    /// and the Auth one takes its place. Nothing is re-read here: the route answers as soon as the tile
-    /// opens, so the state the buttons follow is re-checked when the form next opens — which is when
-    /// the answer could have moved.</remarks>
+    /// <summary>Installs CCS in the background, through the route every agent install takes.</summary>
+    /// <remarks>Shown only while <c>ccs</c> is missing; once the install succeeds the state is re-read,
+    /// the button stands down and the Auth one takes its place.</remarks>
     [RelayCommand]
     private async Task InstallCcsAsync()
     {
-        if (!await ConfirmedAsync("Install CCS?", CcsProvider.Install)) return;
-
-        if (RunInstallPlan is not { } run || !await run(CcsProvider.Install))
+        await InstallInBackgroundAsync("Install CCS?", "CCS", CcsProvider.Install, () =>
         {
-            await ShowProblemAsync("Install CCS",
-                "Open a workspace first — the install runs in a terminal tile there.");
-        }
+            RefreshCcsState();
+            return CcsProvider.IsInstalled;
+        });
     }
 
     /// <summary>Signs the CCS proxy in to a Codex account — the one OAuth step nothing here can do
@@ -1729,7 +1873,10 @@ public partial class SettingsViewModel
         // lives by: a command line, a note, and a tile to run it in.
         var plan = new InstallPlan(command, [],
             "Runs \"ccs codex --auth\" — the proxy's one-time login to a Codex account. A browser "
-            + "opens, the token lands in the proxy's own directory, and it refreshes itself from then on.");
+            + "opens, the token lands in the proxy's own directory, and it refreshes itself from then on.")
+        {
+            NeedsATerminal = true,
+        };
 
         if (!await ConfirmedAsync("Sign the CCS proxy in to Codex?", plan)) return;
 
