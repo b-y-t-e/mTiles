@@ -49,6 +49,24 @@ public class ConversationAccountTests
     }
 
     [Fact]
+    public async Task Moving_to_another_login_of_the_same_agent_hands_the_work_over()
+    {
+        using var settings = new TempSettings();
+        var here = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
+        var elsewhere = Beside(settings, here, signIn: "second-subscription");
+        var store = TestTiles.ConversationStore();
+        using var tile = await StartedWithASession(settings, here, store);
+        store.Append(tile.ConversationId, [new UserMessageAdded("m1", "fix the build", [])]);
+        tile.ConfirmAction = _ => Task.FromResult(true);
+
+        await tile.SwitchInstanceAsync(elsewhere);
+
+        // The token lives in the login's own directory, so the arriving session could resume nothing.
+        Assert.Null(store.Find(tile.ConversationId)?.ResumeToken);
+        Assert.Contains(store.ReadEvents(tile.ConversationId), e => e is HandoverRecorded);
+    }
+
+    [Fact]
     public async Task A_conversation_with_nothing_to_resume_changes_account_without_asking()
     {
         using var settings = new TempSettings();
@@ -427,9 +445,9 @@ public class ConversationAccountTests
 
     /// <summary>A tile on the instance given, opened on a conversation the CLI holds a session for.</summary>
     private static async Task<AgentConversationTileViewModel> StartedWithASession(TempSettings settings,
-        AiAgentInstance instance)
+        AiAgentInstance instance, mTiles.AgentSessions.Storage.IConversationStore? store = null)
     {
-        var store = TestTiles.ConversationStore();
+        store ??= TestTiles.ConversationStore();
         var tile = NewTile(settings, new JsonObject { [AgentStateKeys.InstanceIdKey] = instance.Id }, store,
             Guid.NewGuid().ToString());
         store.Save(new mTiles.AgentSessions.Storage.ConversationRecord(tile.ConversationId, instance.AgentId,

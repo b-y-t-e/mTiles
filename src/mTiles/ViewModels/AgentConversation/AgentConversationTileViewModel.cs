@@ -869,7 +869,11 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         // the layout's would have the next tile and this one's next launch open on an agent that never ran
         // here. The drawn answer outranks it, since that is the agent whose host is writing now.
         var heldBy = ConversationAgentId ?? await _binding.StoredAgentAsync(ConversationId);
-        var handingOver = heldBy is not null && heldBy != agent.Id;
+        var anotherAgent = heldBy is not null && heldBy != agent.Id;
+        // Another login of the same agent is a handover too: the resume token lives in the login's own
+        // directory, so the arriving session could resume nothing and would start cold, told nothing about
+        // the work the transcript above it shows.
+        var handingOver = anotherAgent || (heldBy is not null && ChangesTheLogin(instance, agent));
 
         if (!await ConfirmInterruptingTurnAsync(handingOver
                 ? "Hand the work over now? The agent is working, and this stops what it is doing."
@@ -884,12 +888,12 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             // Declined: the conversation goes on belonging to whoever holds it, said out loud rather than
             // left to be rediscovered — this is often the first time the tile has learnt it, since a tile
             // restored from a layout knows nothing until its start has read the store.
-            HoldStoredConversationOf(heldBy);
+            if (anotherAgent) HoldStoredConversationOf(heldBy);
             Chooser.RestoreSelection();
             return;
         }
 
-        if (!await ConfirmLeavingTheAccountAsync(instance, agent))
+        if (!handingOver && !await ConfirmLeavingTheAccountAsync(instance, agent))
         {
             Chooser.RestoreSelection();
             return;
@@ -915,9 +919,12 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// what the user asked for — a switch that silently dropped them back to the tool's own asking is a
     /// change of permissions nobody was told about — but bypass reached this way is a grant given for one
     /// agent arriving at another, so it is said out loud rather than inherited in silence.</para>
-    /// <para><b>No dialog to ask in is a no here</b>, unlike a change of account on the same agent: that one
-    /// loses nothing the transcript does not still hold, while this starts a different CLI in somebody's
-    /// repository on a brief nobody has read.</para>
+    /// <para><b>Another login of the same agent is asked the same way</b> (<see cref="MovesTheLogin"/>): the
+    /// resume token lives in the login's own directory, so the arriving session is as cold as another CLI
+    /// would be, and without the brief it carried on under a transcript the model had never seen.</para>
+    /// <para><b>No dialog to ask in is a no here</b>, unlike a change of instance on the same login: that one
+    /// resumes the same session, while this starts one in somebody's repository on a brief nobody has
+    /// read.</para>
     /// <para>The refusal that remains is <see cref="RefusalFor"/>'s: an agent this machine cannot run at all
     /// has nothing to hand the work to.</para>
     /// </remarks>
@@ -925,43 +932,52 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         if (ConfirmAction is null) return false;
 
-        var leaving = AiAgentCatalog.Find(heldBy)?.DisplayName ?? heldBy;
+        var sameAgent = heldBy == agent.Id;
+        var leaving = sameAgent ? $"\"{Instance.Name}\"" : AiAgentCatalog.Find(heldBy)?.DisplayName ?? heldBy;
         var bypass = BehaviourNow == AiBehaviour.BypassPermissions
             ? $" It starts in bypass mode, as {leaving} was running, so it edits without asking."
             : "";
+        var why = sameAgent
+            ? $"It is a different {agent.DisplayName} account, and a session cannot be resumed across accounts, "
+            : $"{leaving} cannot be resumed by {agent.DisplayName}, ";
 
         return await ConfirmAction(
-            $"Hand this work over to \"{instance.Name}\"? {leaving} cannot be resumed by {agent.DisplayName}, " +
+            $"Hand this work over to \"{instance.Name}\"? {why}" +
             $"so {agent.DisplayName} starts cold and is given a written brief instead: what was asked for, " +
             "what was decided, the plan as it stands and which files have changed. The transcript here stays, " +
             $"and the permission mode and effort travel with the work.{bypass}");
     }
 
     /// <summary>
-    /// Asks before a switch that lands on another login of the same agent.
+    /// Asks before a switch that lands on another login of the same agent while nothing is stored to hand over.
     /// </summary>
     /// <remarks>
-    /// <para><b>The loss is silent and comes after the fact.</b> The transcript is ours and is drawn whatever
-    /// happens, but the resume token belongs to the CLI and lives in the account's own directory, so the same
-    /// agent on a second subscription finds nothing to resume and starts cold — and the only thing that ever
-    /// said so was a notice arriving once the new session had already begun. The terminal agent tile has asked
-    /// this question from the start (<c>TerminalAgentTileViewModel.ConfirmationForSwitchTo</c>); this is the
-    /// same question, in the one place it was missing.</para>
-    /// <para>Only when the login actually moves: another model or another key on the same account resumes
-    /// perfectly well, and a dialog in front of every pick is one nobody reads. <b>No dialog to ask in is a
-    /// yes</b> — unlike a destructive action, nothing here is lost that the transcript does not still hold,
-    /// and refusing would leave a tile with no way to change account at all.</para>
+    /// <para><b>Reachable only before anything has been said</b>: the store names no agent for a conversation
+    /// without a message (<c>ConversationAgentBinding.StoredAgentAsync</c>), yet the host can already hold a
+    /// resume token, so there is a session to lose and no work to brief. Everything past the first message goes
+    /// through <see cref="ConfirmHandoverAsync"/> instead.</para>
+    /// <para>Only when the login actually moves, and <b>no dialog to ask in is a yes</b> — nothing is lost that
+    /// the transcript does not still hold.</para>
     /// </remarks>
     private async Task<bool> ConfirmLeavingTheAccountAsync(AiAgentInstance instance, IAiAgent agent)
     {
-        var moving = agent.Id == Agent.Id && HoldsASessionToResume
-            && !AccountOf(agent, instance).SharesLoginWith(AccountNow(agent));
-        if (!moving || ConfirmAction is null) return true;
+        if (!MovesTheLogin(instance, agent) || ConfirmAction is null) return true;
 
         return await ConfirmAction(
             $"Run this conversation as \"{instance.Name}\"? It is a different account, so {agent.DisplayName} " +
             "starts a new session — the transcript stays, what the model remembers does not.");
     }
+
+    /// <summary>Whether picking this instance moves a conversation holding a live session onto another login
+    /// of the same agent — which resumes nothing, since the token lives in the login's directory.</summary>
+    private bool MovesTheLogin(AiAgentInstance instance, IAiAgent agent) =>
+        HoldsASessionToResume && ChangesTheLogin(instance, agent);
+
+    /// <summary>Whether this instance is another login of the agent the tile runs now — asked without the live
+    /// host, so a conversation with stored work is handed over even while its host is still starting or was
+    /// refused, rather than giving the new login a token issued to the old one.</summary>
+    private bool ChangesTheLogin(AiAgentInstance instance, IAiAgent agent) =>
+        agent.Id == Agent.Id && !AccountOf(agent, instance).SharesLoginWith(AccountNow(agent));
 
     /// <summary>Whether the conversation holds a session the CLI could resume, which is what a change of login
     /// costs.</summary>

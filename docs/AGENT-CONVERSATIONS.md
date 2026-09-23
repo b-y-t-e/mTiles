@@ -379,16 +379,11 @@ Four things follow, and each is one of the four places that used to be silent:
   every index after it. Two stretches are the same account **by id and never by name**: a renamed instance
   is the same account, and two rows seeded with one provider's display name are two identically spelled ones.
 
-**And the switch asks first** (`ConfirmLeavingTheAccountAsync`), which the terminal agent tile has done from
-the start (`TerminalAgentTileViewModel.ConfirmationForSwitchTo`) and this one had never done. Only where the
-login actually moves — another model or another key on the same account resumes perfectly well, and a dialog
-in front of every pick is one nobody reads. **No dialog to ask in is a yes** here, unlike a destructive
-action: nothing is lost that the transcript does not still hold, and refusing would leave a tile with no way
-to change account at all.
-
-What none of this does is *carry the work across* the seam. That is [`ROADMAP.md`](ROADMAP.md) §6 — and it
-is cheaper than it was written to be, because "one conversation, several segments" is now a question the
-events already answer: a segment is the stretch between two `SessionConfigured`s naming different accounts.
+**And another login of the same agent is a handover** (`MovesTheLogin`, feeding `ApplySwitchAsync`'s
+`handingOver`), exactly as another agent is: the resume token lives in the login's own directory, so the
+arriving session could resume nothing. The brief is written and sent, the token cleared, and the question is
+`ConfirmHandoverAsync`'s — no dialog to ask in is a no. `ConfirmLeavingTheAccountAsync`, the warning that
+used to be the whole answer, is asked now only before anything has been said, and only where the login actually moves — another model or another key on the same account resumes perfectly well.
 
 ## Switching model, mode and effort inside a conversation
 
