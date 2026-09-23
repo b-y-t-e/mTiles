@@ -232,4 +232,79 @@ public class FileMentionBehaviorTests
             Assert.Equal(mentions.SelectedPath, list.SelectedItem);
         });
     }
+
+    /// <summary>Runs <paramref name="test"/> against a focused box with a template, so there is laid-out
+    /// text to measure the <c>@</c> in.</summary>
+    /// <remarks>The test application carries no theme, and a <c>TextBox</c> without one has no presenter.
+    /// The theme is taken off again afterwards: the headless application is shared by the whole assembly,
+    /// and a theme left on it templates every control a later test builds.</remarks>
+    private static void WithFocusedWideBox(Action<TextBox> test)
+    {
+        var app = Avalonia.Application.Current!;
+        var theme = new Avalonia.Themes.Fluent.FluentTheme();
+        app.Styles.Insert(0, theme);
+
+        var box = new TextBox();
+        var window = new Window { Content = box, Width = 800, Height = 200 };
+        try
+        {
+            window.Show();
+            FileMentionBehavior.SetMentions(box, new FileMentionsViewModel(new ReadySource("Goal.cs")));
+            box.Focus();
+            test(box);
+        }
+        finally
+        {
+            window.Close();
+            app.Styles.Remove(theme);
+        }
+    }
+
+    private static void LayOut(TextBox box)
+    {
+        box.UpdateLayout();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>
+    /// The list is hung from the <c>@</c> being typed, not from the box's left edge.
+    /// </summary>
+    /// <remarks>
+    /// In a wide tile the box's corner is half a screen away from the end of a long line, which is where
+    /// the eye is when a mention is started there.
+    /// </remarks>
+    [Fact]
+    public void The_list_is_hung_from_the_at_sign()
+    {
+        OnUiThread(() => WithFocusedWideBox(box =>
+        {
+            box.Text = "a sentence long enough to push the mention well to the right @go";
+            box.CaretIndex = box.Text.Length;
+            LayOut(box);
+
+            var anchor = FileMentionBehavior.GetAnchor(box);
+            Assert.NotNull(anchor);
+            Assert.True(anchor.Value.X > 200, $"anchored at {anchor.Value.X}");
+        }));
+    }
+
+    /// <summary>The <c>@</c>, not the caret: typing the query does not walk the list to the right.</summary>
+    [Fact]
+    public void Typing_the_query_leaves_the_list_where_it_is()
+    {
+        OnUiThread(() => WithFocusedWideBox(box =>
+        {
+            box.Text = "see @g";
+            box.CaretIndex = box.Text.Length;
+            LayOut(box);
+            var before = FileMentionBehavior.GetAnchor(box);
+
+            box.Text = "see @goal";
+            box.CaretIndex = box.Text.Length;
+            LayOut(box);
+
+            Assert.NotNull(before);
+            Assert.Equal(before, FileMentionBehavior.GetAnchor(box));
+        }));
+    }
 }

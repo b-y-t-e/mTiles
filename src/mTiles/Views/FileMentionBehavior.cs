@@ -1,6 +1,7 @@
 ﻿using System.Collections.Specialized;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
@@ -8,7 +9,9 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
+using mTiles.Services;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
@@ -49,6 +52,11 @@ public static class FileMentionBehavior
     /// </remarks>
     internal static ListBox? GetSuggestionList(TextBox box) => box.GetValue(PopupProperty)?.List;
 
+    /// <summary>Where in the box the list is hung, or null while it is hung from the box as a whole.</summary>
+    /// <remarks>For tests: the popup does not open in a headless top level, so where it would appear is
+    /// asked of the rectangle it is anchored to.</remarks>
+    internal static Rect? GetAnchor(TextBox box) => box.GetValue(PopupProperty)?.Anchor;
+
 
     private static void OnMentionsChanged(
         TextBox box, AvaloniaPropertyChangedEventArgs<FileMentionsViewModel?> e)
@@ -79,6 +87,8 @@ public static class FileMentionBehavior
 
         internal ListBox List => _list;
 
+        internal Rect? Anchor => _popup.PlacementRect;
+
         internal MentionPopup(TextBox box, FileMentionsViewModel mentions)
         {
             _box = box;
@@ -106,8 +116,10 @@ public static class FileMentionBehavior
             _popup = new Popup
             {
                 PlacementTarget = box,
-                // Above the box: every one of these sits at the bottom of the tile, where a list hung
-                // underneath has nowhere to go.
+                // Above the line being written: every one of these sits at the bottom of the tile, where
+                // a list hung underneath has nowhere to go. Starting at the `@` rather than at the box's
+                // own left edge is what `PlaceAtMention` adds — in a wide tile the box's corner is half a
+                // screen from where the eye is.
                 Placement = PlacementMode.TopEdgeAlignedLeft,
                 // The box keeps the keyboard while the list is up, so there is no dismiss to be light
                 // about. Escape and losing focus are what close it, and both are handled here.
@@ -183,7 +195,48 @@ public static class FileMentionBehavior
         private void OnBoxPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
         {
             if (e.Property == TextBox.TextProperty || e.Property == TextBox.CaretIndexProperty)
+            {
                 Refresh();
+
+                // After layout, not now: the text has changed but the presenter has not laid it out
+                // again yet, so the `@` would be measured where it stood a keystroke ago.
+                Dispatcher.UIThread.Post(PlaceAtMention, DispatcherPriority.Loaded);
+            }
+        }
+
+        /// <summary>
+        /// Hangs the list from the <c>@</c> that starts the mention being typed.
+        /// </summary>
+        /// <remarks>
+        /// <para>The <c>@</c> rather than the caret, so the list stays put while the query grows instead
+        /// of walking right one character per keystroke. It still moves when the line wraps and the
+        /// <c>@</c> goes with it, which is the one time it has to.</para>
+        /// <para>No mention, or no laid-out text to measure it in, leaves the anchor where it was: the
+        /// box as a whole the first time, which is where the list always used to go.</para>
+        /// </remarks>
+        private void PlaceAtMention()
+        {
+            if (!_wired) return;
+            if (FileMentionToken.At(_box.Text, _box.CaretIndex) is not { } token) return;
+            if (_box.GetVisualDescendants().OfType<TextPresenter>().FirstOrDefault() is not { } presenter)
+                return;
+
+            var glyph = presenter.TextLayout.HitTestTextPosition(token.Start);
+            if (presenter.TranslatePoint(glyph.TopLeft, _box) is not { } topLeft) return;
+
+            var anchor = new Rect(topLeft, glyph.Size);
+            if (_popup.PlacementRect == anchor) return;
+
+            _popup.PlacementRect = anchor;
+
+            // A popup already up is put where the anchor now is. Changing the anchor under an open popup
+            // is not something every platform host follows, and a list left over the old line is the
+            // failure this whole method exists to remove.
+            if (_popup.IsOpen)
+            {
+                _popup.IsOpen = false;
+                SyncVisibility();
+            }
         }
 
         /// <summary>
@@ -221,7 +274,15 @@ public static class FileMentionBehavior
         /// it is shared between this tile's boxes, and closing it would disown a reading another box is
         /// waiting on.</para>
         /// </remarks>
-        private void SyncVisibility() => _popup.IsOpen = _mentions.IsOpen && _box.IsFocused;
+        private void SyncVisibility()
+        {
+            var open = _mentions.IsOpen && _box.IsFocused;
+
+            // Measured before it opens, so it opens in the right place rather than jumping there.
+            if (open && !_popup.IsOpen) PlaceAtMention();
+
+            _popup.IsOpen = open;
+        }
 
         private void OnMentionsPropertyChanged(
             object? sender, System.ComponentModel.PropertyChangedEventArgs e)
