@@ -68,6 +68,90 @@ public partial class MainWindow : Window
         ScaleHost.LayoutTransform = new ScaleTransform(scale, scale);
     }
 
+    /// <summary>Opens maximized with the first frame already the size of the screen it was on.</summary>
+    /// <remarks>
+    /// On Wayland maximizing is a request the compositor answers with a configure a moment later, so the
+    /// first frame is drawn at whatever size the window had — the markup's default, which opened small
+    /// and then jumped to full screen. Sizing to the working area first makes that frame the size the
+    /// configure will bring. That size would also become the one un-maximizing returns to, so the saved
+    /// normal bounds are put back the first time the window leaves the maximized state.
+    /// </remarks>
+    private void OpenMaximized(AppSettings s)
+    {
+        if (ScreenWindowWasOn(s) is { } screen && screen.Scaling > 0)
+        {
+            var area = screen.WorkingArea;
+            Width = area.Width / screen.Scaling;
+            Height = area.Height / screen.Scaling;
+            Position = area.Position;
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            RestoreNormalBoundsOnFirstUnmaximize(s, screen);
+        }
+
+        WindowState = WindowState.Maximized;
+    }
+
+    private Avalonia.Platform.Screen? ScreenWindowWasOn(AppSettings s)
+    {
+        if (!double.IsNaN(s.WindowX) && !double.IsNaN(s.WindowY)
+            && Screens.ScreenFromPoint(new PixelPoint((int)s.WindowX, (int)s.WindowY)) is { } saved)
+            return saved;
+
+        return Screens.Primary;
+    }
+
+    private void RestoreNormalBoundsOnFirstUnmaximize(AppSettings s, Avalonia.Platform.Screen screen)
+    {
+        void OnStateChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+        {
+            if (e.Property != WindowStateProperty || WindowState != WindowState.Normal)
+                return;
+
+            PropertyChanged -= OnStateChanged;
+            if (HasSavedNormalSize(s))
+                RestoreNormalBounds(s);
+            else
+                CentreAtFallbackSize(screen);
+        }
+
+        PropertyChanged += OnStateChanged;
+    }
+
+    /// <summary>Share of the working area a window with no saved normal size is given on un-maximizing.</summary>
+    private const double FallbackShareOfWorkingArea = 2.0 / 3.0;
+
+    private static bool HasSavedNormalSize(AppSettings s) =>
+        !double.IsNaN(s.WindowWidth) && !double.IsNaN(s.WindowHeight);
+
+    /// <remarks>
+    /// A first run starts maximized with nothing saved, so without this un-maximizing would leave a normal
+    /// window as large as the screen it was sized to open on — a restore that looks like nothing happened.
+    /// </remarks>
+    private void CentreAtFallbackSize(Avalonia.Platform.Screen screen)
+    {
+        var area = screen.WorkingArea;
+        var width = (int)(area.Width * FallbackShareOfWorkingArea);
+        var height = (int)(area.Height * FallbackShareOfWorkingArea);
+        Width = width / screen.Scaling;
+        Height = height / screen.Scaling;
+        Position = new PixelPoint(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2);
+    }
+
+    private void RestoreNormalBounds(AppSettings s)
+    {
+        if (HasSavedNormalSize(s))
+        {
+            Width = s.WindowWidth;
+            Height = s.WindowHeight;
+        }
+
+        if (!double.IsNaN(s.WindowX) && !double.IsNaN(s.WindowY))
+        {
+            Position = new PixelPoint((int)s.WindowX, (int)s.WindowY);
+            WindowStartupLocation = WindowStartupLocation.Manual;
+        }
+    }
+
     public void BindWindowState(SettingsService settingsService)
     {
         _settingsService = settingsService;
@@ -80,23 +164,9 @@ public partial class MainWindow : Window
         settingsService.SettingsChanged += ApplyInterfaceScale;
 
         if (s.WindowMaximized)
-        {
-            WindowState = WindowState.Maximized;
-        }
+            OpenMaximized(s);
         else
-        {
-            if (!double.IsNaN(s.WindowWidth) && !double.IsNaN(s.WindowHeight))
-            {
-                Width = s.WindowWidth;
-                Height = s.WindowHeight;
-            }
-
-            if (!double.IsNaN(s.WindowX) && !double.IsNaN(s.WindowY))
-            {
-                Position = new PixelPoint((int)s.WindowX, (int)s.WindowY);
-                WindowStartupLocation = WindowStartupLocation.Manual;
-            }
-        }
+            RestoreNormalBounds(s);
 
         if (DataContext is MainWindowViewModel vm)
         {
