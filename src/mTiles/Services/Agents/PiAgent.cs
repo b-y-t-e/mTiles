@@ -190,4 +190,22 @@ public sealed class PiAgent : AiAgent, Sessions.IConversationalAgent
     // an mTiles sign-in the extension can go in PI_CODING_AGENT_DIR, which is a directory this
     // application already owns and creates. On the default account it must go nowhere: that is the
     // user's own settings file.
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para><b>Measured and not yet wired, which is a different answer from "no route".</b> Probed
+    /// 2026-09-22 against rtk 0.46.0: <c>rtk init --global --hook-only --agent pi</c> writes
+    /// <c>&lt;PI_CODING_AGENT_DIR&gt;/extensions/rtk.ts</c> — a thin extension that shells out to
+    /// <c>rtk rewrite</c> for every bash tool call — and prints its own verification line,
+    /// <c>pi -e &lt;path&gt; --no-session</c>. So the route is exactly Claude Code's shape: a file plus
+    /// an argument, applying to the sessions launched from here and to no others.</para>
+    /// <para>What it still needs is the file. rtk writes it into pi's own directory, and this
+    /// application would want it in one it owns — the sign-in directory it already hands pi through
+    /// <c>PI_CODING_AGENT_DIR</c> — which means running <c>rtk init</c> as a side effect of a launch.
+    /// That is a program writing a TypeScript file into somebody's configuration on a tick, and it is
+    /// a decision of its own rather than a line added here on the strength of one probe.</para>
+    /// <para>Until then this answers <see cref="OutputProxy.Support.None"/> and costs its user the
+    /// tokens, rather than offering a tick that does nothing.</para>
+    /// </remarks>
+    public override OutputProxy.Support OutputProxySupport => OutputProxy.Support.None;
 }

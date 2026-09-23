@@ -38,7 +38,7 @@ public static class AgentSessionLauncher
 
         var windows = await ModelContextWindow.ResolveAsync(settings, agent, instance, model ?? "");
         var runtime = AgentRuntime.For(settings, instance, model, agent,
-            windows?.AutoCompactWindow, windows?.MaxContextTokens);
+            windows?.AutoCompactWindow, windows?.MaxContextTokens) with { WorkingDirectory = workingDirectory };
 
         agent.PrepareToLaunch(runtime);
         var environment = agent.EnvFor(runtime);

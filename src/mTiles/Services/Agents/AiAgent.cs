@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using mTiles.Models;
 using mTiles.Services.Providers;
@@ -62,7 +62,18 @@ public abstract class AiAgent : IAiAgent
     public virtual IReadOnlyList<string> ModelArgs(string model, AiUsage usage) => [];
 
     /// <summary>Nothing by default.</summary>
-    public virtual IReadOnlyList<string> SessionDefaultArgs() => [];
+    public virtual IReadOnlyList<string> SessionDefaultArgs(AgentRuntime runtime) => [];
+
+    /// <summary>No route by default.</summary>
+    /// <remarks><b>Virtual here and not a default interface member</b>, the rule
+    /// <c>UsesModelContextWindow</c> sets: a default interface member is only reached through the
+    /// interface, so an agent that answered it as an ordinary member would be silently ignored
+    /// wherever the concrete type is held — and the symptom would be a tick that does nothing.
+    /// </remarks>
+    public virtual OutputProxy.Support OutputProxySupport => OutputProxy.Support.None;
+
+    /// <summary>No hook of the user's own anywhere by default.</summary>
+    public virtual bool IsOutputProxyAlreadyHooked(AiSignIn? signIn, string? workspaceDirectory = null) => false;
 
     /// <inheritdoc />
     /// <remarks>The id as the instance stores it, which is right for every agent that is pointed at a
@@ -326,7 +337,7 @@ public abstract class AiAgent : IAiAgent
             // The resolved model rather than the stored one: a sentinel on a command line is a model
             // name no provider has.
             .. ModelArgs(QualifiedModel(runtime), AiUsage.Interactive),
-            .. SessionDefaultArgs(),
+            .. SessionDefaultArgs(runtime),
             .. instance.ExtraArgs.Where(argument => !string.IsNullOrWhiteSpace(argument)),
         ];
     }

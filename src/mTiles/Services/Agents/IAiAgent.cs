@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using mTiles.Models;
 using mTiles.Services.Activity;
 using mTiles.Services.Providers;
@@ -403,7 +403,40 @@ public interface IAiAgent : IAgentActivityReader
     /// <summary>What this application passes to every session it holds with a person on the other end
     /// — a terminal agent tile and an Agent tile alike — ahead of the instance's own
     /// <see cref="AiAgentInstance.ExtraArgs"/>, so an argument typed there still has the last word.</summary>
-    IReadOnlyList<string> SessionDefaultArgs();
+    /// <param name="runtime">The session being launched, so an answer can depend on what its row
+    /// says — today, whether it asked for the output proxy — and on the sign-in it runs as.</param>
+    IReadOnlyList<string> SessionDefaultArgs(AgentRuntime runtime);
+
+    /// <summary>
+    /// Whether this CLI can be given the output proxy (<c>rtk</c>), and by which route.
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured 2026-09-22 against rtk 0.46.0, whose own <c>init --agent</c> lists claude,
+    /// cursor, windsurf, cline, kilocode, antigravity, kimi, pi, hermes, droid and vibe — so three of
+    /// the agents here are named by it and each was probed against a sandboxed config directory:</para>
+    /// <list type="bullet">
+    /// <item><b>Claude Code</b> — a <c>PreToolUse</c> hook in a settings file, and this application
+    /// already hands every Claude Code session a generated one. <see cref="OutputProxy.Support.GeneratedFile"/>.</item>
+    /// <item><b>pi</b> — <c>rtk init --agent pi</c> writes <c>&lt;PI_CODING_AGENT_DIR&gt;/extensions/rtk.ts</c>
+    /// and says in its own output that it can be loaded with <c>pi -e &lt;path&gt;</c>. That is the same
+    /// shape as Claude Code's and is the reason this answer is an enum rather than a bool — it is the
+    /// next one to wire, and what it still needs is for that file to be generated into a directory this
+    /// application owns rather than the CLI's default.</item>
+    /// <item><b>opencode</b> — <c>rtk init --opencode</c> writes a plugin into
+    /// <c>~/.config/opencode/plugins/</c>, which is the user's own configuration, and opencode has no
+    /// flag that carries a plugin for one run. <see cref="OutputProxy.Support.WritesOutsideOurDirectories"/>:
+    /// the route is real, it is named, and taking it would make a per-instance tick change every
+    /// opencode session on the machine.</item>
+    /// </list>
+    /// <para>No body here — <c>AiAgent</c> answers <see cref="OutputProxy.Support.None"/> by default, like <see cref="SkillsDirectory"/> and
+    /// <see cref="SessionLog"/>: an agent nobody has measured gets no proxy, which costs tokens and
+    /// never rewrites a command nobody checked.</para>
+    /// </remarks>
+    OutputProxy.Support OutputProxySupport { get; }
+
+    /// <summary>Whether the user's own configuration for this CLI already routes its commands through the output proxy.</summary>
+    /// <remarks>The agent's question because only the agent knows where its own settings live: asked by the launch, which then adds nothing, and by the Settings form, which says so.</remarks>
+    bool IsOutputProxyAlreadyHooked(AiSignIn? signIn, string? workspaceDirectory = null);
 
     /// <summary>
     /// The model to ask for, spelled the way this CLI expects it.

@@ -632,7 +632,7 @@ public class AiAgentTests : IDisposable
             Assert.True(concise < line.IndexOf("mine.json", StringComparison.Ordinal), line);
         }
         Assert.Contains("\"outputStyle\": \"Concise\"", File.ReadAllText(ours), StringComparison.Ordinal);
-        Assert.Equal(["--settings", ours], new ClaudeAgent().SessionDefaultArgs());
+        Assert.Equal(["--settings", ours], new ClaudeAgent().SessionDefaultArgs(Runtime(instance)));
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using mTiles.Models;
@@ -533,11 +533,37 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
         _ => null,
     };
 
-    /// <summary>The <c>Concise</c> output style, through <see cref="ClaudeSessionSettings"/>; an
-    /// <c>outputStyle</c> the user wants instead goes in the instance's extra arguments, which come after
-    /// this.</summary>
-    public override IReadOnlyList<string> SessionDefaultArgs() =>
-        ClaudeSessionSettings.Write() is { } path ? ["--settings", path] : [];
+    /// <summary>The <c>Concise</c> output style — and the output proxy's hook where the instance asked
+    /// for one — through <see cref="ClaudeSessionSettings"/>; an <c>outputStyle</c> the user wants
+    /// instead goes in the instance's extra arguments, which come after this.</summary>
+    /// <remarks><b>The proxy is asked for only where it can actually work.</b> A tick on an instance
+    /// whose machine has no <c>rtk</c> would write a hook whose command is not there, and Claude Code
+    /// would run it — and fail it — before every single Bash call. So the binary is looked for at the
+    /// moment the file is written, which is also the moment that answer stops being stale: rtk
+    /// installed from the Settings row applies at the next launch without anything having to notice.
+    /// <para>And a machine whose own <c>~/.claude/settings.json</c> — or the workspace's own <c>.claude/settings*.json</c> — already carries the hook gets the
+    /// plain file: Claude Code runs every matching entry, so adding ours beside theirs is one command
+    /// handed to the proxy twice. The Settings row says so rather than leaving the tick looking
+    /// ignored.</para></remarks>
+    public override IReadOnlyList<string> SessionDefaultArgs(AgentRuntime runtime) =>
+        ClaudeSessionSettings.Write(OutputProxyFor(runtime)) is { } path ? ["--settings", path] : [];
+
+    /// <summary>Where rtk is, when this session should run through it; null otherwise.</summary>
+    private string? OutputProxyFor(AgentRuntime runtime) =>
+        runtime.Instance.UseOutputProxy && !IsOutputProxyAlreadyHooked(runtime.SignIn, runtime.WorkingDirectory)
+            ? OutputProxy.Locate()
+            : null;
+
+    /// <inheritdoc />
+    /// <remarks>Through the settings file this agent is already launched with — see
+    /// <see cref="ClaudeSessionSettings"/>. Nothing is written into <c>~/.claude/settings.json</c>,
+    /// which is what <c>rtk init --global</c> does and what makes that route a decision about the
+    /// machine rather than about this instance.</remarks>
+    public override OutputProxy.Support OutputProxySupport => OutputProxy.Support.GeneratedFile;
+
+    /// <inheritdoc />
+    public override bool IsOutputProxyAlreadyHooked(AiSignIn? signIn, string? workspaceDirectory = null) =>
+        OutputProxyGlobalHook.IsHookedForClaude(signIn, workspaceDirectory);
 
     /// <summary>
     /// <c>claude --resume &lt;tileId&gt;</c>, falling back to <c>claude --session-id &lt;tileId&gt;</c>.

@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -79,6 +79,8 @@ public partial class SettingsViewModel
         OnPropertyChanged(nameof(HasNoProviderInstances));
         OnPropertyChanged(nameof(HasNoSignIns));
         RefreshClipboardHelpers();
+        RefreshOutputProxy();
+        RefreshOutputProxyHint();
     }
 
     /// <summary>Whether anything has been set up at all — an empty list is an empty state, not a list of
@@ -117,6 +119,71 @@ public partial class SettingsViewModel
     /// stays up regardless: naming the two programs is the half that is always worth saying, and it is
     /// the half somebody on an unknown distribution can act on.</remarks>
     public bool CanInstallClipboardHelpers => _clipboardHelperInstall is not null;
+
+    /// <summary>
+    /// Whether this page has to say that an instance asked for the token proxy and the machine has no
+    /// <c>rtk</c> on it.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Only where somebody has asked for it</b>, which is the difference between this notice
+    /// and the clipboard one above. That one is about a capability every agent on this platform
+    /// silently lacks; this one is about a tick the user has already made, which has been quietly doing
+    /// nothing ever since. A page that advertised rtk to everyone who opened it would be this
+    /// application recommending somebody else's tool from a settings dialog.</para>
+    /// <para>Worked out when the page loads and when the tab is opened, never per binding — the answer
+    /// is a <c>PATH</c> scan, for the reason <see cref="ShowsClipboardHelperNotice"/> gives.</para>
+    /// </remarks>
+    public bool ShowsOutputProxyNotice { get; private set; }
+
+    /// <summary>The sentence itself.</summary>
+    public string OutputProxyNotice =>
+        $"An agent here is set to filter command output through {OutputProxy.BinaryName}, which is not "
+        + "installed on this machine. Those sessions run unfiltered until it is.";
+
+    /// <summary>Whether there is a command to offer as well as the sentence.</summary>
+    /// <remarks>False wherever <see cref="OutputProxy.Plan"/> is null — today, everything that is not
+    /// Windows — and the notice stays up regardless, the rule the clipboard row already keeps: saying
+    /// what is missing is the half that is always worth saying.</remarks>
+    public bool CanInstallOutputProxy => ShowsOutputProxyNotice && OutputProxy.Plan is not null;
+
+    private void RefreshOutputProxy()
+    {
+        var wanted = _settingsService.Settings.AiAgentInstances.Any(instance =>
+            instance.UseOutputProxy
+            && AiAgentCatalog.Find(instance.AgentId) is
+                { OutputProxySupport: OutputProxy.Support.GeneratedFile });
+
+        ShowsOutputProxyNotice = wanted && !OutputProxy.IsInstalled;
+        OnPropertyChanged(nameof(ShowsOutputProxyNotice));
+        OnPropertyChanged(nameof(CanInstallOutputProxy));
+        OnPropertyChanged(nameof(CanOpenOutputProxyPage));
+    }
+
+    /// <summary>Shows what installing rtk would run, and runs it where it can be watched.</summary>
+    /// <remarks>The same route every other install here takes. The notice stays up afterwards — the
+    /// command has only just started in a tile — and opening the page again is what re-asks.</remarks>
+    [RelayCommand]
+    private async Task InstallOutputProxyAsync()
+    {
+        if (OutputProxy.Plan is not { } plan) return;
+
+        if (!await ConfirmedAsync($"Install {OutputProxy.BinaryName}?", plan)) return;
+
+        if (RunInstallPlan is not { } run || !await run(plan))
+        {
+            await ShowProblemAsync("Install",
+                $"Open a workspace first — the command runs in a tile there.\n\n{plan.CommandLine}");
+        }
+    }
+
+    /// <summary>Whether the notice offers rtk's own page instead of a command — wherever there is no
+    /// <see cref="OutputProxy.Plan"/> to run, so a user who ticked the proxy still has a way to it.</summary>
+    public bool CanOpenOutputProxyPage => ShowsOutputProxyNotice && OutputProxy.Plan is null;
+
+    /// <summary>Opens rtk's own page in the browser.</summary>
+    [RelayCommand]
+    private void OpenOutputProxyPage() =>
+        Process.Start(new ProcessStartInfo(OutputProxy.InstallUrl) { UseShellExecute = true });
 
     private void RefreshClipboardHelpers()
     {
@@ -161,6 +228,7 @@ public partial class SettingsViewModel
     [ObservableProperty] private string _editAgentBehaviour = "";
     [ObservableProperty] private string _editAgentEffort = "";
     [ObservableProperty] private string _editAgentExtraArgs = "";
+    [ObservableProperty] private bool _editAgentUseOutputProxy;
     private AiAgentInstance? _editingAgentInstance;
 
     /// <summary>Whether the agent form can be saved: it needs a name, for the reason the provider
@@ -265,9 +333,57 @@ public partial class SettingsViewModel
         OnPropertyChanged(nameof(ShowsMaxContext));
         OnPropertyChanged(nameof(ShowsFastModel));
         OnPropertyChanged(nameof(FastModelHint));
+        OnPropertyChanged(nameof(ShowsOutputProxy));
+        RefreshOutputProxyHint();
         _ = UpdateModelContextAsync(fastModel: false);
         _ = UpdateModelContextAsync(fastModel: true);
     }
+
+    /// <summary>Whether the output-proxy tick is shown: only for an agent with a route this
+    /// application can actually take.</summary>
+    /// <remarks>The same gate <see cref="ShowsAutoCompact"/> keeps and for the same reason — a control
+    /// that saves and does nothing is worse than one that is not there. The enum has a third member
+    /// (<see cref="OutputProxy.Support.WritesOutsideOurDirectories"/>, which is opencode) and it is
+    /// hidden too: the route exists, it is not one taken from here, and a tick that quietly changed
+    /// every opencode session on the machine is exactly what this feature refuses to be.</remarks>
+    public bool ShowsOutputProxy =>
+        AgentBeingEdited is { OutputProxySupport: OutputProxy.Support.GeneratedFile };
+
+    /// <summary>The sentence under the output-proxy tick, or empty where there is nothing to say.
+    /// </summary>
+    /// <remarks><para><b>Both answers are about this machine rather than about the setting</b>, which is why
+    /// the tick stays enabled under either: what is stored is what the user wants, and a row disabled
+    /// by a fact that changes underneath it is one they cannot set up in advance. rtk installed after
+    /// the fact applies at the next launch with nothing to click again.</para>
+    /// <para><b>Held, never computed per binding</b>: both answers read the disk (a <c>PATH</c> scan
+    /// and a settings file), so they are worked out once per change of agent, account or page and
+    /// only read afterwards.</para></remarks>
+    public string OutputProxyHint { get; private set; } = "";
+
+    /// <summary>Works <see cref="OutputProxyHint"/> out again from this machine.</summary>
+    private void RefreshOutputProxyHint()
+    {
+        OutputProxyHint = ShowsOutputProxy ? DescribeOutputProxyOnThisMachine() : "";
+        OnPropertyChanged(nameof(OutputProxyHint));
+        OnPropertyChanged(nameof(HasOutputProxyWarning));
+    }
+
+    private string DescribeOutputProxyOnThisMachine() =>
+        !OutputProxy.IsInstalled
+            ? $"{OutputProxy.BinaryName} is not installed on this machine, so this does nothing yet."
+            : AgentBeingEdited?.IsOutputProxyAlreadyHooked(SignInBeingEdited) == true
+                ? $"{OutputProxy.BinaryName} is already hooked into {AgentBeingEdited?.DisplayName}'s own settings, so "
+                  + "mTiles adds nothing — your sessions are rewritten either way."
+                : "";
+
+    /// <summary>The sign-in the form's account names, or null for the CLI's default one.</summary>
+    private AiSignIn? SignInBeingEdited =>
+        EditAgentAccount is { Kind: AccountKind.SignIn } account
+            ? AiSignInStore.Find(_settingsService.Settings, account.Id)
+            : null;
+
+    /// <summary>Whether that sentence is one worth colouring.</summary>
+    public bool HasOutputProxyWarning => OutputProxyHint.Length > 0;
 
     /// <summary>Whether the Auto-compact field is shown: Claude Code's alone.</summary>
     /// <remarks>The field is the manual <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c>, and only Claude Code
@@ -509,6 +625,8 @@ public partial class SettingsViewModel
         OnPropertyChanged(nameof(ModelHint));
         OnPropertyChanged(nameof(FastModelHint));
         OnPropertyChanged(nameof(ShowsFastModel));
+        // Which settings file an existing rtk hook is looked for in is the account's directory.
+        RefreshOutputProxyHint();
         NotifyModelEmptyWarning();
         _ = LoadAgentModelsAsync();
     }
@@ -699,6 +817,7 @@ public partial class SettingsViewModel
         RefreshEffortLabels();
         // One per line, because an argument may contain spaces and splitting on them is how a path with
         // one in it becomes two arguments neither of which exists.
+        EditAgentUseOutputProxy = instance.UseOutputProxy;
         EditAgentExtraArgs = string.Join('\n', instance.ExtraArgs);
         EditAgentAutoCompact = instance.AutoCompactWindow is { } window
             ? window.ToString(CultureInfo.InvariantCulture)
@@ -759,6 +878,10 @@ public partial class SettingsViewModel
         instance.DefaultEffort = AiEfforts.FromLabel(EditAgentEffort);
         instance.ExtraArgs = [.. EditAgentExtraArgs
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+        // Stored even for an agent whose form did not show the tick, because it is the
+        // *instance's* answer: moving a row from Claude Code to codex and back must not silently
+        // drop it, and the launch asks the agent whether it has a route before it reads this.
+        instance.UseOutputProxy = EditAgentUseOutputProxy;
         // Empty is the fallback, not a zero: the launch works the window out from the model's context.
         instance.AutoCompactWindow = ParseTokens(EditAgentAutoCompact);
         instance.MaxContextTokens = ParseTokens(EditAgentMaxContext);

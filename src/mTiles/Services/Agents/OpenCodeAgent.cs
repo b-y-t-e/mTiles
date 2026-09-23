@@ -334,4 +334,18 @@ public sealed class OpenCodeAgent : AiAgent, Sessions.IConversationalAgent
         new("Working...", TileActivity.Working),
         new("Allow always", TileActivity.Blocked, "Waiting for permission"),
     ];
+
+    /// <inheritdoc />
+    /// <remarks><b>A real route this application will not take.</b> Probed 2026-09-22 against rtk
+    /// 0.46.0: <c>rtk init --opencode</c> writes <c>~/.config/opencode/plugins/rtk.ts</c> — the user's
+    /// own configuration — and opencode carries no flag that loads a plugin for one run, so there is
+    /// nothing for <c>SessionDefaultArgs</c> to answer with. Taking it would turn a tick on one
+    /// instance into a change to every opencode session on the machine, this application's own and the
+    /// ones started from a shell alike, and nothing here could take it back off again on that
+    /// instance's behalf. Anyone who wants it machine-wide has rtk's own command for it.
+    /// <para>Worth re-measuring if <c>OPENCODE_CONFIG</c> — the generated document
+    /// <see cref="OpenCodeProviderConfig"/> already points opencode at — grows a key naming a plugin
+    /// by path. That would make this the same shape as Claude Code's overnight.</para></remarks>
+    public override OutputProxy.Support OutputProxySupport =>
+        OutputProxy.Support.WritesOutsideOurDirectories;
 }

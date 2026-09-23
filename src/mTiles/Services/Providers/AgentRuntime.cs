@@ -35,6 +35,9 @@ namespace mTiles.Services.Providers;
 /// the model's window is, beside the 80% window it should <em>compact</em> at. Deliberately not
 /// reduced: the margin is an opinion about when to compact, and this declares a fact. Null when the
 /// provider did not say.</param>
+/// <param name="WorkingDirectory">Where the session runs, when a launch knows it — the project whose
+/// own agent settings count as much as the user's (a hook <c>rtk init</c> wrote into
+/// <c>.claude/settings.json</c> there is live in that session).</param>
 public sealed record AgentRuntime(
     AiAgentInstance Instance,
     IAiProvider? Provider,
@@ -42,7 +45,8 @@ public sealed record AgentRuntime(
     string Model,
     AiSignIn? SignIn = null,
     long? AutoCompactWindow = null,
-    long? MaxContextTokens = null)
+    long? MaxContextTokens = null,
+    string? WorkingDirectory = null)
 {
     /// <summary>The address for a wire format, or null when nothing configured here serves it.</summary>
     /// <remarks>Null is what tells an agent to leave the environment alone: an agent given no endpoint

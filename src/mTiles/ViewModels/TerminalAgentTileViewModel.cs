@@ -422,7 +422,7 @@ public sealed class TerminalAgentTileViewModel : TerminalTileViewModel, IDescrib
     /// <summary>The instance, its provider and the model this launch settled on.</summary>
     private AgentRuntime Runtime =>
         AgentRuntime.For(_settings.Settings, Instance, _resolvedModel, _agent,
-            _autoCompactWindow, _maxContextTokens);
+            _autoCompactWindow, _maxContextTokens) with { WorkingDirectory = WorkingDirectory };
 
     /// <summary>
     /// Which agent this tile is, and on what — the line beside its name.

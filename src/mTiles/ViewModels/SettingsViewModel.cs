@@ -76,7 +76,10 @@ public partial class SettingsViewModel : ObservableObject
         // programs can arrive while the application is running — through the very tile this page's own
         // button opens — and a notice that cannot go away is one the user learns to read past.
         if (tab == SettingsTabs.Ai)
+        {
             RefreshClipboardHelpers();
+            RefreshOutputProxy();
+        }
         if (tab == SettingsTabs.Database)
             RefreshDatabaseSettings();
     }

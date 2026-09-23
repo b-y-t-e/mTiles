@@ -403,6 +403,45 @@
                     </Border>
                 </Border>
 
+                <!-- An instance is ticked for the token proxy and rtk is not on this machine, so those
+                     sessions have been running unfiltered. Shown only where somebody asked for it:
+                     the row above is about a capability every agent lacks, this one is about a
+                     decision already made that has quietly been doing nothing. -->
+                <Border CornerRadius="{DynamicResource RadiusLg}" ClipToBounds="True"
+                        IsVisible="{Binding ShowsOutputProxyNotice}">
+                    <Border Background="{DynamicResource BgSurface}" Padding="12,10">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right"
+                                    Classes="outlined-sm"
+                                    Margin="10,0,0,0"
+                                    VerticalAlignment="Center"
+                                    IsVisible="{Binding CanInstallOutputProxy}"
+                                    Command="{Binding InstallOutputProxyCommand}"
+                                    Content="Install…"
+                                    ToolTip.Tip="Shows the command, then runs it in a terminal tile" />
+                            <Button DockPanel.Dock="Right"
+                                    Classes="outlined-sm"
+                                    Margin="10,0,0,0"
+                                    VerticalAlignment="Center"
+                                    IsVisible="{Binding CanOpenOutputProxyPage}"
+                                    Command="{Binding OpenOutputProxyPageCommand}"
+                                    Content="Get rtk…"
+                                    ToolTip.Tip="Opens rtk's own page in the browser" />
+                            <mi:MaterialIcon DockPanel.Dock="Left"
+                                             Kind="AlertCircleOutline"
+                                             Width="14" Height="14"
+                                             Margin="0,1,8,0"
+                                             VerticalAlignment="Top"
+                                             Foreground="{DynamicResource WarnText}" />
+                            <TextBlock Text="{Binding OutputProxyNotice}"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center"
+                                       FontSize="{DynamicResource FontSm}"
+                                       Foreground="{DynamicResource TextPrimary}" />
+                        </DockPanel>
+                    </Border>
+                </Border>
+
                 <StackPanel Spacing="6">
                     <DockPanel>
                         <TextBlock Text="AGENTS" Classes="section" Margin="0"
