@@ -1237,16 +1237,21 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         CanInterrupt = false;
         var sending = ++_sendNumber;
-        _ = Task.Delay(StopButtonHold).ContinueWith(_ => _post(() =>
+        AfterStopButtonHold(() => _post(() =>
         {
             // Only the send that armed it releases it: two messages in quick succession would
             // otherwise have the first one's timer unlock the button under the second.
             if (sending == _sendNumber) CanInterrupt = true;
-        }), TaskScheduler.Default);
+        }));
     }
 
     /// <summary>How long Stop is held after a send — the double-click window and nothing more.</summary>
-    internal static readonly TimeSpan StopButtonHold = TimeSpan.FromMilliseconds(500);
+    internal static TimeSpan StopButtonHold { get; set; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Runs the release once the hold is over. A seam for the tests, which release it
+    /// themselves instead of racing a real timer.</summary>
+    internal Action<Action> AfterStopButtonHold { get; set; } =
+        release => Task.Delay(StopButtonHold).ContinueWith(_ => release(), TaskScheduler.Default);
 
     private int _sendNumber;
 

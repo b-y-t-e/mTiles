@@ -3282,7 +3282,7 @@ public partial class GoalTileViewModel
         // its whole countdown before honouring a pause pressed at the start of it.
         await using var cancellation = ct.Register(() => wait.TrySetResult(false));
 
-        _gateTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Normal, OnGateTick);
+        _gateTimer = new DispatcherTimer(GateTick, DispatcherPriority.Normal, OnGateTick);
         _gateTimer.Start();
         try
         {
@@ -3310,6 +3310,10 @@ public partial class GoalTileViewModel
             UpdateGateLine();
         }
     }
+
+    /// <summary>One second of the gate's countdown. Settable only by the test suite, which runs the
+    /// countdown in milliseconds rather than sitting out fifteen real seconds per review.</summary>
+    internal static TimeSpan GateTick { get; set; } = TimeSpan.FromSeconds(1);
 
     private void OnGateTick(object? sender, EventArgs e)
     {
