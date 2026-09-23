@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using mTiles.ViewModels;
@@ -16,8 +16,13 @@ namespace mTiles.Views;
 /// width is read here, the shape it implies is <see cref="UsageLayout"/>'s to say, and the markup binds
 /// to the answer. Where each item then lands is <see cref="UsageWindowsPanel"/>'s.</para>
 /// </remarks>
-public partial class UsageTileView : UserControl
+public partial class UsageTileView : UserControl, IFocusTargetView
 {
+    /// <summary>Refresh: the one thing on a read-only dashboard that does anything.</summary>
+    /// <remarks>Disabled while a round is in flight, and then the tile falls back to its card - which
+    /// still takes the keyboard away from the tile that was active before, which is the point.</remarks>
+    public Avalonia.Input.InputElement? PreferredFocusTarget => RefreshButton;
+
     /// <summary>Whether the cards stack rather than laying their line out across the tile.</summary>
     public static readonly StyledProperty<bool> IsVerticalLayoutProperty =
         AvaloniaProperty.Register<UsageTileView, bool>(nameof(IsVerticalLayout));

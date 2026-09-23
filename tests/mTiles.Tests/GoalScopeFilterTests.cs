@@ -197,4 +197,15 @@ public class GoalScopeFilterTests
         Assert.Equal("popraw   koszyk", GoalScopeFilter.WordsOnly("popraw @src/Cart.cs koszyk"));
         Assert.Equal("", GoalScopeFilter.WordsOnly("  @HEAD~1  "));
     }
+
+    [Fact]
+    public void A_mention_span_leaves_the_sentence_its_punctuation()
+    {
+        const string text = "fix @src/Cart.cs, then the tests";
+
+        var (start, length, path) = Assert.Single(GoalScopeFilter.MentionSpans(text));
+
+        Assert.Equal("src/Cart.cs", path);
+        Assert.Equal("@src/Cart.cs", text.Substring(start, length));
+    }
 }

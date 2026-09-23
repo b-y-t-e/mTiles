@@ -53,7 +53,9 @@ public static class ManualConnectionClash
     private static string AddressOf(ManualDatabaseConnection mc) =>
         Address(mc).ToLowerInvariant();
 
-    private static string Address(ManualDatabaseConnection mc) =>
+    /// <summary>The address as written, trimmed — the one shape both this rule and
+    /// <see cref="ManualConnectionMerge"/> compare, so the two cannot disagree about what collides.</summary>
+    public static string Address(ManualDatabaseConnection mc) =>
         mc.Instance.Trim().Length == 0
             ? $"{mc.Server.Trim()}/{mc.Database.Trim()}"
             : $"{mc.Server.Trim()}/{mc.Instance.Trim()}/{mc.Database.Trim()}";

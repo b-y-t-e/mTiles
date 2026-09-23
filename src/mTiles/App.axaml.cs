@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Styling;
+using mTiles.AgentSessions.Storage;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.Services.Database;
@@ -83,7 +84,10 @@ public partial class App : Application
             () => mainVmRef?.ActiveTile);
 
         var mainVm = new MainWindowViewModel(workspaceService, persistenceService, _settingsService,
-            BuildTileCatalog(_dbManager, _usage), _dbManager, _dictation, _phoneBridge,
+            BuildTileCatalog(_dbManager, _usage,
+                new LazyConversationStore(() =>
+                    new SqliteConversationStore(AppPaths.GetAgentConversationsDatabasePath()))),
+            _dbManager, _dictation, _phoneBridge,
             agentFileSync: _agentFileSync,
             windowCatalog: panel => BuildWindowTileCatalog(_usage, panel),
             browserRelay: _browserRelay);
@@ -157,11 +161,14 @@ public partial class App : Application
     /// <c>ViewModels/</c> and <c>Views/</c>. The order is the order the empty tile's chooser offers
     /// them in.</para>
     /// </remarks>
-    internal static TileCatalog BuildTileCatalog(DatabaseServiceManager databases, AiUsageService usage) =>
+    internal static TileCatalog BuildTileCatalog(DatabaseServiceManager databases, AiUsageService usage,
+        IConversationStore conversations) =>
         new TileCatalog()
-            // The same view as a terminal, because an agent tile is a terminal: what differs is
+            .Register(new AgentConversationTileKind(conversations),
+                tile => new AgentConversationTileView { DataContext = tile })
+            // The same view as a terminal, because a terminal agent tile is a terminal: what differs is
             // where its commands come from, and that is the view model's answer to give.
-            .Register(new AgentTileKind(), tile => new TerminalTileView { DataContext = tile })
+            .Register(new TerminalAgentTileKind(), tile => new TerminalTileView { DataContext = tile })
             .Register(new TerminalTileKind(), tile => new TerminalTileView { DataContext = tile })
             .Register(new GoalTileKind(), tile => new GoalTileView { DataContext = tile })
             .Register(new DatabaseTileKind(databases), tile => new DatabaseTileView { DataContext = tile })

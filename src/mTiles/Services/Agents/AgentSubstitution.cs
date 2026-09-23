@@ -12,7 +12,7 @@ namespace mTiles.Services.Agents;
 /// that quietly comes back as Claude is a different agent working in somebody's repository, and the only
 /// place that could be noticed is the tile itself.</para>
 /// <para><b>And the original choice is kept</b> (<see cref="RequestedInstanceId"/> /
-/// <see cref="RequestedAgentId"/>, written back by <c>AgentTileKind.Save</c>): the layout is saved for
+/// <see cref="RequestedAgentId"/>, written back by <c>TerminalAgentTileKind.Save</c>): the layout is saved for
 /// any reason at all — a splitter dragged — so writing the substitute's ids would make a fallback
 /// permanent within seconds, and re-adding the instance in Settings would no longer bring the tile
 /// back.</para>

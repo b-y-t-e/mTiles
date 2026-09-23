@@ -82,7 +82,7 @@ public class TileMaximizeTests : IDisposable
     /// re-derived by whoever adds the ninth kind.</remarks>
     [Theory]
     [InlineData(TileKindIds.Terminal, true)]
-    [InlineData(TileKindIds.Agent, true)]
+    [InlineData(TileKindIds.TerminalAgent, true)]
     [InlineData(TileKindIds.Note, true)]
     [InlineData(TileKindIds.Todo, true)]
     [InlineData(TileKindIds.Git, false)]

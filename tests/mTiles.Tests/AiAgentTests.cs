@@ -18,8 +18,14 @@ namespace mTiles.Tests;
 /// codex-cli 0.141.0, opencode 1.18.18, pi 0.84.3 and agy 1.1.22. Pinned so that a move in one of those
 /// contracts is a failing build rather than a tile that quietly stops doing what its strip says.
 /// </remarks>
-public class AiAgentTests
+public class AiAgentTests : IDisposable
 {
+    // Every Claude Code launch writes its session settings under AppPaths, so without this the suite
+    // wrote into a live installation.
+    private readonly TempAppData _appData = new();
+
+    public void Dispose() => _appData.Dispose();
+
     private static readonly AiAgentInstance AnyInstance = new();
 
     /// <summary>An instance that adds nothing to a command line, so a test about the <em>session</em>
@@ -33,15 +39,24 @@ public class AiAgentTests
 
     /// <summary>An instance with nothing configured around it: no provider, and the model exactly as
     /// it was written.</summary>
-    /// <remarks>What an agent tile hands <c>Interactive</c>, minus the provider lookup — the model is
+    /// <remarks>What a terminal agent tile hands <c>Interactive</c>, minus the provider lookup — the model is
     /// the only part of it these tests are about.</remarks>
     private static AgentRuntime Runtime(AiAgentInstance instance, string? model = null) =>
         AgentRuntime.For(new AppSettings(), instance, model);
 
     /// <summary>The shell a command is composed for, where the test is not about quoting.</summary>
     /// <remarks>None of the agents' own flags need quoting in any shell, so which one this is only
-    /// matters to <see cref="Extra_arguments_are_quoted_by_the_shell_that_will_run_them"/>.</remarks>
-    private static readonly IShellTerminal Shell = new PowerShellTerminal();
+    /// matters to <see cref="Extra_arguments_are_quoted_by_the_shell_that_will_run_them"/>.
+    /// <para><b>bash rather than PowerShell, and that is not arbitrary any more.</b> A shell also says
+    /// how the binary itself is spelled (<c>IShellTerminal.Program</c>), and PowerShell answers with
+    /// the path this machine found rather than the name — so under it every expectation here would be
+    /// a fact about the machine running the suite. These tests are about flags, order and quoting; the
+    /// spelling is <see cref="PowerShellProgramTests"/>'.</para></remarks>
+    private static readonly IShellTerminal Shell = new BashTerminal();
+
+    /// <summary>How PowerShell spells pi's binary under the suite's pretended installation
+    /// (<see cref="AiAgentCatalog.PretendEveryAgentIsInstalled"/>) — the same on every machine.</summary>
+    private static readonly string PretendedPi = $"& '{AiAgentCatalog.PretendedPathPrefix}pi'";
 
     // ── The catalog ─────────────────────────────────────
 
@@ -73,7 +88,7 @@ public class AiAgentTests
     /// <summary>
     /// A seeded instance passes no permission flag at all.
     /// </summary>
-    /// <remarks>Nobody has been asked about a row that was seeded, and every agent tile made from
+    /// <remarks>Nobody has been asked about a row that was seeded, and every terminal agent tile made from
     /// one carries its behaviour to the CLI: anything above <see cref="AiBehaviour.ToolDefault"/>
     /// would turn the tool's own asking off on a fresh install, and the first symptom of that is an
     /// edit that already happened.</remarks>
@@ -125,6 +140,30 @@ public class AiAgentTests
         agent.ConsumesApiFlavors.Intersect(served).Any();
 
     // ── Rounding ────────────────────────────────────────
+
+    /// <summary>Every mode says what it grants, and the strongest one says it plainly.</summary>
+    /// <remarks>The list is where somebody chooses, so it is where the warning is worth having.
+    /// <c>bypass</c> had exactly one sentence attached to it anywhere — the confirmation asked <i>after</i>
+    /// it is picked — and next to four other one-word labels it read as a synonym for <c>auto</c>.</remarks>
+    [Fact]
+    public void Every_mode_says_what_it_grants()
+    {
+        Assert.All(AiBehaviours.All,
+            mode => Assert.False(string.IsNullOrWhiteSpace(AiBehaviours.Description(mode))));
+
+        Assert.Contains("without asking about anything",
+            AiBehaviours.Description(AiBehaviour.BypassPermissions));
+        Assert.Contains("Changes nothing", AiBehaviours.Description(AiBehaviour.Plan));
+
+        // Asked by the id a session reports, which is how a mode the agent named itself still gets the
+        // sentence. The two scales share the member name ToolDefault, so each lookup answers only its own.
+        Assert.Equal(AiBehaviours.Description(AiBehaviour.Auto), AiBehaviours.DescriptionOf("Auto"));
+        Assert.Null(AiBehaviours.DescriptionOf("Max"));
+        Assert.Null(AiEfforts.DescriptionOf("Auto"));
+
+        // The label of the one that passes no flag is the short word; the sentence carries the rest.
+        Assert.Equal("default", AiBehaviours.Label(AiBehaviour.ToolDefault));
+    }
 
     /// <summary>
     /// Behaviour rounds down, and never to bypass.
@@ -440,7 +479,7 @@ public class AiAgentTests
     /// <summary>Three agents share one directory, which is what makes "delete the directory of the
     /// agent that left" wrong and <see cref="WorkspaceAgentFiles"/> necessary.</summary>
     [Fact]
-    public void The_five_agents_name_three_skill_directories()
+    public void The_six_agents_name_three_skill_directories()
     {
         var directories = AiAgentCatalog.All
             .Select(agent => agent.SkillsDirectory("/w"))
@@ -448,7 +487,10 @@ public class AiAgentTests
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        Assert.Equal(5, AiAgentCatalog.All.Count);
+        // Grok names none: where its project skills live has not been read off the CLI, and a guessed
+        // directory is a skill written somewhere nobody measured (IAiAgent.SkillsDirectory).
+        Assert.Equal(6, AiAgentCatalog.All.Count);
+        Assert.Null(AiAgentCatalog.Find("grok")!.SkillsDirectory("/w"));
         Assert.Equal(3, directories.Count);
     }
 
@@ -517,7 +559,7 @@ public class AiAgentTests
     [InlineData("pi", "pi --session-id the-id")]
     public void An_agent_that_can_be_told_an_id_is_told_it(string agentId, string expected)
     {
-        Assert.Equal(expected, AiAgentCatalog.Find(agentId)!.Interactive(Runtime(UnconfiguredInstance), "the-id", Shell).Startup);
+        Assert.StartsWith(expected, AiAgentCatalog.Find(agentId)!.Interactive(Runtime(UnconfiguredInstance), "the-id", Shell).Startup!, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -561,9 +603,36 @@ public class AiAgentTests
     {
         var plan = new ClaudeAgent().Interactive(Runtime(UnconfiguredInstance), "the-id", Shell);
 
-        Assert.Equal("claude --resume the-id", plan.Startup);
-        Assert.Equal("claude --session-id the-id", plan.Fallback);
+        Assert.StartsWith("claude --resume the-id", plan.Startup!, StringComparison.Ordinal);
+        Assert.StartsWith("claude --session-id the-id", plan.Fallback!, StringComparison.Ordinal);
         Assert.True(plan.RunsCommandChain);
+    }
+
+    /// <summary>
+    /// Every Claude Code session starts on the <c>Concise</c> output style, and an argument on the
+    /// instance comes after it, so the user's own <c>--settings</c> still has the last word.
+    /// </summary>
+    [Fact]
+    public void Claude_starts_concise_and_the_instances_own_arguments_come_after()
+    {
+        var instance = new AiAgentInstance
+        {
+            DefaultBehaviour = AiBehaviour.ToolDefault,
+            DefaultEffort = AiEffort.ToolDefault,
+            ExtraArgs = ["--settings", "mine.json"],
+        };
+
+        var plan = new ClaudeAgent().Interactive(Runtime(instance), "the-id", new BashTerminal());
+        var ours = ClaudeSessionSettings.PathFor();
+
+        foreach (var line in new[] { plan.Startup!, plan.Fallback! })
+        {
+            var concise = line.IndexOf(ours, StringComparison.Ordinal);
+            Assert.True(concise > 0, line);
+            Assert.True(concise < line.IndexOf("mine.json", StringComparison.Ordinal), line);
+        }
+        Assert.Contains("\"outputStyle\": \"Concise\"", File.ReadAllText(ours), StringComparison.Ordinal);
+        Assert.Equal(["--settings", ours], new ClaudeAgent().SessionDefaultArgs(Runtime(instance)));
     }
 
     /// <summary>
@@ -604,8 +673,8 @@ public class AiAgentTests
     /// What an instance is configured with reaches the tile's own command line, on both commands.
     /// </summary>
     /// <remarks>The instance documents its two defaults as applying "wherever the instance is used —
-    /// the agent tile included". They did not: every implementation of <c>Interactive</c> ignored the
-    /// instance, so an agent tile ran on the CLI's factory settings whatever the row said. The fallback
+    /// the terminal agent tile included". They did not: every implementation of <c>Interactive</c> ignored the
+    /// instance, so a terminal agent tile ran on the CLI's factory settings whatever the row said. The fallback
     /// gets them too, because it is the same session by another route rather than a lesser one.
     /// </remarks>
     [Fact]
@@ -619,8 +688,8 @@ public class AiAgentTests
 
         var plan = new ClaudeAgent().Interactive(Runtime(instance), "the-id", Shell);
 
-        Assert.Equal("claude --resume the-id --permission-mode plan --effort low", plan.Startup);
-        Assert.Equal("claude --session-id the-id --permission-mode plan --effort low", plan.Fallback);
+        Assert.StartsWith("claude --resume the-id --permission-mode plan --effort low", plan.Startup!, StringComparison.Ordinal);
+        Assert.StartsWith("claude --session-id the-id --permission-mode plan --effort low", plan.Fallback!, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -750,7 +819,7 @@ public class AiAgentTests
             ExtraArgs = ["--add-dir", "/tmp/some repo", "   "],
         };
 
-        Assert.Equal("pi --session-id the-id --add-dir '/tmp/some repo'",
+        Assert.Equal(PretendedPi + " --session-id the-id --add-dir '/tmp/some repo'",
             new PiAgent().Interactive(Runtime(instance), "the-id", new PowerShellTerminal()).Startup);
 
         Assert.Equal("pi --session-id the-id --add-dir '/tmp/some repo'",
@@ -774,7 +843,7 @@ public class AiAgentTests
             ExtraArgs = ["--note=$(whoami) it's \"here\""],
         };
 
-        Assert.Equal("pi --session-id the-id '--note=$(whoami) it''s \"here\"'",
+        Assert.Equal(PretendedPi + " --session-id the-id '--note=$(whoami) it''s \"here\"'",
             new PiAgent().Interactive(Runtime(instance), "the-id", new PowerShellTerminal()).Startup);
 
         Assert.Equal("pi --session-id the-id '--note=$(whoami) it'\\''s \"here\"'",

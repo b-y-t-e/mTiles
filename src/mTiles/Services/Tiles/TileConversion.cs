@@ -22,12 +22,21 @@ public static class TileConversion
     /// <see cref="Warning"/> puts to the user rather than a second table beside it — stated twice, a
     /// kind added to one of them would be promised something the other never checked.</remarks>
     public static bool DestroysWork(string? kindId) =>
-        kindId is TileKindIds.Terminal or TileKindIds.Agent;
+        kindId is TileKindIds.Terminal or TileKindIds.TerminalAgent;
 
     /// <summary>The question to put before a tile of <paramref name="currentKindId"/> becomes a
     /// <paramref name="targetDisplayName"/>.</summary>
     public static string Warning(string? currentKindId, string targetDisplayName) =>
         $"Change this tile to {targetDisplayName}? {Consequence(currentKindId)}";
+
+    /// <summary>The question to put before a tile is rebuilt as another setup of the kind it already
+    /// is - this terminal on another shell, this agent tile on another CLI.</summary>
+    /// <remarks>Not <see cref="Warning"/> with the same name on both sides: "Change this tile to
+    /// Terminal agent?" asked of a terminal agent tile reads as a menu that did nothing, while what is
+    /// actually about to happen - the shell and everything in it ending - is the half the user has to
+    /// weigh.</remarks>
+    public static string ReconfigureWarning(string? currentKindId, string kindDisplayName) =>
+        $"Run this {kindDisplayName} tile on what you picked? {Consequence(currentKindId)}";
 
     /// <summary>What is ended, and then what is left behind — either half may be all there is to say.
     /// </summary>
@@ -38,7 +47,11 @@ public static class TileConversion
     private static string? WhatSurvives(string? kindId) => kindId switch
     {
         TileKindIds.Terminal => null,
-        TileKindIds.Agent => "The conversation stays with the agent; the tile will stop opening it.",
+        TileKindIds.TerminalAgent => "The conversation stays with the agent; the tile will stop opening it.",
+        // Not a destroyed shell: the process is only the agent answering, and every word of the
+        // conversation is in the store under this tile's id. What is lost is a turn still in progress.
+        TileKindIds.AgentConversation =>
+            "A turn in progress will be stopped; the conversation stays stored and comes back if this tile becomes an Agent again.",
         TileKindIds.Note => Kept("notes"),
         TileKindIds.Todo => Kept("todos"),
         TileKindIds.Goal => "The run will be paused, and its record stays in .mtiles/goals/.",

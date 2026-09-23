@@ -11,7 +11,7 @@ namespace mTiles.Services.Tiles;
 /// <remarks>
 /// <para>A shell and nothing else. What used to make this kind complicated — a startup script, a
 /// fallback, a required AI binary — was the shell profile, and a profile that started an AI CLI is now
-/// an agent tile (<see cref="AgentTileKind"/>) with the CLI's own commands rather than a script the user
+/// a terminal agent tile (<see cref="TerminalAgentTileKind"/>) with the CLI's own commands rather than a script the user
 /// had to write and keep working.</para>
 /// <para>One <see cref="Create"/> for both ways in: a fresh terminal chosen from the shell chooser
 /// arrives with <c>shellName</c> in its state, and one restored from disk arrives with the same key. A
@@ -22,7 +22,7 @@ public sealed class TerminalTileKind : TileKind<TerminalTileViewModel>
 {
     /// <summary>What a layout written before agents existed called the profile a tile was created
     /// from.</summary>
-    /// <remarks>Nothing here reads it any more — <c>AgentTileMigration</c> does, once, to work out which
+    /// <remarks>Nothing here reads it any more — <c>TerminalAgentTileMigration</c> does, once, to work out which
     /// of those tiles were an AI CLI in a shell. Kept as a name rather than a literal because that
     /// migration and this kind have to agree about the spelling.</remarks>
     public const string UserProfileIdKey = "userProfileId";
@@ -77,6 +77,18 @@ public sealed class TerminalTileKind : TileKind<TerminalTileViewModel>
                 new JsonObject { [ShellNameKey] = shell.DisplayName })),
         ];
     }
+
+    /// <summary>The card the tile is already on, the default shell included.</summary>
+    /// <remarks>"Default shell" carries no state, so the base rule cannot answer for it — and it has to
+    /// be answered: a tile is saved with the name of the shell it resolved to, so the default card and
+    /// the card of the shell the default resolves to build the same tile, and either of them offered
+    /// back is a shell killed for nothing.</remarks>
+    protected override bool IsCurrentSetup(TileContext context, TerminalTileViewModel tile,
+        TileSetupOption option) =>
+        option.State is null
+            ? tile.Shell.DisplayName
+              == ShellTerminalCatalog.ResolveDefault(context.Settings.Settings, context.Shells).DisplayName
+            : base.IsCurrentSetup(context, tile, option);
 
     protected override TerminalTileViewModel Create(TileContext context, JsonObject? state)
     {

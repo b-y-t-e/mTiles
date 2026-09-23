@@ -52,9 +52,23 @@ public sealed class UsageBar : Control
     public static readonly StyledProperty<IBrush?> TickBrushProperty =
         AvaloniaProperty.Register<UsageBar, IBrush?>(nameof(TickBrush));
 
+    /// <summary>Where the walk from <see cref="FillBrush"/> towards <see cref="OverBrush"/> begins, as
+    /// a percentage, or null for the plain two-colour bar.</summary>
+    /// <remarks><para>The usage tile's bar has a clock to compare against, so its second colour means
+    /// <i>faster than the window is passing</i> and lands on whichever cells the tick says. A context
+    /// window has no clock: what is worth seeing is simply how near the end this conversation is, and
+    /// that is a slope rather than a boundary. So from this percentage upwards each cell is mixed a
+    /// step further towards the danger colour, and the last cell before the end is that colour
+    /// outright — the bar itself says how close it is without a number being read.</para>
+    /// <para>Cells below it stay on <see cref="FillBrush"/>, which is why the fill there is not the
+    /// accent: an accent that is about to be walked away from reads as two unrelated bars on one
+    /// tile.</para></remarks>
+    public static readonly StyledProperty<double?> RampFromPercentProperty =
+        AvaloniaProperty.Register<UsageBar, double?>(nameof(RampFromPercent));
+
     static UsageBar() =>
         AffectsRender<UsageBar>(UsedPercentProperty, ExpectedPercentProperty, TrackBrushProperty,
-            FillBrushProperty, OverBrushProperty, TickBrushProperty);
+            FillBrushProperty, OverBrushProperty, TickBrushProperty, RampFromPercentProperty);
 
     public double UsedPercent
     {
@@ -92,6 +106,12 @@ public sealed class UsageBar : Control
         set => SetValue(TickBrushProperty, value);
     }
 
+    public double? RampFromPercent
+    {
+        get => GetValue(RampFromPercentProperty);
+        set => SetValue(RampFromPercentProperty, value);
+    }
+
     public override void Render(DrawingContext context)
     {
         var width = Bounds.Width;
@@ -112,6 +132,7 @@ public sealed class UsageBar : Control
         {
             var brush =
                 cell >= filled ? TrackBrush
+                : RampFromPercent is { } ramp ? RampedBrush(ramp, cell, cells)
                 : expected is { } mark && cell >= mark ? OverBrush ?? FillBrush
                 : FillBrush;
 
@@ -150,6 +171,47 @@ public sealed class UsageBar : Control
         expectedPercent is { } share
             ? Math.Clamp((int)Math.Round(Fraction(share) * cells), 0, cells - 1)
             : null;
+
+    /// <summary>The colour of one cell on a ramped bar: the fill walked towards the danger colour by
+    /// how far past <paramref name="rampFrom"/> this cell sits.</summary>
+    /// <remarks>The cell's own place on the bar decides its colour, not how much is filled, so a cell
+    /// keeps the same colour as the fill grows past it and the bar reads as a scale rather than as
+    /// something that recolours itself. A brush that is not a solid colour cannot be mixed, so the ramp
+    /// simply does not apply and the fill is drawn as it is.</remarks>
+    private IBrush? RampedBrush(double rampFrom, int cell, int cells)
+    {
+        if (FillBrush is not ISolidColorBrush from) return FillBrush;
+        if (OverBrush is not ISolidColorBrush to) return FillBrush;
+
+        var t = RampAt(rampFrom, cell, cells);
+        return t <= 0 ? FillBrush : new SolidColorBrush(Mix(from.Color, to.Color, t));
+    }
+
+    /// <summary>How far along the ramp a cell is, from 0 (still on the fill) to 1 (the danger colour).
+    /// </summary>
+    /// <remarks>Measured at the cell's own far edge, so the last cell of the bar is the end of the ramp
+    /// and reaches the danger colour outright — measured at its start, a bar of sixteen cells would stop
+    /// a sixteenth short of it and the one reading worth noticing would be the one never drawn.</remarks>
+    internal static double RampAt(double rampFrom, int cell, int cells)
+    {
+        if (cells <= 0) return 0;
+
+        var start = Math.Clamp(rampFrom, 0, 100) / 100;
+        if (start >= 1) return 0;
+
+        var here = (double)(cell + 1) / cells;
+        return Math.Clamp((here - start) / (1 - start), 0, 1);
+    }
+
+    private static Color Mix(Color from, Color to, double t) =>
+        Color.FromArgb(
+            Channel(from.A, to.A, t),
+            Channel(from.R, to.R, t),
+            Channel(from.G, to.G, t),
+            Channel(from.B, to.B, t));
+
+    private static byte Channel(byte from, byte to, double t) =>
+        (byte)Math.Clamp(Math.Round(from + (to - from) * t), 0, 255);
 
     /// <summary>How wide one cell is drawn.</summary>
     /// <remarks>A segmented bar rather than a continuous fill, and the cells are a fixed size rather

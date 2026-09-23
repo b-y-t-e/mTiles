@@ -565,7 +565,7 @@ public class AiProcessRunnerTests
     /// </summary>
     /// <remarks>
     /// The tile honoured <c>ExtraArgs</c> and every goal run on the same instance ignored them, so an
-    /// instance carrying <c>--add-dir</c> worked in the agent tile and silently did not in a goal — a
+    /// instance carrying <c>--add-dir</c> worked in the terminal agent tile and silently did not in a goal — a
     /// setting that is present, saved and does nothing. In front of the prompt because four agents pass
     /// the prompt as their last positional argument, and how an option after a positional parses is
     /// somebody else's CLI's decision.

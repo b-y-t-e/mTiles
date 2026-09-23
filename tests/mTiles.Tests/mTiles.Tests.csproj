@@ -9,9 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
     <PackageReference Include="xunit" Version="2.*" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.*" />
     <PackageReference Include="Avalonia.Headless" Version="12.1.*" />
   </ItemGroup>
 
@@ -20,6 +20,7 @@
        exposes PtyFactory so it can be driven without spawning a shell — that is what these use. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\mTiles\mTiles.csproj" />
+    <ProjectReference Include="..\..\src\mTiles.AgentSessions\mTiles.AgentSessions.csproj" />
   </ItemGroup>
 
 </Project>

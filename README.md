@@ -78,6 +78,8 @@ dotnet run --project src/mTiles
 
 Requires [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
+**Dropping files/images onto a tile does nothing when mTiles runs as administrator** (e.g. from an elevated IDE): Windows blocks drags from Explorer into elevated processes (UIPI). Run it unelevated.
+
 ### Linux (AppImage)
 
 Releases ship a self-contained `mTiles-linux-x86_64.AppImage`. Two things it cannot bring with it:

@@ -74,7 +74,7 @@ public partial class MainWindowViewModel : ObservableObject
     private WorkspaceViewModel? _currentWorkspace;
 
     /// <summary>What the window is called — see <see cref="WindowTitle"/>.</summary>
-    public string Title => WindowTitle.For(CurrentWorkspace?.Name);
+    public string Title => WindowTitle.For(CurrentWorkspace?.Name, AppInfo.Version);
 
     /// <summary>
     /// Raised when the tile a window-level command acts on changes, or when that tile's own state does.
@@ -224,7 +224,8 @@ public partial class MainWindowViewModel : ObservableObject
         _settings = new SettingsViewModel(settingsService, dbManager, dictation, browserRelay);
         Services.Browser.BrowserTiles.CloseAllHandler = CloseAllBrowserTiles;
 
-        // An install command runs in a tile, and only this object knows which workspace is open. Null
+        // A sign-in (and an install that needs a password typed) runs in a tile, and only this object
+        // knows which workspace is open. Null
         // when there is none, which the settings page answers by showing the command instead of
         // running it — never by running it somewhere the user cannot see.
         _settings.RunInstallPlan = plan =>
@@ -430,6 +431,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (Services.Browser.BrowserTiles.CloseAllHandler == CloseAllBrowserTiles)
             Services.Browser.BrowserTiles.CloseAllHandler = null;
         WindowLayout?.Dispose();
+        _settings.CancelInstall();
         _memoryTimer.Stop();
         _settingsService.SettingsChanged -= OnSettingsChanged;
         _updateService.Dispose();
@@ -441,6 +443,11 @@ public partial class MainWindowViewModel : ObservableObject
         // thing here nobody else waits on: abandoned mid-write it leaves a .gitignore.mtiles-tmp in the
         // user's repository. Bounded — a shutdown is not held up for housekeeping.
         Services.GitIgnoreEditQueue.WaitForAll(TimeSpan.FromSeconds(2));
+        // A conversation closed mid-turn still has its closing checkpoint and its last events to write.
+        // This runs on the UI thread, so the dispatcher is given its pending work between slices of the
+        // wait: a window that stops painting for twenty-five seconds is one the user reads as hung.
+        Services.Agents.Sessions.ConversationClosings.WaitForAll(
+            TimeSpan.FromSeconds(25), () => Avalonia.Threading.Dispatcher.UIThread.RunJobs());
     }
 
     private void OnWorkspaceRemoved(string workspaceId)

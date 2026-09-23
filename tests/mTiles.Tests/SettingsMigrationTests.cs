@@ -183,6 +183,109 @@ public sealed class SettingsMigrationTests : IDisposable
         finally { Trace.Listeners.Remove(listener); }
     }
 
+    /// <summary>
+    /// The Goal tile's one effort level became a preset over four roles, and the whole chain that
+    /// carries a stored level across is exercised here rather than only its pure rule.
+    /// </summary>
+    /// <remarks>
+    /// <c>GoalRolesTests</c> argues <c>GoalRoles.FromLegacyEffort</c> on its own, which leaves the
+    /// parts between the file and it untested: the <c>GoalEffort</c> property name, the tolerant
+    /// converter on a nullable enum, and the rule that the key is dropped once read. Any of the three
+    /// silently reduces the migration to a no-op — <c>LegacyGoalEffort</c> stays null, somebody's
+    /// <c>max</c> comes back as <c>balanced</c>, and nothing anywhere fails.
+    /// </remarks>
+    [Theory]
+    [InlineData("xhigh", GoalEffortPreset.Thorough)]
+    [InlineData("max", GoalEffortPreset.Thorough)]
+    [InlineData("low", GoalEffortPreset.Cheap)]
+    [InlineData("ToolDefault", GoalEffortPreset.ToolDefault)]
+    public void A_stored_effort_level_becomes_the_preset_it_meant(string stored, GoalEffortPreset expected)
+    {
+        GivenSettings($$"""{ "GoalEffort": "{{stored}}" }""");
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(expected, service.Settings.GoalEffortPreset);
+        Assert.Null(service.Settings.LegacyGoalEffort);
+
+        // Read once: the save the migration triggers is what takes the key out of the file, so a later
+        // version is not still handed a level nothing acts on.
+        Assert.DoesNotContain("GoalEffort\"", File.ReadAllText(SettingsPath));
+        Assert.Equal(expected, new SettingsService(SettingsPath).Settings.GoalEffortPreset);
+    }
+
+    /// <summary>
+    /// The old default was not a decision, so it arrives as the new default rather than as "high
+    /// everywhere" — and it is still dropped, or the migration would run again on every launch.
+    /// </summary>
+    [Fact]
+    public void The_old_default_effort_is_read_as_the_new_default()
+    {
+        GivenSettings("""{ "GoalEffort": "high" }""");
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(GoalEffortPreset.Balanced, service.Settings.GoalEffortPreset);
+        Assert.DoesNotContain("GoalEffort\"", File.ReadAllText(SettingsPath));
+    }
+
+    /// <summary>
+    /// The word moved under the preset, so a file that named one is moved with it.
+    /// </summary>
+    /// <remarks>
+    /// <c>balanced</c> named plan medium · work low · review <em>high</em> until the scale gained a
+    /// rung beneath it, and the value is stored by name — so left alone, somebody who had chosen it
+    /// would come back with their reviews quietly shallower, which is the one thing
+    /// <c>docs/GOAL.md</c>'s measurement says costs findings. Every other word means today what it
+    /// meant then and is passed through, or `cheap` would arrive as a decision nobody made.
+    /// </remarks>
+    [Theory]
+    [InlineData("Balanced", GoalEffortPreset.Careful)]
+    [InlineData("Thorough", GoalEffortPreset.Thorough)]
+    [InlineData("Cheap", GoalEffortPreset.Cheap)]
+    [InlineData("ToolDefault", GoalEffortPreset.ToolDefault)]
+    public void A_preset_stored_under_the_old_vocabulary_keeps_its_levels(
+        string stored, GoalEffortPreset expected)
+    {
+        GivenSettings($$"""{ "GoalEffortPreset": "{{stored}}" }""");
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(expected, service.Settings.GoalEffortPreset);
+        Assert.Null(service.Settings.LegacyGoalEffortPreset);
+
+        // Read once, and the migration's own save is what drops the old key — otherwise it would run
+        // again on every launch and overwrite whatever the user had chosen since.
+        Assert.Equal(expected, new SettingsService(SettingsPath).Settings.GoalEffortPreset);
+    }
+
+    /// <summary>A preset chosen since the rename is left exactly where it is.</summary>
+    /// <remarks>The half the test above cannot cover: both keys are readable at once, and a migration
+    /// that ran on the new one too would move every user onto <c>careful</c> on the first launch after
+    /// they had chosen <c>balanced</c>.</remarks>
+    [Fact]
+    public void A_preset_stored_under_the_current_key_is_not_migrated()
+    {
+        GivenSettings("""{ "GoalEffortPresetV2": "Balanced" }""");
+
+        Assert.Equal(GoalEffortPreset.Balanced, new SettingsService(SettingsPath).Settings.GoalEffortPreset);
+    }
+
+    /// <summary>
+    /// A level this build cannot read must not cost the file, and must not be read as a decision
+    /// either: the converter answers null, so the preset stays at its default.
+    /// </summary>
+    [Fact]
+    public void An_unreadable_effort_level_leaves_the_default_standing()
+    {
+        GivenSettings("""{ "GoalEffort": "cosmic", "FontSize": 13 }""");
+
+        var service = new SettingsService(SettingsPath);
+
+        Assert.Equal(GoalEffortPreset.Balanced, service.Settings.GoalEffortPreset);
+        Assert.Equal(13, service.Settings.FontSize);
+    }
+
     private sealed class CapturedTrace : TraceListener
     {
         private readonly System.Text.StringBuilder _text = new();
@@ -287,8 +390,8 @@ public sealed class SettingsMigrationTests : IDisposable
     /// Nothing seeds, edits or removes a shell profile any more — the list is only read.
     /// </summary>
     /// <remarks>
-    /// It is still what <c>AgentTileMigration</c> matches a saved tile's <c>userProfileId</c> against, so
-    /// touching it here would take somebody's agent tiles with it a launch before the workspace holding
+    /// It is still what <c>TerminalAgentTileMigration</c> matches a saved tile's <c>userProfileId</c> against, so
+    /// touching it here would take somebody's terminal agent tiles with it a launch before the workspace holding
     /// them is even opened. Three migrations used to run over this list; the assertion that replaced
     /// them is that a settings file comes back with exactly the profiles it went in with — including a
     /// broken one, which is now nobody's to fix.
@@ -312,7 +415,7 @@ public sealed class SettingsMigrationTests : IDisposable
     }
 
     /// <summary>And a fresh installation gets none at all.</summary>
-    /// <remarks>An AI CLI in a shell is an agent tile now, so seeding four profiles would be offering a
+    /// <remarks>An AI CLI in a shell is a terminal agent tile now, so seeding four profiles would be offering a
     /// route that no longer leads anywhere — and one the empty tile's chooser could not show.</remarks>
     [Fact]
     public void A_new_installation_is_seeded_with_no_profiles_and_one_instance_per_agent()

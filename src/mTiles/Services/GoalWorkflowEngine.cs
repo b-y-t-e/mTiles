@@ -183,6 +183,11 @@ public sealed partial class GoalWorkflowEngine
     /// answer survives a restart.</summary>
     public GoalStopReason? LastStopReason { get; set; }
 
+    /// <summary>Whether the summary standing now is that of a review asked for on its own, whose
+    /// findings may still be ticked before Continue. Persisted, because Met alone cannot tell it from
+    /// the end of a loop.</summary>
+    public bool SummaryOfAReviewOnItsOwn { get; set; }
+
     /// <summary>
     /// The ref holding the working tree as it was when this goal started, or null when no snapshot was
     /// taken — see <see cref="GoalBaseline"/>.
@@ -287,6 +292,117 @@ public sealed partial class GoalWorkflowEngine
     /// first review of this goal.</summary>
     public int[] LastReviewCounts { get; set; } = [];
 
+    /// <summary>The last review as it came back, so the feedback can be built again from a shorter list
+    /// after the user has dismissed something at the gate. Null before the first review of this
+    /// goal.</summary>
+    public GoalReviewResult? LastReview { get; set; }
+
+    /// <summary>Whether the run is standing at the review gate — see
+    /// <see cref="GoalTileState.PausedAtReviewGate"/>, which is where it is kept so a tile closed at
+    /// the gate comes back at it and a tile paused anywhere else does not.</summary>
+    public bool PausedAtReviewGate { get; set; }
+
+    /// <summary>
+    /// What the user has said is not to be fixed — see <see cref="GoalDismissals"/>.
+    /// </summary>
+    /// <remarks>Of the goal and not of one review: the reviewer is run from scratch on every lap and
+    /// remembers nothing, so a dismissal that lived on its own review would last exactly until the next
+    /// one was written.</remarks>
+    public List<GoalFinding> Dismissed { get; } = [];
+
+    /// <summary>
+    /// The suggestions the user has ticked to be fixed. A suggestion is left alone by default — never
+    /// sent back, never counted — so what is kept for it is the opt-in, the opposite of
+    /// <see cref="Dismissed"/>.
+    /// </summary>
+    public List<GoalFinding> IncludedSuggestions { get; } = [];
+
+    /// <summary>Whether this suggestion has been ticked to be fixed. Always false for any other
+    /// severity, which is governed by <see cref="Dismissed"/> instead.</summary>
+    public bool Includes(GoalFinding finding) =>
+        finding.Severity == GoalSeverity.Suggestion && GoalDismissals.Contains(IncludedSuggestions, finding);
+
+    /// <summary>What the tick beside this finding says when nobody has touched it on this review: the
+    /// goal's standing decision about it.</summary>
+    public bool FixByDefault(GoalFinding finding) =>
+        finding.Severity == GoalSeverity.Suggestion
+            ? Includes(finding)
+            : !GoalDismissals.Contains(Dismissed, finding);
+
+    /// <summary>
+    /// Whether the goal is done: the criteria, and no suggestion the user ticked still standing.
+    /// </summary>
+    /// <remarks>The criteria count no suggestion and must not start to, so the tick is the one thing
+    /// here that makes a suggestion hold a goal open — asked for by name, and still raised by the
+    /// review that has just come in.</remarks>
+    public bool IsMet(GoalReviewResult accepted) =>
+        GoalCompletionPolicy.IsMet(accepted, Criteria) && !accepted.Findings.Any(Includes);
+
+    /// <summary>Why the goal is not done, as <see cref="IsMet"/> judges it: the criteria's own sentence,
+    /// or — where the criteria are met — the suggestions the user ticked that the review still raises.</summary>
+    public string WhyNotMet(GoalReviewResult accepted)
+    {
+        if (!GoalCompletionPolicy.IsMet(accepted, Criteria))
+            return GoalCompletionPolicy.WhyNotMet(accepted, Criteria);
+
+        var ticked = accepted.Findings.Count(Includes);
+        return ticked == 1
+            ? "a suggestion you ticked to be fixed is still raised"
+            : $"{ticked} suggestions you ticked to be fixed are still raised";
+    }
+
+    /// <summary>What goes back to the tool from this review: its defects, and the suggestions the user
+    /// ticked.</summary>
+    public string FeedbackFor(GoalReviewResult accepted) =>
+        GoalTranscript.Feedback(accepted, IncludedSuggestions);
+
+    /// <summary>What the loop does when a review is in and the goal is not finished — see
+    /// <see cref="GoalReviewGateMode"/>.</summary>
+    public GoalReviewGateMode ReviewGateMode { get; set; }
+
+    /// <summary>How long the gate's countdown runs, as it was typed. Bounded where it is used, the rule
+    /// <see cref="MaxIter"/> follows and for the same reason.</summary>
+    public int ReviewGateSeconds { get; set; } = GoalReviewGatePolicy.DefaultSeconds;
+
+    /// <summary>The wait the gate actually gets, whatever the panel or the file says.</summary>
+    public int GateSeconds => GoalReviewGatePolicy.Seconds(ReviewGateSeconds);
+
+    /// <summary>
+    /// Records what a tick now says about this finding, and answers whether anything moved.
+    /// </summary>
+    /// <remarks>By identity rather than by reference: the finding the user ticked is the one in the
+    /// transcript, and the one already on the list came off a review that may have been written on an
+    /// earlier lap or read back out of the file. Two objects, one defect.</remarks>
+    public bool SetFix(GoalFinding finding, bool fix)
+    {
+        // A suggestion's tick is an opt-in, kept on its own list: see IncludedSuggestions.
+        if (finding.Severity == GoalSeverity.Suggestion)
+        {
+            var included = IncludedSuggestions.FirstOrDefault(d => d.Defect == finding.Defect);
+            if (fix == included is not null) return false;
+            if (fix) IncludedSuggestions.Add(finding);
+            else IncludedSuggestions.Remove(included!);
+            return true;
+        }
+
+        var stored = Dismissed.FirstOrDefault(d => d.Defect == finding.Defect);
+        if (fix)
+        {
+            if (stored is null) return false;
+            Dismissed.Remove(stored);
+            return true;
+        }
+
+        if (stored is not null) return false;
+        Dismissed.Add(finding);
+        return true;
+    }
+
+    /// <summary>The review as the criteria and the next prompt see it: what came back, less what has
+    /// been dismissed.</summary>
+    public GoalReviewResult Accepted(GoalReviewResult review) =>
+        GoalDismissals.Accepted(review, Dismissed);
+
     /// <param name="budget">How many characters the chosen tool can be handed on a command line, or
     /// null when there is no such limit — see <see cref="AiProcessRunner.PromptBudget"/>. Passed all the
     /// way down rather than looked up in the builder, which is pure and knows nothing about tools.</param>
@@ -325,7 +441,11 @@ public sealed partial class GoalWorkflowEngine
     /// <inheritdoc cref="BuildClarifyPrompt"/>
     public string BuildReviewPrompt(string? gitDiff, bool scoped = false, int? budget = null,
         string? guideline = null) =>
-        _promptBuilder.BuildReview(OriginalGoal, gitDiff, scoped, budget, guideline);
+        // The dismissals are read here rather than passed in, so no caller can build a review prompt
+        // that forgets them — which is a reviewer raising, in fresh words, the finding the user
+        // unticked a minute ago, and an attempt spent undoing their decision.
+        _promptBuilder.BuildReview(OriginalGoal, gitDiff, scoped, budget, guideline,
+            GoalDismissals.PromptBlock(Dismissed));
 
     /// <summary>Asks the tool to re-send a review block it wrote as invalid JSON. The answer travels
     /// alone — the salvage round repairs what the tool wrote, it does not re-run the phase.</summary>
@@ -362,9 +482,19 @@ public sealed partial class GoalWorkflowEngine
         LastReviewFeedback = null;
         LastReviewFingerprint = null;
         LastReviewCounts = [];
+        LastReview = null;
+        PausedAtReviewGate = false;
+
+        // The old goal's dismissals go with the old goal. They are a decision about findings raised
+        // against work that is no longer what is being asked for, and kept, they would quietly tell the
+        // next goal's reviewer not to mention a defect nobody has looked at yet. The gate's own settings
+        // stay: those are how this tile is worked, not what it is working on.
+        Dismissed.Clear();
+        IncludedSuggestions.Clear();
         AttemptLog.Clear();
         IterationCount = 0;
         LastStopReason = null;
+        SummaryOfAReviewOnItsOwn = false;
         // The old goal's snapshot belongs to the old goal. A new one is taken as this one starts, and
         // until it is there is nothing to point the user at.
         BaselineRef = null;
@@ -505,6 +635,13 @@ public sealed partial class GoalWorkflowEngine
         // run after a single attempt, reporting that two reviews had agreed when only one had happened.
         LastReviewFingerprint = null;
         LastReviewCounts = [];
+        LastReview = null;
+        PausedAtReviewGate = false;
+
+        // The dismissals stay. They are the user's answer about a defect, not about the plan that was
+        // being argued over — and a rejected plan and its replacement are usually about the same defect,
+        // so clearing them here is how something unticked twenty seconds ago comes back on the first
+        // review of the new plan.
 
         IterationCount = 0;
         return true;
@@ -704,7 +841,7 @@ public sealed partial class GoalWorkflowEngine
         : "";
 
     public GoalTileState ToState(List<GoalMessage> messages, string executionAgentInstanceId,
-        string reviewAgentInstanceId) => new()
+        string reviewAgentInstanceId, string planningAgentInstanceId = "") => new()
     {
         OriginalGoal = OriginalGoal,
         ScopePaths = [..ScopePaths],
@@ -720,8 +857,10 @@ public sealed partial class GoalWorkflowEngine
         CurrentPhase = CurrentPhase,
         ExecutionAgentInstanceId = executionAgentInstanceId,
         ReviewAgentInstanceId = reviewAgentInstanceId,
+        PlanningAgentInstanceId = planningAgentInstanceId,
         IterationCount = IterationCount,
         LastStopReason = LastStopReason,
+        SummaryOfAReviewOnItsOwn = SummaryOfAReviewOnItsOwn,
         BaselineRef = BaselineRef,
         EndRef = EndRef,
         ReviewsExistingWork = ReviewsExistingWork,
@@ -734,6 +873,12 @@ public sealed partial class GoalWorkflowEngine
         AttemptLog = [..AttemptLog],
         LastReviewFingerprint = LastReviewFingerprint,
         LastReviewCounts = [..LastReviewCounts],
+        LastReview = LastReview,
+        PausedAtReviewGate = PausedAtReviewGate,
+        DismissedFindings = [..Dismissed],
+        IncludedSuggestions = [..IncludedSuggestions],
+        ReviewGateMode = ReviewGateMode,
+        ReviewGateSeconds = ReviewGateSeconds,
         Criteria = Criteria.Copy(),
 
         // Filtered here rather than at the call site so no caller can forget: a note about this session
@@ -768,6 +913,7 @@ public sealed partial class GoalWorkflowEngine
         CurrentPhase = state.CurrentPhase;
         IterationCount = state.IterationCount;
         LastStopReason = state.LastStopReason;
+        SummaryOfAReviewOnItsOwn = state.SummaryOfAReviewOnItsOwn;
         BaselineRef = state.BaselineRef;
         EndRef = state.EndRef;
         ReviewsExistingWork = state.ReviewsExistingWork;
@@ -784,6 +930,14 @@ public sealed partial class GoalWorkflowEngine
         AttemptLog.AddRange(state.AttemptLog);
         LastReviewFingerprint = state.LastReviewFingerprint;
         LastReviewCounts = [..state.LastReviewCounts];
+        LastReview = state.LastReview;
+        PausedAtReviewGate = state.PausedAtReviewGate;
+        Dismissed.Clear();
+        Dismissed.AddRange(state.DismissedFindings);
+        IncludedSuggestions.Clear();
+        IncludedSuggestions.AddRange(state.IncludedSuggestions);
+        ReviewGateMode = state.ReviewGateMode;
+        ReviewGateSeconds = state.ReviewGateSeconds;
         Criteria = state.Criteria.Copy();
 
         // A run that was interrupted is a pause nobody asked for. The rule lives here rather than in

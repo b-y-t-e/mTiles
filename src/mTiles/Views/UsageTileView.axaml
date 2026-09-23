@@ -61,7 +61,7 @@
 
         <!-- No "Usage" heading: the tile header above already says what this is. -->
         <DockPanel DockPanel.Dock="Top" Margin="8,3,6,0">
-            <Button DockPanel.Dock="Right" Classes="tile-btn"
+            <Button x:Name="RefreshButton" DockPanel.Dock="Right" Classes="tile-btn"
                     Command="{Binding RefreshCommand}"
                     IsEnabled="{Binding !IsBusy}"
                     ToolTip.Tip="Ask every account again">

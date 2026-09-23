@@ -29,11 +29,23 @@ public abstract class AiAgent : IAiAgent
     /// The agent's own pair of commands: the one that resumes <paramref name="sessionId"/>, and the one
     /// to try when it does not work. Nothing about the instance's configuration belongs here.
     /// </summary>
+    /// <param name="program">How this tile's shell is told to run this agent's binary — usually the
+    /// binary's own name, and on PowerShell the path to it. Written into the command rather than the
+    /// name, for the reason <c>IShellTerminal.Program</c> gives.</param>
+    /// <param name="sessionId">Already quoted for that shell; see <see cref="Interactive"/>.</param>
     /// <remarks>What an agent implements instead of <see cref="Interactive"/>, for the reason
     /// <see cref="Configure"/> exists instead of <see cref="EnvFor"/>: the instance's effort, behaviour
     /// and extra arguments have to reach the command line of every agent, and a rule six classes have to
     /// remember is one five of them did forget.</remarks>
-    protected abstract LaunchScripts Resume(string sessionId);
+    protected abstract LaunchScripts Resume(string program, string sessionId);
+
+    /// <summary>The arguments <see cref="Resume"/> writes into its commands itself, beyond the session
+    /// id, as they will be when the command runs.</summary>
+    /// <remarks>Part of what the shell is asked about in <see cref="Interactive"/>, because on
+    /// PowerShell a <c>.cmd</c> shim is only used for arguments <c>cmd.exe</c> cannot misread
+    /// (<c>IShellTerminal.Program</c>) — and an argument the question never saw is one it could not
+    /// refuse.</remarks>
+    protected virtual IEnumerable<string> ResumeArguments(string sessionId) => [];
 
     public abstract IReadOnlyList<AiBehaviour> SupportedBehaviours(AiAgentInstance instance, AiUsage usage);
     public abstract IReadOnlyList<AiEffort> SupportedEfforts(AiAgentInstance instance, AiUsage usage);
@@ -49,11 +61,28 @@ public abstract class AiAgent : IAiAgent
     /// says so rather than one that quietly runs on its own.</remarks>
     public virtual IReadOnlyList<string> ModelArgs(string model, AiUsage usage) => [];
 
+    /// <summary>Nothing by default.</summary>
+    public virtual IReadOnlyList<string> SessionDefaultArgs(AgentRuntime runtime) => [];
+
+    /// <summary>No route by default.</summary>
+    /// <remarks><b>Virtual here and not a default interface member</b>, the rule
+    /// <c>UsesModelContextWindow</c> sets: a default interface member is only reached through the
+    /// interface, so an agent that answered it as an ordinary member would be silently ignored
+    /// wherever the concrete type is held — and the symptom would be a tick that does nothing.
+    /// </remarks>
+    public virtual OutputProxy.Support OutputProxySupport => OutputProxy.Support.None;
+
+    /// <summary>No hook of the user's own anywhere by default.</summary>
+    public virtual bool IsOutputProxyAlreadyHooked(AiSignIn? signIn, string? workspaceDirectory = null) => false;
+
     /// <inheritdoc />
     /// <remarks>The id as the instance stores it, which is right for every agent that is pointed at a
     /// service by its address rather than by its name. The two that keep a registry override this.
     /// </remarks>
     public virtual string QualifiedModel(AgentRuntime runtime) => runtime.RequestedModel;
+
+    /// <inheritdoc />
+    public virtual string InstanceModel(AgentRuntime runtime, string qualifiedModel) => qualifiedModel;
 
     /// <inheritdoc />
     /// <remarks>True unless the agent says otherwise: every agent measured so far either takes a base
@@ -89,7 +118,7 @@ public abstract class AiAgent : IAiAgent
     /// drop that without anything noticing — so what an agent overrides is <see cref="Prepare"/>, which
     /// only ever adds. This is also the moment that exists so a getter does not write files, which is
     /// why the directories are made here and not in <see cref="EnvFor"/>: that one is reached through
-    /// <c>AgentTileViewModel.LaunchEnvironment</c>, a property read twice a launch and again by any
+    /// <c>TerminalAgentTileViewModel.LaunchEnvironment</c>, a property read twice a launch and again by any
     /// debugger watching it.</remarks>
     public void PrepareToLaunch(AgentRuntime runtime)
     {
@@ -126,6 +155,22 @@ public abstract class AiAgent : IAiAgent
         if (model.Length == 0 || runtime.Provider is not { } provider) return model;
 
         return $"{provider.CatalogueId}/{model}";
+    }
+
+    /// <summary>
+    /// The inverse of <see cref="WithProviderPrefix"/>: exactly one leading <c>provider/</c> of the instance's
+    /// own provider taken off, so <c>openrouter/openrouter/auto</c> comes back as <c>openrouter/auto</c>.
+    /// </summary>
+    /// <remarks>A model under another provider, or an instance with none, is left as it is — there is no
+    /// prefix of ours on it to take away.</remarks>
+    protected static string WithoutProviderPrefix(AgentRuntime runtime, string qualifiedModel)
+    {
+        if (runtime.Provider is not { } provider) return qualifiedModel;
+
+        var prefix = $"{provider.CatalogueId}/";
+        return qualifiedModel.StartsWith(prefix, StringComparison.Ordinal) && qualifiedModel.Length > prefix.Length
+            ? qualifiedModel[prefix.Length..]
+            : qualifiedModel;
     }
 
     /// <summary>
@@ -255,11 +300,18 @@ public abstract class AiAgent : IAiAgent
     /// or a backup can corrupt, or — for a captured agent — whatever string the CLI printed as its
     /// conversation id. Unquoted, a <c>;</c> in either of those is a second command running in the
     /// user's repository. Quoted here rather than in six <see cref="Resume"/> bodies, for the reason
-    /// this method is not virtual at all.</para></remarks>
+    /// this method is not virtual at all.</para>
+    /// <para><b>And the binary is spelled the way that shell runs a program</b>
+    /// (<c>IShellTerminal.Program</c>), which on PowerShell is the path this machine found
+    /// rather than the name — otherwise an npm-installed CLI runs as its <c>.ps1</c> shim and a default
+    /// Windows refuses to load it. Looked up here for the same reason again: six <c>Resume</c> bodies
+    /// spelling their own binary is six chances to spell it as a bare name.</para></remarks>
     public LaunchScripts Interactive(AgentRuntime runtime, string sessionId, IShellTerminal shell)
     {
-        var commands = Resume(ForCommandLine(sessionId, shell));
         var arguments = InteractiveArguments(runtime);
+        var program = shell.Program(BinaryName, AiAgentCatalog.Locate(this),
+            [.. SessionArgument(sessionId), .. ResumeArguments(sessionId), .. arguments]);
+        var commands = Resume(program, ForCommandLine(sessionId, shell));
 
         return arguments.Count == 0
             ? commands
@@ -285,6 +337,7 @@ public abstract class AiAgent : IAiAgent
             // The resolved model rather than the stored one: a sentinel on a command line is a model
             // name no provider has.
             .. ModelArgs(QualifiedModel(runtime), AiUsage.Interactive),
+            .. SessionDefaultArgs(runtime),
             .. instance.ExtraArgs.Where(argument => !string.IsNullOrWhiteSpace(argument)),
         ];
     }
@@ -317,16 +370,14 @@ public abstract class AiAgent : IAiAgent
     private static string ForCommandLine(string sessionId, IShellTerminal shell) =>
         sessionId.Length == 0 ? sessionId : Quoted(sessionId, shell);
 
+    /// <summary>The session id as one of the arguments the shell is told about, or none when empty.
+    /// </summary>
+    private static IEnumerable<string> SessionArgument(string sessionId) =>
+        sessionId.Length == 0 ? [] : [sessionId];
+
     /// <inheritdoc cref="Append"/>
     private static string Quoted(string argument, IShellTerminal shell) =>
-        argument.Length > 0 && argument.All(IsQuoteFree) ? argument : shell.Quote(argument);
-
-    /// <summary>A character every shell in the catalog leaves alone, so an argument made only of them
-    /// is passed through unquoted.</summary>
-    /// <remarks>An allow-list rather than a list of what to escape: the next shell added brings its own
-    /// metacharacters, and a rule stated the other way round would already be wrong for it.</remarks>
-    private static bool IsQuoteFree(char character) =>
-        char.IsAsciiLetterOrDigit(character) || "._-/:=@+,".Contains(character);
+        ShellArgument.IsQuoteFree(argument) ? argument : shell.Quote(argument);
 
     /// <summary>
     /// What the agent asks for, and then what the user asked for on top of it.
@@ -361,6 +412,23 @@ public abstract class AiAgent : IAiAgent
 
     /// <inheritdoc />
     public virtual string? SkillsDirectory(string workspaceDir) => null;
+
+    /// <inheritdoc />
+    public virtual bool WatchesSkillsDirectory(AgentSurface surface) => false;
+
+    /// <inheritdoc />
+    /// <remarks>Stated on the base rather than left to the interface's default body, for the reason
+    /// <c>UsesModelContextWindow</c> is: a default interface member is invisible to a subclass reading
+    /// this file, and an agent that grows a store later should find the property it is overriding
+    /// here.</remarks>
+    public virtual SessionLogs.IAgentSessionLog? SessionLog => null;
+
+    /// <inheritdoc />
+    public virtual bool FollowsSessionChanges => true;
+
+    /// <inheritdoc />
+    public virtual Task<long?> AccountContextWindowAsync(AiSignIn? signIn, string model,
+        CancellationToken ct = default) => Task.FromResult<long?>(null);
 
     /// <inheritdoc />
     public virtual string InstructionFile => WorkspaceAgentFiles.CanonicalInstructionFile;
@@ -578,6 +646,9 @@ public abstract class AiAgent : IAiAgent
 
     /// <inheritdoc />
     public virtual bool CapturesWhileRunning => false;
+
+    /// <inheritdoc />
+    public virtual bool ResumesTerminalSession => true;
 
     /// <summary>Nothing to capture, which is the answer for every agent that lets us name the session
     /// ourselves.</summary>

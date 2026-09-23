@@ -23,12 +23,33 @@
     <Styles.Resources>
         <DataTemplate x:Key="FindingTemplate" DataType="m:GoalFinding">
             <Border Classes="finding"
+                    Classes.f-left="{Binding IsLeftAlone}"
                     Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
                     Classes.f-error="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Error}}"
                     Classes.f-warning="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Warning}}"
                     Classes.f-suggestion="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Suggestion}}">
                 <StackPanel>
                     <DockPanel>
+                        <!-- ======== Will this one be fixed ========
+                             Drawn only where there is a choice to make or one that has been made - see
+                             GoalFinding.ShowPick. A review nobody was offered a say in keeps the look it
+                             has always had, rather than growing a column of permanently ticked boxes
+                             saying nothing.
+
+                             First in the row, before the severity, because it is the one thing here
+                             that is acted on: everything to the right of it describes the finding, and
+                             a control the eye has to find among three kinds of text is a control that
+                             gets missed while a clock runs. -->
+                        <!-- Drawn as the transcript draws everything - text in the terminal's face,
+                             [x] and [ ] - rather than as the platform's checkbox, whose 20px box
+                             stood taller than the line it sat on and was the one piece of desktop
+                             chrome in a column of monospace. The text comes from the f-pick styles. -->
+                        <ToggleButton DockPanel.Dock="Left"
+                                      Classes="f-pick"
+                                      IsVisible="{Binding ShowPick}"
+                                      IsEnabled="{Binding CanPick}"
+                                      IsChecked="{Binding Fix, Mode=TwoWay}"
+                                      ToolTip.Tip="Ticked goes back to the tool to be fixed. Unticked is left alone - it stops counting against the goal, and the next review is told not to raise it again." />
                         <TextBlock DockPanel.Dock="Left"
                                    Classes="f-sev"
                                    Classes.f-blocker="{Binding Severity, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static m:GoalSeverity.Blocker}}"
@@ -75,27 +96,8 @@
         </DataTemplate>
     </Styles.Resources>
 
-        <Style Selector="Button.msg-copy, Button.item-copy">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="4,2" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="Margin" Value="6,0,0,0" />
-            <Setter Property="VerticalAlignment" Value="Top" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Opacity" Value="0" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
-                </Transitions>
-            </Setter>
-        </Style>
         <Style Selector="Border.finding:pointerover Button.item-copy">
             <Setter Property="Opacity" Value="1" />
-        </Style>
-        <Style Selector="Button.msg-copy:pointerover, Button.item-copy:pointerover">
-            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
         </Style>
         <Style Selector="Button.list-copy">
             <Setter Property="Background" Value="Transparent" />
@@ -133,6 +135,57 @@
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Padding" Value="10,2,0,4" />
             <Setter Property="Margin" Value="0,14,0,0" />
+        </Style>
+        <!-- What a finding that is being left alone looks like: still there, still readable, plainly
+             not part of what happens next. Dimmed rather than struck through or hidden - it is the
+             record of a decision, and a reader two attempts later has to be able to see what was
+             decided as well as what was found. -->
+        <Style Selector="Border.finding.f-left">
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
+<!-- The tick as text: [x] going back to the tool, [ ] left alone. The terminal's face at the
+             severity label's size, so it sits on the same baseline and takes one line's height, and
+             in the severity's own colour, so the mark and the word beside it read as one thing. No
+             ground and no border; the presenter is held to the control's own foreground in every
+             state, because Fluent repaints it on hover and on check and a tick that changed colour
+             under the pointer would stop saying which severity it belongs to. -->
+        <Style Selector="ToggleButton.f-pick">
+            <Setter Property="Content" Value="[ ]" />
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontSm}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:checked">
+            <Setter Property="Content" Value="[x]" />
+        </Style>
+        <Style Selector="Border.finding.f-blocker ToggleButton.f-pick, Border.finding.f-error ToggleButton.f-pick">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="Border.finding.f-warning ToggleButton.f-pick">
+            <Setter Property="Foreground" Value="{DynamicResource GoalPhasePlan}" />
+        </Style>
+        <Style Selector="Border.finding.f-suggestion ToggleButton.f-pick">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{Binding $parent[ToggleButton].Foreground}" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:checked /template/ ContentPresenter, ToggleButton.f-pick:pointerover /template/ ContentPresenter, ToggleButton.f-pick:pressed /template/ ContentPresenter, ToggleButton.f-pick:disabled /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{Binding $parent[ToggleButton].Foreground}" />
+        </Style>
+        <Style Selector="ToggleButton.f-pick:disabled">
+            <Setter Property="Cursor" Value="Arrow" />
         </Style>
         <Style Selector="Border.finding:nth-child(1)">
             <Setter Property="Margin" Value="0" />

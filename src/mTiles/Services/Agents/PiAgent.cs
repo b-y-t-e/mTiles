@@ -17,10 +17,16 @@ namespace mTiles.Services.Agents;
 /// <para><b>Sessions are the easy case</b>: <c>--session-id &lt;id&gt;</c> creates the session if it
 /// is missing, so the tile's own id is the whole of the bookkeeping.</para>
 /// </remarks>
-public sealed class PiAgent : AiAgent
+public sealed class PiAgent : AiAgent, Sessions.IConversationalAgent
 {
     public override string Id => "pi";
     public override string DisplayName => "Pi Agent";
+
+    /// <summary>A conversation through <c>pi --mode rpc</c> — see <see cref="Sessions.Pi.PiRpcSession"/>.
+    /// </summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.Pi.PiRpcSession(launch, this, sink);
 
     /// <inheritdoc cref="CodexAgent.SkillsDirectory"/>
     public override string? SkillsDirectory(string workspaceDir) =>
@@ -42,6 +48,22 @@ public sealed class PiAgent : AiAgent
     public override bool SupportsSignIns => true;
 
     /// <inheritdoc />
+    /// <remarks>Under whichever directory <c>PI_CODING_AGENT_DIR</c> names, which is the same fact
+    /// <see cref="SignInEnv"/> carries — the default account's included, where this machine exports it.
+    /// </remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog { get; } =
+        new SessionLogs.PiSessionLog(signIn => signIn is null
+            ? DefaultConfigDirectory()
+            : AiSignInStore.DirectoryFor(signIn));
+
+    /// <summary>Where the default account lives: an exported <c>PI_CODING_AGENT_DIR</c>, else pi's own
+    /// <c>~/.pi/agent</c>.</summary>
+    private static string DefaultConfigDirectory() =>
+        Environment.GetEnvironmentVariable("PI_CODING_AGENT_DIR") is { Length: > 0 } directory
+            ? directory
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pi", "agent");
+
+    /// <inheritdoc />
     public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
         new Dictionary<string, string?>(StringComparer.Ordinal)
         {
@@ -53,10 +75,7 @@ public sealed class PiAgent : AiAgent
     /// which is not this sign-in's login and would report every empty directory as signed in.</remarks>
     public override SignInStatus ReadSignIn(string? configDirectory)
     {
-        var home = configDirectory is { Length: > 0 } directory
-            ? directory
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".pi", "agent");
+        var home = configDirectory is { Length: > 0 } directory ? directory : DefaultConfigDirectory();
 
         return File.Exists(Path.Combine(home, "auth.json"))
             ? SignInStatus.SignedInAnonymously
@@ -88,6 +107,10 @@ public sealed class PiAgent : AiAgent
     /// <c>--provider</c> flag says the same thing twice, and its default is <c>google</c> — which is
     /// what an unprefixed model was quietly running on.</remarks>
     public override string QualifiedModel(AgentRuntime runtime) => WithProviderPrefix(runtime);
+
+    /// <inheritdoc />
+    public override string InstanceModel(AgentRuntime runtime, string qualifiedModel) =>
+        WithoutProviderPrefix(runtime, qualifiedModel);
 
     /// <inheritdoc />
     /// <remarks>The prefix is the only place this CLI hears which service to use.</remarks>
@@ -140,8 +163,8 @@ public sealed class PiAgent : AiAgent
     public override IReadOnlyList<string> ModelArgs(string model, AiUsage usage) =>
         model.Length > 0 ? ["--model", model] : [];
 
-    protected override LaunchScripts Resume(string sessionId) =>
-        LaunchScripts.FromProfile($"pi --session-id {sessionId}", "pi");
+    protected override LaunchScripts Resume(string program, string sessionId) =>
+        LaunchScripts.FromProfile($"{program} --session-id {sessionId}", program);
 
     public override void ConfigureProcess(ProcessStartInfo psi, string prompt, bool streaming,
         AiUsage usage, AiBehaviour behaviour = AiBehaviour.Auto,
@@ -167,4 +190,22 @@ public sealed class PiAgent : AiAgent
     // an mTiles sign-in the extension can go in PI_CODING_AGENT_DIR, which is a directory this
     // application already owns and creates. On the default account it must go nowhere: that is the
     // user's own settings file.
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para><b>Measured and not yet wired, which is a different answer from "no route".</b> Probed
+    /// 2026-09-22 against rtk 0.46.0: <c>rtk init --global --hook-only --agent pi</c> writes
+    /// <c>&lt;PI_CODING_AGENT_DIR&gt;/extensions/rtk.ts</c> — a thin extension that shells out to
+    /// <c>rtk rewrite</c> for every bash tool call — and prints its own verification line,
+    /// <c>pi -e &lt;path&gt; --no-session</c>. So the route is exactly Claude Code's shape: a file plus
+    /// an argument, applying to the sessions launched from here and to no others.</para>
+    /// <para>What it still needs is the file. rtk writes it into pi's own directory, and this
+    /// application would want it in one it owns — the sign-in directory it already hands pi through
+    /// <c>PI_CODING_AGENT_DIR</c> — which means running <c>rtk init</c> as a side effect of a launch.
+    /// That is a program writing a TypeScript file into somebody's configuration on a tick, and it is
+    /// a decision of its own rather than a line added here on the strength of one probe.</para>
+    /// <para>Until then this answers <see cref="OutputProxy.Support.None"/> and costs its user the
+    /// tokens, rather than offering a tick that does nothing.</para>
+    /// </remarks>
+    public override OutputProxy.Support OutputProxySupport => OutputProxy.Support.None;
 }

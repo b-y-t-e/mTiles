@@ -44,9 +44,18 @@ kafel przestaje wskazywać. Ta różnica musi być w treści pytania — nie jed
 
 ## 3. Wybrany kształt
 
-**`…` → `Change type ▸ <lista rodzajów>`**, submenu budowane z `TileCatalog.Entries` z pominięciem
-rodzaju bieżącego (ta sama ikona, ten sam akcent i ta sama kolejność co karty chooseru — obie listy
-czytają rejestr, więc nie mogą się rozjechać).
+**`…` → `Change type ▸ <lista rodzajów>`**, submenu budowane z `TileCatalog.Entries` (ta sama ikona, ten
+sam akcent i ta sama kolejność co karty chooseru — obie listy czytają rejestr, więc nie mogą się
+rozjechać). Rodzaj bieżący **też jest na liście** — z wielokropkiem, `Terminal…` — ale tylko wtedy, gdy
+ma krok konfiguracji, z którego coś zostało do wybrania: po to, by przestawić kafel na inną powłokę albo
+inne AI CLI. Ustawienie, na którym kafel już działa, jest z tego kroku wycięte
+(`ITileKind.IsCurrentSetup`; `TerminalTileKind` odpowiada też za kartę „Default shell", która nie niesie
+stanu) — wzięcie go zabiłoby shell wraz z drzewem procesów, a dla codex/agy przepadłoby przechwycone
+`sessionId`, żeby wrócić dokładnie tam, gdzie kafel był. Tak samo `SwitchAgentInstance` nie oferuje
+instancji bieżącej — a w drugą stronę `TerminalAgentTileKind` wycina z kroku **wszystkie** instancje
+agenta, na którym kafel już stoi: przejście między nimi robi tańsza trasa z tego samego nagłówka
+(zmiana instancji i restart, przechwycona rozmowa zostaje), a odbudowa przez krok konfiguracji gubi
+`sessionId` codeksa i agy bezpowrotnie.
 
 Przepływ, i **kolejność jest tu całą treścią decyzji**:
 
@@ -55,8 +64,11 @@ Przepływ, i **kolejność jest tu całą treścią decyzji**:
    instancja). Rysowany zamiast treści kafla, ze `Wstecz`/`Anuluj`, **stara treść nadal żyje** —
    terminal dalej pracuje, kiedy wybierasz powłokę dla jego następcy.
 3. **Potwierdzenie** — jedno zdanie mówiące, co konkretnie umiera (tabela §2). Dopiero tutaj, bo
-   dopiero tutaj jest komplet: co znika i co powstaje.
-4. **Konwersja** — dopiero teraz cokolwiek jest niszczone.
+   dopiero tutaj jest komplet: co znika i co powstaje. Przy rodzaju bieżącym to zdanie pyta o
+   przekonfigurowanie (`TileConversion.ReconfigureWarning`): „Change this tile to Terminal agent?"
+   zadane kafelkowi, który jest agentem, czytałoby się jak menu, które nic nie zrobiło.
+4. **Konwersja** — dopiero teraz cokolwiek jest niszczone. Nazwa kafla jest generowana od nowa przy
+   zmianie rodzaju, a przy przekonfigurowaniu **zachowana**: kafel jest nadal tym, czym był.
 
 Odrzucone warianty:
 

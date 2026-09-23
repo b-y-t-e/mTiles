@@ -202,6 +202,93 @@ public interface IAiAgent : IAgentActivityReader
     string? SkillsDirectory(string workspaceDir) => null;
 
     /// <summary>
+    /// Whether this CLI, run on <paramref name="surface"/>, notices a skill written into
+    /// <see cref="SkillsDirectory"/> while it is already running — and therefore whether the directory has
+    /// to exist before it starts.
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured 2026-09-17 against the installed binaries and each CLI's own documentation, and
+    /// <b>no agent answers yes</b>. Claude Code 2.1.274 documents a watcher in its terminal interface, and
+    /// this used to answer yes there on the strength of it — until 2026-09-18, when a terminal agent tile
+    /// on Claude Code did not pick up a second database ticked while it ran, while the yes had silenced
+    /// both the notice and the lit Restart. A documented watcher is not a measured one. codex hedges its
+    /// claim with "restart Codex"; opencode has an open bug (#49451); pi scans "at startup" and has no
+    /// reload verb; agy documents nothing.</para>
+    /// <para><b>The surface stays a parameter</b> because a watcher, if one is ever measured, is a fact
+    /// about one surface: an Agent tile runs <c>claude -p --output-format stream-json</c>, not the TUI.</para>
+    /// <para>No skills directory is made ahead of a skill any more: with nobody watching, an empty one
+    /// buys nothing.</para>
+    /// <para>False by default, and false is the safe answer: what it costs is a notice asking for a
+    /// restart that was not strictly needed, against an agent that never sees the databases the user has
+    /// just granted it and nothing on screen saying so.</para>
+    /// </remarks>
+    /// <param name="surface">Whether the CLI is running as its own terminal interface or as the session
+    /// an Agent tile drives.</param>
+    bool WatchesSkillsDirectory(AgentSurface surface) => false;
+
+    /// <summary>
+    /// This CLI's own record of the conversations it holds, where it keeps one this application can
+    /// read. Null where it does not.
+    /// </summary>
+    /// <remarks>
+    /// <para>Two things are read out of it and neither can be had any other way. <b>Which conversation a
+    /// tile is really in</b>: every one of these CLIs lets the user change it from inside its own
+    /// interface (<c>/clear</c>, <c>/resume</c> and their spellings), at which point the id in the layout
+    /// resumes something nobody is looking at — <see cref="SessionStrategy"/> describes how a session
+    /// gets its identity at launch and has nothing to say about it moving afterwards. And <b>how full
+    /// the model's context is</b>, which a TUI paints into its own footer and no host can read off a
+    /// pseudo-terminal.</para>
+    /// <para>Null by default, like <see cref="SkillsDirectory"/> and <see cref="UsageAsync"/>: an agent
+    /// whose author has measured nothing gets no gauge and keeps the session id it was launched with,
+    /// which is exactly what it has today. Measured 2026-09-18, five of the six answer — and agy is the
+    /// one that cannot, because its store is protobuf blobs in SQLite with the working directory buried
+    /// inside them; it says so in its own class rather than being given a reader nobody has tested.</para>
+    /// <para>A property rather than a method taking the instance, because where a CLI keeps its store is
+    /// a fact about the CLI. What varies per tile — which sign-in, which workspace — is a parameter of
+    /// the reads themselves.</para>
+    /// </remarks>
+    SessionLogs.IAgentSessionLog? SessionLog => null;
+
+    /// <summary>
+    /// Whether a conversation this CLI moved to by itself becomes the one the tile resumes.
+    /// </summary>
+    /// <remarks>
+    /// <para>True wherever <see cref="SessionLog"/> answers, which is the point of having one: the user
+    /// typing <c>/clear</c> in the TUI has changed conversation, and a tile that went on resuming the id
+    /// it launched with would reopen something nobody is looking at.</para>
+    /// <para><b>opencode is the exception and says so in its own class.</b> Its resume is backed by an
+    /// import document whose path is a pure function of the <em>tile</em> id, so a followed id would be
+    /// resumed by a command whose fallback recreates a different session — a mismatch that only shows
+    /// when the followed conversation is gone, which is the worst moment for it to show. Its gauge still
+    /// works; only the adoption is withheld.</para>
+    /// <para>Answering true where <see cref="SessionLog"/> is null costs nothing: with no reader there
+    /// is nothing to follow.</para>
+    /// </remarks>
+    bool FollowsSessionChanges => true;
+
+    /// <summary>
+    /// How large a context this CLI is served for a model on <em>its own account</em>, where it has a
+    /// way to ask.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The one question a provider cannot answer, because there is no provider.</b> An agent
+    /// running on a subscription has no <c>AiProviderInstance</c> at all — which is the commonest
+    /// configuration there is — so <c>ModelContextWindow.ContextOfAsync</c> has nothing to call and the
+    /// context bar had no denominator. Only the CLI's own service knows, and only the CLI's own
+    /// credentials can ask it.</para>
+    /// <para>Measured 2026-09-18: Claude Code's OAuth token gets a <c>200</c> out of
+    /// <c>api.anthropic.com/v1/models</c> with <c>max_input_tokens</c> per model. The other five have no
+    /// such route measured, answer null, and show a count with no bar — which is the honest outcome, and
+    /// the reason there is no guess anywhere behind this: a flat assumption drew a full bar over a
+    /// conversation at a quarter of its real window.</para>
+    /// <para>Read-only, cached by the implementation, and it never throws: what a failure costs is a
+    /// bar.</para>
+    /// </remarks>
+    /// <param name="signIn">Which login to ask as, or null for the CLI's own default account.</param>
+    Task<long?> AccountContextWindowAsync(AiSignIn? signIn, string model, CancellationToken ct = default) =>
+        Task.FromResult<long?>(null);
+
+    /// <summary>
     /// The project instruction file this CLI opens. <c>AGENTS.md</c> is the canon.
     /// </summary>
     /// <remarks>Measured 2026-09-03: opencode, codex, pi and agy all read <c>AGENTS.md</c>; only Claude
@@ -282,7 +369,7 @@ public interface IAiAgent : IAgentActivityReader
     string? UsageAccountKeyFor(AiSignIn? signIn);
 
     /// <summary>
-    /// What an agent tile runs: the command that resumes <paramref name="sessionId"/>, and the one to
+    /// What a terminal agent tile runs: the command that resumes <paramref name="sessionId"/>, and the one to
     /// try when it does not work.
     /// </summary>
     /// <remarks><para>In code rather than in a user-editable field, which is the whole difference between an
@@ -292,7 +379,7 @@ public interface IAiAgent : IAgentActivityReader
     /// <para><b>The instance is not decoration.</b> Its
     /// <see cref="AiAgentInstance.DefaultBehaviour"/>, <see cref="AiAgentInstance.DefaultEffort"/> and
     /// <see cref="AiAgentInstance.ExtraArgs"/> reach both commands, fitted to what this agent supports
-    /// interactively — the instance's settings apply "wherever the instance is used", and an agent tile
+    /// interactively — the instance's settings apply "wherever the instance is used", and a terminal agent tile
     /// launched on the CLI's own defaults is that promise unkept.</para></remarks>
     /// <param name="shell">The shell the command is going to be typed into, which is the only thing
     /// that knows how to quote for itself: a <c>\"</c> escape means nothing to PowerShell, and inside
@@ -313,6 +400,44 @@ public interface IAiAgent : IAgentActivityReader
     /// </remarks>
     IReadOnlyList<string> ModelArgs(string model, AiUsage usage);
 
+    /// <summary>What this application passes to every session it holds with a person on the other end
+    /// — a terminal agent tile and an Agent tile alike — ahead of the instance's own
+    /// <see cref="AiAgentInstance.ExtraArgs"/>, so an argument typed there still has the last word.</summary>
+    /// <param name="runtime">The session being launched, so an answer can depend on what its row
+    /// says — today, whether it asked for the output proxy — and on the sign-in it runs as.</param>
+    IReadOnlyList<string> SessionDefaultArgs(AgentRuntime runtime);
+
+    /// <summary>
+    /// Whether this CLI can be given the output proxy (<c>rtk</c>), and by which route.
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured 2026-09-22 against rtk 0.46.0, whose own <c>init --agent</c> lists claude,
+    /// cursor, windsurf, cline, kilocode, antigravity, kimi, pi, hermes, droid and vibe — so three of
+    /// the agents here are named by it and each was probed against a sandboxed config directory:</para>
+    /// <list type="bullet">
+    /// <item><b>Claude Code</b> — a <c>PreToolUse</c> hook in a settings file, and this application
+    /// already hands every Claude Code session a generated one. <see cref="OutputProxy.Support.GeneratedFile"/>.</item>
+    /// <item><b>pi</b> — <c>rtk init --agent pi</c> writes <c>&lt;PI_CODING_AGENT_DIR&gt;/extensions/rtk.ts</c>
+    /// and says in its own output that it can be loaded with <c>pi -e &lt;path&gt;</c>. That is the same
+    /// shape as Claude Code's and is the reason this answer is an enum rather than a bool — it is the
+    /// next one to wire, and what it still needs is for that file to be generated into a directory this
+    /// application owns rather than the CLI's default.</item>
+    /// <item><b>opencode</b> — <c>rtk init --opencode</c> writes a plugin into
+    /// <c>~/.config/opencode/plugins/</c>, which is the user's own configuration, and opencode has no
+    /// flag that carries a plugin for one run. <see cref="OutputProxy.Support.WritesOutsideOurDirectories"/>:
+    /// the route is real, it is named, and taking it would make a per-instance tick change every
+    /// opencode session on the machine.</item>
+    /// </list>
+    /// <para>No body here — <c>AiAgent</c> answers <see cref="OutputProxy.Support.None"/> by default, like <see cref="SkillsDirectory"/> and
+    /// <see cref="SessionLog"/>: an agent nobody has measured gets no proxy, which costs tokens and
+    /// never rewrites a command nobody checked.</para>
+    /// </remarks>
+    OutputProxy.Support OutputProxySupport { get; }
+
+    /// <summary>Whether the user's own configuration for this CLI already routes its commands through the output proxy.</summary>
+    /// <remarks>The agent's question because only the agent knows where its own settings live: asked by the launch, which then adds nothing, and by the Settings form, which says so.</remarks>
+    bool IsOutputProxyAlreadyHooked(AiSignIn? signIn, string? workspaceDirectory = null);
+
     /// <summary>
     /// The model to ask for, spelled the way this CLI expects it.
     /// </summary>
@@ -327,6 +452,13 @@ public interface IAiAgent : IAgentActivityReader
     /// <c>AgentRuntime.RequestedModel</c>.</para>
     /// </remarks>
     string QualifiedModel(AgentRuntime runtime);
+
+    /// <summary>
+    /// The inverse of <see cref="QualifiedModel"/>: a model spelled this CLI's way — as a running session
+    /// lists it — turned back into what an instance stores, so qualifying it again at the next launch gives
+    /// the same string rather than the provider twice.
+    /// </summary>
+    string InstanceModel(AgentRuntime runtime, string qualifiedModel);
 
     /// <summary>
     /// Whether this CLI can be pointed at a service that is not in its own registry — a server on this
@@ -362,7 +494,7 @@ public interface IAiAgent : IAgentActivityReader
     /// <para><b>Because a getter is not a place to write files.</b> The one agent that needs this —
     /// opencode, whose only route to a local server is a generated provider document — used to write it
     /// from <c>Configure</c>, which is reached through <c>EnvFor</c>, which is reached through
-    /// <c>AgentTileViewModel.LaunchEnvironment</c>: a <em>property</em>. Reading it made a directory and
+    /// <c>TerminalAgentTileViewModel.LaunchEnvironment</c>: a <em>property</em>. Reading it made a directory and
     /// wrote a file, and the launch reads it twice, so the file was written twice per launch and any
     /// future reader — a debugger's watch window included — would write it again.</para>
     /// <para>Called on both launch paths, which is the reason this is on the agent rather than in
@@ -424,6 +556,18 @@ public interface IAiAgent : IAgentActivityReader
     /// other way costs a model call per tile.</para>
     /// </remarks>
     bool CapturesWhileRunning { get; }
+
+    /// <summary>
+    /// Whether a session id this tile holds is handed back to the CLI at its next launch.
+    /// </summary>
+    /// <remarks>
+    /// <para>True for every agent whose <c>Resume</c> carries the id. <b>False where nothing survives a
+    /// restart</b> — Grok, whose terminal resume has not been measured, and a binary nothing is known
+    /// about — and there the id is only this launch's: it names the conversation the session store is
+    /// read for, it is dropped at the next launch so the fresh conversation is captured in its place, and
+    /// it is never written into the layout, where it would name something no launch will open.</para>
+    /// </remarks>
+    bool ResumesTerminalSession => true;
 
     /// <summary>
     /// Whether this agent can report what it is doing as it does it.

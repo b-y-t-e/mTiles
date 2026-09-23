@@ -212,6 +212,23 @@
                                      MinHeight="54"
                                      PlaceholderText="one per line" />
                         </DockPanel>
+                        <DockPanel IsVisible="{Binding ShowsOutputProxy}">
+                            <TextBlock Text="Token proxy" Classes="label"
+                                       VerticalAlignment="Top" Width="90" Margin="0,2,0,0" />
+                            <StackPanel Spacing="3">
+                                <CheckBox IsChecked="{Binding EditAgentUseOutputProxy}"
+                                          Content="Filter command output through rtk" />
+                                <TextBlock Text="Rewrites the shell commands this agent runs so their output costs fewer tokens. Nothing is written into your own configuration."
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextMuted}" />
+                                <TextBlock Text="{Binding OutputProxyHint}"
+                                           IsVisible="{Binding HasOutputProxyWarning}"
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource WarnText}" />
+                            </StackPanel>
+                        </DockPanel>
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
                             <Button Classes="accent"
                                     Command="{Binding SaveAgentInstanceCommand}"
@@ -255,9 +272,17 @@
                                     IsVisible="{Binding EditProviderIsCcs}">
                             <Button Classes="outlined"
                                     IsVisible="{Binding ShowCcsInstall}"
+                                    IsEnabled="{Binding CanStartAnInstall}"
                                     Command="{Binding InstallCcsCommand}"
                                     Content="Install CCS"
                                     Padding="12,5" />
+                            <!-- The page's own progress line is under this form, so the form says it
+                                 too: an npm install is minutes of a button that otherwise looks dead. -->
+                            <TextBlock VerticalAlignment="Center"
+                                       IsVisible="{Binding IsInstalling}"
+                                       Text="{Binding InstallStatus}"
+                                       FontSize="{DynamicResource FontXs}"
+                                       Foreground="{DynamicResource TextMuted}" />
                             <Button Classes="outlined"
                                     IsVisible="{Binding ShowCcsAuth}"
                                     Command="{Binding AuthCcsCodexCommand}"

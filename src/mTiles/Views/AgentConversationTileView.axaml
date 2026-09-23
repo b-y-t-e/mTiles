@@ -1,0 +1,1091 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:mTiles.Views"
+             xmlns:ac="using:mTiles.ViewModels.AgentConversation"
+             xmlns:ev="using:mTiles.AgentSessions.Events"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             xmlns:p="using:mTiles.Controls"
+             xmlns:v="using:mTiles.Views"
+             x:Class="mTiles.Views.AgentConversationTileView"
+             x:DataType="ac:AgentConversationTileViewModel">
+
+    <!--
+        An agent as a conversation. Drawn in the Goal tile's language on purpose — the terminal's own face
+        and size, the gutter glyph that says who spoke, one hairline per edge — because both are an agent
+        talking in a column, and two dialects for that would be two applications in one window.
+
+        What is new is the work between messages: every tool call is a row, and the rows between two
+        messages are one group that folds to a single line once they have all finished (t3code's rule).
+        Approvals and questions are blocks at the end of the conversation, where the next thing always
+        arrives, and a turn that changed files ends on a line saying so, with its diff on request and a way
+        back.
+    -->
+    <UserControl.Styles>
+        <!-- The conversation's look - message rows, the ask, offered answers, the composer, a button with a
+             word on it - is the Goal tile's, from one file, so the two tiles cannot drift apart. -->
+        <StyleInclude Source="avares://mTiles/Styles/Conversation.axaml" />
+
+        <!-- ======== Work ======== -->
+        <Style Selector="Button.fold">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        </Style>
+        <Style Selector="Button.fold:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.fold:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextHover}" />
+        </Style>
+        <Style Selector="TextBlock.work">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.work-muted">
+            <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <Style Selector="TextBlock.work-failed">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+        <Style Selector="TextBlock.work-declined">
+            <Setter Property="Foreground" Value="{DynamicResource WarnText}" />
+        </Style>
+        <Style Selector="Border.detail">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Margin" Value="18,2,0,6" />
+        </Style>
+        <Style Selector="SelectableTextBlock.code">
+            <Setter Property="FontFamily" Value="{DynamicResource TerminalFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource TermFontBase}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentDefault}" />
+        </Style>
+
+        <!-- ======== Diff ========
+             A patch is one ```diff block drawn by the same MarkdownViewer as every other message here,
+             which is what lets a selection run through several lines of it at once. The colouring is
+             the viewer's own (MarkdownViewer.HighlightDiff): the ground says what happened to the line
+             and the text stays the colour code is read in — the other way round, with green text on the
+             card's own ground, a block of added lines is a paragraph of coloured text and the eye reads
+             the colour instead of the code. There is no gutter and no marker column: the marker is the
+             first character of the line, where the viewer reads it from. -->
+        <!-- The block a file's patch is drawn in. Not a card: the rule of this application is that a
+             card is a tile, and a surface with a radius inside a surface with a radius inside a tile is
+             a frame around a frame. What says the patch belongs to the row above it is the rail down
+             its left edge, which is also what folds it away — the one structural mark here does the
+             only two jobs there are.
+
+             The rail rather than the block itself is the fold, and that is the whole reason it exists:
+             a click that folds and a click that begins a selection are the same gesture, so a block
+             that folded when clicked would be a block whose text could not be selected. The rail is a
+             mark one character wide in a slot two characters wide, it runs the full height of the patch, and it
+             is therefore beside you
+             at whatever depth you have scrolled to — which is the thing the chevron on the row above
+             cannot be once the patch is taller than the tile. -->
+        <Style Selector="Border.diff-block">
+            <Setter Property="Margin" Value="18,2,0,6" />
+        </Style>
+        <!-- The whole slot is the button, and the mark inside it is two pixels. The hit area and the
+             mark used to be two controls — a Border of two characters carrying the cursor and a Button
+             of nine pixels inside it — so the right-hand half of the slot showed a hand, lit the rail
+             and folded nothing when pressed; and nine pixels is a number, while the slot is measured
+             in characters, so at a small Terminal Font Size the rail outgrew the slot it was inset by.
+             One control sized in characters, with the mark drawn as its content, is both halves at
+             once. -->
+        <Style Selector="Button.diff-rail">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <!-- Against the left edge of its slot, so what is left of the slot is the gap between the
+                 rail and the code. The patch then starts a clear character away from it rather than
+                 appearing to lean on it. -->
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <!-- Held off the patch's own top and bottom edge, so it reads as a handle lying beside the
+                 block rather than as the block's border. -->
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="DockPanel.Dock" Value="Left" />
+            <Setter Property="ToolTip.Tip" Value="Hide this" />
+            <!-- Two characters of the terminal's own face, so the slot scales with Terminal Font Size
+                 rather than with nothing. -->
+            <Setter Property="v:MonospaceWidth.Characters" Value="2" />
+            <!-- The mark lives here and nowhere else: a patch, a tool's own block and a reasoning
+                 block are one gesture in three places, so they are one definition. A Template rather
+                 than a Border written into the setter, since a control instance in a style would be
+                 one element trying to stand in three parents. -->
+            <Setter Property="Content">
+                <Template>
+                    <!-- One character of the terminal's own face — seven or eight pixels at the
+                         ordinary size — in a slot two characters wide, so the mark takes half the slot
+                         and the other half is the gap before the code. The mark scales the way its
+                         slot does, so it can never outgrow the inset; a width in pixels was both wrong
+                         ways round — a hairline at a large font and wider than its slot at a small
+                         one. It was a quarter of a character, which is two pixels: correct for a patch
+                         of four lines and invisible down the side of a folded block of twenty, which
+                         is the length it is most often drawn at. -->
+                    <Border Classes="diff-rail-mark" v:MonospaceWidth.Characters="1.0" />
+                </Template>
+            </Setter>
+        </Style>
+        <!-- A Button paints nothing itself — what is seen is its template's presenter — so the
+             presenter is held transparent at rest and under the pointer alike, and what is seen is the
+             mark the button carries as its content. A rail that lit up its whole two-character slot
+             would be a bar the width of the inset. -->
+        <Style Selector="Button.diff-rail /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.diff-rail:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <!-- It speaks the fold chevron's language, not the accent's. This rail folds the very thing
+             the chevron on the row above folds, so the two are one control in two places — and the
+             accent in this application means something else everywhere it appears: the active tile,
+             the selected row, the button that sends. A blue bar down every patch was a third meaning
+             for it, and a pale one read as the card's own edge. -->
+        <Style Selector="Border.diff-rail-mark">
+            <Setter Property="CornerRadius" Value="1" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <!-- BorderStrong rather than BorderSubtle, which is the rule a control's edge already
+                 follows: BorderSubtle is the hairline of the card this stands *on*, so a rail drawn in
+                 it reads as part of the ground rather than as something to press. -->
+            <Setter Property="Background" Value="{DynamicResource BorderStrong}" />
+        </Style>
+        <!-- Pointing anywhere at the block is what says the rail is there; pointing at the rail says
+             it can be pressed. Two steps rather than one, because the line at rest is quiet enough to
+             be missed, and a rail that is always the accent is a coloured bar down every patch in
+             the conversation. Both grounds a rail stands on are named: a file's patch (diff-block) and
+             a tool's own block (detail), or the first of the two steps would exist at the patch alone
+             and the handle would be as visible as the card's edge in the other two places. -->
+        <Style Selector="Border.diff-block:pointerover Border.diff-rail-mark, Border.detail:pointerover Border.diff-rail-mark">
+            <Setter Property="Background" Value="{DynamicResource TextFaint}" />
+        </Style>
+        <!-- Colour and nothing else. A rail that grows under the pointer moves the code beside it,
+             and a control that shifts the text you were reading is one you have to aim at twice. -->
+        <Style Selector="Button.diff-rail:pointerover Border.diff-rail-mark">
+            <Setter Property="Background" Value="{DynamicResource TextMuted}" />
+        </Style>
+        <Style Selector="Border.diff-block:pointerover Button.diff-copy">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <!-- Against the patch rather than beside it, so a line it covers is still readable under it. -->
+        <Style Selector="Button.diff-copy">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+            <Setter Property="Margin" Value="0,0,2,0" />
+        </Style>
+
+        <!-- A turn's line counts, in the diff's own two colours: the same meaning, said the same way. -->
+        <Style Selector="TextBlock.diff-count-added">
+            <Setter Property="Foreground" Value="{DynamicResource StatusSuccessText}" />
+        </Style>
+        <Style Selector="TextBlock.diff-count-removed">
+            <Setter Property="Foreground" Value="{DynamicResource DangerText}" />
+        </Style>
+
+        <!-- The three styles that drew a refused row - dimmed, with its reason under it - are gone with the
+             combo boxes they were written for. That rule did not go with them: it is the picker's own
+             `refused` state now (mTiles.Controls), stated once for every list in the application rather
+             than once per view that happens to draw one. -->
+
+        <!-- What separates the settings from the state, in a strip one line tall. A rule and not a gap:
+             a gap wide enough to read as a division is wider than the gutter between the controls, and
+             then the row has two rhythms in it. -->
+        <!-- The foot of the tile. A hairline above it and nothing else: it is the quietest thing here on
+             purpose, and a ground of its own would make a third band across a tile that already has a
+             strip at the top and a composer above this. -->
+        <!-- Border.context-bar is in Controls.axaml: the terminal agent tile draws the same bar. -->
+
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <!-- One image, small: in a sent message and waiting in the composer alike. Decoded at thumbnail size,
+             so a screenshot costs its thumbnail's memory rather than its own. -->
+        <DataTemplate x:Key="ImageThumbnailTemplate" DataType="ev:ImageAttachment">
+            <Border CornerRadius="{DynamicResource RadiusSm}" ClipToBounds="True" Margin="0,2,0,2"
+                    ToolTip.Tip="{Binding Name}">
+                <Image Source="{Binding Converter={x:Static v:AgentConversationGlyphs.Thumbnail}}"
+                       MaxHeight="96" MaxWidth="160" Stretch="Uniform" />
+            </Border>
+        </DataTemplate>
+
+    </UserControl.Resources>
+
+  <Panel>
+    <DockPanel Background="{DynamicResource BgBase}">
+
+        <!-- ======== Strip: what state the agent is in, what the context costs, and stop ======== -->
+        <Border DockPanel.Dock="Top"
+                Padding="8,3"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="{DynamicResource BorderBottom}">
+            <!-- One line, never two: RowFitter gives words up in the order AgentStripLayout writes
+                 down - the conversation to its icon, the status to its dot, then the agent trimmed and
+                 last of all to its icon. It used to wrap, which in a narrow tile put the status alone on
+                 a second line under a half-cut agent name.
+
+                 One DockPanel rather than a docked StackPanel beside a fill: the fitter measures every
+                 control on the row, and a StackPanel's spacing would be width nobody measured. The
+                 right-hand controls come first, so they are measured before the agent is given what is
+                 left - which is what makes its trimming the backstop rather than theirs. -->
+            <DockPanel x:Name="StripRow" LastChildFill="False">
+                <!-- Right-hand corner: which conversation, and a new one. Docked right to left, so Stop
+                     stands first on screen, and its coming and going with a turn moves neither the list
+                     nor the button beside it. -->
+                <!-- A new conversation: a button rather than a row in the list, because it is an action
+                     and not a place, and because it asks first - to the eye it clears the screen. Nothing
+                     is lost by it; the old conversation stays in the list. Deleting a conversation is
+                     *not* drawn here: it was the one destructive thing standing permanently beside the
+                     settings, a misclick from a conversation and its checkpoints, so it is declared in
+                     ITileActions.Actions and the tile header's overflow lists it.
+                     Accent (tile-btn-accent), so the one way to a fresh conversation is found without
+                     hunting; the confirmation behind it is what keeps it from being pressed by accident. -->
+                <Button x:Name="NewConversationButton"
+                        DockPanel.Dock="Right"
+                        Classes="tile-btn tile-btn-accent"
+                        Command="{Binding NewConversationCommand}"
+                        ToolTip.Tip="New conversation (this one stays in the list)">
+                    <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
+                </Button>
+                <!-- Which conversation this tile is showing. Every conversation ever held in this
+                     workspace is in the store, and until this list existed there was no way back to any
+                     of them: a conversation was the tile's own id, so a new one could only be started
+                     over the old. Read when the list is opened rather than kept in step, because the
+                     answer changes only when something is said and the tile redraws every frame while
+                     an agent replies.
+
+                     Searchable, unlike the agent beside it: this list grows for as long as the
+                     workspace is used, and a month in it is the one list on this tile that nobody can
+                     read down. Short at rest - the opening words are a reminder, not the conversation -
+                     and wide when open, where the rows have room to be told apart. First to give way,
+                     because those opening words are what the transcript under the strip is showing. -->
+                <p:Picker x:Name="ConversationPicker"
+                          DockPanel.Dock="Right" Margin="0,0,2,0"
+                          Classes="strip-picker"
+                          Options="{Binding Conversations.Options}"
+                          SelectedId="{Binding Conversations.SelectedKey}"
+                          Text="{Binding Conversations.SelectedTitle}"
+                          IsSearchEnabled="True"
+                          SearchPlaceholder="Search conversations…"
+                          EmptyText="No conversation here matches that."
+                          DropDownWidth="340"
+                          MaxWidth="170"
+                          ToolTip.Tip="{Binding Conversations.SelectedTitle, StringFormat='The conversation this tile is showing: {0}'}">
+                    <p:Picker.Icon>
+                        <mi:MaterialIcon Kind="ForumOutline" Width="13" Height="13" />
+                    </p:Picker.Icon>
+                </p:Picker>
+                <Button x:Name="StopButton"
+                        DockPanel.Dock="Right" Margin="0,0,2,0"
+                        Classes="tile-btn"
+                        Command="{Binding InterruptCommand}"
+                        IsVisible="{Binding IsWorking}"
+                        ToolTip.Tip="Stop the agent (Esc)">
+                    <mi:MaterialIcon Kind="Stop" Width="14" Height="14" />
+                </Button>
+
+                <!-- Which agent holds this conversation. Offered here rather than before the tile opens:
+                     a conversation with nothing in it is bound to nobody yet. Another agent is offered as a
+                     handover, with what that means beside the CLI's name; one this machine cannot run at all
+                     is drawn dimmed with the reason beneath it, never left out of the list and never
+                     disabled - a disabled item is out of the hit test, and the reason would go with it.
+                     Last to give way: which agent holds the conversation is said nowhere else here. -->
+                <p:Picker x:Name="AgentPicker"
+                          DockPanel.Dock="Left" Margin="0,0,2,0"
+                          Classes="strip-picker"
+                          Options="{Binding Chooser.Options}"
+                          SelectedId="{Binding Chooser.SelectedKey}"
+                          Text="{Binding Chooser.SelectedLabel}"
+                          IsVisible="{Binding Chooser.HasOptions}"
+                          DropDownWidth="320"
+                          MaxWidth="240"
+                          ToolTip.Tip="{Binding Chooser.SelectedLabel, StringFormat='The agent this conversation is held with: {0}'}">
+                    <p:Picker.Icon>
+                        <mi:MaterialIcon Kind="RobotOutline" Width="13" Height="13" />
+                    </p:Picker.Icon>
+                </p:Picker>
+                <!-- The model, the mode and the effort are *not* on this strip any more: they moved
+                     into the composer, beside the box whose message they qualify - t3code's
+                     arrangement, and it is right for the reason the Goal tile's own strip is wrong to
+                     copy here. What is left is what this tile is *showing*: which conversation, held
+                     by whom, and then the state after the rule.
+
+                     The state is a word, and compact a dot of the word's own colour with the word in the
+                     tooltip: the colour carries the meaning, and the tile header's mark says it again.
+                     The rule goes with the word, since a rule in front of a dot divides nothing. -->
+                <v:StripStatus x:Name="StatusView"
+                               DockPanel.Dock="Left"
+                               Text="{Binding StatusText}"
+                               Tone="{Binding StatusTone}"
+                               ToolTip.Tip="{Binding StatusText}" />
+                <!-- The context figures used to stand here. They are at the foot of the tile now,
+                     with a bar behind them: a number that moves with every turn does not belong in
+                     the one row that says where you are. -->
+            </DockPanel>
+        </Border>
+
+        <!-- ======== What this tile is asking about the process it runs ========
+             The terminal agent tile's notice bar, in this tile's own language. Docked rather than drawn in
+             the conversation: it is a request about the process running now, not something that was said,
+             and a stored notice was one more identical line in the transcript per tick of a database.
+             Dismissible, because the tile *is* running below it. -->
+        <Border DockPanel.Dock="Top"
+                IsVisible="{Binding HasLaunchNotice}"
+                Background="{DynamicResource BgElevated}"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="{DynamicResource BorderBottom}"
+                Padding="8,6">
+            <DockPanel LastChildFill="True">
+                <mi:MaterialIcon DockPanel.Dock="Left"
+                                 Kind="InformationOutline"
+                                 Width="14" Height="14"
+                                 Margin="0,1,8,0"
+                                 VerticalAlignment="Top"
+                                 Foreground="{DynamicResource AccentHover}" />
+                <Button DockPanel.Dock="Right"
+                        Classes="chat-action"
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Top"
+                        Command="{Binding DismissLaunchNoticeCommand}"
+                        Content="Dismiss" />
+                <SelectableTextBlock Classes="msg msg-system" Text="{Binding LaunchNotice}" />
+            </DockPanel>
+        </Border>
+
+        <!-- ======== What the context costs ========
+             At the very foot of the tile, under the composer, and quiet: it is a thing to glance at
+             while writing rather than a thing to read. It was words on the top strip, beside the
+             agent's state - which put a figure that moves with every turn in the one row that says
+             where you are, and said nothing at all about how close the window is to full until you had
+             divided one number by the other yourself.
+
+             The Usage tile's own bar, not a second drawing of the same idea: cells of a fixed size, so
+             two bars anywhere in this application are compared by counting rather than by measuring,
+             and any spending at all lights the first cell. No tick on it - that mark is where the
+             *clock* is, and a context window does not refill with time. -->
+        <Border DockPanel.Dock="Bottom" Classes="context-bar">
+            <DockPanel>
+                <!-- Compacting is the one act there is about this figure, so it stands at the end of the
+                     line the figure is on rather than among the pickers above, which say what the *next
+                     message* runs as and are settings rather than acts. Quieter than anything in the
+                     composer - no ground until the pointer is on it, no outline, the strip's own face and
+                     size - because the composer's accent belongs to Send and spending it twice makes
+                     neither the memorable one.
+
+                     Drawn only where the running agent has a route for it (three of the six do), and it
+                     turns WarnText once the window is 80% gone, with the reason in the tooltip: a coloured
+                     control that does not say why is a mark to be guessed at. -->
+                <Button DockPanel.Dock="Right" Classes="context-action" Margin="10,0,0,0"
+                        Classes.tight="{Binding IsContextTight}"
+                        IsVisible="{Binding ShowsCompact}"
+                        Command="{Binding CompactCommand}"
+                        ToolTip.Tip="{Binding CompactTip}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <mi:MaterialIcon Kind="ArrowCollapseVertical" Width="11" Height="11" />
+                        <TextBlock Text="Compact" />
+                    </StackPanel>
+                </Button>
+                <!-- A pixel off each edge, the Compact button's own, so the bar keeps its height on an
+                     agent that draws no Compact - and matches the Goal and terminal agent tiles'. -->
+                <TextBlock DockPanel.Dock="Right" Classes="strip" Margin="8,1,0,1"
+                           Text="{Binding ContextBarText}" />
+                <v:UsageBar Height="6" VerticalAlignment="Center"
+                            UsedPercent="{Binding ContextPercent}"
+                            IsVisible="{Binding ContextPercent, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            TrackBrush="{DynamicResource BgElevated}"
+                            FillBrush="{DynamicResource StatusSuccess}"
+                            OverBrush="{DynamicResource DangerText}"
+                            RampFromPercent="40"
+                            ToolTip.Tip="How much of the model's context window this conversation has used" />
+            </DockPanel>
+        </Border>
+
+        <!-- ======== Composer ========
+             Docked to the bottom of the tile rather than being the last block of the conversation.
+             It was in the scroller with everything else, on the argument that the composer is the next
+             thing in a conversation and belongs where the next thing goes - which is right about a
+             *reading* order and wrong about a control: scroll back to find what the agent said two turns
+             ago and the box you want to answer in has gone off the bottom of the tile. The one place
+             where you type is the one place that must not move.
+
+             Everything that is part of the conversation stays in the scroller above it, the waiting row
+             included: what a docked bar must hold is what you act with, not what you read.
+
+             Images go in by pasting (Ctrl+V when the clipboard holds no text, Alt+V always), by dropping
+             files on the box, or through the paperclip. Each leaves an [Image #n] marker where the caret
+             was - the order of pictures in a sentence is part of what it says - and waits above the text,
+             numbered the same, with a button that takes it out, marker and all. Any other file goes in as
+             its path at the caret. -->
+        <Border x:Name="Composer" DockPanel.Dock="Bottom" Classes="composer">
+            <StackPanel Spacing="4">
+                <v:ComposerImageStrip Images="{Binding Attachments.Items}"
+                                      RemoveCommand="{Binding RemoveAttachmentCommand}"
+                                      IsVisible="{Binding Attachments.HasItems}" />
+                <v:ComposerFileChips Files="{Binding ComposerFiles.Items}"
+                                     RemoveCommand="{Binding RemoveComposerFileCommand}"
+                                     IsVisible="{Binding ComposerFiles.HasItems}" />
+                <TextBlock Classes="ask-why" Text="{Binding ComposerNotice}"
+                           IsVisible="{Binding ComposerNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <!-- The box takes the whole width. The buttons that used to stand beside it are on
+                     the row below, which is what buys the message the room it needs at a tile's
+                     width and is how t3code's composer is laid out.
+
+                     The placeholder is short enough for one line at a tile's width. It was four
+                     hints long, which wrapped to two lines in a column and made an empty composer
+                     look full; the other three are in the tooltip, where a hint nobody needs twice
+                     belongs. -->
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-user" Margin="0,2,0,0" />
+                    <TextBox x:Name="InputBox"
+                             Classes="composer-input"
+                             Text="{Binding Draft}"
+                             CaretIndex="{Binding DraftCaretIndex, Mode=TwoWay}"
+                             PlaceholderText="Ask anything, or @ a file"
+                             ToolTip.Tip="Enter sends · Shift+Enter starts a new line · @ mentions a file · Alt+V pastes an image · Esc stops the agent"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             v:FileMentionBehavior.Mentions="{Binding FileMentions}"
+                             KeyDown="InputBox_KeyDown" />
+                </DockPanel>
+
+                <!-- What this message will be sent *as*, under the box it will be sent from.
+                     Model, effort and permission were on the tile's top strip, three tile-widths
+                     away from the text they qualify and mixed in with what the agent is doing. A
+                     setting belongs beside the thing it changes. -->
+                <DockPanel Margin="0,4,0,0">
+                    <!-- Send is the one accent-filled control in this tile. Round, because it is
+                         the only thing here that is a single act rather than a setting.
+
+                         While the agent is working it *becomes* Stop, in the same place. Escape
+                         already did this and nothing on screen said so, which left the one thing
+                         somebody urgently wants — make it stop — as a keystroke you had to know
+                         about, with the pointer already resting on a button that could not be
+                         pressed. One slot rather than two buttons side by side, because the two
+                         are never both available: sending is what you do between turns and
+                         stopping is what you do during one. -->
+                    <Button DockPanel.Dock="Right"
+                            Classes="composer-send"
+                            IsVisible="{Binding !IsWorking}"
+                            Command="{Binding SendCommand}"
+                            ToolTip.Tip="Send (Enter)">
+                        <mi:MaterialIcon Kind="ArrowUp" Width="15" Height="15" />
+                    </Button>
+                    <Button DockPanel.Dock="Right"
+                            Classes="composer-send composer-stop"
+                            IsVisible="{Binding IsWorking}"
+                            Command="{Binding InterruptCommand}"
+                            ToolTip.Tip="Stop the agent (Esc)">
+                        <mi:MaterialIcon Kind="Stop" Width="15" Height="15" />
+                    </Button>
+                    <Button DockPanel.Dock="Right" Classes="tile-btn" VerticalAlignment="Center"
+                            Margin="0,0,4,0"
+                            Click="AttachButton_Click" ToolTip.Tip="Attach files — a picture goes in as an image, anything else by its path">
+                        <mi:MaterialIcon Kind="Paperclip" Width="14" Height="14" />
+                    </Button>
+
+                    <!-- One line, never two. A DockPanel rather than the WrapPanel it was: that
+                         measured its children with infinite width, so the model's name never trimmed
+                         and a narrow tile wrapped the permission onto a line of its own. Which picker
+                         gives up its words, and when, is ComposerPickerLayout, applied from the
+                         code-behind as the row's width changes. -->
+                    <DockPanel x:Name="PickerRow" LastChildFill="False" VerticalAlignment="Center">
+                        <!-- The model. Search on, because a provider's catalogue runs to hundreds
+                             and this is the one list here that does. -->
+                        <p:Picker x:Name="ModelPicker"
+                                  DockPanel.Dock="Left" Margin="0,0,2,0"
+                                  Classes="composer-picker"
+                                  Options="{Binding ModelOptions}"
+                                  SelectedId="{Binding Model}"
+                                  Text="{Binding ModelLabel}"
+                                  IsSearchEnabled="True"
+                                  SearchPlaceholder="Search models…"
+                                  EmptyText="Type a model's name to use it."
+                                  TypedEntryFormat="{}Use &#x201C;{0}&#x201D;"
+                                  DropDownWidth="340"
+                                  MaxWidth="230"
+                                  ToolTip.Tip="{Binding ModelLabel, StringFormat='Which model this conversation runs on: {0}'}">
+                            <p:Picker.Icon>
+                                <mi:MaterialIcon Kind="AutoAwesome" Width="13" Height="13" />
+                            </p:Picker.Icon>
+                        </p:Picker>
+                        <p:Picker x:Name="EffortPicker"
+                                  DockPanel.Dock="Left" Margin="0,0,2,0"
+                                  Classes="composer-picker"
+                                  Options="{Binding EffortOptions}"
+                                  SelectedId="{Binding SelectedEffort.Id, Mode=OneWay}"
+                                  Text="{Binding EffortLabel}"
+                                  IsVisible="{Binding HasEffortOptions}"
+                                  ToolTip.Tip="{Binding EffortLabel, StringFormat='How hard the agent is asked to think: {0}'}">
+                            <p:Picker.Icon>
+                                <mi:MaterialIcon Kind="Brain" Width="13" Height="13" />
+                            </p:Picker.Icon>
+                        </p:Picker>
+                        <p:Picker x:Name="ModePicker"
+                                  DockPanel.Dock="Left"
+                                  Classes="composer-picker"
+                                  Options="{Binding ModeOptions}"
+                                  SelectedId="{Binding SelectedMode.Id, Mode=OneWay}"
+                                  Text="{Binding ModeLabel}"
+                                  IsVisible="{Binding HasModeOptions}"
+                                  DropDownWidth="330"
+                                  ToolTip.Tip="{Binding ModeLabel, StringFormat='What the agent may do without asking: {0}'}">
+                            <p:Picker.Icon>
+                                <mi:MaterialIcon Kind="LockOutline" Width="13" Height="13" />
+                            </p:Picker.Icon>
+                        </p:Picker>
+                        <!-- What was sent from here, newest first; Up and Down in the box walk the same list
+                             (ComposerHistoryInput, shared with the Goal tile). -->
+                        <p:Picker x:Name="HistoryPicker"
+                                  DockPanel.Dock="Left" Margin="2,0,0,0"
+                                  Classes="composer-picker"
+                                  ShowChevron="False"
+                                  IsSearchEnabled="True"
+                                  SearchPlaceholder="Search sent messages…"
+                                  EmptyText="Nothing sent yet."
+                                  DropDownWidth="420"
+                                  ToolTip.Tip="Messages sent in this conversation (Up/Down in the box walks them)">
+                            <p:Picker.Icon>
+                                <mi:MaterialIcon Kind="History" Width="13" Height="13" />
+                            </p:Picker.Icon>
+                        </p:Picker>
+                    </DockPanel>
+                </DockPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- The transcript, and over its foot the way back to the end of it (JumpToBottom). -->
+        <Panel>
+        <ScrollViewer x:Name="ChatScroll"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,4,0,10">
+
+                <TextBlock Classes="ask-why" Margin="14,12"
+                           IsVisible="{Binding IsEmpty}"
+                           Text="{Binding HeaderNote, StringFormat='Talk to {0}. Its tool calls, approvals and file changes appear here.'}" />
+
+                <ItemsControl ItemsSource="{Binding Timeline}">
+                    <!-- The seam where the work moved to another agent or another login. Once, around every
+                         item, rather than in each of the six templates below: TimelineSync matches view models
+                         to records by position — the reducer only appends — so a separator inserted between
+                         them would shift every index after it and redraw the conversation from the seam down.
+                         The inner ContentControl resolves the per-kind template out of ItemsControl.DataTemplates
+                         exactly as the item presenter did. -->
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="ac:TimelineItemViewModel">
+                            <StackPanel>
+                                <Grid ColumnDefinitions="Auto,*" Margin="14,10,14,4"
+                                      IsVisible="{Binding Seam, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <TextBlock Classes="ask-why" Grid.Column="0" Margin="0,0,8,0"
+                                               VerticalAlignment="Center"
+                                               Text="{Binding Seam, StringFormat='continued as {0}'}" />
+                                    <Border Grid.Column="1" Height="1" VerticalAlignment="Center"
+                                            Background="{DynamicResource BorderSubtle}" />
+                                </Grid>
+                                <ContentControl Content="{Binding}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                    <ItemsControl.DataTemplates>
+
+                        <!-- ======== A message ======== -->
+                        <DataTemplate DataType="ac:MessageItemViewModel">
+                            <!-- Yours to the right, at most three quarters of the width; everything else
+                                 from the left across both columns. See Views/BubbleLayout.cs. -->
+                            <Grid ColumnDefinitions="1*,3*">
+                            <Border Classes="row" Classes.row-user="{Binding IsUser}"
+                                    Grid.Column="{Binding IsUser, Converter={x:Static v:BubbleLayout.Column}}"
+                                    Grid.ColumnSpan="{Binding IsUser, Converter={x:Static v:BubbleLayout.Span}}">
+                                <DockPanel>
+                                    <!-- No glyph on your own messages: the side of the column already
+                                         says who wrote them, and a gutter that says it again costs
+                                         sixteen pixels of a bubble's width to repeat itself. -->
+                                    <TextBlock DockPanel.Dock="Left" Classes="gutter"
+                                               IsVisible="{Binding !IsUser}"
+                                               Classes.gutter-assistant="{Binding IsAssistant}"
+                                               Text="{Binding IsUser, Converter={x:Static v:AgentConversationGlyphs.Speaker}}" />
+                                    <!-- The Goal tile's copy button, revealed by the row it sits in. Bound to the
+                                         text rather than the item, so a reply still streaming copies what it
+                                         says now. -->
+                                    <Button DockPanel.Dock="Right"
+                                            Classes="msg-copy"
+                                            v:CopyButton.Text="{Binding Text}"
+                                            IsVisible="{Binding HasText}"
+                                            ToolTip.Tip="Copy this message">
+                                        <mi:MaterialIcon Kind="ContentCopy" Width="13" Height="13" />
+                                    </Button>
+                                    <StackPanel Spacing="6">
+                                        <ItemsControl ItemsSource="{Binding Images}" IsVisible="{Binding HasImages}"
+                                                      ItemTemplate="{StaticResource ImageThumbnailTemplate}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
+                                        <!-- One control for both sides of the conversation. Yours used to be a
+                                             SelectableTextBlock and the agent's a markdown view, and the pair of
+                                             them is what a message being cut off came down to: a text block sized
+                                             to its own text has no slack, so a width lost to rounding — which is
+                                             every layout pass at a fractional desktop scale — drops the last word
+                                             to a second line the row is not tall enough to show. The markdown view
+                                             is what the agent's replies have always been drawn with, at every
+                                             width, without ever being cut.
+
+                                             It costs the literal reading of what you typed: `code`, *stars* and a
+                                             leading # are now rendered rather than shown. That is the same thing
+                                             every chat client does with what you type, and it is the same view
+                                             the reply under it is drawn with, so the two now match. -->
+                                        <v:GoalMarkdownView MarkdownText="{Binding Text}"
+                                                            IsVisible="{Binding HasText}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            </Grid>
+                        </DataTemplate>
+
+                        <!-- ======== The work between two messages ======== -->
+                        <DataTemplate DataType="ac:WorkGroupItemViewModel">
+                            <StackPanel Margin="10,2,10,2">
+                                <Button Classes="fold" Command="{Binding ToggleCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <mi:MaterialIcon Width="12" Height="12"
+                                                         Kind="{Binding IsExpanded, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
+                                        <!-- What it is doing now while the turn runs, what the work came
+                                             to once it is over - see WorkGroupItemViewModel.Headline. -->
+                                        <TextBlock Classes="work work-muted" Text="{Binding Headline}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Button>
+                                <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding IsExpanded}">
+                                    <ItemsControl.DataTemplates>
+                                        <DataTemplate DataType="ac:ToolCallItemViewModel">
+                                            <StackPanel>
+                                                <Button Classes="fold" Command="{Binding ToggleCommand}" Margin="18,0,0,0">
+                                                    <DockPanel>
+                                                        <mi:MaterialIcon DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,6,0"
+                                                                         Kind="{Binding Kind, Converter={x:Static v:AgentConversationGlyphs.Tool}}" />
+                                                        <TextBlock DockPanel.Dock="Right" Classes="work work-muted" Margin="8,0,0,0"
+                                                                   Text="{Binding State, Converter={x:Static v:AgentConversationGlyphs.ToolState}}" />
+                                                        <TextBlock Classes="work"
+                                                                   Classes.work-failed="{Binding IsFailed}"
+                                                                   Classes.work-declined="{Binding IsDeclined}"
+                                                                   Text="{Binding Title}"
+                                                                   ToolTip.Tip="{Binding Name}" />
+                                                    </DockPanel>
+                                                </Button>
+                                                <Border Classes="detail" IsVisible="{Binding IsExpanded}">
+                                                    <DockPanel>
+                                                        <!-- The same rail a file's patch carries: what
+                                                             says this block belongs to the row above,
+                                                             and what folds it away. -->
+                                                        <Button Classes="diff-rail" Command="{Binding ToggleCommand}" />
+                                                        <StackPanel Spacing="4">
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Command, StringFormat='$ {0}'}"
+                                                                             IsVisible="{Binding Command, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Paths}"
+                                                                             IsVisible="{Binding Paths, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Query}"
+                                                                             IsVisible="{Binding Query, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Input}"
+                                                                             IsVisible="{Binding Input, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <v:GoalMarkdownView MarkdownText="{Binding DiffMarkdown}"
+                                                                            IsVisible="{Binding HasDiff}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Output}" IsVisible="{Binding HasOutput}" />
+                                                        </StackPanel>
+                                                    </DockPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="ac:ReasoningItemViewModel">
+                                            <StackPanel>
+                                                <Button Classes="fold" Command="{Binding ToggleCommand}" Margin="18,0,0,0">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <mi:MaterialIcon Kind="ThoughtBubbleOutline" Width="12" Height="12" />
+                                                        <TextBlock Classes="work work-muted" Text="{Binding FirstLine}" />
+                                                    </StackPanel>
+                                                </Button>
+                                                <Border Classes="detail" IsVisible="{Binding IsExpanded}">
+                                                    <DockPanel>
+                                                        <!-- The same rail a file's patch carries: what
+                                                             says this block belongs to the row above,
+                                                             and what folds it away. -->
+                                                        <Button Classes="diff-rail" Command="{Binding ToggleCommand}" />
+                                                        <SelectableTextBlock Classes="code" Text="{Binding Text}" />
+                                                    </DockPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="ac:DecisionItemViewModel">
+                                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="18,2,0,2">
+                                                <mi:MaterialIcon Width="12" Height="12"
+                                                                 Kind="{Binding Allowed, Converter={x:Static v:AgentConversationGlyphs.Decision}}" />
+                                                <TextBlock Classes="work work-muted" Text="{Binding Text}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.DataTemplates>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+
+                        <!-- ======== A plan put forward for approval ======== -->
+                        <DataTemplate DataType="ac:PlanProposalItemViewModel">
+                            <Border Classes="ask">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                                    <StackPanel Margin="10,6,10,8" Spacing="4">
+                                        <TextBlock Classes="ask-title" Text="Proposed plan" />
+                                        <v:GoalMarkdownView MarkdownText="{Binding Markdown}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+
+                        <!-- ======== Questions, answered ========
+                             The Goal tile's record of a round: the question, and the answer under it behind the
+                             transcript's own "you said" glyph. -->
+                        <DataTemplate DataType="ac:QuestionsRecordItemViewModel">
+                            <ItemsControl ItemsSource="{Binding Answers}" Margin="10,4">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="ac:AnsweredQuestion">
+                                        <Grid Classes="asked" ColumnDefinitions="Auto,*">
+                                            <TextBlock Grid.Column="0" Classes="ask-marker" Text="?" />
+                                            <StackPanel Grid.Column="1">
+                                                <!-- Selectable for the same reason the round being
+                                                     asked is: the answer beside it always was, and a
+                                                     question that stops being selectable the moment it
+                                                     is answered is the one half of the exchange a
+                                                     reader cannot take away. -->
+                                                <SelectableTextBlock Classes="ask-question" Text="{Binding Question}" />
+                                                <DockPanel Margin="0,5,0,0">
+                                                    <TextBlock DockPanel.Dock="Left" Classes="ans-marker" Text="&#x276F;" />
+                                                    <SelectableTextBlock Classes="msg" Text="{Binding Answer}" />
+                                                </DockPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </DataTemplate>
+
+                        <!-- ======== What a turn changed ======== -->
+                        <DataTemplate DataType="ac:CheckpointItemViewModel">
+                            <StackPanel Margin="10,4,10,4">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Classes="fold" Command="{Binding ToggleDiffCommand}"
+                                            ToolTip.Tip="{Binding FoldTip}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <!-- The chevron stands above the list, so what it folds is
+                                                 the list — the reading every other chevron here has. -->
+                                            <mi:MaterialIcon Width="12" Height="12"
+                                                             Kind="{Binding IsExpanded, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
+                                            <mi:MaterialIcon Kind="FileDocumentEditOutline" Width="12" Height="12" />
+                                            <TextBlock Classes="work" Text="{Binding Summary}" />
+                                            <TextBlock Classes="work diff-count-added" Text="{Binding Additions}" />
+                                            <TextBlock Classes="work diff-count-removed" Text="{Binding Deletions}" />
+                                            <TextBlock Classes="work work-muted" Text="(restored)" IsVisible="{Binding Restored}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Classes="chat-action revert"
+                                            Command="{Binding RestoreCommand}"
+                                            IsVisible="{Binding !Restored}"
+                                            ToolTip.Tip="Undo changes — put the files back to how they were before this turn (asks first)">
+                                        <mi:MaterialIcon Kind="Undo" Width="13" Height="13" />
+                                    </Button>
+                                </StackPanel>
+                                <!-- One row per file, and each opens its own diff under it. The turn's
+                                     whole diff used to be drawn under this list instead, which answered
+                                     "what did the turn do" and never "what happened to this file" -
+                                     the question a list of file names is read with. The summary above
+                                     folds this list away; what is open inside it stays as it was left. -->
+                                <ItemsControl ItemsSource="{Binding Files}" Margin="18,2,0,0"
+                                              IsVisible="{Binding IsExpanded}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="ac:ChangedFileViewModel">
+                                            <StackPanel>
+                                                <Button Classes="fold" Command="{Binding ToggleCommand}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <mi:MaterialIcon Width="12" Height="12"
+                                                                         Kind="{Binding IsExpanded, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
+                                                        <TextBlock Classes="work work-muted" Text="{Binding Marker}" />
+                                                        <TextBlock Classes="work" Text="{Binding Path}" />
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <TextBlock Classes="work diff-count-added" Text="{Binding Additions}" />
+                                                            <TextBlock Classes="work diff-count-removed" Text="{Binding Deletions}" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Border Classes="diff-block" IsVisible="{Binding IsExpanded}">
+                                                    <DockPanel>
+                                                        <!-- The rail: what says this patch belongs to
+                                                             the row above, and what folds it away. -->
+                                                        <Button Classes="diff-rail" Command="{Binding ToggleCommand}"
+                                                                ToolTip.Tip="Hide this diff" />
+                                                        <Panel>
+                                                            <TextBlock Classes="work work-muted" Text="Loading the diff…" IsVisible="{Binding IsLoadingDiff}" />
+                                                            <!-- A read that came back with nothing says so: git is run without
+                                                                 throwing, so a ref that has gone or a locked repository answers
+                                                                 with no patch at all, and a blank row would read as a file
+                                                                 nothing happened to. -->
+                                                            <TextBlock Classes="work work-muted" IsVisible="{Binding HasNothingToShow}"
+                                                                       Text="No diff came back for this file." />
+                                                            <!-- No scroller around it. One measures its
+                                                                 content with infinite width, so the viewer
+                                                                 laid the patch out once and never followed
+                                                                 the tile being resized — and it needs no
+                                                                 scroller anyway, since it wraps a line too
+                                                                 long for the room it was given. -->
+                                                            <v:GoalMarkdownView MarkdownText="{Binding DiffMarkdown}" />
+                                                            <!-- A selection dragged through the viewer spans as many lines
+                                                                 as the reader wants, so this is not the only way out — it is
+                                                                 the whole patch in one press, and as git wrote it (PatchText):
+                                                                 the drawn block has had its header dropped, so copying what is
+                                                                 on screen would give something close to a patch and not one.
+                                                                 Revealed by the block it sits in, the rule every copy button
+                                                                 in this tile already follows. -->
+                                                            <Button Classes="item-copy diff-copy"
+                                                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                                    v:CopyButton.Text="{Binding PatchText}"
+                                                                    IsVisible="{Binding !HasNothingToShow}"
+                                                                    ToolTip.Tip="Copy this file's diff">
+                                                                <mi:MaterialIcon Kind="ContentCopy" Width="12" Height="12" />
+                                                            </Button>
+                                                        </Panel>
+                                                    </DockPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+
+                        <!-- ======== Where the work was handed to another agent ========
+                             The brief is folded: it is a page of Markdown nobody wants between two messages
+                             every time they scroll past, and it is also the only account of what the next
+                             agent was told, so it stays reachable from the conversation rather than a log.
+                             Drawn as an "ask" block rather than a notice — a notice is something that
+                             happened to the session, and this is something the user did. -->
+                        <DataTemplate DataType="ac:HandoverItemViewModel">
+                            <Border Classes="ask">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                                    <StackPanel Margin="10,6,10,8" Spacing="4">
+                                        <TextBlock Classes="ask-title" Text="Handed over" />
+                                        <TextBlock Classes="ask-why" TextWrapping="Wrap" Text="{Binding Headline}" />
+                                        <Button Classes="fold" Command="{Binding ToggleBriefCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <mi:MaterialIcon Width="12" Height="12"
+                                                                 Kind="{Binding IsBriefShown, Converter={x:Static v:AgentConversationGlyphs.Chevron}}" />
+                                                <TextBlock Classes="work work-muted" Text="{Binding ToggleLabel}" />
+                                            </StackPanel>
+                                        </Button>
+                                        <v:GoalMarkdownView MarkdownText="{Binding Brief}"
+                                                            IsVisible="{Binding IsBriefShown}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+
+                        <!-- ======== A notice ======== -->
+                        <DataTemplate DataType="ac:NoticeItemViewModel">
+                            <Border Classes="row row-system">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Classes="gutter gutter-system" />
+                                    <SelectableTextBlock Classes="msg"
+                                                         Foreground="{Binding Level, Converter={x:Static v:AgentConversationGlyphs.NoticeBrush}}"
+                                                         Text="{Binding Text}" />
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.DataTemplates>
+                </ItemsControl>
+
+                <!-- ======== The agent's own to-do list ======== -->
+                <Border Classes="ask" IsVisible="{Binding HasPlan}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                        <StackPanel Margin="10,6,10,8" Spacing="2">
+                            <TextBlock Classes="ask-title" Text="Plan" />
+                            <ItemsControl ItemsSource="{Binding PlanSteps}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="ev:PlanStep">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <mi:MaterialIcon Width="12" Height="12"
+                                                             Kind="{Binding Status, Converter={x:Static v:AgentConversationGlyphs.PlanStep}}" />
+                                            <TextBlock Classes="work" Text="{Binding Text}" TextTrimming="None" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- ======== Approvals ======== -->
+                <ItemsControl ItemsSource="{Binding PendingApprovals}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="ac:ApprovalRequestViewModel">
+                            <Border Classes="ask">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Classes="ask-rail" />
+                                    <StackPanel Margin="10,6,10,8" Spacing="5">
+                                        <TextBlock Classes="ask-title" Text="{Binding KindLabel}" />
+                                        <TextBlock Classes="ask-question" Text="{Binding Title}" />
+                                        <SelectableTextBlock Classes="code" Text="{Binding Text}" IsVisible="{Binding HasText}" />
+                                        <!-- The one diff with a ceiling: an approval is a question at the
+                                             foot of the conversation, and a patch of a thousand lines would
+                                             put the buttons that answer it off the bottom of the tile. -->
+                                        <!-- Vertical only: sideways it would measure the viewer with
+                                             infinite width, and the patch would stop following the
+                                             tile the moment somebody dragged a splitter. -->
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                                      MaxHeight="260" IsVisible="{Binding HasDiff}">
+                                            <v:GoalMarkdownView MarkdownText="{Binding DetailMarkdown}" />
+                                        </ScrollViewer>
+                                        <ItemsControl ItemsSource="{Binding Options}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="ac:ApprovalOptionViewModel">
+                                                    <Button Classes="chat-action" Margin="0,2,6,0"
+                                                            Classes.primary="{Binding IsPrimary}"
+                                                            Classes.danger="{Binding IsDanger}"
+                                                            Command="{Binding ChooseCommand}">
+                                                        <TextBlock Text="{Binding Label}" />
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- ======== Questions ========
+                     The Goal tile's round, drawn the same way: a number in its own column so a wrapped question
+                     keeps its indent, each offered answer a full-width row (a chip sized to its text clips a
+                     sentence), a field of one's own with the @ suggestions, Enter to send, and a copy button
+                     per question. What differs is only what an offered answer does: an agent takes its
+                     choices as choices (a label it can match, several where the question allows), so a row
+                     is picked rather than copied into the field. -->
+                <Border Classes="ask wide" IsVisible="{Binding PendingQuestions, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <DockPanel>
+                        <StackPanel Margin="8,6,8,8" DataContext="{Binding PendingQuestions}"
+                                    x:DataType="ac:QuestionRoundViewModel">
+                            <TextBlock Classes="ask-title" Margin="0,0,0,6" Text="The agent asks" />
+                            <ItemsControl ItemsSource="{Binding Questions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="ac:QuestionViewModel">
+                                        <Grid Classes="asking" ColumnDefinitions="Auto,*,Auto">
+                                            <TextBlock Grid.Column="0" Classes="ask-marker" Text="{Binding Marker}" />
+                                            <StackPanel Grid.Column="1">
+                                                <!-- The question and its heading are selectable: a
+                                                     reader takes half a sentence out of a round as
+                                                     often as the whole of one, and the copy button
+                                                     beside it can only ever hand over all of it. The
+                                                     offered answers below are not, and that is the
+                                                     trade: a selectable block takes the press for
+                                                     itself, and these are buttons whose whole job is
+                                                     to be pressed - what they say travels in the copy
+                                                     button's text instead. -->
+                                                <SelectableTextBlock Classes="ask-why" Margin="0,0,0,2"
+                                                                     Text="{Binding Header}" IsVisible="{Binding HasHeader}" />
+                                                <SelectableTextBlock Classes="ask-question" Text="{Binding Text}" />
+                                                <ItemsControl ItemsSource="{Binding Options}" Margin="0,5,0,0">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate DataType="ac:QuestionChoiceViewModel">
+                                                            <ToggleButton Classes="ask-option"
+                                                                          HorizontalAlignment="Stretch"
+                                                                          Margin="0,0,0,5"
+                                                                          IsChecked="{Binding IsSelected}">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                                                                    <TextBlock Classes="ask-why" Text="{Binding Description}"
+                                                                               IsVisible="{Binding HasDescription}" />
+                                                                </StackPanel>
+                                                            </ToggleButton>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <!-- The mentions belong to the tile, not to the question, so they
+                                                     are reached out of the template, as the Goal tile does. -->
+                                                <TextBox Classes="ask-field"
+                                                         Text="{Binding CustomAnswer}"
+                                                         PlaceholderText="Your answer&#x2026;"
+                                                         AcceptsReturn="False"
+                                                         TextWrapping="Wrap"
+                                                         IsVisible="{Binding AllowsCustomAnswer}"
+                                                         v:FileMentionBehavior.Mentions="{Binding $parent[UserControl].((ac:AgentConversationTileViewModel)DataContext).FileMentions}"
+                                                         KeyDown="AnswerBox_KeyDown" />
+                                            </StackPanel>
+                                            <Button Grid.Column="2"
+                                                    Classes="item-copy"
+                                                    v:CopyButton.Text="{Binding CopyText}"
+                                                    ToolTip.Tip="Copy this question">
+                                                <mi:MaterialIcon Kind="ContentCopy" Width="12" Height="12" />
+                                            </Button>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                <Button Classes="chat-action" Command="{Binding DismissCommand}"
+                                        Content="Dismiss"
+                                        ToolTip.Tip="Answer nothing; the agent is told the questions were declined" />
+                                <Button Classes="chat-action primary" Command="{Binding SubmitCommand}"
+                                        Content="Send answers"
+                                        ToolTip.Tip="Send what you have picked and written. A question left blank is skipped." />
+                            </StackPanel>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- ======== Why it did not start ======== -->
+                <Border Classes="ask" IsVisible="{Binding HasLaunchProblem}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Left" Classes="ask-rail danger" />
+                        <StackPanel Margin="10,6,10,8" Spacing="6">
+                            <TextBlock Classes="ask-title" Text="The agent did not start" />
+                            <SelectableTextBlock Classes="msg" Text="{Binding LaunchProblem}" />
+                            <Button Classes="chat-action" HorizontalAlignment="Left" Command="{Binding RestartCommand}">
+                                <TextBlock Text="Try again" />
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- The spinner says the turn is alive; the stage beside it says what it is doing, which is
+                     the question anybody watching this row actually has. Read from the conversation and
+                     not from a CLI, so every agent fills it — see TurnStage. -->
+                <v:WaitingRow IsVisible="{Binding IsWorking}"
+                              Stage="{Binding TurnStageText}"
+                              Elapsed="{Binding TurnClock.Text}" />
+            </StackPanel>
+        </ScrollViewer>
+        <v:JumpToBottom x:Name="JumpToBottom" />
+        </Panel>
+
+    </DockPanel>
+    <local:FileDropHint x:Name="DropHint" Text="Drop to attach"
+                        FontSize="{DynamicResource TermFontMd}" />
+  </Panel>
+</UserControl>

@@ -1,4 +1,5 @@
-﻿using Avalonia.Controls;
+using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Controls.Templates;
@@ -48,10 +49,10 @@ public class GoalAskPanelTests : IDisposable
         return new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
     }
 
-    private static GoalTileView Shown(GoalTileViewModel vm)
+    private static GoalTileView Shown(GoalTileViewModel vm, double height = 480)
     {
         var view = new GoalTileView { DataContext = vm };
-        var window = new Window { Content = view, Width = 620, Height = 480 };
+        var window = new Window { Content = view, Width = 620, Height = height };
 
         // The colour tokens the panel's styles reach for. Without them every DynamicResource resolves
         // to nothing and the test would be drawing a different control from the one users see.
@@ -109,9 +110,9 @@ public class GoalAskPanelTests : IDisposable
             using var vm = Tile();
             var view = Shown(vm);
 
-            // An empty tile asks for a goal, and the composer is the whole of that. Both panels are in
-            // the tree either way — what a user sees is which of them is visible.
-            Assert.Equal(2, Asks(view).Count);
+            // An empty tile asks for a goal, and the composer is the whole of that. All three panels are
+            // in the tree either way — what a user sees is which of them is visible.
+            Assert.Equal(3, Asks(view).Count);
             Assert.True(vm.ShowComposer);
             Assert.DoesNotContain(Asks(view), b => b.IsVisible);
 
@@ -254,7 +255,8 @@ public class GoalAskPanelTests : IDisposable
             });
             // The colour tokens are written into Application.Resources at run time by ThemeBridge,
             // derived from the active terminal theme, so a test window has to stand in for it.
-            window.Resources["TextPrimary"] = Brushes.White;
+            window.Resources["TextBody"] = Brushes.White;
+            window.Resources["TextStrong"] = Brushes.Yellow;
             window.Resources["TextMuted"] = Brushes.Gray;
             window.Resources["AccentDefault"] = Brushes.SteelBlue;
             window.Resources["BgElevated"] = Brushes.DimGray;
@@ -269,6 +271,8 @@ public class GoalAskPanelTests : IDisposable
             // value — which is why these are pushed after attachment instead. A probe caught this as
             // Foreground=Black on a viewer built straight from the transcript's template.
             Assert.Equal(Brushes.White, view.Foreground);
+            // Bold is said with contrast as well as weight - see ThemeBridge's TextStrong.
+            Assert.Equal(Brushes.Yellow, view.StrongBrush);
             Assert.Equal(Brushes.DimGray, view.CodeBackground);
             Assert.Equal(Brushes.Transparent, view.BackgroundBrush);
             Assert.Equal(EditorTheme.None, view.ColorTheme);
@@ -285,11 +289,11 @@ public class GoalAskPanelTests : IDisposable
             // picking another theme or font size happens while a tile is open and nothing else is going
             // to tell this control about it.
             window.Resources["TermFontBase"] = 21.0;
-            window.Resources["TextPrimary"] = Brushes.Yellow;
+            window.Resources["TextBody"] = Brushes.Orange;
             Pump();
 
             Assert.Equal(21.0, view.DefaultFontSize);
-            Assert.Equal(Brushes.Yellow, view.Foreground);
+            Assert.Equal(Brushes.Orange, view.Foreground);
         });
     }
 
@@ -343,19 +347,24 @@ public class GoalAskPanelTests : IDisposable
     }
 
     /// <summary>
-    /// Nothing the tile asks of the user is pinned to its bottom edge: every one of them is a block
-    /// inside the conversation.
+    /// What the tile <i>asks</i> scrolls with the conversation; the box you <i>type in</i> does not.
     /// </summary>
     /// <remarks>
-    /// <para>The whole of what this rearrangement is, asked of the markup — which is the only place it
-    /// can be got wrong. A block moved back out of the scroller looks perfectly reasonable in the file
-    /// and is a bar across the foot of the tile again on screen, and the view model cannot tell: every
-    /// one of these was bound to exactly the same property before and after.</para>
+    /// <para>The whole of the arrangement, asked of the markup — which is the only place it can be got
+    /// wrong. A block moved across that line looks perfectly reasonable in the file and is wrong on
+    /// screen, and the view model cannot tell: every one of these is bound to exactly the same property
+    /// either way.</para>
+    /// <para><b>The composer moved, and the two ask blocks did not.</b> A round of questions and a plan
+    /// belong to the turn that produced them: pinned to the foot of the tile they were a bar over a
+    /// conversation they had come loose from, which is what put them in the scroller in the first place.
+    /// The composer is the opposite case and always was — it is not something the conversation said, it
+    /// is the one place you act from, and scrolling back two attempts to re-read a review must not take
+    /// it off the bottom of the tile.</para>
     /// <para>Asked as "is <c>ChatScroll</c> an ancestor" rather than by counting children, because what
-    /// matters is that it scrolls with the conversation, not where in the column it was put.</para>
+    /// matters is whether it moves with the conversation, not where in the column it was put.</para>
     /// </remarks>
     [Fact]
-    public void Everything_the_tile_asks_for_scrolls_with_the_conversation()
+    public void What_the_tile_asks_scrolls_and_what_you_type_in_does_not()
     {
         OnUiThread(() =>
         {
@@ -364,40 +373,73 @@ public class GoalAskPanelTests : IDisposable
 
             var scroller = view.GetVisualDescendants().OfType<ScrollViewer>().First(c => c.Name == "ChatScroll");
 
-            // The two ask blocks — the questions and the plan — and the composer. All three are in the
-            // tree whether or not they are showing, so this holds before anything has been asked.
-            var blocks = Asks(view)
-                .Concat(view.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("composer")))
-                .ToList();
-
-            Assert.Equal(3, blocks.Count);
-            Assert.All(blocks, b => Assert.Contains(scroller, b.GetVisualAncestors()));
+            // The three ask blocks — the questions, the plan and the review gate. All are in the tree
+            // whether or not they are showing, so this holds before anything has been asked.
+            var asks = Asks(view).ToList();
+            Assert.Equal(3, asks.Count);
+            Assert.All(asks, b => Assert.Contains(scroller, b.GetVisualAncestors()));
 
             // And the transcript is in there with them, which is the point: one scroller, not two
             // fighting each other for the tile's height.
             Assert.Contains(scroller,
                 view.GetVisualDescendants().OfType<ItemsControl>().First(i => i.Name == "Transcript")
                     .GetVisualAncestors());
+
+            // The composer is not, and it is docked to the bottom rather than merely being outside.
+            var composer = view.GetVisualDescendants().OfType<Border>()
+                .Single(b => b.Classes.Contains("composer"));
+            Assert.DoesNotContain(scroller, composer.GetVisualAncestors());
+            Assert.Equal(Dock.Bottom,
+                DockPanel.GetDock(composer.GetVisualAncestors().OfType<Control>()
+                    .First(c => c.GetVisualParent() is DockPanel)));
         });
     }
 
     /// <summary>
-    /// Which properties are the tile's request blocks, and which are not.
+    /// A tile too short for all three keeps the strip and the composer, and the transcript gives way.
     /// </summary>
     /// <remarks>
-    /// <para>A block appearing changes the length of the transcript without adding a message, so the
-    /// view has to hear about it — the follow-to-the-bottom rule is driven by the message collection,
-    /// which never does. What it must <b>not</b> do any more is overrule where the reader is: that
-    /// forced a plan or a composer into view over somebody reading further up, which is the one thing
-    /// the rule exists to prevent. Now a block arriving asks on the ordinary terms and a reader who has
-    /// scrolled up keeps their place.</para>
-    /// <para>What is left to pin is the switch: five arms reading properties by name is exactly the
-    /// shape a copy-paste survives, and a name that is not a block has to answer null rather than
-    /// false — <c>CanDetectGoal</c> is fed by the git watcher and turns over when a file changes in a
-    /// terminal tile next door.</para>
+    /// A DockPanel hands its last child what the docked ones left, and a minimum height on that child
+    /// does not take the room back — it renders over what is above and below it. The transcript carried
+    /// one, so a Goal tile a couple of rows tall drew its last lines across the status strip and the
+    /// composer. Pinned as rectangles rather than as an attribute, because the attribute is only one of
+    /// the ways this comes back.
     /// </remarks>
     [Fact]
-    public void The_four_request_blocks_are_named_and_nothing_else_is()
+    public void In_a_short_tile_the_transcript_gives_way_rather_than_drawing_over_the_strip()
+    {
+        OnUiThread(() =>
+        {
+            using var vm = Tile();
+            var view = Shown(vm, height: 120);
+
+            var scroller = view.GetVisualDescendants().OfType<ScrollViewer>().First(c => c.Name == "ChatScroll");
+            var strip = view.GetVisualDescendants().OfType<DockPanel>().First(d => d.Name == "StripRow");
+            var composer = view.GetVisualDescendants().OfType<Border>().First(b => b.Name == "Composer");
+
+            Assert.True(scroller.Bounds.Height < 48, $"the transcript took {scroller.Bounds.Height}px it had not got");
+            Assert.True(Top(scroller, view) >= Bottom(strip, view) - 0.5, "the transcript starts above the strip's last line");
+            Assert.True(Bottom(scroller, view) <= Top(composer, view) + 0.5, "the transcript runs into the composer");
+        });
+    }
+
+    private static double Top(Control control, Control within) =>
+        control.TranslatePoint(new Point(0, 0), within)!.Value.Y;
+
+    private static double Bottom(Control control, Control within) =>
+        control.TranslatePoint(new Avalonia.Point(0, control.Bounds.Height), within)!.Value.Y;
+
+    /// <summary>
+    /// One block at a time: the composer is up until a round of questions takes its place.
+    /// </summary>
+    /// <remarks>
+    /// Each of these is a block at the end of the conversation, and two of them up at once is two things
+    /// asking the user for different answers in the same column. The composer going away is the half
+    /// worth pinning: the questions arriving is what takes it, so an arm of either rule left alone would
+    /// leave a tile asking to be answered twice.
+    /// </remarks>
+    [Fact]
+    public void The_composer_gives_way_to_a_round_of_questions()
     {
         OnUiThread(() =>
         {
@@ -405,44 +447,26 @@ public class GoalAskPanelTests : IDisposable
 
             // A fresh tile: the composer is up and nothing else is.
             Assert.True(vm.ShowComposer);
-            Assert.True(Shows(vm, nameof(vm.ShowComposer)));
-            Assert.False(Shows(vm, nameof(vm.ShowApproval)));
-            Assert.False(Shows(vm, nameof(vm.ShowQuestions)));
-            Assert.False(Shows(vm, nameof(vm.HasFinishedRunActions)));
+            Assert.False(vm.ShowApproval);
+            Assert.False(vm.ShowQuestions);
+            Assert.False(vm.HasFinishedRunActions);
 
-            // A round is asked. The questions overrule; the composer, now gone, does not — which is the
-            // going-away case, and it fires on exactly the same property name.
             vm.CurrentPhase = GoalPhase.Clarify;
             vm.Questions.Add(new GoalQuestionAnswer(1, new GoalQuestion { Question = "Which file?" }));
 
-            Assert.True(Shows(vm, nameof(vm.ShowQuestions)));
+            Assert.True(vm.ShowQuestions);
             Assert.False(vm.ShowComposer);
-            Assert.False(Shows(vm, nameof(vm.ShowComposer)));
-
-            // Neither of the two that are not requests, whatever the tile is doing.
-            Assert.False(Shows(vm, nameof(vm.CanDetectGoal)));
-            Assert.False(Shows(vm, nameof(vm.IsRunning)));
-
-            // And a name nothing knows about is not a request either — the handler falls through to the
-            // ordinary follow rather than forcing on every property the view model raises.
-            Assert.False(Shows(vm, nameof(vm.CurrentPhase)));
         });
     }
 
     /// <summary>
-    /// The other two arms, each seen answering yes.
+    /// The other two blocks, each alone in the state that raises it.
     /// </summary>
     /// <remarks>
-    /// <para>A five-armed switch that reads properties by name is exactly the shape a copy-paste
-    /// survives: an arm returning its neighbour's property is indistinguishable from a correct one
-    /// while every property it could return is false. Both of these are false on a fresh tile, so
-    /// asserting them there proves only that nothing is on — which is what the test above could do,
-    /// and no more.</para>
-    /// <para>Reached by loading a state rather than running to it, because these are facts about a
-    /// saved conversation and the constructor that takes a file is how a tile gets one. What is being
-    /// pinned is that the plan waiting to be approved, and the row of things to do with a finished run,
-    /// each pull the view to themselves — the failure otherwise being the one this whole rule exists
-    /// for: the block arrives below the fold and the tile looks like it has stopped.</para>
+    /// Reached by loading a state rather than running to it, because these are facts about a saved
+    /// conversation and the constructor that takes a file is how a tile gets one. A plan waiting to be
+    /// approved holds the composer down — otherwise the tile takes a new goal while the old one's plan
+    /// is still unanswered — and a finished run offers its own row with nothing left to approve.
     /// </remarks>
     [Fact]
     public void The_plan_and_the_finished_run_actions_are_blocks_too()
@@ -457,12 +481,7 @@ public class GoalAskPanelTests : IDisposable
             });
 
             Assert.True(waitingForApproval.ShowApproval);
-            Assert.True(Shows(waitingForApproval, nameof(GoalTileViewModel.ShowApproval)));
-
-            // And not the arm next door, which is false in this very state — a swapped pair would pass
-            // the assertion above and fail this one.
             Assert.False(waitingForApproval.ShowComposer);
-            Assert.False(Shows(waitingForApproval, nameof(GoalTileViewModel.ShowComposer)));
 
             using var finished = TileWith(new GoalTileState
             {
@@ -472,8 +491,7 @@ public class GoalAskPanelTests : IDisposable
             });
 
             Assert.True(finished.HasFinishedRunActions);
-            Assert.True(Shows(finished, nameof(GoalTileViewModel.HasFinishedRunActions)));
-            Assert.False(Shows(finished, nameof(GoalTileViewModel.ShowApproval)));
+            Assert.False(finished.ShowApproval);
         });
     }
 
@@ -555,10 +573,6 @@ public class GoalAskPanelTests : IDisposable
                 b => b.IsVisible && (b.Content as string) == "Resume");
         });
     }
-
-    /// <summary>Whether this property is one of the tile's four request blocks, and showing.</summary>
-    private static bool Shows(GoalTileViewModel vm, string name) =>
-        GoalTileView.Showing(vm, name) is true;
 
     /// <summary>A tile reopened on a saved conversation, which is the only way to a phase it did not
     /// get to by being driven.</summary>

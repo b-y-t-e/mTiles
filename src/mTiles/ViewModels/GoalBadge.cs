@@ -3,7 +3,7 @@ using mTiles.Models;
 namespace mTiles.ViewModels;
 
 /// <summary>
-/// One severity's count, as the status strip shows it.
+/// One severity's count, as the status bar under the composer shows it.
 /// <para>A collection rather than four view-model properties and four blocks of markup, each of which
 /// could be forgotten on its own. What a fifth severity costs now, honestly counted: an enum member, a
 /// letter below, a label in <c>GoalTranscript</c>, a synonym list in <c>GoalResponseParser</c>, a

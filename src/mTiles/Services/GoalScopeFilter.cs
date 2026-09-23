@@ -52,6 +52,25 @@ internal static partial class GoalScopeFilter
         return found;
     }
 
+    /// <summary>Every <c>@</c> token in the text with where it stands, in reading order.</summary>
+    /// <remarks>What the composers' file chips are drawn from — the same two spellings <see cref="Mentions"/>
+    /// reads, cut back by the same sentence punctuation, so a chip and the scope can never disagree about what
+    /// the text names. A bare token's span stops where its path does — the comma in "@src/Cart.cs, then" is the
+    /// sentence's, and removing the mention must leave it.</remarks>
+    public static IReadOnlyList<(int Start, int Length, string Path)> MentionSpans(string? composerText)
+    {
+        var text = composerText ?? "";
+        var quoted = QuotedMention().Matches(text)
+            .Select(match => (match.Index, match.Length, Path: WithoutSentenceEnd(match.Groups["path"].Value)));
+        var bare = BareMention().Matches(text)
+            .Select(match => (match.Index, Path: WithoutSentenceEnd(match.Groups["path"].Value)))
+            .Select(span => (span.Index, Length: 1 + span.Path.Length, span.Path));
+        return quoted.Concat(bare)
+            .Where(span => span.Path.Length > 0)
+            .OrderBy(span => span.Index)
+            .ToList();
+    }
+
     /// <summary>
     /// What the composer says once its <c>@</c> tokens are taken out.
     /// </summary>
@@ -105,12 +124,15 @@ internal static partial class GoalScopeFilter
         // it names. Nothing inside a path ends this way on Windows, where these characters are illegal
         // in a file name — and the trailing slash goes too: "@src/" is how a folder mention is typed,
         // and the scope it names is "src", not "src/".
-        var text = raw.Replace('\\', '/').Trim();
-        var cleaned = KeepRangeSeparator(text, text.AsSpan().TrimEnd(SentenceEnd).Length).TrimEnd('/');
+        var cleaned = WithoutSentenceEnd(raw.Replace('\\', '/').Trim()).TrimEnd('/');
         if (cleaned.Length == 0) return;
 
         if (!found.Contains(cleaned, StringComparer.OrdinalIgnoreCase)) found.Add(cleaned);
     }
+
+    /// <summary>The token without the punctuation of the sentence it ends — see <see cref="KeepRangeSeparator"/>.</summary>
+    private static string WithoutSentenceEnd(string token) =>
+        KeepRangeSeparator(token, token.AsSpan().TrimEnd(SentenceEnd).Length);
 
     /// <summary>Punctuation that ends a sentence and never a path.</summary>
     private static readonly char[] SentenceEnd = ['.', ',', ';', ':', '!', '?'];

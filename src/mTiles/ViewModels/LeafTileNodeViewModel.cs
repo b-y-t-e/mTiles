@@ -39,7 +39,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// and claim to have done something else. The one place left where this class knows what its content
     /// is, and it is about the tile's own identity rather than about anything the content can do.
     /// </remarks>
-    public bool HasSession => Content is AgentTileViewModel;
+    public bool HasSession => Content is TerminalAgentTileViewModel;
 
     /// <summary>The tile's content when it is an agent, for the two questions only an agent answers.
     /// </summary>
@@ -48,7 +48,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// asked of the content by capability would be the rule rather than the exception — and a whole
     /// interface for one implementer, which <c>docs/TILES.md</c> says has to be earned. Promote it if a
     /// second kind ever wants the same thing.</remarks>
-    private AgentTileViewModel? Agent => _disposed ? null : Content as AgentTileViewModel;
+    private TerminalAgentTileViewModel? Agent => _disposed ? null : Content as TerminalAgentTileViewModel;
 
     /// <summary>The instances the header's "Run as" submenu is offering right now.</summary>
     public IReadOnlyList<AgentInstanceChoice> AgentInstances { get; private set; } = [];
@@ -65,7 +65,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// Rebuilds the list of instances, which is what opening the menu is for.
     /// </summary>
     /// <remarks>Built when the menu opens rather than followed as a live collection: instances are
-    /// added, renamed and deleted in Settings while the tile lives, and a subscription per agent tile to
+    /// added, renamed and deleted in Settings while the tile lives, and a subscription per terminal agent tile to
     /// <c>SettingsChanged</c> buys nothing a menu about to be drawn does not get for free.</remarks>
     public void RefreshAgentInstances()
     {
@@ -82,8 +82,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         OnPropertyChanged(nameof(CanSwitchAgentInstance));
     }
 
-    /// <summary>The kinds this tile could become - every registered one but the kind it already is.
-    /// </summary>
+    /// <summary>The kinds this tile could become - every registered one, and its own kind too where
+    /// that kind has a setup step to ask (another shell, another agent CLI).</summary>
     /// <remarks>A tile keeps its place in the tree, its id and its activity across the change, so this
     /// is a change to the tile rather than a new tile beside it. Read straight off the registry, so a
     /// kind added later is offered here by being registered - the same list, in the same order, that an
@@ -101,19 +101,48 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// costs about a tile that is holding nothing.</remarks>
     public void RefreshChangeKindOptions()
     {
-        ChangeKindOptions = _disposed || _catalog is null || KindId.Length == 0 || Kind?.IsPermanent == true
+        ChangeKindOptions = _disposed || _catalog is null || _context is null || KindId.Length == 0
+                            || Kind?.IsPermanent == true
             ? []
             :
             [
                 .. _catalog.Entries.Select(entry => entry.Kind)
                     .Where(kind => !kind.IsPermanent)
-                    .Where(kind => !string.Equals(kind.Id, KindId, StringComparison.OrdinalIgnoreCase))
-                    .Select(kind => new TileKindChoice(kind.DisplayName, kind.IconId, kind.AccentKey,
+                    .Where(kind => !IsCurrentKind(kind.Id) || HasSomethingToChoose(kind))
+                    .Select(kind => new TileKindChoice(
+                        IsCurrentKind(kind.Id) ? $"{kind.DisplayName}\u2026" : kind.DisplayName,
+                        kind.IconId, kind.AccentKey,
                         () => BeginChangeKindAsync(kind.Id)))
             ];
 
         OnPropertyChanged(nameof(ChangeKindOptions));
         OnPropertyChanged(nameof(CanChangeKind));
+    }
+
+    private bool IsCurrentKind(string kindId) =>
+        string.Equals(kindId, KindId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether re-picking the kind this tile already is would actually ask something.</summary>
+    /// <remarks>The tile's own kind is offered back only when it has a setup step: that step is the
+    /// whole point of the entry — running this terminal on another shell, this agent tile on another
+    /// CLI — and a kind with nothing to choose would convert a tile into an identical one, which is a
+    /// destroyed shell for no change at all.</remarks>
+    private bool HasSomethingToChoose(ITileKind kind) =>
+        _context is { } context && SetupChoicesFor(kind, context).Count > 0;
+
+    /// <summary>The cards this tile would be shown for a kind — without the one it is already on.
+    /// </summary>
+    /// <remarks>The filtering is only ever about the kind the tile already is: for any other kind every
+    /// card is a change. Picking the setup it is running now would end the shell and its process tree —
+    /// and for codex and agy lose the captured session id, which no new state carries — to arrive at the
+    /// configuration it started from, which is the same reason <c>SwitchAgentInstance</c> stands its own
+    /// current instance down.</remarks>
+    private IReadOnlyList<TileSetupOption> SetupChoicesFor(ITileKind kind, TileContext context)
+    {
+        var options = kind.SetupOptions(context);
+        if (!IsCurrentKind(kind.Id) || Content is not { } content) return options;
+
+        return [.. options.Where(option => !kind.IsCurrentSetup(context, content, option))];
     }
 
     /// <summary>
@@ -126,13 +155,17 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     [RelayCommand]
     private async Task BeginChangeKindAsync(string? kindId)
     {
-        if (kindId is not { Length: > 0 } || kindId == KindId || KindId.Length == 0) return;
+        if (kindId is not { Length: > 0 } || KindId.Length == 0) return;
         if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
         if (kind.IsPermanent || Kind?.IsPermanent == true) return;
 
-        var options = kind.SetupOptions(context);
+        var options = SetupChoicesFor(kind, context);
         if (options.Count == 0)
         {
+            // Re-picking the kind this tile already is only means anything through its setup step, so
+            // without one there is nothing to convert to.
+            if (IsCurrentKind(kindId)) return;
+
             await ConvertToAsync(kindId, state: null);
             return;
         }
@@ -168,11 +201,71 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     public IReadOnlyList<TileAction> Actions =>
         _disposed ? [] : (Content as ITileActions)?.Actions ?? [];
 
+    /// <summary>The header's Restart button, when the content has something to restart.</summary>
+    /// <remarks><b>What it is called is the content's answer.</b> The header used to spell it "Restart
+    /// shell" in the tooltip and in the menu, which was true of the only kind that had the action when it
+    /// was written and false the moment the Agent tile gained it — that tile restarts a CLI held as a
+    /// conversation and has no shell at all. Each kind already names it (<c>Restart shell</c>,
+    /// <c>Restart agent</c>), exactly as the <c>+</c> beside it already took its own name from
+    /// <see cref="AddAction"/>.</remarks>
+    public TileAction? RestartAction => Actions.FirstOrDefault(a => a.Id == TileActionIds.Restart);
+
     /// <summary>Whether the header's Restart button and Ctrl+Shift+R have anything to do here.</summary>
     /// <remarks>Asked of the content's own list rather than of what kind of tile this is: a second kind
     /// that runs something restartable gets the button by offering the action, and this class does not
     /// have to learn about it.</remarks>
-    public bool CanRestart => Actions.Any(a => a.Id == TileActionIds.Restart);
+    public bool CanRestart => RestartAction is not null;
+
+    /// <summary>Whether the header draws a Restart button, as opposed to leaving it to the <c>…</c>
+    /// menu.</summary>
+    /// <remarks>Asked of the action rather than of the kind, for the reason <see cref="CanRestart"/> is:
+    /// a second kind whose restart is a cold resume says so by setting
+    /// <see cref="TileAction.PreferOverflow"/>, and neither this class nor the header has to grow a list
+    /// of ids. The action is still in the menu and still on Ctrl+Shift+R — this is where it is drawn,
+    /// not whether it can be done.</remarks>
+    public bool RestartHasHeaderButton => RestartAction is { PreferOverflow: false };
+
+    /// <summary>The Restart action's name with its shortcut, for the header's tooltip.</summary>
+    /// <remarks>A reason the tile is waiting to be restarted goes above it rather than instead of it: the
+    /// shortcut is what the tooltip is for the rest of the time, and a coloured icon whose tooltip only
+    /// says "Restart agent" is a mark the user has to guess the meaning of.</remarks>
+    public string RestartLabel => RestartAction is not { } action
+        ? ""
+        : action.Urgency is { Length: > 0 } why
+            ? $"{why}{Environment.NewLine}{action.Label} (Ctrl+Shift+R)"
+            : $"{action.Label} (Ctrl+Shift+R)";
+
+    /// <summary>Whether something is waiting on the tile's restart, so the header draws it in the warning
+    /// colour.</summary>
+    /// <remarks>Asked of the action rather than of the kind, for the reason <see cref="CanRestart"/> is:
+    /// a kind that grows a reason later is drawn that way by saying so, and neither this class nor the
+    /// header learns what the reasons are. The sentence itself is in <see cref="RestartLabel"/> — colour
+    /// alone says that something is up and never what, which is why the two always travel together.
+    /// </remarks>
+    public bool RestartIsUrgent => RestartAction?.Urgency is { Length: > 0 };
+
+    /// <summary>The content's actions the overflow menu lists under its own entries.</summary>
+    /// <remarks>Every action but the two the header already draws a control of its own for (Restart and
+    /// Add), so a kind offering a new action gets a menu entry by offering it. Built when the menu opens,
+    /// for the reason <see cref="RefreshChangeKindOptions"/> is: whether an action is enabled moves with
+    /// the content's state, and opening the menu is the moment the answer is read.</remarks>
+    public IReadOnlyList<TileActionChoice> ContentActions { get; private set; } = [];
+
+    /// <summary>Whether the overflow menu has any of the content's own actions to list.</summary>
+    public bool HasContentActions => ContentActions.Count > 0;
+
+    /// <summary>Rebuilds <see cref="ContentActions"/>.</summary>
+    public void RefreshContentActions()
+    {
+        ContentActions =
+        [
+            .. Actions.Where(action => action.Id is not (TileActionIds.Restart or TileActionIds.Add))
+                .Select(action => new TileActionChoice(action, () => InvokeActionAsync(action.Id)))
+        ];
+
+        OnPropertyChanged(nameof(ContentActions));
+        OnPropertyChanged(nameof(HasContentActions));
+    }
 
     /// <summary>The header's <c>+</c>, when the content is a list something can be added to.</summary>
     public TileAction? AddAction => Actions.FirstOrDefault(a => a.Id == TileActionIds.Add);
@@ -275,6 +368,9 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     partial void OnContentChanged(ITile? oldValue, ITile? newValue)
     {
         WatchContent(oldValue, newValue);
+        // Content put into a tile that is already active — a kind chosen, a type changed — is told so,
+        // or it would believe itself inactive until the next time the focus moved away and back.
+        if (IsActive && newValue is IActiveStateTile activeState) activeState.OnActiveChanged(true);
         OnPropertyChanged(nameof(HasSession));
         OnPropertyChanged(nameof(CanMaximize));
         RefreshAgentInstances();
@@ -312,7 +408,11 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     private void RaiseActionsChanged()
     {
         OnPropertyChanged(nameof(Actions));
+        OnPropertyChanged(nameof(RestartAction));
+        OnPropertyChanged(nameof(RestartLabel));
+        OnPropertyChanged(nameof(RestartIsUrgent));
         OnPropertyChanged(nameof(CanRestart));
+        OnPropertyChanged(nameof(RestartHasHeaderButton));
         OnPropertyChanged(nameof(AddAction));
         OnPropertyChanged(nameof(CanAdd));
     }
@@ -452,6 +552,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // _disposed like every other reach into Content here — Dispose leaves the reference in place.
         if (value && !_disposed && Content is IActivatableTile activatable)
             activatable.OnActivated();
+        if (!_disposed && Content is IActiveStateTile activeState)
+            activeState.OnActiveChanged(value);
     }
     partial void OnIsDictatingChanged(bool value) => OnPropertyChanged(nameof(ShowsActiveOutline));
 
@@ -637,6 +739,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         }
 
         Adopt(kindId, state: null);
+        RequestFocus();
     }
 
     /// <summary>Draws a kind's own step in place of whatever the tile is showing.</summary>
@@ -667,7 +770,10 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         if (isConversion)
             await ConvertToAsync(kindId, option.State);
         else
+        {
             Adopt(kindId, option.State);
+            RequestFocus();
+        }
     }
 
     [RelayCommand]
@@ -681,13 +787,14 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     }
 
     /// <summary>Gives an empty tile its content, its kind and its name.</summary>
-    private void Adopt(string kindId, JsonObject? state)
+    private void Adopt(string kindId, JsonObject? state, bool keepName = false)
     {
         if (_catalog?.Kind(kindId) is not { } kind || _context is not { } context) return;
 
         Content = kind.Create(context, state);
         KindId = kindId;
-        TileName = _nameFactory?.Invoke(kindId) ?? kind.DisplayName;
+        if (!keepName || TileName.Length == 0)
+            TileName = _nameFactory?.Invoke(kindId) ?? kind.DisplayName;
         (Content as IFileContent)?.RenameFile(TileName);
         NotifyLayoutChanged();
     }
@@ -707,7 +814,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// </remarks>
     private async Task ConvertToAsync(string kindId, JsonObject? state)
     {
-        if (_disposed || kindId == KindId) return;
+        if (_disposed || kindId.Length == 0) return;
 
         // A setup step still on screen belongs to a conversion the user has walked away from - the
         // header stays clickable while it is drawn, so Change type can be picked again from under it.
@@ -718,8 +825,15 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // Both guards are Adopt's own, asked here as well: it answers a kind or a context it cannot
         // resolve by doing nothing, which after the swap below would be a tile left holding nothing.
         if (_catalog?.Kind(kindId) is not { } kind || _context is null) return;
+
+        // The tile's own kind again is not a change of kind: what the user picked was the setup step's
+        // answer - another shell, another agent - so the question says that, and the tile keeps the name
+        // it is known by rather than being renumbered for standing still.
+        var samekind = IsCurrentKind(kindId);
         if (ConfirmAction is { } confirm
-            && !await confirm(TileConversion.Warning(KindId, kind.DisplayName)))
+            && !await confirm(samekind
+                ? TileConversion.ReconfigureWarning(KindId, kind.DisplayName)
+                : TileConversion.Warning(KindId, kind.DisplayName)))
             return;
 
         // The question is the one point here where the tile can be closed underneath us: Dispose has
@@ -743,7 +857,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // header's actions and the background are owned by nothing for a moment, and the view is handed
         // a null it clears the host for and then rebuilds - a flicker on every change.
         var previous = Content;
-        Adopt(kindId, state);
+        Adopt(kindId, state, keepName: samekind);
         previous?.Dispose();
 
         // Asked after the swap, because it is a question about the content there is now: a kind that

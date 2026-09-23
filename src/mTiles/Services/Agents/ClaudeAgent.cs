@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using mTiles.Models;
@@ -23,14 +23,42 @@ namespace mTiles.Services.Agents;
 /// <c>bypassPermissions</c>, <c>manual</c>, <c>dontAsk</c>, <c>plan</c>. This application knew three of
 /// them, which is how the plan and review phases had no read-only mode to run in.</para>
 /// </remarks>
-public sealed class ClaudeAgent : AiAgent
+public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
 {
     public override string Id => "claude";
     public override string DisplayName => "Claude Code";
 
+    /// <summary>The variable that puts Claude Code on its fullscreen renderer — forced for every tile in
+    /// <c>Program</c>, see docs/adr/0001-claude-code-fullscreen-renderer.md.</summary>
+    public const string FullscreenRendererVariable = "CLAUDE_CODE_NO_FLICKER";
+
+    /// <summary>Whether Claude Code in a tile draws on its fullscreen renderer: its own history on the
+    /// alternate screen, where the terminal's scrollbar describes nothing that is on screen. Read from
+    /// the process environment the tiles inherit, so turning the renderer off (a value set before mTiles
+    /// starts, or later a setting) brings the scrollbar back without anything else changing.</summary>
+    public static bool UsesFullscreenRenderer =>
+        Environment.GetEnvironmentVariable(FullscreenRendererVariable) is { Length: > 0 } value
+        && value != "0" && !value.Equals("false", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A conversation over stream-json and the control channel — see
+    /// <see cref="Sessions.Claude.ClaudeStreamSession"/>.</summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.Claude.ClaudeStreamSession(launch, this, sink);
+
     /// <summary>Measured 2026-09-03: <c>.claude/skills</c> under the project.</summary>
     public override string? SkillsDirectory(string workspaceDir) =>
         Path.Combine(workspaceDir, ".claude", "skills");
+
+    /// <summary>Claude Code does not follow a skill change reliably enough to go without a restart.</summary>
+    /// <remarks>Its documentation describes a watcher on the skills directories in the interactive session
+    /// (2.1.274), and this used to answer yes on <see cref="AgentSurface.Terminal"/> on the strength of it.
+    /// Observed 2026-09-18: a terminal agent tile on Claude Code, a second database ticked while it ran,
+    /// and asked about that database it searched the repository instead of using the skill — while the
+    /// yes had silenced both the notice and the lit Restart button. A documented watcher is not a measured
+    /// one, and the cost of the wrong answer is exactly the silence the question exists to end, so it
+    /// answers no like everybody else. See <see cref="IAiAgent.WatchesSkillsDirectory"/>.</remarks>
+    public override bool WatchesSkillsDirectory(AgentSurface surface) => false;
 
     /// <summary>The one agent that does not read the canon.</summary>
     /// <remarks>Measured 2026-09-03: loading is hard-coded — <c>case "Project": return
@@ -249,6 +277,43 @@ public sealed class ClaudeAgent : AiAgent
     public override bool SupportsSignIns => true;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>Asked of Anthropic itself, as this login (<see cref="ClaudeModelCatalog"/>). It is the only
+    /// route to the figure for a tile on a subscription — there is no provider instance there, so
+    /// nothing else has an address or a key to ask with — and it is the same credentials file the usage
+    /// card already reads — but a stale token is <em>not</em> refreshed from here: the tile asking is running
+    /// Claude Code on that same login, which renews it itself, and spending the rotating refresh token at
+    /// the same moment is how one of the two exchanges gets refused. An expired token is no answer until
+    /// the CLI's own renewal lands, and the gauge asks again at its next reading.</para>
+    /// <para>The same <c>FilesFor</c> rule every other read here uses, which is what keeps a sign-in's
+    /// answer coming out of the sign-in's own directory: the default account's credentials are in
+    /// <c>~/.claude</c> while a relocated one keeps everything inside <c>CLAUDE_CONFIG_DIR</c>.</para>
+    /// </remarks>
+    public override Task<long?> AccountContextWindowAsync(AiSignIn? signIn, string model,
+        CancellationToken ct = default)
+    {
+        var (_, credentialsFile) = FilesFor(signIn is null ? null : AiSignInStore.DirectoryFor(signIn));
+        return ClaudeModelCatalog.ContextWindowAsync(credentialsFile, model, ct);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Its own transcripts, under whichever directory <c>CLAUDE_CONFIG_DIR</c> names — the same
+    /// rule <see cref="SignInEnv"/> applies, asked once here so a sign-in's conversations are read out of
+    /// the sign-in's own <c>projects/</c> rather than the default account's. The default account honours
+    /// an exported <c>CLAUDE_CONFIG_DIR</c> exactly as <see cref="FilesFor"/> does, or a machine that
+    /// exports it would watch a <c>~/.claude/projects</c> Claude Code never writes to.</remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog { get; } =
+        new SessionLogs.ClaudeSessionLog(signIn => signIn is null
+            ? ExportedConfigDirectory()
+              ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude")
+            : AiSignInStore.DirectoryFor(signIn));
+
+    /// <summary>The directory the default account lives in when this machine exports
+    /// <c>CLAUDE_CONFIG_DIR</c>, else null.</summary>
+    private static string? ExportedConfigDirectory() =>
+        Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR") is { Length: > 0 } directory ? directory : null;
+
+    /// <inheritdoc />
     public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
         new Dictionary<string, string?>(StringComparer.Ordinal)
         {
@@ -302,7 +367,7 @@ public sealed class ClaudeAgent : AiAgent
         // A machine that already exports CLAUDE_CONFIG_DIR has its default account *there*, so asking
         // about ~/.claude would report a working login as signed out - the false "not signed in" this
         // rule exists to avoid.
-        configDirectory ??= Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+        configDirectory ??= ExportedConfigDirectory();
 
         return configDirectory is { Length: > 0 } directory
             ? (Path.Combine(directory, ".claude.json"), Path.Combine(directory, ".credentials.json"))
@@ -468,6 +533,38 @@ public sealed class ClaudeAgent : AiAgent
         _ => null,
     };
 
+    /// <summary>The <c>Concise</c> output style — and the output proxy's hook where the instance asked
+    /// for one — through <see cref="ClaudeSessionSettings"/>; an <c>outputStyle</c> the user wants
+    /// instead goes in the instance's extra arguments, which come after this.</summary>
+    /// <remarks><b>The proxy is asked for only where it can actually work.</b> A tick on an instance
+    /// whose machine has no <c>rtk</c> would write a hook whose command is not there, and Claude Code
+    /// would run it — and fail it — before every single Bash call. So the binary is looked for at the
+    /// moment the file is written, which is also the moment that answer stops being stale: rtk
+    /// installed from the Settings row applies at the next launch without anything having to notice.
+    /// <para>And a machine whose own <c>~/.claude/settings.json</c> — or the workspace's own <c>.claude/settings*.json</c> — already carries the hook gets the
+    /// plain file: Claude Code runs every matching entry, so adding ours beside theirs is one command
+    /// handed to the proxy twice. The Settings row says so rather than leaving the tick looking
+    /// ignored.</para></remarks>
+    public override IReadOnlyList<string> SessionDefaultArgs(AgentRuntime runtime) =>
+        ClaudeSessionSettings.Write(OutputProxyFor(runtime)) is { } path ? ["--settings", path] : [];
+
+    /// <summary>Where rtk is, when this session should run through it; null otherwise.</summary>
+    private string? OutputProxyFor(AgentRuntime runtime) =>
+        runtime.Instance.UseOutputProxy && !IsOutputProxyAlreadyHooked(runtime.SignIn, runtime.WorkingDirectory)
+            ? OutputProxy.Locate()
+            : null;
+
+    /// <inheritdoc />
+    /// <remarks>Through the settings file this agent is already launched with — see
+    /// <see cref="ClaudeSessionSettings"/>. Nothing is written into <c>~/.claude/settings.json</c>,
+    /// which is what <c>rtk init --global</c> does and what makes that route a decision about the
+    /// machine rather than about this instance.</remarks>
+    public override OutputProxy.Support OutputProxySupport => OutputProxy.Support.GeneratedFile;
+
+    /// <inheritdoc />
+    public override bool IsOutputProxyAlreadyHooked(AiSignIn? signIn, string? workspaceDirectory = null) =>
+        OutputProxyGlobalHook.IsHookedForClaude(signIn, workspaceDirectory);
+
     /// <summary>
     /// <c>claude --resume &lt;tileId&gt;</c>, falling back to <c>claude --session-id &lt;tileId&gt;</c>.
     /// </summary>
@@ -484,8 +581,9 @@ public sealed class ClaudeAgent : AiAgent
     /// ever resumes anything. If both commands are refused the chain still ends at an interactive
     /// shell, so the tile is not left dead.</para>
     /// </remarks>
-    protected override LaunchScripts Resume(string sessionId) =>
-        LaunchScripts.FromProfile($"claude --resume {sessionId}", $"claude --session-id {sessionId}");
+    protected override LaunchScripts Resume(string program, string sessionId) =>
+        LaunchScripts.FromProfile($"{program} --resume {sessionId}",
+            $"{program} --session-id {sessionId}");
 
     /// <summary><c>claude -p</c> with no prompt after it reads the prompt from standard input.</summary>
     public override bool AcceptsPromptOnStdin => true;
@@ -664,8 +762,7 @@ public sealed class ClaudeAgent : AiAgent
 
         var text = block.TryGetProperty("content", out var content) ? Flatten(content) : "";
 
-        return text.Contains("requested permissions", StringComparison.OrdinalIgnoreCase)
-               || text.Contains("permission to use", StringComparison.OrdinalIgnoreCase);
+        return Sessions.Claude.ClaudeTools.IsPermissionDenial(text);
     }
 
     /// <summary>A tool_result's content, which is a string in the simple case and a list of blocks in

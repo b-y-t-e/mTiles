@@ -7,7 +7,7 @@ using Xunit;
 namespace mTiles.Tests;
 
 /// <summary>
-/// What an agent tile says it is running, beside its name.
+/// What a terminal agent tile says it is running, beside its name.
 /// </summary>
 /// <remarks>
 /// <para>Two tiles both called <c>Agent#N</c> may be Claude Code on a subscription and Codex on
@@ -107,13 +107,13 @@ public sealed class HeaderNoteTests : IDisposable
     public void A_tile_whose_instance_is_gone_still_names_its_agent()
     {
         var agent = AiAgentCatalog.Find("claude")!;
-        var tile = new AgentTileViewModel(_directory.Path, null, _settings.Service, agent,
+        var tile = new TerminalAgentTileViewModel(_directory.Path, null, _settings.Service, agent,
             instanceId: "never-existed", tileId: () => Guid.NewGuid().ToString());
 
         Assert.Contains("Claude Code", tile.HeaderNote);
     }
 
-    /// <summary>An agent tile announces the capability; the header reads it through the interface.</summary>
+    /// <summary>A terminal agent tile announces the capability; the header reads it through the interface.</summary>
     [Fact]
     public void An_agent_tile_is_a_described_tile()
     {
@@ -122,12 +122,12 @@ public sealed class HeaderNoteTests : IDisposable
         Assert.IsAssignableFrom<IDescribedTile>(tile);
     }
 
-    private AgentTileViewModel TileOn(AiAgentInstance instance)
+    private TerminalAgentTileViewModel TileOn(AiAgentInstance instance)
     {
         _settings.Service.Settings.AiAgentInstances.Add(instance);
         var agent = AiAgentCatalog.Find(instance.AgentId)!;
 
-        return new AgentTileViewModel(_directory.Path, null, _settings.Service, agent, instance.Id,
+        return new TerminalAgentTileViewModel(_directory.Path, null, _settings.Service, agent, instance.Id,
             tileId: () => Guid.NewGuid().ToString());
     }
 }

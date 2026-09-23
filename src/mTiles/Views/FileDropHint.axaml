@@ -1,0 +1,24 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mi="using:Material.Icons.Avalonia"
+             x:Class="mTiles.Views.FileDropHint"
+             x:Name="Root"
+             IsVisible="False"
+             IsHitTestVisible="False">
+    <!-- Drawn over the whole tile while a file or a picture is held above it (ImageDrop). Not
+         hit-testable, so the drop lands on the tile underneath. The type size is the host's: set
+         FontSize on this control, and the words inherit it. -->
+    <Border Background="{DynamicResource BgCanvas}"
+            Opacity="0.92"
+            BorderBrush="{DynamicResource AccentOutline}"
+            BorderThickness="2"
+            CornerRadius="{DynamicResource RadiusTileInner}">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+            <mi:MaterialIcon Kind="ImagePlusOutline" Width="28" Height="28"
+                             Foreground="{DynamicResource AccentHover}" />
+            <TextBlock HorizontalAlignment="Center"
+                       Text="{Binding #Root.Text}"
+                       Foreground="{DynamicResource TextPrimary}" />
+        </StackPanel>
+    </Border>
+</UserControl>

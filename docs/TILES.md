@@ -158,7 +158,7 @@ public interface IDescribedTile : ITile
 **Beside the name, never instead of it.** The name is the user's — typed, or generated as `Agent#1` —
 and it is what they navigate by. This answers a different question the header could not answer at all:
 two tiles both called `Agent#N` may be Claude Code on a subscription and Codex on OpenRouter, and
-nothing on screen told them apart. `AgentTileViewModel` answers with its instance and the model the
+nothing on screen told them apart. `TerminalAgentTileViewModel` answers with its instance and the model the
 launch settled on (`Claude Code · glm-5.3-flash`); no other kind implements it yet, and a kind with
 nothing to add simply does not.
 
@@ -192,7 +192,7 @@ Who implements what:
 
 | Kind | `IBusyTile` | `IFileContent` | `ITileActions` | `ITextInputTile` | `ICustomBackgroundTile` | `IProcessTile` | `IDescribedTile` | `IMaximizableTile` |
 |---|---|---|---|---|---|---|---|---|
-| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ | ✔ Agent tiles only | ✔ |
+| Terminal | ✔ | | ✔ Restart shell (header only) | ✔ | ✔ | ✔ | ✔ Terminal agent tiles only | ✔ |
 | Note | | ✔ | | | | | | ✔ |
 | Todo | | ✔ | | | | | | ✔ |
 | Git | | | ✔ Refresh, Commit, Push | | | | | |
@@ -207,7 +207,7 @@ need from it is the working light: a refresh reaches three services over the net
 seconds, and a dashboard that looks identical while it is asking is a dashboard nobody trusts. Its
 `Save` answers `null` for the same reason — there is nothing per tile worth writing down, and
 `TileKindIds.ToLegacy` finds no name for it, so a build Velopack has rolled back opens the leaf as an
-empty tile. That costs a click; degrading it to a terminal, the way an agent tile is degraded, would open
+empty tile. That costs a click; degrading it to a terminal, the way a terminal agent tile is degraded, would open
 a shell nobody asked for.
 
 `IProcessTile` is the root of a tree and not a process: a terminal knows the shell it spawned and nothing
@@ -599,9 +599,16 @@ The order is the whole of the decision, and it is `LeafTileNodeViewModel.BeginCh
 4. only then is anything destroyed, and the new content is put in place **before** the old is disposed
    of, or the busy light, the header's actions and the background are owned by nothing for a moment.
 
+The list also holds **the kind the tile already is**, where that kind has a setup step to ask — a
+terminal moved to another shell, an agent tile to another CLI. It is then a reconfiguration rather than
+a change of type: the question says so (`TileConversion.ReconfigureWarning`), the tile keeps the name it
+is known by, and the setup it is already running is left out of the step (`ITileKind.IsCurrentSetup`),
+since taking it would kill the shell to arrive back where it started.
+
 Three consequences worth knowing. Keeping the `TileId` means `agent → note → agent` comes back to the
 same conversation, because the session id *is* the tile id — a feature, not a leak. The name is
-generated afresh, so a hand-typed one is lost: there is no "the user renamed this" flag to consult. And
+generated afresh on a change of kind, so a hand-typed one is lost: there is no "the user renamed this"
+flag to consult — a reconfiguration keeps it, because the tile is still what it was. And
 the old kind's state is not remembered, so going back gives a *new* empty tile of that kind — the note's
 file stays on disk, but nothing points at it.
 

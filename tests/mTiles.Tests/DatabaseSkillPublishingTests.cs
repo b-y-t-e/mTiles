@@ -138,4 +138,32 @@ public sealed class DatabaseSkillPublishingTests : IDisposable
         Assert.False(File.Exists(SkillFile));
         Assert.DoesNotContain(Skill, File.ReadAllText(IgnoreFile));
     }
+
+    /// <summary>Discovery answering in stages is not a decision: SQL Server registers before PostgreSQL,
+    /// so a selection of both is written as a partial skill and then a whole one on every launch, and
+    /// that must not restart the agents. A tick is.</summary>
+    [Fact]
+    public void Discovery_answering_in_stages_is_not_announced_and_a_tick_is()
+    {
+        const string Later = "localhost/billing";
+        var announced = 0;
+        _agentFiles.SkillsChanged += _ => announced++;
+        List<WorkspaceDatabaseConfig> both = [new() { DatabaseKey = Key }, new() { DatabaseKey = Later }];
+
+        RegistryFinds();
+        _manager.UpdateDatabaseSkill(_agentFiles, both);          // the partial list is the baseline
+        _manager.Registry.Register(new DatabaseInstance
+        {
+            Server = "localhost",
+            Database = "billing",
+            Provider = DbProviderType.PostgreSQL,
+            ConnectionString = "Host=localhost;Database=billing"
+        });
+        _manager.UpdateDatabaseSkill(_agentFiles, both);
+        Assert.Contains(Later, File.ReadAllText(SkillFile));
+        Assert.Equal(0, announced);
+
+        _manager.UpdateDatabaseSkill(_agentFiles, Selected());
+        Assert.Equal(1, announced);
+    }
 }

@@ -333,7 +333,7 @@ public sealed class CcsProvider : AiProvider, IManagedAiProvider
     /// <summary>The command line everything here is spelled around.</summary>
     public const string CommandName = "ccs";
 
-    /// <summary>What installing CCS actually types. Shown before it runs, and run in a tile.</summary>
+    /// <summary>What installing CCS actually types. Shown before it runs, then run in the background by <c>BackgroundInstaller</c>.</summary>
     public static readonly InstallPlan Install = new("npm",
         ["install", "-g", "@kaitranntt/ccs"],
         "Installs CCS globally through npm, which has to be on PATH already. "

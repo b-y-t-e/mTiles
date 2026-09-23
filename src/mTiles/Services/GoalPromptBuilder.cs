@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text;
 using mTiles.Models;
 
@@ -873,9 +873,43 @@ public sealed class GoalPromptBuilder
 
     /// <param name="scoped">Whether the working tree block is only what changed since the goal
     /// started. See <see cref="OtherPeoplesWorkInReview"/> for what turns on it.</param>
+    /// <param name="dismissed">What the user has already said is not to be fixed, as
+    /// <see cref="GoalDismissals.PromptBlock"/> writes it, or empty when there is nothing. Carried into
+    /// the prompt rather than filtered out of the answer, because only the reviewer can tell a finding
+    /// somebody dismissed from a differently worded one about the same line.</param>
     public string BuildReview(string goal, string? gitDiff, bool scoped = false, int? budget = null,
-        string? guideline = null) =>
-        Fit(cap => ComposeReview(goal, gitDiff, scoped, cap, guideline), budget);
+        string? guideline = null, string? dismissed = null) =>
+        Fit(cap => ComposeReview(goal, gitDiff, scoped, cap, guideline, dismissed), budget);
+
+    /// <summary>
+    /// The findings a person has already looked at and let stand.
+    /// </summary>
+    /// <remarks>
+    /// <para>Said as a decision rather than as a correction, and the difference is what makes it work:
+    /// a reviewer told that a real defect is not a defect will argue with the file in front of it and
+    /// raise it again in other words, which is precisely the thing this block exists to stop. Told
+    /// instead that somebody has seen it and chosen to leave it, it has nothing to disagree with.</para>
+    /// <para><b>This is what actually carries a dismissal from one lap to the next.</b> Nothing here
+    /// compares strings — the reviewer is written from scratch each time and phrases the same defect
+    /// differently on every run, so the text match in <see cref="GoalDismissals.Contains"/> catches only the
+    /// literal repeat. The model reading this list is the only part of the arrangement that can tell
+    /// "dereferences null at line 762" from "this can be null here" and treat them as one.</para>
+    /// <para>Kept under pressure rather than dropped, unlike the advice around it: a prompt too small
+    /// for this block is one where the reviewer will raise a dismissed finding again, and the run then
+    /// spends an attempt re-fixing something the user said to leave alone. The block itself is a few
+    /// lines — severity, place and title, no detail — so what it costs is small enough to pay from
+    /// anywhere.</para>
+    /// </remarks>
+    private static string Dismissed(string? dismissed, int cap) =>
+        dismissed is not { Length: > 0 }
+            ? ""
+            : Block(
+                  "These were reported before and the user has decided not to fix them. Do not report " +
+                  "them again, in these words or in any others. They are not evidence that the code is " +
+                  "correct; they are a decision that has already been taken. Leave them out of goalMet as " +
+                  "well: judge the goal as though the user had accepted each of them as it stands",
+                  dismissed,
+                  Math.Max(TreeFloor, cap));
 
     /// <summary>
     /// How to look at the change, said to a reviewer that is standing in the repository and can open
@@ -902,6 +936,7 @@ public sealed class GoalPromptBuilder
     /// new content would only push tracked changes out of a block that is already a fragment. Asking
     /// costs eight lines and scales the right way.</para>
     /// </remarks>
+
     private static string ReviewReading(int cap) => cap >= Roomy
         ? "That block is a map, not the evidence. Read the change itself before judging it:\n" +
           "- open the files it names. Read a small one whole; on a large one read each changed part " +
@@ -1024,7 +1059,7 @@ public sealed class GoalPromptBuilder
         "goal; do not report their unrelated changes as a finding.\n\n";
 
     private string ComposeReview(string goal, string? gitDiff, bool scoped, int cap,
-        string? guideline = null)
+        string? guideline = null, string? dismissed = null)
     {
         var prompt = "Review the code changes that were just made in this project.\n\n"
                      + Block("The original goal was", goal, GoalCap(cap))
@@ -1057,6 +1092,8 @@ public sealed class GoalPromptBuilder
         // allowed has been told how to pass, and the severities are the one thing in its answer nothing
         // else can check.
         if (!scoped) prompt += OtherPeoplesWorkInReview;
+
+        prompt += Dismissed(dismissed, cap);
 
         prompt += ReviewSweep(cap);
         prompt += ReviewGaps(cap);

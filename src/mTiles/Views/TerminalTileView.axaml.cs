@@ -1,7 +1,10 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using mTiles.Services;
 using mTiles.ViewModels;
@@ -9,14 +12,43 @@ using TerminalControl = Terminal.Avalonia.TerminalControl;
 
 namespace mTiles.Views;
 
-public partial class TerminalTileView : UserControl
+public partial class TerminalTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The terminal: it reads the keyboard itself, with no inner control to hand it to.</summary>
+    public InputElement? PreferredFocusTarget => TerminalHost.Content as TerminalControl;
+
     private TerminalTileViewModel? _subscribedVm;
 
     public TerminalTileView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+
+        // A dropped file is typed into the terminal as its path, which is how every agent CLI here takes
+        // an image (and what a shell wants for any file) — see DroppedPathText. A picture with no file
+        // behind it, dragged out of a browser, is written to disk first so there is a path to type.
+        ImageDrop.Attach(this, DropHint,
+            items => TerminalHost.Content is TerminalControl { IsRunning: true }
+                     && (items.HasPicture || items.Files.Any(file => file.TryGetLocalPath() is not null)),
+            TypeDroppedPathsAsync);
+    }
+
+    private async Task TypeDroppedPathsAsync(DroppedItems items)
+    {
+        if (TerminalHost.Content is not TerminalControl terminal) return;
+        if (DataContext is not TerminalTileViewModel vm) return;
+
+        var paths = items.Files.Select(file => file.TryGetLocalPath()).OfType<string>().ToList();
+        if (items.Bitmap is { } bitmap)
+            using (bitmap)
+                if (await Task.Run(() => DroppedImages.Save(bitmap)) is { } saved) paths.Add(saved);
+
+        var text = vm.TypedTextReachesAShell
+            ? DroppedPathText.For(paths, vm.Shell.Shell)
+            : DroppedPathText.ForPrompt(paths);
+        if (text.Length == 0) return;
+        terminal.SendText(text);
+        terminal.Focus();
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -48,6 +80,7 @@ public partial class TerminalTileView : UserControl
             // primary screen only. Its cost: that Ctrl+L reaches a raw stdin reader too, so a password
             // typed at a prompt that was resized mid-entry picks up a stray control character.
             RedrawShellOnResize = true,
+            ShowScrollbar = vm.ShowsScrollbar,
             // Claude Code (and other agents) read an image off the clipboard when they see Ctrl+V.
             // Swallowing the key on a non-text clipboard, which is the control's default, is the
             // difference between image paste working and silently doing nothing.
@@ -59,6 +92,7 @@ public partial class TerminalTileView : UserControl
             PtyFactory = options => WatchChildProcess(Terminal.Pty.PtyConnection.Start(options), vm),
         };
 
+        if (vm is IInputSubmissionTile submissions) ReportSubmissions(terminal, submissions);
         vm.AttachControl(terminal);
         TerminalHost.Content = terminal;
 
@@ -76,6 +110,15 @@ public partial class TerminalTileView : UserControl
             TileLauncher.Launch(terminal, vm);
         }
     }
+
+    /// <summary>Tells the tile every time Enter is pressed in its terminal.</summary>
+    /// <remarks>On the tunnel and with handled events too, because the control marks the key handled
+    /// on its way to the child — which is the ordinary case, not the exception.</remarks>
+    private static void ReportSubmissions(TerminalControl terminal, IInputSubmissionTile submissions) =>
+        terminal.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key == Key.Enter) submissions.OnInputSubmitted();
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
     /// <summary>Tells the tile which process its shell is, for as long as that process lives.</summary>
     private static Terminal.Pty.IPtyConnection WatchChildProcess(

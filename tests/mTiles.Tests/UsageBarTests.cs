@@ -49,4 +49,25 @@ public class UsageBarTests
     [InlineData(100.0, 15)]
     public void The_tick_is_a_cell_of_the_bar(double expected, int cell) =>
         Assert.Equal(cell, UsageBar.MarkCell(expected, cells: 16));
+
+    /// <summary>The ramp starts where it is told to and ends on the last cell.</summary>
+    /// <remarks>Three decisions, each of which would pass the build if it changed quietly: a cell below
+    /// the ramp stays on the fill, the last cell reaches the danger colour outright — measured at the
+    /// cell's start it would stop a sixteenth short and the one reading worth noticing would never be
+    /// drawn — and a ramp starting at the end of the bar is no ramp rather than a division by
+    /// zero.</remarks>
+    [Theory]
+    [InlineData(40.0, 0, 16, 0.0)]
+    [InlineData(40.0, 5, 16, 0.0)]
+    [InlineData(40.0, 6, 16, 0.0625)]
+    [InlineData(40.0, 15, 16, 1.0)]
+    [InlineData(0.0, 15, 16, 1.0)]
+    [InlineData(100.0, 15, 16, 0.0)]
+    public void The_ramp_runs_from_where_it_is_told_to_the_last_cell(
+        double rampFrom, int cell, int cells, double expected) =>
+        Assert.Equal(expected, UsageBar.RampAt(rampFrom, cell, cells), 3);
+
+    /// <summary>A bar with no cells has no ramp, rather than dividing by their count.</summary>
+    [Fact]
+    public void A_bar_with_no_cells_has_no_ramp() => Assert.Equal(0, UsageBar.RampAt(40, 0, 0));
 }

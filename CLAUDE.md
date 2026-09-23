@@ -17,21 +17,28 @@ release. Never a manual `git push` or a hand-written version bump.
 ## Structure
 
 - `src/mTiles/` — the application
+- `src/mTiles.AgentSessions/` — **no Avalonia, no reference to the application**: the agent conversation contract (`Events/`, `Commands/`, `IAgentSession`), the pure `ConversationReducer`, the SQLite event store, git turn checkpoints, `AgentConversationHost`, and the protocol plumbing every agent shares (`AgentProcess`, `JsonRpcPeer`, ACP). A separate project so a later web view references it as it is — see [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md)
+- `src/mTiles.Controls/` — **controls, and nothing else**: Avalonia, no reference to the application, the
+  same one-way rule `mTiles.AgentSessions` keeps. It names colours by role through `DynamicResource` and
+  defines none of them, so a control drawn here takes this application's theme without being told. Holds
+  `Picker` — the trigger-plus-searchable-list that replaced the model field's combo-box-versus-autocomplete
+  dead end — see [`src/mTiles.Controls/README.md`](src/mTiles.Controls/README.md) — and `Notepad/`, the
+  vendored `MarkdownViewer`/`NoteEditor` (see [`src/mTiles.Controls/Notepad/README.md`](src/mTiles.Controls/Notepad/README.md))
 - `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
-- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, SplitFixedSide (which side of a split, if either, is held at a size in pixels rather than a share — never written for a split that has none, so a workspace layout saves byte for byte as before), TileKindIds, TileContentType (closed — see Tiles below), AppSettings, AppDefaults, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, GoalTileState, GoalCommit, GoalFinding, GoalReviewResult, GoalClarifyResult, IGoalParsedBlock (the two members the JSON re-send round reads, so a clarification and a review get one round rather than a copy each), GoalCompletionCriteria, GoalStopReason, GoalImageAttachment, SolidPrinciples, AiBehaviour, AiEffort, AiUsage, AiAgentInstance, AiProviderInstance, AiSignIn, AiModelInfo, ProviderCheck, SessionStrategy, ApiFlavor, InstallPlan, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, WorkspaceAgentFileSyncConfig, SpeechSettings, PhoneSettings, BrowserSettings)
+- `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, SplitFixedSide (which side of a split, if either, is held at a size in pixels rather than a share — never written for a split that has none, so a workspace layout saves byte for byte as before), TileKindIds, TileContentType (closed — see Tiles below), AppSettings, AppDefaults, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, GoalTileState, GoalCommit, GoalFinding, GoalReviewResult, GoalClarifyResult, IGoalParsedBlock (the two members the JSON re-send round reads, so a clarification and a review get one round rather than a copy each), GoalCompletionCriteria, GoalRole, GoalEffortPreset, GoalStopReason, GoalReviewGateMode, GoalImageAttachment, SolidPrinciples, AiBehaviour, AiEffort, AiUsage, AiAgentInstance, AiProviderInstance, AiSignIn, AiModelInfo, ProviderCheck, SessionStrategy, ApiFlavor, InstallPlan, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, WorkspaceAgentFileSyncConfig, SpeechSettings, PhoneSettings, BrowserSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
 - `Styles/` — design tokens (`AppTheme.axaml`) and global control styles (`Controls.axaml`, including GridSplitter). UI colors exclusively via `DynamicResource`, terminal ANSI colors separately in `TerminalTheme`. `BgCanvas` is the odd one out: it is what the tiles are laid on and the only colour here not meant to be looked at (see Split tiles architecture)
-- `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), AgentTileMigration (the terminal tiles that were an AI CLI in a shell, turned into agent tiles once), GoalAgents/GoalAgentChoice (which agents a Goal tile may offer, and what a stored id means), InstallCommand (the line an install or a sign-in actually types into a tile — `InstallPlan.CommandLine` is for reading and never what runs), ExecutableFinder (a program on `PATH`, for the callers a GUI process cannot rely on its own resolution for), ClipboardHelpers (whether an AI CLI in a tile can take an image off this machine's clipboard at all — Linux only, where every one of them shells out to `wl-paste` or `xclip`, and where the absence of the one this session can use is silent in every direction), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/WorkspaceGitWatcher (one watch over a workspace's tree, shared by the git and Goal tiles through `TileContext.GitWatcher`, started with its first subscriber and stopped with its last; it keeps its own noise floor — the ignored directories are asked for through `IIgnoredDirectorySource` rather than waiting for a git tile to supply them — and polls until the workspace becomes a repository, since nothing else retries)/GitIgnoreFile/GitIgnoreEditQueue (the one chain every `.gitignore` edit is queued on — ordered, so a line written and withdrawn a moment later does not survive, and waited on briefly at shutdown so none is abandoned mid-write), DiffFormatter, ProcessTreeMemory/MemoryDisplay (what a workspace's tiles are holding, and how that reads on its row), FileHelper, ProtectedStringConverter, TolerantEnumConverter, TileTreeSerializer, TileNameGenerator, TileMinimumSize, TileDropRatio (how much room a tile dropped between others takes, and how the tiles already there give it up — a third, out of both in proportion, so a pair that was 80/20 is still 80/20 of what is left to it), WindowTileSize (how much room a tile put beside the workspaces is given — fixed pixels while the window has room for them twice over, a share otherwise), SpecialDirectories, SafePathComponent (the one rule for turning an id into a directory or file name — an allow-list plus the Windows reserved names, because both the sign-in directories and the generated opencode files are named after ids that reach `settings.json` by hand), DefaultWorkspace, the Goal tile's engine (AiProcessRunner, AiBehaviours, AiEfforts, GoalWorkflowEngine, GoalPromptBuilder, GoalStatePersistence, GoalLoopPolicy, GoalTilePolicy, GoalCompletionPolicy, GoalBaseline, GoalCommitter, GoalCommitPlan, GoalDiffContext, CommandDisplay, CommandLineLength, ElapsedDisplay, GoalStageDisplay, RejectedFlag, UnrecognizedModel (Claude Code refusing to start a headless run on a model it cannot verify against the gateway — the one recognisable failure that names itself and the route that still works), GoalResponseParser (with JsonRepair, the one pure rule that mends a block a model wrote by hand — an unescaped quote or a raw newline inside a string value — tried only after the parser has refused it and kept only if it then parses), GoalScopeFilter (the composer typed beside Detect/Review as a scope: its words a narrowing block in the prompt, its `@` paths a hard filter on the working-tree block), GoalStateStore, GoalTranscript, GoalImageStore, GoalImageMarker, SolidPrincipleCatalog, WorktreeReader, and its `@` file mentions — IFileMentionSource/WorkspaceFileMentionSource, FileSuggestionIgnore, FileMentionToken, FileMentionMatcher, FileMentionCorpus), AgentFileSyncPolicy/AgentFileSyncEngine/AgentFileSyncCoordinator/AgentFileSyncConfigStore/WorkspaceWorkGate (opt-in per-workspace CLAUDE.md ↔ AGENTS.md content sync — see *CLAUDE.md ↔ AGENTS.md sync* below), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
-- `Services/Tiles/` — the tile registry (see *Tiles* below and [`docs/TILES.md`](docs/TILES.md)): ITileKind, TileKind<T>, TileCatalog/TileCatalogEntry, TileContext, TileState, and one class per kind (TerminalTileKind, AgentTileKind, NoteTileKind, TodoTileKind, GitTileKind, DatabaseTileKind, GoalTileKind, UsageTileKind, BrowserTileKind, and the window's two permanent ones, WorkspacesTileKind and WorkspaceHostTileKind)
+- `Services/` — JSON persistence (PersistenceService, SettingsService, WorkspaceService), TerminalAgentTileMigration (the terminal tiles that were an AI CLI in a shell, turned into terminal agent tiles once), GoalAgents/GoalAgentChoice (which agents a Goal tile may offer, and what a stored id means), InstallCommand (the line an install or a sign-in actually types into a tile — `InstallPlan.CommandLine` is for reading and never what runs), ExecutableFinder (a program on `PATH`, for the callers a GUI process cannot rely on its own resolution for), ClipboardHelpers (whether an AI CLI in a tile can take an image off this machine's clipboard at all — Linux only, where every one of them shells out to `wl-paste` or `xclip`, and where the absence of the one this session can use is silent in every direction), ThemeBridge, JsonDefaults, AppPaths, AppInfo, GitService/GitCommandRunner/GitDirectoryWatcher/WorkspaceGitWatcher (one watch over a workspace's tree, shared by the git and Goal tiles through `TileContext.GitWatcher`, started with its first subscriber and stopped with its last; it keeps its own noise floor — the ignored directories are asked for through `IIgnoredDirectorySource` rather than waiting for a git tile to supply them — and polls until the workspace becomes a repository, since nothing else retries)/GitIgnoreFile/GitIgnoreEditQueue (the one chain every `.gitignore` edit is queued on — ordered, so a line written and withdrawn a moment later does not survive, and waited on briefly at shutdown so none is abandoned mid-write), DiffFormatter, ProcessTreeMemory/MemoryDisplay (what a workspace's tiles are holding, and how that reads on its row), FileHelper, ProtectedStringConverter, TolerantEnumConverter, TileTreeSerializer, TileNameGenerator, TileMinimumSize, TileDropRatio (how much room a tile dropped between others takes, and how the tiles already there give it up — a third, out of both in proportion, so a pair that was 80/20 is still 80/20 of what is left to it), WindowTileSize (how much room a tile put beside the workspaces is given — fixed pixels while the window has room for them twice over, a share otherwise), SpecialDirectories, SafePathComponent (the one rule for turning an id into a directory or file name — an allow-list plus the Windows reserved names, because both the sign-in directories and the generated opencode files are named after ids that reach `settings.json` by hand), DefaultWorkspace, the Goal tile's engine (AiProcessRunner, AiBehaviours, AiEfforts, GoalWorkflowEngine, GoalRoles (which job a call is doing and how hard it thinks — pure, and the reason the commit can never be dear), GoalPromptBuilder, GoalStatePersistence, GoalLoopPolicy, GoalTilePolicy, GoalCompletionPolicy, GoalReviewGatePolicy/GoalDismissals (the pause between a review and the next attempt, and what a finding left unticked in it stops counting against), GoalBaseline, GoalCommitter, GoalCommitPlan, GoalDiffContext, CommandDisplay, CommandLineLength, ElapsedDisplay, GoalStageDisplay, RejectedFlag, UnrecognizedModel (Claude Code refusing to start a headless run on a model it cannot verify against the gateway — the one recognisable failure that names itself and the route that still works), GoalResponseParser (with JsonRepair, the one pure rule that mends a block a model wrote by hand — an unescaped quote or a raw newline inside a string value — tried only after the parser has refused it and kept only if it then parses), GoalScopeFilter (the composer typed beside Detect/Review as a scope: its words a narrowing block in the prompt, its `@` paths a hard filter on the working-tree block), GoalStateStore, GoalTranscript, GoalImageStore, GoalImageMarker, SolidPrincipleCatalog, WorktreeReader, and its `@` file mentions — IFileMentionSource/WorkspaceFileMentionSource, FileSuggestionIgnore, FileMentionToken, FileMentionMatcher, FileMentionCorpus), the composers' attachments shared by the Goal and Agent tiles (ComposerEdit — the insertion at the caret and the removal of a marker or a mention, ComposerFileReference — a non-image file as an `@` mention, AttachmentStore — the copy in `.mtiles/attachments/` of a file from outside the workspace), AgentFileSyncPolicy/AgentFileSyncEngine/AgentFileSyncCoordinator/AgentFileSyncConfigStore/WorkspaceWorkGate (opt-in per-workspace CLAUDE.md ↔ AGENTS.md content sync — see *CLAUDE.md ↔ AGENTS.md sync* below), UpdateService (its Velopack manager is built lazily and fails soft — an installation it cannot ask about must not stop the main view model being built), CrashHandler, FileLogWriter, LogTraceListener
+- `Services/Tiles/` — the tile registry (see *Tiles* below and [`docs/TILES.md`](docs/TILES.md)): ITileKind, TileKind<T>, TileCatalog/TileCatalogEntry, TileContext, TileState, AgentStateKeys (the names a layout writes an agent-running tile's state down under, shared by the two kinds that do — including `conversationId`, written only by an Agent tile that has been pointed at a conversation other than the one named after it), and one class per kind (TerminalTileKind, TerminalAgentTileKind, NoteTileKind, TodoTileKind, GitTileKind, DatabaseTileKind, GoalTileKind, UsageTileKind, BrowserTileKind, and the window's two permanent ones, WorkspacesTileKind and WorkspaceHostTileKind)
 - `Services/Activity/` — what a tile is doing and how it is found out (see *Tile activity* below): IActivitySource with OutputActivitySource/TerminalTitleSource/TerminalProgressSource/RecentOutputSource, IAgentActivityReader (the one layering boundary — the agent says what its signal means, this says nothing about agents), ActivityPolicy (pure: rank, freshness, the asymmetric debounce), TileActivityMonitor, ActivityMarkers, AnsiText
 - `Services/Database/` — DatabaseServiceManager, DbHttpServer, DiscoveryService, DbRegistry, DbLogger, QueryHandler, SqlGuard, SqlGuardProfile, SqlServerProvider, PostgreSqlProvider, SubnetScanner, IDbProvider, DatabaseSkillWriter
 - `Services/ShellStarter.cs` — one call that replaces whatever session a `TerminalControl` holds and hands the shell its startup script (`${tileId}` substituted, one line per `\r`). The control owns the rest: killing the old session, waiting for it, and gating the script on `ShellReady` for *that* session
-- `Services/TileLauncher.cs` — launching a terminal or agent tile: disposes the previous launch, asks the tile what it runs now (`ResolveCurrentScripts`), then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it. **A launch that has to wait checks that it is still the tile's launch before it starts one**: preparation for an agent that creates its conversation first is a model call with a minute's timeout, and closing the tile cancels the capture — which ends the preparation *normally*, so without the check the launch carried on, started a session in a disposed terminal and left a chain owned by a tile whose `Dispose` had already run. `TerminalTileViewModel.BeginLaunch`/`IsCurrentLaunch` is that claim, and it answers no for a restart in the same window too — which is the two competing chains this one call exists to prevent
+- `Services/TileLauncher.cs` — launching a terminal or terminal agent tile: disposes the previous launch, asks the tile what it runs now (`ResolveCurrentScripts`), then either the direct-launch chain or a plain interactive shell. First launch and "restart shell" both go through it. It reads `TileId`, it never assigns it. **A launch that has to wait checks that it is still the tile's launch before it starts one**: preparation for an agent that creates its conversation first is a model call with a minute's timeout, and closing the tile cancels the capture — which ends the preparation *normally*, so without the check the launch carried on, started a session in a disposed terminal and left a chain owned by a tile whose `Dispose` had already run. `TerminalTileViewModel.BeginLaunch`/`IsCurrentLaunch` is that claim, and it answers no for a restart in the same window too — which is the two competing chains this one call exists to prevent
 - `Services/DirectLaunchSession.cs` — one tile's command chain (see Shell Profiles below); disposable, and disposing it is what stops it relaunching
 - `Services/TerminalClipboardCoordinator.cs` — window-level Ctrl+C across tiles (see Terminal key handling)
-- `Services/AiBehaviours.cs` + `Services/AiEfforts.cs` — the **canonical vocabulary and scale** the whole application speaks: what each mode and level is called, how much each one lets an agent do, and what an agent whose own list is shorter is given instead. **Neither holds a flag.** They used to hold Claude Code's words under neutral names, which is precisely how a second agent came to be launched with the first agent's flags; the spellings are now on the agent classes (see *Agents* below). The rounding is asymmetric on purpose — **effort to nearest, ties upward** (being wrong costs money, and the tile is left alone where a shallow attempt spends as much of the budget as a careful one), **behaviour downward, never up** (being wrong the other way is somebody's repository under an unattended agent they never authorised) — downward *among the modes the agent actually has*: an agent with no weaker gate falls to `ToolDefault`, which passes no flag and therefore leaves the CLI's own configuration in charge, so what is promised is that nothing here ever asks for more than was wanted, not that the run comes out weaker. The chooser in Settings and the Goal tile's strip are both narrowed to the agent's `SupportedBehaviours`, so that floor is reached by a stored value and never by a mode somebody was offered. Both rules are applied in one place — `AiProcessRunner.Fit`, asked by the run and by the failure path that names a refused flag — so `SupportedBehaviours`/`SupportedEfforts` are enforcement rather than documentation; and the Goal tile's strip offers `AiBehaviours.Headless` **narrowed by the execution agent's own list** rather than the whole vocabulary, because `ask`, `accept edits` and `plan` each fail in their own way in a run with nobody to ask — and a mode the agent has no gate for is one the run would round away to `ToolDefault` while the strip promised otherwise. The instance's `ExtraArgs` reach a headless run too (`AiProcessRunner.AddExtraArgs`, at the position the agent itself names — `IAiAgent.ExtraArgsIndex`, in front of a positional prompt by default and in front of `--print` on agy, whose prompt is that flag's own value): they applied in the agent tile and nowhere else, so `--add-dir` set on an instance silently did nothing in a goal run on it. They also count against the prompt's own budget (`AiProcessRunner.PromptBudget` takes the instance): the 256 characters `CommandLineLength.Budget` keeps back are for the agent's own flags, while these are unbounded user-typed text, so a prompt fitted without them passed the guard and then overflowed on a `.cmd` shim — the opaque `Win32Exception` the guard exists to replace with a sentence. Both still recognise the tool *rejecting* the flag it was passed (`RejectedFlag`, which learned a second shape for codex's `-c key=value`, since a refused config key does not read like `unknown option`): those are somebody else's CLI contract, it has moved once already, and "the AI tool reported a failure" over a usage message about a flag the user never typed names no cause at all. The setting itself is read tolerantly (`TolerantAiBehaviourConverter`) because it lives in `settings.json`: a mode written by a newer build and read after a Velopack rollback would otherwise quarantine the agent instances, the provider keys and the DPAPI-encrypted database passwords along with it. **`bypass` asks once before it is stored** — it is the largest single grant here, it applies to every Goal tile, and a combo box is a thin control for a decision whose first symptom is an unattended run that already happened
-- `Services/Agents/` — **one class per AI CLI**, keyed by a string id the way `TileKindIds` and `IShellTerminal` are: `IAiAgent` (what it is called, how its session gets an identity, which API flavors it speaks, which behaviours and efforts it supports *for a given `AiUsage`*, the argv fragments that ask for them, its environment, its interactive startup and fallback commands, whether it reads its prompt on standard input — `AcceptsPromptOnStdin`, opt-in per agent because it is a claim about somebody else's CLI: Claude Code and opencode, both measured; the rest take it as an argument, fitted to the command line's budget — and how to read a line of its output), the `AiAgent` base that derives the blameable flag from the fragment and composes `Interactive` out of the agent's own `Resume` plus the instance's default behaviour, default effort and `ExtraArgs` (the same rule as `EnvFor`/`Configure`, and for the same reason — six classes wrote `Interactive` and all six ignored the instance, so an agent tile ran on the CLI's factory settings whatever its row said) — **quoting those arguments is the shell's job, not the base class's**: `Interactive` is handed the tile's `IShellTerminal` and calls its `Quote`, because a `\"` escape means nothing to PowerShell and inside its double quotes a `$` interpolates, so an `ExtraArgs` entry carrying a quote, a `$` or a backtick used to be mangled or partly executed — and **the session id goes through the same quoting before `Resume` sees it**, because it is not ours to trust: a `TileId` read out of a hand-editable layout file, or the string a captured agent printed as its conversation id, is interpolated into a script handed whole to `powershell -Command`/`bash -c`, where a `;` in it is a second command running in somebody's repository (an id made only of quote-free characters — every real one — comes out unchanged, and an empty id stays empty, since that is what codex and agy branch on to start a plain session), `ClaudeAgent`/`OpenCodeAgent`/`CodexAgent`/`PiAgent`/`AntigravityAgent`, `GenericAgent` for a binary nothing is known about, `AiAgentCatalog` (the registry, availability, and one seeded `AiAgentInstance` per agent), `AgentAvailability` (why a configured instance cannot be run — one sentence, read by the chooser that hides it, the Settings row that explains it and the launch that refuses it), `AiSignInStore` (where a login's directory is and how it is made, owner-only), `SignInStatus` (what the CLI's own files say about that directory), `OpenCodeProviderConfig` (the generated config that is opencode's only route to an address) and `SessionCapture`.
+- `Services/AiBehaviours.cs` + `Services/AiEfforts.cs` — the **canonical vocabulary and scale** the whole application speaks: what each mode and level is called, how much each one lets an agent do, and what an agent whose own list is shorter is given instead. **Neither holds a flag.** They used to hold Claude Code's words under neutral names, which is precisely how a second agent came to be launched with the first agent's flags; the spellings are now on the agent classes (see *Agents* below). The rounding is asymmetric on purpose — **effort to nearest, ties upward** (being wrong costs money, and the tile is left alone where a shallow attempt spends as much of the budget as a careful one), **behaviour downward, never up** (being wrong the other way is somebody's repository under an unattended agent they never authorised) — downward *among the modes the agent actually has*: an agent with no weaker gate falls to `ToolDefault`, which passes no flag and therefore leaves the CLI's own configuration in charge, so what is promised is that nothing here ever asks for more than was wanted, not that the run comes out weaker. The chooser in Settings and the Goal tile's strip are both narrowed to the agent's `SupportedBehaviours`, so that floor is reached by a stored value and never by a mode somebody was offered. Both rules are applied in one place — `AiProcessRunner.Fit`, asked by the run and by the failure path that names a refused flag — so `SupportedBehaviours`/`SupportedEfforts` are enforcement rather than documentation; and the Goal tile's strip offers `AiBehaviours.Headless` **narrowed by the execution agent's own list** rather than the whole vocabulary, because `ask`, `accept edits` and `plan` each fail in their own way in a run with nobody to ask — and a mode the agent has no gate for is one the run would round away to `ToolDefault` while the strip promised otherwise. The instance's `ExtraArgs` reach a headless run too (`AiProcessRunner.AddExtraArgs`, at the position the agent itself names — `IAiAgent.ExtraArgsIndex`, in front of a positional prompt by default and in front of `--print` on agy, whose prompt is that flag's own value): they applied in the terminal agent tile and nowhere else, so `--add-dir` set on an instance silently did nothing in a goal run on it. They also count against the prompt's own budget (`AiProcessRunner.PromptBudget` takes the instance): the 256 characters `CommandLineLength.Budget` keeps back are for the agent's own flags, while these are unbounded user-typed text, so a prompt fitted without them passed the guard and then overflowed on a `.cmd` shim — the opaque `Win32Exception` the guard exists to replace with a sentence. Both still recognise the tool *rejecting* the flag it was passed (`RejectedFlag`, which learned a second shape for codex's `-c key=value`, since a refused config key does not read like `unknown option`): those are somebody else's CLI contract, it has moved once already, and "the AI tool reported a failure" over a usage message about a flag the user never typed names no cause at all. The setting itself is read tolerantly (`TolerantAiBehaviourConverter`) because it lives in `settings.json`: a mode written by a newer build and read after a Velopack rollback would otherwise quarantine the agent instances, the provider keys and the DPAPI-encrypted database passwords along with it. **`bypass` asks once before it is stored** — it is the largest single grant here, it applies to every Goal tile, and a combo box is a thin control for a decision whose first symptom is an unattended run that already happened
+- `Services/Agents/` — **one class per AI CLI**, keyed by a string id the way `TileKindIds` and `IShellTerminal` are: `IAiAgent` (what it is called, how its session gets an identity, which API flavors it speaks, which behaviours and efforts it supports *for a given `AiUsage`*, the argv fragments that ask for them, its environment, its interactive startup and fallback commands, whether it reads its prompt on standard input — `AcceptsPromptOnStdin`, opt-in per agent because it is a claim about somebody else's CLI: Claude Code and opencode, both measured; the rest take it as an argument, fitted to the command line's budget — and how to read a line of its output), the `AiAgent` base that derives the blameable flag from the fragment and composes `Interactive` out of the agent's own `Resume` plus the instance's default behaviour, default effort and `ExtraArgs` (the same rule as `EnvFor`/`Configure`, and for the same reason — six classes wrote `Interactive` and all six ignored the instance, so a terminal agent tile ran on the CLI's factory settings whatever its row said) — **quoting those arguments is the shell's job, not the base class's**: `Interactive` is handed the tile's `IShellTerminal` and calls its `Quote`, because a `\"` escape means nothing to PowerShell and inside its double quotes a `$` interpolates, so an `ExtraArgs` entry carrying a quote, a `$` or a backtick used to be mangled or partly executed — and **the session id goes through the same quoting before `Resume` sees it**, because it is not ours to trust: a `TileId` read out of a hand-editable layout file, or the string a captured agent printed as its conversation id, is interpolated into a script handed whole to `powershell -Command`/`bash -c`, where a `;` in it is a second command running in somebody's repository (an id made only of quote-free characters — every real one — comes out unchanged, and an empty id stays empty, since that is what codex and agy branch on to start a plain session), `ClaudeAgent`/`OpenCodeAgent`/`CodexAgent`/`PiAgent`/`AntigravityAgent`/`GrokAgent` (Grok is **unmeasured** — added from t3code without the CLI on this machine, and it says so in its class), `GenericAgent` for a binary nothing is known about, `Sessions/` (`IConversationalAgent` — a separate interface an agent implements to be held as a conversation — `AgentSessionLauncher`, which resolves a conversation's launch by the same rules the terminal tile and the Goal run use, and one folder per agent holding its own session and the mapper from its protocol to the shared events; see *Agent conversation tile* below), `AiAgentCatalog` (the registry, availability, and one seeded `AiAgentInstance` per agent), `AgentAvailability` (why a configured instance cannot be run — one sentence, read by the chooser that hides it, the Settings row that explains it and the launch that refuses it), `AiSignInStore` (where a login's directory is and how it is made, owner-only), `SignInStatus` (what the CLI's own files say about that directory), `OpenCodeProviderConfig` (the generated config that is opencode's only route to an address), `OutputProxy`/`OutputProxyGlobalHook` (the token proxy — see *Token proxy* below) and `SessionCapture`.
   **Why a whole argv fragment rather than a flag and a value.** codex's effort is `-c model_reasoning_effort=high` — a config key, not an option — which no "flag plus value" shape can express; and codex's permission is two orthogonal axes (`--sandbox` × `-a`) while opencode's is a boolean. A subset of a closed enum could not describe these five, which is why `SupportedBehaviours`/`SupportedEfforts` return **lists**.
   **The model is the instance's, and it reaches the agent by the agent's own route** (`ModelArgs`, and `AcceptsModel` for the one that answers otherwise). Measured 2026-08-30: `--model` on opencode, codex, pi and agy; Claude Code takes `ANTHROPIC_MODEL` through `EnvFor` instead, which is the same route as its base URL and token. Four of the five used to read the field not at all, so an instance pointed at a provider ran on the CLI's default model against an address that usually does not serve it — a launch that succeeds and a run that fails. An agent that can carry no model **says so** rather than dropping one silently, and the tile refuses that launch: `AgentRuntime.RequestedModel` is the other half of it, because an unresolved `__first_loaded__` on a command line is a model name no provider has.
   **Why `AiUsage` is a parameter and not a property.** Measured: `opencode --variant` exists on `opencode run` and not on the TUI, so "what does this agent support" has no answer until you say *where*. It also carries the `GoalPhase`, which is what lets a phase that writes nothing run read-only whatever the tile's strip says — clarify, plan and summarise get their permission **from the agent, by phase**, and that is what stands between a second agent and the worktree `GoalBaseline` photographed only once. **Review is the documented exception, and on the default criteria it is the usual case**: `RequireBuild` and `RequireTestsPass` both default to on, and a build writes into `obj/` and `bin/`, so a review asked to establish them is given the execution phase's permission (`AiUsage.RunsProjectCommands`) — what keeps it from editing source is then the sentence in the review prompt and the baseline behind it, not the sandbox. Turning both criteria off is what makes the review read-only, and `AiUsage.MayOnlyRead` is the one question the agents ask so the two cannot drift apart.
@@ -79,8 +86,9 @@ release. Never a manual `git push` or a hand-written version bump.
   (`AiAgentCatalog.IsAvailable`, `AgentModelResolver`). It also relocates `sessions/`, which is why
   adding one is a *new* instance rather than an edit to an existing one: the tiles on it would come back
   without their conversations.
-    **Sessions are three named strategies, not a branch per agent** (`SessionStrategy`): `Fixed` (claude, pi — the tile's own id is the whole of the bookkeeping; pi's `--session-id` both creates and resumes, while Claude Code splits them and is launched `--resume` first with `--session-id` as its fallback, because each of the two refuses what the other wants), `ImportedFixed` (opencode — `--session` only *continues* one, so `opencode import` brings the chosen id into being; see `OpenCodeSession`), and `CapturedAfterStart` (codex, agy — the agent names it and we find out afterwards, so the tile's session id is *writable* and its layout has to be saved at the moment the id is captured). **Neither captured agent is ever handed an id it has not seen**: `codex resume <unknown>` opens an interactive picker, which in a launch chain is a tile waiting for a keystroke nobody knows it wants, and `agy --conversation <unknown>` is worse in a quieter way — it warns, silently starts a *new* conversation and exits 0, so a chain judging on the exit code cannot tell a resumed tile from a lost one. An empty session id therefore starts a plain session. **How a tile id becomes a session id is the agent's answer** (`IAiAgent.SessionIdForTile`): four take it verbatim, opencode puts its `ses_` prefix on it — a tile that spelled the id itself handed opencode a bare GUID, which its own import rule refuses before the tile can launch. `SessionCapture` holds the two pieces of plumbing (run a CLI and read what it printed; find the newest `rollout-*.jsonl` **written since this tile started**, because resuming a stranger's session is worse than starting a fresh one), and each agent overrides `CaptureSessionAsync` for itself
-- `Services/Providers/` — **one class per service an agent can be pointed at**, keyed by a string id: `IAiProvider` (its wire formats, its address, whether it needs a key, and how to ask it what it serves), the `AiProvider` base that makes every call answer rather than throw — a test button that throws is a dialog with a stack trace in it — `AnthropicProvider`/`CcsProvider`/`OpenAiProvider`/`OpenRouterProvider`/`ZaiProvider`/`LmStudioProvider`/`OllamaProvider`, `ILocalAiProvider` for the two questions only a server on this network can answer, `IManagedAiProvider` for the one question only a provider that *owns* a service on this machine can answer — is it running, and can it be brought up (`CcsProvider.EnsureRunningAsync`: probe by protocol, start `ccs cliproxy start` when down, poll for health, answer — asked from `AgentModelResolver.ResolveAsync` *before* any model question, which is how the agent tile's `LaunchProblem` and the Goal run's refusal are the same sentence; a `cmd /c` invocation takes its arguments separately, never one pre-quoted string, and its reads are bounded by a drain deadline of their own — a daemonized child inherits the pipes and would hang the launch past the timeout otherwise) — `CcsProvider` being the bridge that runs Claude Code on a Codex subscription through a local OAuth proxy, which is why its flavor list admits Claude Code alone and why it is deliberately **not** an `ILocalAiProvider` (a fixed published address has nothing to discover, and a subscription has no loaded model), `AiProviderCatalog`, `ProviderEndpoint` (pure), `AiModelChoice`, `AgentModelResolver`, `ModelContextWindow`, `LocalProviderDiscovery` and `AgentRuntime`.
+    **Five of the six keep a readable record of their own conversations, and four of them are read** (`Services/Agents/SessionLogs/`, reached through `IAiAgent.SessionLog`, default `null`). Two things nothing else can answer come out of it: **which conversation a tile is really in** — `/clear` and `/resume` inside the TUI change it, at which point the id in the layout resumes something nobody is looking at, and a *derived* id is exactly as wrong as a stale captured one; followed only where the store tells its own interface from a headless run (`IAgentSessionLog.TellsHeadlessRunsApart` — claude and codex), so a pi or opencode tile keeps the id it already had and only its gauge follows — and **how full the model's context is**, which a TUI paints into a footer no host can read off a pseudo-terminal. One port, one shared base that walks the candidates and turns every failure into `null`, and a table per agent, the same division `SessionCapture` makes. `IAiAgent.FollowsSessionChanges` is a separate question from having a store: opencode reads its own and does **not** adopt what it finds, because its resume is backed by an import document keyed on the *tile's* id, so a followed session id would leave the resume and its fallback naming two different conversations. **Grok answers `null` although its store is readable**: a terminal Grok tile resumes and captures no conversation, so there is no id to read it by. **agy answers `null` and says why**: its conversations are protobuf blobs in SQLite, with the working directory buried inside them and no token counts anywhere — a reader built on a substring search of somebody else's protobuf is a tile confidently resuming the wrong conversation. Measurements, the six wrong first guesses and the per-agent table are in [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) → *Reading an agent's own session store*; `AgentSessionWatcher` is what follows a store, debounced, never reading twice at once and knowing nothing about any CLI; `ConversationFollower` is the tile's collaborator that owns its lifetime and the window in which a conversation that appeared may be put down to this tile at all, so the tile itself keeps only what it alone can answer.
+  **Sessions are three named strategies, not a branch per agent** (`SessionStrategy`): `Fixed` (claude, pi — the tile's own id is the whole of the bookkeeping; pi's `--session-id` both creates and resumes, while Claude Code splits them and is launched `--resume` first with `--session-id` as its fallback, because each of the two refuses what the other wants), `ImportedFixed` (opencode — `--session` only *continues* one, so `opencode import` brings the chosen id into being; see `OpenCodeSession`), and `CapturedAfterStart` (codex, agy — the agent names it and we find out afterwards, so the tile's session id is *writable* and its layout has to be saved at the moment the id is captured). **Neither captured agent is ever handed an id it has not seen**: `codex resume <unknown>` opens an interactive picker, which in a launch chain is a tile waiting for a keystroke nobody knows it wants, and `agy --conversation <unknown>` is worse in a quieter way — it warns, silently starts a *new* conversation and exits 0, so a chain judging on the exit code cannot tell a resumed tile from a lost one. An empty session id therefore starts a plain session. **How a tile id becomes a session id is the agent's answer** (`IAiAgent.SessionIdForTile`): four take it verbatim, opencode puts its `ses_` prefix on it — a tile that spelled the id itself handed opencode a bare GUID, which its own import rule refuses before the tile can launch. `SessionCapture` holds the two pieces of plumbing (run a CLI and read what it printed; find the newest `rollout-*.jsonl` **written since this tile started**, because resuming a stranger's session is worse than starting a fresh one), and each agent overrides `CaptureSessionAsync` for itself
+- `Services/Providers/` — **one class per service an agent can be pointed at**, keyed by a string id: `IAiProvider` (its wire formats, its address, whether it needs a key, and how to ask it what it serves), the `AiProvider` base that makes every call answer rather than throw — a test button that throws is a dialog with a stack trace in it — `AnthropicProvider`/`CcsProvider`/`OpenAiProvider`/`OpenRouterProvider`/`ZaiProvider`/`LmStudioProvider`/`OllamaProvider`, `ILocalAiProvider` for the two questions only a server on this network can answer, `IManagedAiProvider` for the one question only a provider that *owns* a service on this machine can answer — is it running, and can it be brought up (`CcsProvider.EnsureRunningAsync`: probe by protocol, start `ccs cliproxy start` when down, poll for health, answer — asked from `AgentModelResolver.ResolveAsync` *before* any model question, which is how the terminal agent tile's `LaunchProblem` and the Goal run's refusal are the same sentence; a `cmd /c` invocation takes its arguments separately, never one pre-quoted string, and its reads are bounded by a drain deadline of their own — a daemonized child inherits the pipes and would hang the launch past the timeout otherwise) — `CcsProvider` being the bridge that runs Claude Code on a Codex subscription through a local OAuth proxy, which is why its flavor list admits Claude Code alone and why it is deliberately **not** an `ILocalAiProvider` (a fixed published address has nothing to discover, and a subscription has no loaded model), `AiProviderCatalog`, `ProviderEndpoint` (pure), `AiModelChoice`, `AgentModelResolver`, `ModelContextWindow`, `LocalProviderDiscovery` and `AgentRuntime`.
   **The model's context window is a tri-state like every other answer a provider gives** (`AiModelInfo.ContextWindowTokens`, `IAiProvider.ContextWindowAsync`): OpenRouter says it in the listing (`context_length`), LM Studio in its own (`max_context_length`), Ollama only on a per-model POST to `api/show` — which is why the question is per model and not read off the list — and `null` is *did not say*, never zero, because a guessed window reaches an agent's environment as a fact. **What spends that answer is Claude Code's pair of windows** (`ModelContextWindow`, the `UsesModelContextWindow` question — the gate that keeps the provider call away from the five agents that read none of it): on a third-party provider the CLI does not recognise the model id and *assumes* a context window of 200 000 for it — assumed wrongly by half, and the assumption is two failures at once. The compact failure is the older one: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` = **80% of the model's context, rounded down** (a margin this application chose — the CLI's documented default is the full limit — argued in a table test; below the variable's documented minimum of 100 000 nothing is set, because the CLI would clamp it up past the margin). The second is the stop the compact window cannot reach: the compact variable moves when compaction fires, not what the CLI *believes* the context is, so the hard `Context limit reached` fired at the assumed 199.8k on z-ai/glm-5.3-flash — advertised at 1 310 720 — with a million-token compact window that never came due (measured 2026-09-01). `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is the documented correction — "override the context window size Claude Code assumes for the active model", applying directly to an id that neither starts with `claude-` nor carries `[1m]` — and it is handed the provider's context at **100%, unclamped**: the margin is an opinion about when to compact, and the assumption being corrected is a fact, which is also why a 32k model is told the truth there while getting no compact window at all. Each window typed on the instance (`AutoCompactWindow`, `MaxContextTokens` — Settings → AI, Claude Code only) is the whole answer for it when present, and one typed alone still triggers the resolution, because the other window is then derived from the model's context; the resolution is the fallback for the fields left empty, and it is cached for half an hour against provider, address and model, because the Goal tile resolves per AI call and OpenRouter's catalogue is a megabyte.
   **Compatibility is the intersection of two flavor lists and nothing else** (`AiProviderCatalog.IsCompatible`). That is what the four-member `ApiFlavor` buys: without splitting `/v1/chat/completions` from `/v1/responses`, codex and Ollama would be reported compatible — both "OpenAI" — and the launch would fail, and a pairing offered and then failed is worse than one never offered.
   **Two `null`s are load-bearing and neither is a zero.** A balance of `null` means *this service does not say* — only OpenRouter has an endpoint for it, and showing an absent figure as 0 tells a user whose key works that they have run out. A model's `SupportedEfforts` of `null` means *the provider did not say*, and `AiProviderCatalog.NarrowEfforts` leaves the agent's list untouched when it does: silence read as denial would empty the effort chooser for five providers out of six. An **empty** list is a different answer — a model that takes no reasoning parameter — and narrows to `ToolDefault` rather than to nothing, because a chooser with no options says nothing.
@@ -100,14 +108,19 @@ release. Never a manual `git push` or a hand-written version bump.
   is. pi has none, says so, and `AgentModelResolver` refuses that pairing by name rather than letting it
   launch on pi's own default provider. agy is unmeasured and inherits the permissive default.
   **The key goes through the environment, and one of the variables is emptied rather than removed.** `IAiAgent.EnvFor` takes an `AgentRuntime` (the instance, the provider, and the model *resolved* for this session) and answers a dictionary whose `null` values unset — `TerminalTileViewModel.LaunchEnvironment` carries it to both launch paths and into `PtyOptions.Environment`. `ClaudeAgent` sets `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` and **empties `ANTHROPIC_API_KEY`** (`""`, not a removal — the gateway's own recipe, read 2026-09-01: the CLI's auth resolution treats a missing variable and a present-but-empty one differently, and the missing one lets a cached claude.ai login answer; an empty value overrides an inherited global key just as surely, and an empty key authenticates nothing). It also sets **`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`**: without it a headless (`-p`) run verifies the model id against Anthropic's own families and refuses anything else before asking the model a question — measured 2026-09-01 against 2.1.250–2.1.252 with `z-ai/glm-5.3-flash` on OpenRouter, every spelling, env and flag alike; with it the CLI asks the gateway's model list, and a gateway that fails to answer is handled by the CLI and the run carries on. Never the startup script — that is typed into a live prompt and lands in the scrollback and the shell's history file. `EnvFor` is **not virtual**; what an agent overrides is `Configure`, so the rule that the user's own `ExtraEnv` is merged last cannot be dropped by an agent that forgets it.
-  **`AiModelChoice.FirstLoaded` is resolved at every launch and never written down.** Persisting the answer is the same as not having the sentinel: the point of it is that changing the model in LM Studio does not also mean changing it in mTiles. **A resolution that fails stops the launch and shows the sentence** (`TerminalTileViewModel.LaunchProblem`, refused by `TileLauncher`, drawn over the tile by `TerminalTileView`) rather than substituting one of ours: the rule is `AgentModelResolver`, asked by the agent tile *and* by the Goal tile's run — it lived in the tile alone, so a goal on an instance asking for the first loaded model launched with no model at all while the environment still pointed at the local server, and a model named on an agent that cannot carry one was dropped without a word; the tile that started anyway looked like it had worked, and the only account of the model it was really running on was a line in `%APPDATA%/mTiles/logs`. **It also refuses an instance whose provider is gone or is one this agent cannot speak to** — the same question `AiAgentCatalog.IsAvailable` asks as a filter, said out loud, because the chooser and the Goal tile's list hide such an instance while a tile restored from a layout is handed its stored one without anybody asking: the one path where nobody is choosing is the one where a silent fall back to the CLI's own account and model would never be noticed. Discovery is **on demand, never on a timer** (a scheduled sweep of a corporate network looks like reconnaissance) and verifies **by protocol, not by port** — an open 11434 is not proof of Ollama. It will usually find nothing, and whatever shows it has to say so: Ollama binds `127.0.0.1` unless `OLLAMA_HOST=0.0.0.0`, LM Studio needs "Serve on Local Network". **Neither has any authentication**, so a reachable instance is open to everyone on that network. Both are configured on the Settings dialog's **AI** page, which is also the only thing that calls `TestAsync`, `ModelsAsync`, `NarrowEfforts` and `LocalProviderDiscovery` (see *Settings UI*)
+  **`AiModelChoice.FirstLoaded` is resolved at every launch and never written down.** Persisting the answer is the same as not having the sentinel: the point of it is that changing the model in LM Studio does not also mean changing it in mTiles. **A resolution that fails stops the launch and shows the sentence** (`TerminalTileViewModel.LaunchProblem`, refused by `TileLauncher`, drawn over the tile by `TerminalTileView`) rather than substituting one of ours: the rule is `AgentModelResolver`, asked by both agent tiles *and* by the Goal tile's run — it lived in the tile alone, so a goal on an instance asking for the first loaded model launched with no model at all while the environment still pointed at the local server, and a model named on an agent that cannot carry one was dropped without a word; the tile that started anyway looked like it had worked, and the only account of the model it was really running on was a line in `%APPDATA%/mTiles/logs`. **It also refuses an instance whose provider is gone or is one this agent cannot speak to** — the same question `AiAgentCatalog.IsAvailable` asks as a filter, said out loud, because the chooser and the Goal tile's list hide such an instance while a tile restored from a layout is handed its stored one without anybody asking: the one path where nobody is choosing is the one where a silent fall back to the CLI's own account and model would never be noticed. Discovery is **on demand, never on a timer** (a scheduled sweep of a corporate network looks like reconnaissance) and verifies **by protocol, not by port** — an open 11434 is not proof of Ollama. It will usually find nothing, and whatever shows it has to say so: Ollama binds `127.0.0.1` unless `OLLAMA_HOST=0.0.0.0`, LM Studio needs "Serve on Local Network". **Neither has any authentication**, so a reachable instance is open to everyone on that network. Both are configured on the Settings dialog's **AI** page, which is also the only thing that calls `TestAsync`, `ModelsAsync`, `NarrowEfforts` and `LocalProviderDiscovery` (see *Settings UI*)
 - `Services/WorkspaceAgentFiles.cs` — the files a workspace puts where its AI agents look (see *Agent-facing files* below), with `LegacyDatabaseSectionCleanup` beside it for what the writer it replaced left behind
 - `Services/AppPaths.cs` + `Services/WorkspacePaths.cs` — the two directories this application owns, and the one-time move each performs from the name it used before the rename. **Both fail soft**: a move that cannot be made leaves the old directory in use rather than presenting a first run, because the first run saves. `WorkspacePaths` is the one inside the user's repository, so its move shows up as a rename in their next `git status` — visible and reversible, which is the most it can be
 - `Services/Phone/` — dictation from a phone (see `docs/DICTATION.md` → *Dictating from a phone*): PhoneEndpoint/IPhoneEndpointSource with NetworkEndpointSource, TailscaleEndpointSource and MulticastDnsEndpointSource, PhoneEndpointRanker (pure — the one part whose behaviour is an opinion, so it is argued in a table test), PhoneEndpointDirectory, SessionLocationProbe, PhonePairing, PhoneCertificates, PhoneFirewall, PhoneAudioCapture + RoutedAudioCapture, PhoneBridgeServer (Kestrel — the only server here that faces the network), PhoneBridgeManager, PhoneKeys (the keys the page can press, and where they land), QrCodeImage, UiDispatcher
 - `Services/Speech/` — dictation (see `docs/DICTATION.md`): IAudioCapture/PortAudioCapture, AudioResampler, ISpeechToTextEngine with ParakeetSpeechEngine (+ParakeetVocabulary) and WhisperSpeechEngine, SpeechEngines (the one map from model kind to engine and to what it looks like on disk), SpeechModelCatalog, SpeechModelStore, TarGzExtractor, DictationService, TranscriptPostProcessor, DictationTextSink, HotkeyGesture, HotkeyCapture (what a keystroke means to something reading a new shortcut — shared by the Speech tab and the setup wizard, and pure, because it lived in view code where the "mark it handled only where it is taken" rule had no test), HotkeyAdvice, DesktopShortcuts/ShortcutSpelling/ShortcutOwner/WindowsShortcuts (who has already been given this shortcut — asked of KDE over its own D-Bus register, of GNOME through gsettings and of Hyprland through hyprctl, and on Windows read from a written-down table because it publishes no register at all; a shortcut the desktop has taken does not arrive here in the first place, and `Alt+Space`, the default, is taken on Plasma and on GNOME — but not on Windows, where the window receives it and `DefWindowProc` is what opens the window menu, so what the table lists is only what the window never sees. An owner says whether it can be given back, since the Start menu cannot), DictationHotkeyMachine, DictationHotkeys
 - `Services/Shells/` — **one class per shell**, keyed by a string id the way `TileKindIds` is: `IShellTerminal` (id, display name, icon, where to look for it, interactive/command/no-profile flags, quoting, and the shell's own `export`/`unset` syntax), the `ShellTerminal` base that composes those into `WithEnv` and refuses a name that is not a variable name, `PosixShellTerminal` with `BashTerminal`/`ZshTerminal`/`GitBashTerminal` under it, `FishTerminal` (not a POSIX shell — it escapes inside single quotes), `PowerShellTerminal`, `ShellInstallation` (a shell **and** where it was found — the two are separate so quoting is testable without a filesystem, and `CommandLineFor` is the old `ShellCommandLine`), and `ShellTerminalCatalog` (the registry, detection, and the one tolerant lookup that reads both an id and the display name older settings and layouts store).
   **`cmd` is not in the catalog, and that is a decision.** It cannot run what this application asks a shell to run: it does not parse its command line by the `CommandLineToArgvW` rules the PTY backend quotes with, runs only the first line of a multi-line command, and does not treat `;` as a separator — all measured, and the last of those silently reduced OpenCode's own two-command chain to a bare shell. It used to be offered and then swapped for PowerShell behind the user's back, which meant a shell that was neither the one they picked nor the one running their commands. A stored `CMD` now finds nothing and falls back to the default — and so does a `$SHELL` the old Unix detection offered (`nu`, `ksh`, `dash`), which is why `SettingsService.ReportUnknownDefaultShell` logs the name once — remembering in `ReportedUnknownShellName` that it has, so the warning does not return every launch — and **leaves the name in the file**: a name this build cannot match is also what a shell added by a newer version looks like after a Velopack rollback, so clearing it would let the older build settle the question for the newer one for good. `DropCustomShell` is the one that does clear, because a path to an arbitrary binary is an answer nothing here could ever honour.
+  **A name does not name a file, and on PowerShell it names the wrong one** (`IShellTerminal.Program(name, path)`). npm installs three shims per tool on Windows — `claude`, `claude.cmd` and `claude.ps1` — and PowerShell's own lookup prefers the `.ps1`, which Windows' default `Restricted` execution policy then refuses to load: `claude.ps1 cannot be loaded because running scripts is disabled on this system`, on a machine where the CLI is installed and this application has just said so. Reported from a fresh Windows 11 Home, where every agent tile and the Sign in button failed that way; invisible on a developer's machine, where something changed the policy years ago. So the shell answers how it is told to run a program: every other shell keeps the name — which is also what keeps a per-directory shim (mise, asdf, volta, nvm) working, and on POSIX a name cannot resolve to something the platform then refuses to run — and PowerShell takes the path this machine found, through the call operator. **Except a batch shim handed an argument outside `ShellArgument.IsBatchSafe`** (no `&`, `|`, `<`, `>`, `^`, `%`, `!`, `"` or parentheses — a space or a backslash is fine, so a path under a profile such as `C:\Users\Jan Kowalski` still reaches the shim): a `.cmd` passes its arguments through `cmd.exe`, which reads `&`, `|` and `%VAR%` in them after PowerShell has taken its own quotes off, so a session id like `x&calc` would run a second command — that line falls back to the name, failing closed on a `Restricted` machine rather than running it. **Where** the binary is stays this application's answer (`ExecutableFinder.Anywhere`, `AiAgentCatalog.Locate`, which ask for `.exe`, then the `.cmd` shim, and never a `.ps1`), so the shell is handed a fact rather than sent looking. It is asked in one place per route — `AiAgent.Interactive` for both of an agent's commands, `InstallCommand.For` for Install…, and the Sign in line — for the reason `Interactive` is not virtual: six `Resume` bodies spelling their own binary is six chances to spell it as a bare name, and `PowerShellProgramTests` asserts that none of them does. **Deliberately not `-ExecutionPolicy RemoteSigned` on the process we start**: that works, and it also lets every other `.ps1` in that tile run on a machine where an administrator switched scripts off on purpose — while still failing wherever the policy comes from group policy, which is exactly the managed machine it would be weakening. The claim is about somebody else's command lookup and somebody else's policy, so it is measured against a real `powershell.exe` under `-ExecutionPolicy Restricted`, with the bare name as the control case.
   **Why the environment members are on the shell and not only in `PtyOptions.Environment`.** Anything secret goes through the process environment — a startup script is *typed into a live PTY*, so it lands in the scrollback and in the shell's history file, which is why a key must never go that way. Since **Terminal.Avalonia 0.3.0** that block can also *remove*: a `null` value in `PtyOptions.Environment` unsets the variable, so a machine with a global `ANTHROPIC_API_KEY` **can** be given a child that authenticates through `ANTHROPIC_AUTH_TOKEN` instead. That was one line in our own `PtyEnvironment.Build`, and it is the right route — `ShellEnvironmentTests` proves it against a real child rather than a fake that would only report what it was handed. What the shell's own `SetEnv`/`UnsetEnv` are still for is everything that has to happen *inside a shell that is already running*, and `NoProfileArgs` covers the other half of the same trap — the user's own profile overwriting what we set
+- `Services/BackgroundInstaller.cs` — an `InstallPlan` run as a process of this application's own:
+  no shell, no tile, `ArgumentList` rather than a composed command line, both output streams kept,
+  and a timeout for the installer that is waiting for an answer nobody can give it. See *Where AI
+  tools went*
 - `Services/ChainPolicy.cs` + `Services/RelaunchBudget.cs` — the launch chain's rules and its rate limit, pure and separate from the loop that carries them out
 - `Services/UiFontScale.cs` + `Services/InterfaceScale.cs` + `Services/TextScale.cs` /
   `Services/DesktopTextScale.cs` — the answers to "how big is this": the scale, the whole-window
@@ -119,6 +132,7 @@ release. Never a manual `git push` or a hand-written version bump.
 
 `ShellStarter`, `TileLauncher`, `DirectLaunchSession` and `TerminalClipboardCoordinator` drive a `TerminalControl` but draw nothing, so they live in `Services/` rather than `Views/` — which also keeps `ViewModels/` from reaching into `Views/`.
 
+- `ViewModels/ComposerChips.cs`, `ComposerFile.cs`, `ComposerFileScanner.cs` — the chips above both composers, one per image marker and per `@` mention, read off the text rather than kept beside it; the marker spelling and the interleaving every session sends are `mTiles.AgentSessions.ImageMarkers`
 - `ViewModels/TileActivationScope.cs` — per-workspace tile activation scope with suppression mechanism
 
 ## Key libraries
@@ -148,8 +162,16 @@ release. Never a manual `git push` or a hand-written version bump.
   that would let the base library satisfy the entry for the dispatcher, so all three would pass on one
   file — the trailing wildcards on the Linux names are safe precisely because they come after the part
   that tells the three apart.
-- **Notepad.Avalonia** — its `MarkdownViewer` renders what the AI tool writes in the Goal tile's
-  transcript. Wrapped in the transcript's own `ScrollViewer` on purpose: the control scrolls itself
+- **Notepad.Avalonia** — **no longer a package**: its sources are in
+  `src/mTiles.Controls/Notepad/` and are built here (MIT, same author — see that folder's `README.md`
+  for what was changed against 0.3.1 and why). Its `MarkdownViewer` renders what the AI tool writes in
+  the Goal tile's transcript **and every message and patch in the Agent tile — the user's own included**,
+  which is what the vendoring bought:
+  a viewer whose selection spans the whole document is the only thing that lets two lines of a diff be
+  dragged through and copied together, and the package could not colour one — 0.3.1 has no syntax
+  highlighting at all. `MarkdownViewer.HighlightDiff` is the opt-in that colours a ```diff block by
+  line, ground and all, and `GoalMarkdownView` is what asks for it and pushes this application's own
+  diff tokens into it. Wrapped in the transcript's own `ScrollViewer` on purpose: the control scrolls itself
   only when given a finite height and sizes to its content when it is not, which is what a message
   in a list needs. `ColorTheme="None"` is load-bearing — any other value makes it assign its own
   brushes over the tokens, and its default is Light — which is why the wrapper is
@@ -178,6 +200,12 @@ something that looked wrong on screen.
   the border width, or the two rounded rectangles are not concentric).
 - **One radius per role**: `RadiusTile` cards, `RadiusRow` list rows, `RadiusSm`/`RadiusMd` controls.
   Three radii in one 240px column read as a rendering accident.
+- **A minimum size on a `DockPanel`'s fill child is not a reservation.** The docked children take
+  their desired size first and the last child gets whatever is left — which in a short tile is
+  nothing — so a `MinHeight` there does not claim room back, it makes the child render taller than
+  the rectangle it was arranged in and paint over its neighbours. The Goal tile's transcript carried
+  one and drew its last lines across the status strip and the composer. Whatever can collapse,
+  collapses.
 - **Full-bleed by default.** Only a terminal's content is inset from its card (`LeafTileView.ContentInset`);
   a tile whose content is its own chrome runs to the edge and takes the card's corners from the clip.
   An inset leaves a square-cornered rectangle floating in a rounded card.
@@ -309,6 +337,13 @@ something that looked wrong on screen.
   pressed things in the application. Everything in the tile header's button strip is in its menu too, so
   the buttons can stand down at narrow widths (`LeafTileView.ApplyHeaderWidth`) without anything
   becoming unreachable — splits first, because dragging one tile onto another does the same job.
+- **A control something is waiting on says so, and says why.** `TileAction.Urgency` is a *sentence*, not
+  a flag: the header draws the control in `WarnText` and puts the sentence above the shortcut in its
+  tooltip, so a coloured icon is never a mark the user has to guess the meaning of. Offered by the tile,
+  which is the only thing that knows — this workspace's skills have moved under a running agent — so a
+  kind that grows a reason later is drawn that way without the header learning what the reasons are. It
+  is a *second* route to the notice bar and not a replacement: the button stands down below 190px, and
+  the bar is what survives that.
 - **One writer per property.** A code-behind rule and an `IsVisible` binding both write at the same
   priority, so the last one to fire wins and neither reliably: the tile header's Restart button was
   visible or not depending on whether the tile had been resized or its content had changed more
@@ -316,6 +351,32 @@ something that looked wrong on screen.
   (`LeafTileView.ApplyHeaderWidth`).
 - **A modal takes the keyboard when it opens.** Focus the first field, or the first thing a user does
   after asking for a new entry is reach for the mouse.
+- **Every answer a dialog offers has a key, and the key is underlined on the button.** Escape cancels
+  (once, in `OverlayHost`), Enter presses whatever holds the focus — which in `MessageDialog` is the
+  *safe* answer, not the confirming one — and each button answers to the bare letter underlined in its
+  own label: `Y`, `N`, `D` for Discard. The letter is **derived from the label**
+  (`Views/AccessKeyLabel.cs`, pure and argued in a table test), because `ConfirmAsync` takes both words
+  from the caller and today's callers say Discard, Delete, Unload and OK as often as Yes — a fixed
+  `Y`/`N` pair would be wrong on half the dialogs. The second button takes the first letter the first
+  one left free, since two buttons offering one key is Avalonia cycling between them rather than
+  pressing either.
+  **The bare letter is refused for `MessageDialog.DefaultSettlingTime` after the dialog opens** — a window each dialog carries as its own, never a static a test moves under the other test classes running beside it. These appear
+  *under* somebody's typing — a discard asked for from the git tile, with a terminal a keystroke away —
+  so a letter already on its way to the keyboard would answer a question nobody has read. Enter, Escape
+  and Alt+letter are aimed at a dialog and work from the first frame; only the one-finger shortcut
+  waits. Removing that window is how a stray `D` comes to discard somebody's working tree.
+  **The label is an `AccessText` and not a string** (`MessageDialog.Label`), which was measured rather
+  than assumed: a `ContentPresenter` turns `"_Yes"` into an `AccessText` only where its template asks
+  for it, and Avalonia 12's Fluent Button theme does not — so the string reached the screen as a plain
+  `TextBlock` reading `_Yes`, underscore and all, with no access key registered anywhere. The underline
+  also shows from the start rather than only while Alt is held, since the bare letter answers too and a
+  mark nobody sees is a shortcut nobody knows about.
+- **A popup is driven from the keyboard or it is a mouse-only control.** Down steps into the list,
+  the arrows browse it, Enter takes the entry and Escape leaves — and a list must not commit on
+  `SelectionChanged`, which the arrows raise too: the git tile's commit suggestions did, so the
+  first Down key *was* the whole gesture and the list could not be read through at all. A context
+  menu built in code gets the platform's own gesture for opening one (the Menu key, Shift+F10) on
+  the row that holds the selection, or every action in it needs a mouse.
 - **Name a class for what it is, not where it sat.** `add-row` described a button's old position; when
   the position changed the name became a trap for the next reader. It is `choice-row` (a full-width
   option) and `header-action` (something a heading row does to its list).
@@ -346,7 +407,7 @@ else), and announces what it can do by which of seven interfaces extending it it
 (the header's buttons and what a paired phone may press), `ITextInputTile` (where a dictated sentence and
 an Enter land), `ICustomBackgroundTile` (the terminal's inset and its own background colour), `IProcessTile` (the process
 it started, which is what the workspace row's memory reading is measured from), `IDescribedTile` (what
-the tile is *running*, beside its name in the header — an agent tile answers with its instance and model,
+the tile is *running*, beside its name in the header — an agent tile of either kind answers with its instance and model,
 and a kind with nothing to add simply does not implement it). **One class
 per kind** — `Services/Tiles/*TileKind.cs` — says what it is called, what it looks like, how it is built
 from saved state and what it writes down; **one line per kind** in `App.BuildTileCatalog` registers it
@@ -463,6 +524,12 @@ braille block U+2800–U+28FF — rather than a phrase, because the spinner is t
 beside it have moved twice. pi and `GenericAgent` answer `Unknown` to both, deliberately, and a test
 asserts it so that a table added later is added with a measurement.
 
+**The turning mark is drawn, not lettered** (`Arc.busy-arc` in `Controls.axaml`, worn by the tile header
+and by the workspace row). It was `MaterialIconKind.Loading`, whose geometry is a hairline at the 11–13px
+it is worn at — a mark you have to go looking for beside a name you are already reading. A `MaterialIcon`
+fills a path and has no stroke to thicken, so the only way to give the arc weight at that size is to draw
+it. The blocked mark stays a glyph: it is a sign rather than a shape, and it does not turn.
+
 **The tile says it too, in its header's leading slot** (`LeafTileView.UpdateTypeGlyph`). The marks are
 the workspace row's — a turning arc while it works, a still `AlertCircleOutline` in `DangerText` while
 it waits for an answer, the words in a tooltip from one place (`ActivityDisplay.Tip`) — so the panel and
@@ -476,7 +543,7 @@ chooser and its menu, while its activity is said nowhere else on the tile.
 **The tile holds one `TileActivityMonitor` and re-exports what it says**, exactly as it held one
 `OutputActivityLight`. Which instruments it gets is `TerminalTileViewModel.ConfigureActivity`, virtual,
 called from the **first `AttachControl` rather than the constructor** — a virtual call from a base
-constructor reaches an override whose own fields are still null, and the agent tile would hand the
+constructor reaches an override whose own fields are still null, and the terminal agent tile would hand the
 title source a null agent. `GoalTileViewModel` implements the interface directly and needs no sources
 at all: it *is* the runner, so it answers `Working` while a run is in flight and `Blocked` while a round
 of questions or a plan is waiting — the two states it could always have reported and had no way to.
@@ -531,6 +598,8 @@ In startup script `${tileId}` is replaced with the current `TileId` — both on 
 
 **A left-drag no longer always selects locally.** mTiles used to set `SelectionOverridesMouseTracking`; `Terminal.Avalonia` rejects a one-way override (see its `docs/MTERMINAL-COMPAT.md` → *Deliberately not adopted*) because it leaves an application with no way to receive the mouse at all — mc, vim, opencode click targets. Inside a full-screen app that grabbed the mouse, selection now needs **Shift** held: the xterm convention, but a habit users have to learn. Recorded so nobody rediscovers it as a bug.
 
+**Drop from the system** (`Views/ImageDrop.cs`): a no-drop cursor and no `[ImageDrop] Dropped on` line in the log mean Windows never delivered the drag — the process is elevated (UIPI, e.g. Rider as admin). Not fixable in code.
+
 ## Alt-buffer cleanup (TUI apps)
 
 Handled by the control, no app-side code: leaving the alternate screen releases the mouse grab, and **Shift** overrides a grab that is still latched. A TUI killed with Ctrl+C therefore no longer floods the shell with SGR mouse sequences.
@@ -545,13 +614,13 @@ Handled by the control, no app-side code: leaving the alternate screen releases 
 AI binary — everything an AI CLI needed, written out by hand in Settings and kept working by hand. Those
 are the agent's own business now (`Services/Agents/`), so a terminal tile is a shell and nothing else,
 and the Settings dialog has neither a Profiles tab nor an AI Tools one. What is left of a profile on
-disk is read by exactly one thing: `AgentTileMigration` matches a saved leaf's `userProfileId` against
+disk is read by exactly one thing: `TerminalAgentTileMigration` matches a saved leaf's `userProfileId` against
 `AppSettings.ShellProfiles` to work out which of somebody's terminal tiles were an AI CLI in a shell, and
-turns those into agent tiles. **Nothing seeds, edits or deletes a profile**, which is why the key is
+turns those into terminal agent tiles. **Nothing seeds, edits or deletes a profile**, which is why the key is
 still in the settings file — clearing it would take the migration's evidence with it, a launch before the
 workspace holding those tiles is even opened. Both go a release from now.
 
-The chain itself stayed, because it is what makes an agent tile survive its CLI crashing.
+The chain itself stayed, because it is what makes a terminal agent tile survive its CLI crashing.
 
 **DirectLaunchSession** (`Services/DirectLaunchSession.cs`): when a profile has `FallbackScript` → `LaunchScripts.RunsCommandChain` is true. Commands are run via `shell -c "command"` (not interactively). Chain: startup → fallback → plain interactive shell. Each command is started and then **awaited to its end** (`TerminalControl.WhenSessionEndedAsync(sessionId)`), so the verdict is the **exit code plus how long it ran** — there is no "it survived N seconds, so it worked" window any more:
 
@@ -578,7 +647,7 @@ The instance **owns** the tile's chain: it relaunches only the session whose `Se
 
 Tile creation flow:
 1. Empty tile → click Terminal → if this machine has more than one shell, the kind's own setup step appears (Back / Default shell / one card per detected shell). Click Agent and the step lists the configured instances this machine can run. Both steps are `ITileKind.SetupOptions`, not something the empty tile knows about terminals or agents
-2. The choice → `TerminalTileKind.Create(context, { "shellName": … })` or `AgentTileKind.Create(context, { "agentInstanceId": …, "agentId": … })`. **The same call a saved layout makes** — choosing *is* handing a new tile its initial state
+2. The choice → `TerminalTileKind.Create(context, { "shellName": … })` or `TerminalAgentTileKind.Create(context, { "agentInstanceId": …, "agentId": … })`. **The same call a saved layout makes** — choosing *is* handing a new tile its initial state
 3. `TileLauncher.Launch` → `LaunchScripts.RunsCommandChain` → `DirectLaunchSession.Start()`, else → `ShellStarter.StartAsync()` with the startup script
 
 ### Session resume
@@ -589,7 +658,7 @@ A tile's `TileId` is the agent's session id, so a restart reopens the same conve
 
 Measured against **opencode 1.18.14**, all load-bearing: the document's `projectID`/`directory` are **ignored** — the session lands in the project of the import's *cwd*, which is why the import runs as one of the tile's own commands; re-importing an existing id is **non-destructive** (title and messages kept), which makes it create-if-missing rather than a way to wipe the conversation being resumed; **every** field is required (`id`+`time` alone is rejected with `Missing key`, which does not say which key); `version` is not validated. It is opencode's *export* format, not an API — when it moves, the import fails, the resume finds nothing, and the chain ends at an interactive shell: a tile without its history rather than no tile. `OpenCodeSessionTests` pins the shape so that surfaces as a failing build.
 
-The commands are the agent's own, so a user who had the old (never-working) seeded profile gets the fix by their tile becoming an agent tile — there is nothing left to migrate a script into.
+The commands are the agent's own, so a user who had the old (never-working) seeded profile gets the fix by their tile becoming a terminal agent tile — there is nothing left to migrate a script into.
 
 **Codex** and **agy** name their own session; see `SessionStrategy.CapturedAfterStart` under *Agents*.
 
@@ -600,11 +669,20 @@ Shell persistence in layout: the tile's state carries `shellName`, and `Terminal
 Settings dialog as a modal overlay with responsive sizing (50% window width / 80% window height, min 420×400). Four tabs:
 - **General** — Default Shell, Appearance (color theme, font), Terminal (font), and the settings file
   itself: **Export** and **Import** (`SettingsPortability`). On this tab rather than a page of its own
-  because what it carries is the whole dialog. **Secrets do not travel** — every field encrypted at rest
-  is written out empty, since a DPAPI blob is bound to this user on this machine and would not work
-  anywhere else, and the alternative is plain-text keys in a file somebody is about to share. `ExtraEnv`
-  is the documented exception (nothing here can tell a proxy address from a token in it), so the warning
-  is shown *before* the file is written. An import is a replacement rather than a merge — a mixture
+  because what it carries is the whole dialog. **Secrets do not travel unless a passphrase says they
+  may** — with none, every field encrypted at rest is written out empty, since a DPAPI blob is bound to
+  this user on this machine and would not work anywhere else, and the alternative is plain-text keys in
+  a file somebody is about to share. A passphrase, asked for before the save dialog (empty keeps that
+  old behaviour), puts the secrets into one `SecretVault` property *beside* the settings rather than
+  inside them (`PassphraseVault`: PBKDF2-SHA256 into AES-256-GCM, cost parameters written into the
+  file), so a vault file still opens in a build that knows nothing of vaults; and the confirmation
+  names which of the two files is about to be written — the two warnings are constants on
+  `SettingsPortability` for exactly that reason, and the `ExtraEnv` sentence is in both, because it is
+  the one part true either way. An import that reads a vault asks once for the passphrase and stops
+  otherwise — a wrong one is named a wrong passphrase, not a corrupt file (`ExportProtection.Check`
+  carries a known plaintext for that question) — and a secret that will not decrypt arrives empty,
+  which `SettingsService.KeepExistingSecrets` reads as *the file said nothing*, so the value already
+  on this machine survives. An import is a replacement rather than a merge — a mixture
   nobody chose is worse — except that `SettingsService.Replace` **keeps every secret already set up
   here**, matched by id (provider keys *and* manual database connection passwords, one restore for each
   field the export blanks, or a file exported from this machine and imported back into it would empty
@@ -620,9 +698,11 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   everything, rather than as a hand-kept list of two dozen property names
 - **AI** — the agent instances a tile can be created from and the providers they authenticate through.
   An agent row carries its name, its CLI, a `NOT INSTALLED` chip and, when an `InstallPlan` exists,
-  **Install…** — which shows the command, then runs it in a **terminal tile in the current workspace**
-  (`TerminalTileKind.StartupScriptKey`, set at creation, never saved and **consumed at the first launch**,
-  so neither reopening the layout nor Restart shell installs anything again). A provider row is edited on the same overlay the manual database connection
+  **Install…** — which shows the command, then runs it **in the background** through
+  `BackgroundInstaller` (no shell, no tile; a line above the lists while it runs, the installer's last
+  lines in a dialog if it fails — see *Where AI tools went*). Only a plan that `NeedsATerminal` (a
+  sign-in, or a package install that asks for a password) still opens a terminal tile, through
+  `TerminalTileKind.StartupScriptKey`, consumed at the first launch. A provider row is edited on the same overlay the manual database connection
   uses, with Test (`IAiProvider.TestAsync`), Models and — for a local server — Discover
   (`LocalProviderDiscovery`, on demand, network sweep opt-in). The model field is an `AutoCompleteBox`
   over the provider's own list rather than a combo box, because that list runs to hundreds. The agent
@@ -661,7 +741,7 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   through the *startup script* rather than the process environment, which is the opposite of what a
   launch does and deliberately: the rule exists because a script lands in the scrollback and the shell's
   history, which is fatal for a key and harmless for a directory the user just named. It reaches the tile
-  through `InstallCommand.For` — the same route an install takes, and **not** `InstallPlan.CommandLine`,
+  through `InstallCommand.For` — the tile route only a plan that `NeedsATerminal` takes (an install runs in the background), and **not** `InstallPlan.CommandLine`,
   whose quoting is for reading: every part of a shell line has a space in it, so the tile was handed the
   whole command inside quotes and printed it instead of running it, while the row went on saying "not
   signed in". The row's status
@@ -679,7 +759,8 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   nothing — it has no catalogue to ask. The field narrows by every typed word in any order
   (`Views/ModelSearch.cs`), because an id is punctuated by whoever published it and the separator is the
   part nobody remembers.
-- **Database** — enable service, HTTP port, SQL Server/PostgreSQL credentials, scan interval, manual connections
+- **Database** — enable service, HTTP port, SQL Server/PostgreSQL credentials, scan interval, manual
+  connections with their own **Export/Import** on the heading row (`ManualConnectionsPortability`)
 - **Speech** — dictation on/off, shortcut (captured by pressing it), push-to-talk vs toggle, microphone,
   language, auto-Enter, vocabulary, and the model list with download/delete and progress; plus a **Phone**
   section (keep the bridge running, preferred port, and the phone's own auto-Enter). Those last two are
@@ -709,13 +790,171 @@ list of them is closed, and what the user configures is an **instance** of one.
 agent, never on the instance. `InstallUrl` is the tool's own page — the Settings AI row renders it as a
 link that opens the browser. `InstallPlan` is the install command, offered by the row's **Install…**
 button only while the CLI is not on this machine (`CanBeInstalled`), shown to the user before it runs,
-and run in a terminal tile — never a hidden process. Leaving either null hides that agent's link or
+and then run **in the background** — `Services/BackgroundInstaller.cs`, the plan's argv started as a
+process of this application's own, no shell and no tile. That is a reversal: it ran in a visible tile,
+on the reasoning that something writing outside our directories must be watched. What the tile was
+actually carrying, and where each half went, is in ADR
+[0005](docs/adr/0005-an-output-proxy-per-agent-instance.md) → *Amendment*: the confirmation is still the
+place the command is read; the questions an installer would have asked are answered in the plan
+(`--accept-source-agreements` and friends) with `BackgroundInstaller.Timeout` killing what still hangs;
+and the installer's own output is captured from both streams, logged whole, and its last lines carried
+into the failure dialog, since with no tile that is the only account of what happened. **No shell is
+what fixes the other half**: `IShellTerminal.Program` hands a resolved path to PowerShell alone and
+every other shell keeps the bare name — right for a per-directory shim, wrong for an installer whose
+binary is not on `PATH` at all. **A sign-in is not an install and keeps its tile**
+(`InstallPlan.NeedsATerminal`): a login only *starts* at the command and then waits for the user, so in
+the background it is a process hung on a prompt nobody can see. One install at a time for the whole
+page, with a line above the lists saying which. Leaving either null hides that agent's link or
 button and is a decision, not an omission.
 
 Two pieces of the old code were kept because the mechanism was right: `ExecutableFinder.Anywhere` is its
 scan of `PATH` and the handful of places a global npm, go or cargo install puts a binary — a GUI process
 does not inherit the `PATH` a login shell builds — and `AiAgentCatalog.Locate` holds that answer for
 thirty seconds, which is the same window the table's own detection cache had.
+
+## Agent conversation tile
+
+**Agent** (kind id `agent-conversation`) holds an AI agent as a conversation drawn by this application:
+messages, every tool call as a row, work between two messages folded into one group once it finishes,
+approvals and questions as blocks at the end, the agent's plan, the context used, and a diff with **Undo
+changes** for every turn that changed files. **Terminal agent** (kind id `agent`, unchanged — renamed on
+screen only, and its tiles keep their `Agent#n` names) is still the agent's TUI in a terminal. Ported from
+t3code, which drives every agent through a structured protocol.
+
+Three rules: **the events are the contract** (`mTiles.AgentSessions.Events` — nothing about any CLI in
+them, serialized with a `type` discriminator so a browser can read them as they are); **differences live
+in the agent's class** (`IConversationalAgent.CreateSession`, one folder per agent under
+`Services/Agents/Sessions/`); **what is drawn is always recomputed** (the SQLite store keeps events and
+`ConversationReducer`, pure, replays them). `AgentConversationHost` is the one entry point every viewer
+uses: it numbers and stores events, records the user's message itself, brackets each turn with two git
+checkpoints and keeps the resume token beside the conversation.
+
+**A tile can be pointed at any conversation it has held in this workspace** (`IConversationStore.List`, the
+chooser in the strip's right-hand corner, holding conversations only, `ConversationTitle` for what a row is called). The conversation is a
+`conversationId` in the layout **written only once one has been chosen** — absent means the tile's own id,
+so a layout from before this opens exactly what it always did — rather than a change of `TileId`, which is
+the tile's identity to the layout and would let two leaves be saved under one id. Consequences worth
+knowing: **"New conversation" no longer forgets and always asks** (a button beside the list, not a row in it; it opens one beside the old, and *Delete this
+conversation* is what takes it), **a conversation is one tile's at a time** (`OpenConversations` — two hosts
+of one conversation number their events from the same starting point and the store keeps whichever landed
+last), and **the agent comes with the conversation** rather than the other way round, because a resume token
+is only ever handed back to the CLI that issued it — which is also why picking *another* agent is a
+**handover** rather than a switch (below). What the picker cannot promise is that the *agent*
+remembers what the transcript shows — but it can promise to **say so** when it does not: pi and agy used to
+fail a cold resume in silence, and both are now caught before the first message (`ResumeCheck` — pi's
+`get_state` `messageCount`, agy's `init` naming another id; measured live 2026-09-17), while Grok 1.0.34
+answers an unknown id with an error. The table is in
+[`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) → *Which conversation a tile is showing*.
+
+**Another agent is picked, and the work is handed to it.** No CLI can continue another's session, and that
+was read for a long time as a refusal: another agent was offered dimmed, with a sentence saying to start a
+new conversation. Right about the mechanism, wrong about the user — the transcript is ours and the working
+tree is on disk, so the *work* moves perfectly well even though the session cannot. What travels is a brief
+folded out of what this application already recorded (`ConversationHandover`, pure, in
+`mTiles.AgentSessions`): the first message verbatim, the answered rounds of questions, the plan with its
+statuses, the files each turn changed — minus any turn that was undone, since those edits are not in the
+tree — and where it stopped, fitted to a budget that drops the middle of the work oldest-first and **says
+how much it dropped**, since a brief that quietly loses the middle reads as a complete account of a smaller
+task. Nothing is asked of any CLI for it, which is what makes a handover possible when the outgoing agent
+has crashed — the usual reason somebody switches. The seam is written between the two hosts
+(`HandoverWriter`, called with the old host disposed and the new one not yet built): the record moves onto
+the new agent, `HandoverRecorded(From, To, Brief)` is appended, and **the resume token is cleared** — the
+half that costs a conversation if it is wrong, because `codex resume <unknown>` opens an interactive picker
+a launch waits on for ever and `agy --conversation <unknown>` warns, starts a *new* conversation and exits
+0, so the tile cannot tell a resumed session from a lost one. The brief is then **sent rather than recorded
+as a message** (`SendMessage(Recorded: false)`, its one caller): the timeline already carries it, folded, on
+the handover entry, and written again as something the user said it would stand above the new agent's first
+answer as their own words. **The mode and the effort travel, the model does not** — they are this
+application's own canonical scale and `AiProcessRunner.Fit` already narrows them to the arriving agent's
+lists at every launch, while a model is spelled for the provider behind the account that is leaving;
+dropped instead, a switch quietly put somebody working in `bypass` back on the tool's own asking, which is
+a change of permissions nobody was told about, so bypass travels too and the confirmation says so in a
+sentence of its own. **Undo changes still works across the seam**, because `ITurnCheckpoints` is keyed by
+the conversation and knows nothing of agents — the working tree is the shared state. The one refusal left
+is `RefusalFor`'s: an agent this machine cannot run has nothing to hand the work to.
+
+**A conversation remembers which account each stretch of it ran as, and says so.** The agent is only half
+the identity: a resume token lives in the *account's* own directory, so the same CLI on a second
+subscription starts cold while the transcript — which is ours — goes on being drawn as one unbroken column.
+Four halves of that were silent and are not now. `SessionConfigured` carries a **`SessionAccount`** (agent,
+instance, the instance's name, sign-in), **stamped by the host and never reported by the session** — a
+session says what its CLI told it, and only the host knows the row in Settings it was launched from, which
+is the thing that decides where the token lives; `ConversationReducer` carries it forward and marks **every
+timeline entry** with it in `Append`, the one place an entry is made, so an old conversation needs no
+migration and reads back with nulls. Opening a conversation puts the tile back on that account and on its
+model, mode and effort (`AdoptStoredSession`) — the record names only the agent, so a tile used to take
+whichever instance of it came first, which on a machine with two subscriptions is a coin toss; the model
+comes back **through `IAiAgent.InstanceModel`**, the round trip a model picked in the strip already takes,
+since what a session lists is spelled that CLI's way and opencode and pi would otherwise qualify it a second
+time into `openrouter/openrouter/auto`. The first entry of a new stretch carries a
+rule with the account's name on it (`TimelineItemViewModel.Seam`, `MarkSeams`), drawn on the *item* rather
+than as an item of its own because `TimelineSync` matches view models to records by position. And the switch
+**asks first** (`ConfirmLeavingTheAccountAsync`) — only where the login actually moves, and a missing dialog
+is a yes here, since nothing is lost that the transcript does not still hold. Carrying the *work* across
+that seam is still [`docs/ROADMAP.md`](docs/ROADMAP.md) §6, and is cheaper than it was written to be: a
+segment is now the stretch between two `SessionConfigured`s naming different accounts.
+
+**The context bar carries the one act there is about the figure on it** (`ICompactingSession`,
+`CompactContext`, `SessionOptionsReported.CanCompact`). Compact asks the agent to summarise what has been
+said and carry on from the summary; nothing this application holds is touched, but it **asks first and
+the question opens on Yes** — what that guards is not loss but cost and surprise, a model call on
+somebody's budget that changes what the agent remembers, from a control a few pixels from the composer.
+It is the one confirmation here whose default button is the affirmative one
+(`MessageDialog.ConfirmAsync(defaultsToYes: true)`, opt-in per call) and the one whose unwired answer is
+yes — a delegate of its own (`ConfirmExpectingYes`) rather than a flag, so that the rule the rest of the
+application keeps, *an unanswered question about throwing something away is no*, cannot be reached for by
+a later caller who only wanted the convenient default. Three of the six have a route and each is its own, measured 2026-09-20: Claude Code takes
+`/compact` as an ordinary message on its stream-json stdin, codex answers `thread/compact/start` with
+`{threadId}` and runs a turn of its own with a `contextCompaction` item in it, and opencode takes
+`POST session/{id}/summarize` with `{providerID, modelID}` — both required, and the model is the
+session's own, since one the server does not know is a 500. pi, agy and Grok answer nothing and the
+button is not drawn for them: ACP has no compaction at all, and a guessed route is a control that
+reports having done something to somebody's context window when it has not. **Deliberately not a
+`SendMessage` carrying a slash command** — only one of the three reads it as a message, and the host's
+send writes a `UserMessageAdded`, so `/compact` would stand in the transcript as something the user said
+on a tile where two of the three would never have produced it. **Whether it is offered is the host's
+answer and not the session's**, stamped in `Stamp` beside `SessionConfigured.Account`: it is whether the
+object the host holds implements the interface, and a session saying it separately is a second copy of
+one fact that can disagree with the method actually called. On screen it is at the right-hand end of the
+context bar rather than among the composer's pickers — those say what the *next message* runs as, and
+this is an act — quieter than anything in the composer, because that one accent belongs to Send; it
+takes `WarnText` past 80% of the window, which is `ModelContextWindow`'s own margin rather than a second
+opinion, and never without the sentence in its tooltip.
+
+**A change to the workspace's skills reaches the agents already running** (`WorkspaceAgentFiles.SkillsChanged`,
+`SkillChangePolicy`). Ticking a database used to write `SKILL.md` and stop, and a CLI already started reads
+skills only at start-up — and no agent is treated otherwise (`IAiAgent.WatchesSkillsDirectory(AgentSurface)`
+answers no everywhere): Claude Code documents a watcher in its terminal interface, and was observed on
+2026-09-18 not to pick up a second database, so every agent tile is told to restart and no skills directory
+is made ahead of a skill. An idle Agent tile restarts on its own; one that is busy or holds an unsent message gets a
+notice, and a terminal agent tile always does — its restart would take the scrollback and the half-typed
+prompt. **A run of changes is one restart, not one each**: every database ticked and every RW toggle
+writes the skill again, so the tile waits out `SkillChangePolicy.QuietWindow` (two seconds), coalesces a
+change arriving during a restart into one further lap, and asks the policy **again** at the moment it
+would start — the window is long enough for a turn to have been sent meanwhile, and that change gets the
+notice instead. Acted on per click, three databases were three teardowns and three cold resumes, of which
+only the last described what the user meant to grant. The notice comes down at the next start of a process in that tile — a launch, and equally one the
+launch chain made on its own after the tool exited (`TerminalTileViewModel.NoteProcessStarting`, said by
+`TileLauncher` once the launch is past its refusals and by `DirectLaunchSession` before each command it
+starts) — so a bar does not go on asking for a restart that has happened, and equally does not stop
+asking for one that a refused launch never made. **In both kinds the notice is the
+tile's own bar and never an event of the conversation**: a `NoticeRaised` is stored, so the Agent tile wrote
+one identical line per ticked database into `conversations.db`, kept none of it down when the restart it asked
+for happened, and said it all again every time the conversation was opened. One line however often the cause
+repeats, taken down at the start that satisfies it, and dismissible — `LaunchNotices` for both.
+
+The tile counts as an agent in its workspace and as a process of this machine's: it answers
+`IAgentTile` — which `TerminalAgentTileViewModel` answers too, so the workspace's skills and its CLAUDE.md/
+AGENTS.md question are asked of both kinds rather than of one view model type — and `IProcessTile`,
+through the session's own `IProcessBackedSession`, so the workspace row's memory reading covers the CLI
+this tile started.
+
+Claude Code, codex, opencode, pi and agy were each run live through launcher, session, host and checkpoint
+(`LiveAgentConversationTests`, opt-in by `MTILES_LIVE_AGENTS`). Grok's resume and ACP surface were measured
+live separately (1.0.34, 2026-09-17), installed at `~/.grok/bin` — which `ExecutableFinder` reaches through
+its `~/.{name}/bin` rule. Transports, measurements and every trap found on the way are in
+[`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) — read it before touching
+`src/mTiles.AgentSessions/`, `Services/Agents/Sessions/` or `ViewModels/AgentConversation/`.
 
 ## Goal tile
 
@@ -737,14 +976,53 @@ a ref under `refs/mtiles/`, so nothing the user can see moves. **Untracked files
 form of `diff` shows one and `checkout HEAD` cannot bring one back. Read *docs/GOAL.md* before touching
 it; four details there were measured and each is load-bearing.
 
-**The tile is a conversation and nothing is docked to the bottom of it.** One `ScrollViewer`, one
-column: the transcript, and then whatever the tile is asking for — the round of questions, the plan
-box, the finished-run actions, the composer with the detect buttons under it — each as a block where the next thing
-in a conversation goes. A round is *replaced by the record of itself* when it is answered, in place,
+**The tile is a conversation, and the composer is the one thing docked to the bottom of it.** One
+`ScrollViewer` (`ChatScroll`), one column: the transcript, and then whatever the tile is asking for — the
+round of questions, the plan box, the finished-run actions — each as a block where the next thing in a
+conversation goes. The composer, with the detect buttons and its pickers under it, sits **outside** that
+scroller, docked to the foot of the tile: it is not something the conversation said but the one place you
+act from, and scrolling back two attempts to re-read a review must not take it off the bottom of the tile
+(`GoalAskPanelTests.What_the_tile_asks_scrolls_and_what_you_type_in_does_not` pins both halves). A round is *replaced by the record of itself* when it is answered, in place,
 rather than being asked in a docked panel and recorded as a numbered paragraph several screens above
 it. Anything in the conversation can be copied on its own — a message, one finding, one question with
 its answer — through one handler and one builder, so a finding copied alone reads exactly as it does
 inside the review it came from.
+
+**A review is not automatically an instruction.** The loop stops between a review and the next attempt
+(`GoalReviewGatePolicy`, per goal, on the criteria panel): **countdown** — the default, 15 s — shows the
+findings with a tick beside each and carries on by itself, **pause** waits for Resume after every review,
+**off** is what the loop did before. **Touching a tick stops the clock and it does not start again**,
+because somebody who has just decided one finding is not worth fixing is still reading the rest of the
+list. What stays ticked is what goes back to the tool; what does not is subtracted once
+(`GoalDismissals.Accepted`) from everything that judges the review — the completion criteria, the
+sentence saying why they were not met, the feedback and the no-progress fingerprint — since a dismissed
+error kept out of the prompt *and* counted by the criteria is a run that can never finish. A blocker
+offers no tick, the one severity with no tolerance anywhere. And what carries a dismissal to the next
+lap is the review prompt, which names them as decisions already taken: the reviewer is written from
+scratch each time and phrases the same defect differently, so the text match — `GoalFinding.Defect`,
+shared with the review's own fingerprint and leaving the line out, because an implementation moves the
+lines under every defect it did not fix — is a literal-repeat guard under that and never the mechanism.
+The reviewer's own `goalMet` is left exactly as it was: it answers a different question, it has no tick,
+and a run whose every stated defect is dismissed while the verdict still says no stops as going round in
+a circle. See [`docs/GOAL.md`](docs/GOAL.md).
+
+**A run is four jobs, not one** (`GoalRole`, `GoalRoles`, and ADR
+[0003](docs/adr/0003-effort-by-role-in-a-goal-run.md)). Planning, work, review and commit each get
+their own amount of thinking and — for two of them — their own agent. **The strip still carries one
+effort picker**: its word is a *preset* (`balanced` = plan medium · work low · review medium,
+`careful` = the same with the review at high — the word `balanced` used to be, and a stored `Balanced`
+is migrated onto it — `thorough`, `cheap`, `default`) and the three levels are in the picker row's own description, which is
+what lets a setting with three dimensions cost one control in a tile that is often 300px wide. **Commit
+is `low` as a constant**, in no preset and on no screen, because naming which changed files belong
+together is mechanical — the only exception is the `default` preset, whose whole meaning is to pass no
+flag anywhere. The role is derived from the phase (`GoalRoles.For`) and persisted nowhere, so
+`GoalPhase` — which is in every goal file, decides `AiUsage` and gates `GoalTilePolicy.CanResume` —
+does not grow a member for the commit plan; that one call names its role at the call site, or it would
+be attributed to the reviewer and run at the reviewer's effort. **Three agent slots**: the execution
+agent in the strip (it writes, so it is the one value that has to be readable at a glance), and
+`planned by` and `reviewed by` in the criteria panel, both defaulting to "same as execution". Only the
+execution agent ever writes, which is what keeps a second agent compatible with the worktree
+`GoalBaseline` photographs once.
 
 **Everything else is in [`docs/GOAL.md`](docs/GOAL.md)** — the phase machine, the prompts and how they
 are fitted to a command line, the structured review and its severities, the completion criteria, the
@@ -755,6 +1033,70 @@ dictation out: read it before touching `Services/Goal*`, `Services/WorktreeReade
 `ViewModels/Goal*` — the last of
 which is a wider glob than it looks: `GoalCriteriaEditor`, `GoalBadge`, `GoalSolidToggle` and
 `GoalQuestionAnswer` are view models of their own, not part of the tile's.
+
+## Token proxy
+
+Optional, per agent instance: the shell commands an agent runs are rewritten to go through
+[rtk](https://github.com/rtk-ai/rtk), which filters their output — 60–90% fewer tokens on `git status`,
+a test run, a build. A tick in Settings → AI on the instance's own form, beside `ExtraArgs`, which is
+the other field there that changes what the CLI is actually told. Off by default, the rule
+`DefaultBehaviour` keeps: a row nobody has been asked about must not quietly do something to what the
+agent runs. Everything is in ADR [0005](docs/adr/0005-an-output-proxy-per-agent-instance.md); what is
+worth knowing here:
+
+**It goes through the file this application already generates, never `~/.claude/settings.json`.**
+rtk's own way in is `rtk init --global`, which patches the user's file; `ClaudeSessionSettings` has
+carried a `--settings` file since the `Concise` output style, so the hook block goes in there and the
+tick changes this application's sessions and no others. **Two files, not one rewritten per launch**
+(`session-settings.json`, `session-settings-rtk.json`): the path is what reaches the command line, and
+two tiles on two instances are launched milliseconds apart out of one process — one file rewritten per
+launch is those two racing over a path they have both already been handed, so whichever launched second
+decides what the first one runs.
+
+**The agent says whether it has a route** (`IAiAgent.OutputProxySupport`, virtual on `AiAgent` and
+never a default interface member, for the reason `UsesModelContextWindow` spells out), and
+`SessionDefaultArgs` grew an `AiAgentInstance` parameter so the answer can depend on the row. Measured
+2026-09-22 against rtk 0.46.0, each probed with `rtk init` against a sandboxed config directory:
+**Claude Code** takes a `PreToolUse` hook in a settings file and is wired; **pi** takes
+`<PI_CODING_AGENT_DIR>/extensions/rtk.ts` loaded with `pi -e <path>` — the same shape, and the next one
+to wire, answering `None` with the measurement in its own class until the file is generated into a
+directory this application owns; **opencode** takes a plugin in `~/.config/opencode/plugins/` and has no
+per-run flag at all, so it answers `WritesOutsideOurDirectories` — a route named and refused rather than
+one nobody found, because taking it would turn a tick on one instance into a change to every opencode
+session on the machine, the ones started from a shell included, with nothing here able to take it back off.
+
+**Three facts decide it and the tick is only one.** rtk has to be on this machine
+(`ExecutableFinder.Anywhere`, so a GUI process finds `~/.local/bin`), and Claude Code's own settings
+must **not** already carry an rtk hook — the CLI runs every matching entry, so ours beside theirs is one
+command handed to the proxy twice, which is a behaviour nobody chose arrived at by two pieces of
+configuration that cannot see each other. Asked at the moment the file is written rather than
+remembered, so rtk installed from the Settings row applies at the next launch with nothing to click
+again; the form says which of the two is true rather than leaving the tick looking ignored, and stays
+enabled under both, because what is stored is what the user wants and a machine fact changing underneath
+a row is not a reason they cannot set it up in advance. `OutputProxyGlobalHook` reads that file and
+**never writes it** — the whole premise is that nothing here edits it — and asks by **substring**: a JSON
+walk for the exact shape answers *no* for a hook written by hand, spelled with an absolute path or
+wrapped in a shell, all of which are live, and being wrong towards "already there" costs one tick while
+being wrong the other way is the double rewrite.
+
+**Goal runs are deliberately not covered.** `AiProcessRunner` never passed `--settings` at all, so
+adding it now would also hand every goal run the `Concise` output style its parser has never seen —
+a separate change with its own risk.
+
+**Installing it is Windows-only, and only where winget can be found** (`rtk-ai.rtk`). Measured
+2026-09-23: `%LOCALAPPDATA%\Microsoft\WindowsApps` is in *no* process' `PATH` on a good many Windows 11
+machines — not the GUI's, not PowerShell's, not Git Bash's — so the alias sits there pointing at a
+working binary while every shell answers `command not found`. `ExecutableFinder` now walks that
+directory too, and `OutputProxy.Plan` is asked **per call** and answers `null` where winget is still
+not found, so the row shows the link rather than a button certain to fail. On Linux the published route
+is a piped shell installer and this application does not put `curl … | sh` behind a button, because the
+confirmation could not say what is being approved; that row gets the link. **`cargo install rtk` is
+never offered anywhere**: crates.io carries a different program under that exact name — Rust *Type*
+Kit — which answers `rtk --version` and fails every hook, and a test asserts the plan does not reach
+for it. The notice above the lists appears **only where an instance asked for the proxy and rtk is
+missing**, which is the difference from the clipboard notice beside it: that one is about a capability
+every agent on the platform lacks, this one about a decision already made that has quietly been doing
+nothing.
 
 ## Agent-facing files
 
@@ -978,7 +1320,20 @@ Per-workspace bridge that lets LLM agents (Claude Code, OpenCode, etc.) query lo
 
 **Workspace config:** `.mtiles/databases.json` — `WorkspaceDatabaseTileConfig` with `Databases` (list). Context files are generated when database service is running and the list is non-empty.
 
-**Settings:** Database tab in Settings — enable service, HTTP port, SQL Server (Windows Auth / SQL Auth), PostgreSQL (credentials, ports), scan interval, manual connections (add, edit, clone, test, delete — the form is the shared overlay every settings entry is edited on). Save & Apply restarts the service automatically. Passwords encrypted with DPAPI.
+**Settings:** Database tab in Settings — enable service, HTTP port, SQL Server (Windows Auth / SQL Auth), PostgreSQL (credentials, ports), scan interval, manual connections (add, edit, clone, test, delete — the form is the shared overlay every settings entry is edited on; **Export/Import** on the heading row, `ManualConnectionsPortability`). Save & Apply restarts the service automatically. Passwords encrypted with DPAPI.
+
+**A connections file is a merge, and a file of its own.** `ManualConnectionsPortability` writes the
+list — the passwords included, under a `PassphraseVault` passphrase (the same vault the settings
+export uses), or without them — to its own format, and its import **overwrites what matches** (by id,
+then address, then alias — the two ways `DbRegistry` files a row), **adds what is missing and removes
+nothing** (`ManualConnectionMerge`, pure and argued in a table test): handing a file to a colleague
+must not be handing them the whole configuration. A password that did not travel arrives empty and is
+read as *not said*, so it never erases the one stored here; and a candidate value that would land on
+another row keeps the stored one — alias and address, the port with the address — so the merged list
+never holds a clash the form would refuse. The two files refuse each other by name
+(`ManualConnectionsBundle.Kind`; the settings import recognises a connections file and names the
+Database tab, and this import refuses a settings export by the same question), because a settings
+export dropped into this importer would otherwise read as a file with no connections in it.
 
 **A name and an address may each be used once** (`ManualConnectionClash`, pure and argued in a table
 test). `DbRegistry.Register` files an instance under its address — server, instance, database — **and**
@@ -1436,7 +1791,12 @@ this application, named by process id, or one that has not finished exiting.
   **An unreadable file is copied aside before it is overwritten** (`settings.bad-<timestamp>.json`, newest five kept). "Treat it as a first run" is only half the story: the first-run steps save, so within milliseconds the user's agent instances, provider keys and database passwords are replaced by defaults — and "unreadable" is often a truncation with most of the content intact
 - `workspaces.json` — list of workspaces (id, name, path)
 - `window/layout.json` — the window's own tile layout (`WindowLayoutViewModel`): the list of workspaces, the place the open workspace is drawn and whatever note, todo or usage tiles sit beside them. **Not written until something is moved** — the default is the window as it looked before it had a layout — and a file that does not hold the list and the workspace exactly once each is replaced by that default rather than mended. A window-level note or todo list keeps its file under `window/.mtiles/`, because `window/` is what those tiles are handed in place of a workspace directory
-- `workspaces/{id}.json` — tile layout per workspace (shell name, agent instance id, tile id, tile name). Backward compat: `RootPane` → `RootTile` migration in `WorkspaceState`, and `AgentTileMigration` turning the terminal leaves that were an AI CLI in a shell into agent leaves — `{id}.pre-agents.json` is the copy taken before the first save in the new shape, and it has the same expiry date as the migration
+- `agent-conversations/conversations.db` — every Agent tile's conversation: its events and the id that
+  resumes it (SQLite, `SqliteConversationStore`). The directory is owner-only, because what is in it is
+  prompts, answers and diffs of somebody's code, and SQLite writes `-wal`/`-shm` beside the file where no
+  create mode on the file would reach. Nothing prunes it yet — which now costs more, because a closed
+  tile's conversation is reachable from any Agent tile in that workspace rather than an orphan
+- `workspaces/{id}.json` — tile layout per workspace (shell name, agent instance id, tile id, tile name). Backward compat: `RootPane` → `RootTile` migration in `WorkspaceState`, and `TerminalAgentTileMigration` turning the terminal leaves that were an AI CLI in a shell into agent leaves — `{id}.pre-agents.json` is the copy taken before the first save in the new shape, and it has the same expiry date as the migration
 - `logs/` — application logs (daily files, 7-day retention)
 - `sessions/opencode/ses_<tileId>.json` — the import document an OpenCode tile creates its session from (see Session resume). Rewritten on every launch; a few hundred bytes, and deliberately never pruned — while the file exists, a session the user threw away can be recreated on the next launch
 - `opencode/<instanceId>.opencode.json` — the provider document an opencode instance on a **local**
@@ -1483,6 +1843,36 @@ both are wrong in opposite directions), and what a tile header of an index, a ki
 would take. The user-facing half of the same list is the **Roadmap** section of `README.md`; this one
 carries the reasoning.
 
+## Architecture decision records
+
+Important decisions are recorded as ADRs in `docs/adr/`, one file per decision:
+`NNNN-short-title.md`, numbered in order and never renumbered. Write one whenever a choice is
+non-obvious, costs something, or reverses an earlier one — a default forced on every tile, a
+trade-off against a user-visible feature, a workaround for another program's behaviour. Each ADR says
+what the situation was (**Context**), what was decided (**Decision**), what it costs and gains
+(**Consequences**), and, when the decision replaces earlier ones, their dates (**History**). Link the
+ADR from the code it governs, so the next person to touch that line finds the reason before changing it.
+A decision that is later reversed gets a new ADR; the old one is marked *superseded by NNNN*, not
+deleted.
+
+Recorded so far:
+- [0001](docs/adr/0001-claude-code-fullscreen-renderer.md) — Claude Code runs on its fullscreen
+  renderer in every tile (`CLAUDE_CODE_NO_FLICKER=1`); the classic one breaks the scrollback on resize.
+- [0002](docs/adr/0002-handing-work-across-a-change-of-agent.md) — picking another agent hands the work
+  over with a brief instead of being refused; the resume token is cleared at the seam, and the permission
+  mode travels with the work, bypass included.
+- [0003](docs/adr/0003-effort-by-role-in-a-goal-run.md) — a Goal run thinks by role rather than at one
+  level: the strip's one word is a preset, the commit is `low` as a constant nothing can set, and
+  planning joins review as a slot that may be another agent. Reverses `AiEffort`'s "high by default
+  because the budget is in attempts". Its default preset is amended by 0004.
+- [0005](docs/adr/0005-an-output-proxy-per-agent-instance.md) — the token proxy (rtk) is a tick on an
+  agent instance carried by a generated `--settings` file, never `rtk init --global` patching the
+  user's own; the agent says whether it has a route, and opencode's is named and refused.
+- [0004](docs/adr/0004-a-rung-below-the-default-review.md) — the ladder gains a rung between `cheap`
+  and the old default: `balanced` now means a review at medium, and the deep review keeps its levels
+  under the name `careful`. The word moved, so a stored `Balanced` is migrated onto `careful` under a
+  key of its own rather than silently meaning something cheaper.
+
 ## Conventions
 
 - **Workspace** (not "project") — working directory with terminal/editor tiles. Right-click on workspace → context menu (Show in Explorer, Remove).
@@ -1490,8 +1880,12 @@ carries the reasoning.
 - **Note** (not "editor") — tile with text editor (AvaloniaEdit), kind id `note`
 - **Todo** — tile with task list, kind id `todo`
 - ViewModels in `ViewModels/`, views in `Views/`
-- **Agent** — a terminal whose commands are an AI CLI's own rather than a script the user wrote, kind
-  id `agent`. `AgentTileViewModel` derives from `TerminalTileViewModel` and overrides two answers:
+- **Terminal agent** — a terminal whose commands are an AI CLI's own rather than a script the user
+  wrote, kind id `agent` (the id predates the Agent tile and is on people's disks, so the class names
+  carry the distinction instead: `TerminalAgentTileKind`, `TerminalAgentTileViewModel`,
+  `TerminalAgentTileMigration`). **Agent** is the other tile — the same CLI held as a conversation, kind
+  id `agent-conversation`, `AgentConversation*` in code; see *Agent conversation tile* above.
+  `TerminalAgentTileViewModel` derives from `TerminalTileViewModel` and overrides two answers:
   where the commands come from (`IAiAgent.Interactive`, asked at every launch so an instance edited
   in Settings takes effect on the next restart) and what the layout calls it. The tile stores the
   `AiAgentInstance`'s id, the agent's id beside it (a deleted instance leaves a tile that still
@@ -1499,13 +1893,35 @@ carries the reasoning.
   the agent named itself, together with the tile identity it was captured under, so "New session"
   cannot reopen the conversation the user has just left. **A tile that could not be built as it was
   configured says so and keeps asking for what it was** (`AgentSubstitution`, set by
-  `AgentTileKind.Resolve`, shown once as `TerminalTileViewModel.LaunchNotice` — dismissible, because
+  `TerminalAgentTileKind.Resolve`, shown once as `TerminalTileViewModel.LaunchNotice` — dismissible, because
   unlike `LaunchProblem` this tile *is* running): the last two links of the fallback chain can land on a
   different agent, and a Codex tile that quietly comes back as Claude is a different program working in
   somebody's repository. `Save` therefore writes the **requested** ids rather than the substitute's — the
   layout is saved for any reason at all, so the substitution would otherwise become permanent within
   seconds of the tile opening and restoring the instance in Settings would no longer bring it back — and
   it writes no session id while a tile is substituted, since that id belongs to the agent standing in.
+  **It draws the Agent tile's context bar** (`ContextGaugeViewModel`, one class for both kinds, and
+  `Border.context-bar` in `Controls.axaml`): the same figure about the same conversation, differing only
+  in where it is read from — the Agent tile is told it by the protocol it drives, this one reads it out
+  of the CLI's own store. **The row is there from the first frame**, reading `context not known yet`
+  wherever a reading can ever arrive (`ContextGaugeViewModel.KeepsItsPlace`, asked of the agent's own
+  `SessionLog`) — the Agent tile's rule, and here it is about the terminal rather than the figure: a row
+  that appears with the first reading pushes the terminal up one line mid-turn, which remeasures the
+  cell grid and reflows the shell. An agent whose CLI keeps nothing readable (agy, Grok) draws no bar
+  at all, since the sentence would otherwise stand there for the life of the session. The bar and the figures are hidden separately, because four of the five CLIs
+  that count tokens never name the window and the denominator then comes from the provider
+  (the instance's own `MaxContextTokens` first, then `ModelContextWindow.ContextOfAsync` — deliberately
+  ungated, unlike `ResolveAsync`, which asks what to put in *Claude Code's environment* — and then the
+  agent's own account, `IAiAgent.AccountContextWindowAsync`, which is the only route a **subscription**
+  has, since it carries no provider instance at all. `ClaudeModelCatalog` is the one implementation:
+  `GET api.anthropic.com/v1/models` with the CLI's own OAuth token, `max_input_tokens` and never
+  `max_tokens`, measured 2026-09-18). **And nothing after that**: falling back to the 200 000 the CLI
+  documents itself as assuming drew a full bar over a conversation of 234k on `claude-opus-5`, whose
+  window is 1 000 000 — one account serves opus-5 a million tokens and opus-4.5 two hundred thousand, so
+  no constant is right, and a bar pinned at 100% reads as *about to run out*. The Agent tile fills the
+  window in the same order and at the same moment (`WithAWindow`), because only codex and ACP report one
+  over the wire. A plain shell answers `null` to `TerminalTileViewModel.ContextGauge`
+  and loses no line to it.
   `TileKindIds.ToLegacy` answers `terminal`
   for it: a build Velopack has rolled back opens the leaf as a plain shell on the shell it was
   running (hence a `shellName` in its state this build never reads) rather than as an empty tile.

@@ -48,6 +48,11 @@ internal static class OpenCodeSession
     /// be written differently in two places.</summary>
     public static string IdFor(string tileId) => IdPrefix + tileId;
 
+    /// <summary>The tile id a session id was made from by <see cref="IdFor"/>, or null when it was not.
+    /// </summary>
+    public static string? TileIdOf(string sessionId) =>
+        sessionId.StartsWith(IdPrefix, StringComparison.Ordinal) ? sessionId[IdPrefix.Length..] : null;
+
     /// <summary>
     /// Where the tile's import document lives. Derived from the tile id rather than handed back from
     /// somewhere, so <see cref="TileScript"/> can expand the path as a plain function of the id and

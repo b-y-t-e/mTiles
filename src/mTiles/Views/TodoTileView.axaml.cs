@@ -5,8 +5,11 @@ using TodoList.Avalonia.Model;
 
 namespace mTiles.Views;
 
-public partial class TodoTileView : UserControl
+public partial class TodoTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The editor, which is the whole of the tile.</summary>
+    public Avalonia.Input.InputElement? PreferredFocusTarget => Editor;
+
     private ImageSyncHelper<TodoImageEntry>? _imageSync;
     private EventHandler<ImagePastedEventArgs>? _imagePastedHandler;
     private TodoTileViewModel? _subscribedVm;

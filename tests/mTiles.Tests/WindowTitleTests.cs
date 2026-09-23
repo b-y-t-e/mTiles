@@ -18,4 +18,16 @@ public class WindowTitleTests
     [InlineData("  spaced  ", "spaced — mTiles")]
     public void NamesTheOpenWorkspaceFirst(string? workspaceName, string expected) =>
         Assert.Equal(expected, WindowTitle.For(workspaceName));
+
+    [Theory]
+    // The version rides on the application's name, so it is the first thing a truncated taskbar
+    // button drops and the workspace is the last.
+    [InlineData("mterminal", "0.4.114", "mterminal — mTiles 0.4.114")]
+    [InlineData(null, "0.4.114", "mTiles 0.4.114")]
+    // A build that cannot say what it is says nothing rather than leaving a dangling space.
+    [InlineData("mterminal", null, "mterminal — mTiles")]
+    [InlineData("mterminal", "   ", "mterminal — mTiles")]
+    [InlineData(null, "", "mTiles")]
+    public void CarriesTheVersionAfterTheApplicationName(string? workspaceName, string? version, string expected) =>
+        Assert.Equal(expected, WindowTitle.For(workspaceName, version));
 }

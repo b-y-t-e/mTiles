@@ -334,7 +334,14 @@ public sealed class AiSettingsPageTests : IDisposable
         // Two variables set and the binary run, in one line the shell will execute rather than echo.
         Assert.Contains("CLAUDE_CONFIG_DIR", command);
         Assert.Contains(AiSignInStore.DirectoryFor(vm.SignIns.Single().SignIn), command);
-        Assert.EndsWith("claude", command);
+
+        // The binary last, spelled the way this shell runs a program: its name on bash, and on
+        // PowerShell the file this machine found — where a bare `claude` finds npm's .ps1 shim and a
+        // default Windows refuses to load it, which is how this button opened a tile showing an
+        // execution-policy error while the row went on saying "not signed in".
+        var claude = AiAgentCatalog.Find("claude")!;
+        Assert.EndsWith(shell.Program(claude.BinaryName, AiAgentCatalog.Locate(claude), []), command);
+        Assert.DoesNotContain(".ps1", command, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\"$env", command);
         Assert.False(command.StartsWith('"'), $"the whole command is quoted: {command}");
 
@@ -355,13 +362,18 @@ public sealed class AiSettingsPageTests : IDisposable
     public void An_install_plan_reaches_the_tile_as_a_line_the_shell_will_run()
     {
         var plan = new InstallPlan("npm", ["install", "-g", "@anthropic-ai/claude-code"], "");
+        const string found = @"C:\Program Files\nodejs\npm.cmd";
 
-        // The call operator, because PowerShell reads a quoted first token as a string expression.
-        Assert.Equal("& 'npm' 'install' '-g' '@anthropic-ai/claude-code'",
-            InstallCommand.For(plan, new PowerShellTerminal()));
+        // PowerShell is handed the file this machine found, through the call operator: by name it
+        // would run npm.ps1, which a default Windows refuses to load.
+        Assert.Equal(@"& 'C:\Program Files\nodejs\npm.cmd' 'install' '-g' '@anthropic-ai/claude-code'",
+            InstallCommand.For(plan, new PowerShellTerminal(), _ => found));
+        Assert.Equal("npm 'install' '-g' '@anthropic-ai/claude-code'",
+            InstallCommand.For(plan, new PowerShellTerminal(), _ => null));
 
-        Assert.Equal("'npm' 'install' '-g' '@anthropic-ai/claude-code'",
-            InstallCommand.For(plan, new BashTerminal()));
+        // Every other shell keeps the name, found or not, and does its own lookup.
+        Assert.Equal("npm 'install' '-g' '@anthropic-ai/claude-code'",
+            InstallCommand.For(plan, new BashTerminal(), _ => "/usr/bin/npm"));
 
         // A plan carrying a whole composed line - which is what the Sign in button makes - is not
         // touched at all: quoting it would be quoting a command.

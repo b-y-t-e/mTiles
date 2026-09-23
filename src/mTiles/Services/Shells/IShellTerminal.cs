@@ -57,15 +57,32 @@ public interface IShellTerminal
     string Quote(string value);
 
     /// <summary>
-    /// One line that runs <paramref name="executable"/> with <paramref name="arguments"/>.
+    /// How this shell is told to run the program called <paramref name="name"/>, as the head of a
+    /// command line the rest of the arguments follow.
     /// </summary>
-    /// <remarks><b>Not "quote every part and join them".</b> That is what a caller wrote, and on
-    /// PowerShell it does not run: a quoted first token is a string expression, not a command, so
-    /// <c>'npm' 'install' -g …</c> fails at the parser with <c>Unexpected token</c> before anything is
-    /// started — while bash executes the same line perfectly well, which is how it reached Windows
-    /// unnoticed. The call operator is the answer there, and knowing that is this interface's job for
-    /// the same reason <see cref="Quote"/> is.</remarks>
-    string Invoke(string executable, IReadOnlyList<string> arguments);
+    /// <param name="name">The binary's own name — <c>claude</c>, <c>opencode</c>. Never a path.</param>
+    /// <param name="path">Where this machine found that binary (<c>ExecutableFinder</c>,
+    /// <c>AiAgentCatalog.Locate</c>), or null where it was not found at all.</param>
+    /// <param name="arguments">What will follow on the command line, unquoted. Part of the question
+    /// because the file decides who parses them: a <c>.cmd</c> shim hands them to <c>cmd.exe</c>, which
+    /// reads <c>&amp;</c>, <c>|</c> and <c>%VAR%</c> in them whatever this shell's quoting said.</param>
+    /// <remarks><b>Because a name does not name a file, and on PowerShell it names the wrong one.</b>
+    /// npm installs three shims per tool on Windows — <c>claude</c>, <c>claude.cmd</c> and
+    /// <c>claude.ps1</c> — and PowerShell prefers the <c>.ps1</c>. On a machine whose execution policy
+    /// is <c>Restricted</c>, which is Windows' own default, it then refuses to load it: <c>claude.ps1
+    /// cannot be loaded because running scripts is disabled on this system</c>, on a machine where the
+    /// CLI is installed and this application has just said so. Every agent tile and the Sign in button
+    /// failed that way on a fresh Windows.
+    /// <para>Which file a name runs is this interface's question for the same reason <see cref="Quote"/>
+    /// is: the answer differs per shell and nothing above it should have to
+    /// know that PowerShell is the one that needs telling. <em>Where</em> the binary is stays this
+    /// application's answer — a path is a fact about the machine, not about the shell — which is why it
+    /// is a parameter rather than something a shell goes and looks up.</para>
+    /// <para>Deliberately not "loosen the execution policy for the process we start". That would work,
+    /// and it would also let every other <c>.ps1</c> in that tile run on a machine where an
+    /// administrator switched scripts off on purpose — while still failing wherever the policy comes
+    /// from group policy, which is exactly the managed machine it would be weakening.</para></remarks>
+    string Program(string name, string? path, IReadOnlyList<string> arguments);
 
     /// <summary>The statement that gives an environment variable a value in this shell.</summary>
     string SetEnv(string name, string value);

@@ -51,4 +51,26 @@ public static class CapturedSessions
     /// entry.</remarks>
     public static bool TryClaim(string sessionId, string holder) =>
         sessionId.Length > 0 && Held.GetOrAdd(sessionId, holder) == holder;
+
+    /// <summary>Whether a holder other than <paramref name="holder"/> has <paramref name="sessionId"/>.
+    /// </summary>
+    /// <remarks>A test and not a claim, for a caller that has not decided yet: a candidate claimed on the
+    /// way to a read that then fails would stay held by a tile that never took it, and the tile the
+    /// conversation really is in could no longer have it.</remarks>
+    public static bool IsHeldByAnother(string sessionId, string holder) =>
+        Held.TryGetValue(sessionId, out var held) && held != holder;
+
+    /// <summary>Moves <paramref name="holder"/> onto <paramref name="sessionId"/>, giving up whatever it
+    /// held before, unless another holder already has it.</summary>
+    /// <remarks>A tile is in one conversation at a time. Keeping the one it left held would leave that
+    /// conversation unavailable to the tile that <c>/resume</c>s into it next.</remarks>
+    public static bool TryMoveTo(string sessionId, string holder)
+    {
+        if (!TryClaim(sessionId, holder)) return false;
+
+        foreach (var (heldId, held) in Held)
+            if (held == holder && heldId != sessionId)
+                Held.TryRemove(new KeyValuePair<string, string>(heldId, held));
+        return true;
+    }
 }

@@ -79,17 +79,24 @@
                                     ToolTip.Tip="{Binding AddAction.Label}">
                                 <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
                             </Button>
+                            <!-- Classes, not Foreground, and that is the point: ApplyHeaderWidth is the
+                                 single writer of this button's IsVisible, so anything a binding says has
+                                 to be said about a different property or the two fight at the same
+                                 priority. The tooltip carries the reason; see RestartIsUrgent. -->
                             <Button x:Name="RestartButton"
                                     Classes="tile-btn"
+                                    Classes.urgent="{Binding RestartIsUrgent}"
                                     Command="{Binding RestartTerminalCommand}"
-                                    ToolTip.Tip="Restart shell (Ctrl+Shift+R)">
+                                    ToolTip.Tip="{Binding RestartLabel}">
                                 <mi:MaterialIcon Kind="Restart" Width="14" Height="14" />
                             </Button>
                             <Button x:Name="NewSessionButton"
-                                    Classes="tile-btn"
+                                    Classes="tile-btn tile-btn-accent"
                                     Command="{Binding ResetTileIdCommand}"
                                     ToolTip.Tip="New session">
-                                <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
+                                <!-- The Agent and Goal tiles' "start another" glyph and colour: one gesture,
+                                     one picture, whichever kind of tile it is pressed in. -->
+                                <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
                             </Button>
                             <Button x:Name="TileOverflow"
                                     Classes="tile-btn"
@@ -105,7 +112,7 @@
                                                 <mi:MaterialIcon Kind="Plus" Width="14" Height="14" />
                                             </MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="Restart shell"
+                                        <MenuItem Header="{Binding RestartAction.Label}"
                                                   InputGesture="Ctrl+Shift+R"
                                                   Command="{Binding RestartTerminalCommand}"
                                                   IsVisible="{Binding CanRestart}">
@@ -117,7 +124,7 @@
                                                   Command="{Binding ResetTileIdCommand}"
                                                   IsVisible="{Binding HasSession}">
                                             <MenuItem.Icon>
-                                                <mi:MaterialIcon Kind="PlaylistPlus" Width="14" Height="14" />
+                                                <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
                                             </MenuItem.Icon>
                                         </MenuItem>
                                         <!-- Same agent, another configured way of running it: same
@@ -144,6 +151,32 @@
                                                     <Setter Property="Command" Value="{Binding SwitchCommand}" />
                                                     <Setter Property="ToggleType" Value="CheckBox" />
                                                     <Setter Property="IsChecked" Value="{Binding IsCurrent}" />
+                                                </Style>
+                                            </MenuItem.Styles>
+                                        </MenuItem>
+                                        <!-- The content's own actions (ITileActions.Actions), under the
+                                             tile's: the one route to an action a kind keeps out of its
+                                             own view, such as deleting an Agent tile's conversation. A
+                                             destructive one asks in the content itself. -->
+                                        <MenuItem Header="Actions"
+                                                  ItemsSource="{Binding ContentActions}"
+                                                  IsVisible="{Binding HasContentActions}">
+                                            <MenuItem.Icon>
+                                                <mi:MaterialIcon Kind="LightningBoltOutline" Width="14" Height="14" />
+                                            </MenuItem.Icon>
+                                            <!-- A style rather than an ItemContainerTheme, for the
+                                                 reason "Run as" gives above. -->
+                                            <MenuItem.Styles>
+                                                <Style Selector="MenuItem > MenuItem"
+                                                       x:DataType="vm:TileActionChoice">
+                                                    <Setter Property="Header" Value="{Binding Label}" />
+                                                    <Setter Property="Command" Value="{Binding InvokeCommand}" />
+                                                    <Setter Property="Icon">
+                                                        <Template>
+                                                            <mi:MaterialIcon Width="14" Height="14"
+                                                                             Kind="{Binding IconId, Converter={x:Static views:TileIcons.Icon}}" />
+                                                        </Template>
+                                                    </Setter>
                                                 </Style>
                                             </MenuItem.Styles>
                                         </MenuItem>
@@ -243,6 +276,21 @@
                                          VerticalAlignment="Center"
                                          Margin="2,0,6,0" />
 
+                        <!-- While the tile is working, the arc takes that same slot: a drawn stroke
+                             rather than a filled glyph, because at 13px the icon's hairline is a mark
+                             you have to go looking for. Two controls in one place rather than one with
+                             its shape bound, since each is a different kind of thing to draw - and the
+                             slot is one width, so nothing beside it moves whichever is showing.
+                             The turning is a class the code-behind puts on and takes off, never a
+                             static one: an infinite animation matched here would tick on the hidden
+                             arc of every tile in every workspace for the whole session. -->
+                        <Arc x:Name="TileBusyArc"
+                             DockPanel.Dock="Left"
+                             Classes="busy-arc"
+                             Width="13" Height="13"
+                             IsVisible="False"
+                             Margin="2,0,6,0" />
+
                         <!-- One Panel as the DockPanel's last child, so this is what fills. The
                              editor used to hold that position while being invisible, which makes the
                              name a docked child sized to its own content: nothing ever constrains it,
@@ -310,6 +358,28 @@
                      code-behind (see ContentInset), not here: a terminal wants one and a tile whose
                      content is its own chrome does not. -->
                 <Panel>
+                    <!-- The filter and the chooser under it share a DockPanel, so the cards start
+                         wherever the filter ends at any font size rather than at a fixed offset the
+                         filter can outgrow. No background: while nothing in it is shown it is not a
+                         hit-testable sheet over the content. -->
+                    <DockPanel>
+                    <!-- The filter over whichever of the two choosers below is on screen. Focused as
+                         soon as a chooser is shown, so a new tile is picked by typing a few letters and
+                         Enter; the arrows move the highlighted card, Escape clears the filter and then
+                         leaves a setup step. Kept outside the scrollers so it never scrolls away. -->
+                    <TextBox x:Name="ChooserFilterBox"
+                             DockPanel.Dock="Top"
+                             IsVisible="False"
+                             HorizontalAlignment="Center"
+                             Width="240"
+                             Margin="0,12,0,8"
+                             Padding="9,6"
+                             PlaceholderText="Filter..."
+                             FontSize="{DynamicResource FontSm}"
+                             />
+
+                    <Panel>
+
                     <!-- One card per registered kind, built in the code-behind from the catalog.
                          They used to be six blocks of markup written out by hand, which meant a
                          seventh kind was a class, a line of registration and a page of XAML nobody
@@ -352,6 +422,8 @@
                             </Button>
                         </WrapPanel>
                     </ScrollViewer>
+                    </Panel>
+                    </DockPanel>
 
                     <Panel x:Name="ContentHost" />
                 </Panel>

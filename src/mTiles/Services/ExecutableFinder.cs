@@ -73,6 +73,19 @@ internal static class ExecutableFinder
             Path.Combine(home, $".{name}", "bin"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"),
             Path.Combine(home, ".cargo", "bin"),
+            // Windows' app-execution aliases. Not a developer tool directory like the five above, and
+            // it is here for the same reason they are: measured 2026-09-23 on a Windows 11 machine
+            // where winget is installed and this directory is in *no* process' PATH — not the GUI's,
+            // not PowerShell's, not Git Bash's — so `winget` answered "command not found" everywhere
+            // while the binary sat right there. The entries are reparse points to the real package
+            // under Program Files\WindowsApps, which File.Exists reports and a child process runs.
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Microsoft", "WindowsApps"),
+            // Where winget links a portable package's binary. It is added to the user's PATH by the
+            // first portable install, which a process already running never sees — so without it a
+            // tool winget has just installed would read as missing until the application restarts.
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Microsoft", "WinGet", "Links"),
         ];
 
         foreach (var directory in directories)

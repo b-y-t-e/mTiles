@@ -93,6 +93,39 @@ public partial class SettingsView : UserControl,
 
                 return file?.TryGetLocalPath();
             };
+            vm.BrowseSaveDbFile = async suggested =>
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return null;
+
+                var file = await topLevel.StorageProvider.SaveFilePickerAsync(
+                    new FilePickerSaveOptions
+                    {
+                        Title = "Export database connections",
+                        SuggestedFileName = suggested,
+                        DefaultExtension = "json",
+                        FileTypeChoices = [SettingsFileType],
+                    });
+
+                return file?.TryGetLocalPath();
+            };
+            vm.BrowseOpenDbFile = async () =>
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return null;
+
+                var files = await topLevel.StorageProvider.OpenFilePickerAsync(
+                    new FilePickerOpenOptions
+                    {
+                        Title = "Import database connections",
+                        AllowMultiple = false,
+                        FileTypeFilter = [SettingsFileType],
+                    });
+
+                return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+            };
+            vm.PromptPassphrase = (title, description) =>
+                InputDialog.ShowSecretAsync(this, title, description);
             vm.BrowseOpenFile = async () =>
             {
                 var topLevel = TopLevel.GetTopLevel(this);

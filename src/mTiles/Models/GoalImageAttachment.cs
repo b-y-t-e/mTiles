@@ -13,7 +13,7 @@ namespace mTiles.Models;
 /// <see cref="GoalTileState"/> follows: this one is spelled into a prompt block the tool is told to
 /// open, so a null out of the file would throw where nothing expects it.</para>
 /// </remarks>
-public sealed class GoalImageAttachment
+public sealed class GoalImageAttachment : INumberedImage
 {
     /// <summary>The number in this image's marker — <c>[Image #1]</c> and so on — counting from one in
     /// the order the images were pasted.</summary>

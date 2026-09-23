@@ -69,8 +69,8 @@ public sealed class AppSettings
     /// The shell profiles this application used to have.
     /// </summary>
     /// <remarks><b>Read, never written to and never seeded.</b> Profiles are gone — an AI CLI in a shell
-    /// is an agent tile now — but the list is still what says which of somebody's existing terminal
-    /// tiles were one, so <c>AgentTileMigration</c> reads it once per workspace and the key stays in the
+    /// is a terminal agent tile now — but the list is still what says which of somebody's existing terminal
+    /// tiles were one, so <c>TerminalAgentTileMigration</c> reads it once per workspace and the key stays in the
     /// file until that migration is deleted a release from now. Removing it sooner would turn every AI
     /// tile anybody has into a bare shell.</remarks>
     public List<UserShellProfile> ShellProfiles
@@ -161,16 +161,60 @@ public sealed class AppSettings
     public AiBehaviour GoalPermissionMode { get; set; } = AiBehaviour.Auto;
 
     /// <summary>
-    /// How hard the Goal tile's AI runs are asked to think — see <see cref="AiEffort"/>.
+    /// How hard the Goal tile's AI runs are asked to think — see <see cref="GoalEffortPreset"/>.
     /// </summary>
     /// <remarks>
-    /// Read tolerantly, as <see cref="GoalPermissionMode"/> is and for the same reason: a level written
-    /// by a newer build and read after a rollback would otherwise be a JsonException, and this file also
-    /// holds the profiles, the tool paths and the DPAPI-encrypted database passwords. One unknown word
-    /// must not quarantine all of it.
+    /// <para>One preset rather than one level, because the levels are per role now: a run plans,
+    /// works, reviews and commits, and those want different amounts of thinking. What the preset
+    /// stands for is <c>GoalRoles.EffortFor</c>.</para>
+    /// <para>Read tolerantly, as <see cref="GoalPermissionMode"/> is and for the same reason: a preset
+    /// written by a newer build and read after a rollback would otherwise be a JsonException, and this
+    /// file also holds the provider keys and the DPAPI-encrypted database passwords. One unknown word
+    /// must not quarantine all of it.</para>
     /// </remarks>
-    [JsonConverter(typeof(TolerantAiEffortConverter))]
-    public AiEffort GoalEffort { get; set; } = AiEffort.High;
+    /// <para>Written under a key of its own because the vocabulary moved under it:
+    /// <c>balanced</c> used to mean the levels <see cref="GoalEffortPreset.Careful"/> now carries, and
+    /// one key holding both spellings could not tell which build wrote the word. The old key is read
+    /// once by <see cref="LegacyGoalEffortPreset"/> and dropped.</para>
+    [JsonPropertyName("GoalEffortPresetV2")]
+    [JsonConverter(typeof(TolerantGoalEffortPresetConverter))]
+    public GoalEffortPreset GoalEffortPreset { get; set; } = GoalEffortPreset.Balanced;
+
+    /// <summary>
+    /// The preset as it was spelled before <c>balanced</c> named a shallower review.
+    /// </summary>
+    /// <remarks>
+    /// <para>Nullable and never written back, the rule <see cref="LegacyGoalEffort"/> already follows:
+    /// it exists to be read once out of a file an older build wrote.
+    /// <c>SettingsService.MigrateLegacySettings</c> turns a stored <c>Balanced</c> into
+    /// <see cref="GoalEffortPreset.Careful"/> — the same three levels under the name they moved to —
+    /// and passes every other word through unchanged.</para>
+    /// <para>Migrating rather than leaving the word where it was is the whole point: the value is
+    /// stored by name, so a file saying <c>balanced</c> would otherwise come back meaning a review at
+    /// <see cref="AiEffort.Medium"/> where the user had asked for <see cref="AiEffort.High"/>, with
+    /// nothing on screen saying that their reviews had got shallower.</para>
+    /// </remarks>
+    [JsonPropertyName("GoalEffortPreset")]
+    [JsonConverter(typeof(TolerantEnumConverter<GoalEffortPreset>))]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public GoalEffortPreset? LegacyGoalEffortPreset { get; set; }
+
+    /// <summary>
+    /// The single effort level the Goal tile had before the levels became per role.
+    /// </summary>
+    /// <remarks>
+    /// <para>Nullable so that "never said" and "said high" are different answers, and never written
+    /// back — the property exists to be read once, from a file written by an older version.
+    /// <c>SettingsService.MigrateLegacySettings</c> turns it into a preset through
+    /// <c>GoalRoles.FromLegacyEffort</c> and drops it, which is the rule
+    /// <see cref="LegacyGitHideMTerminalDir"/> already follows.</para>
+    /// <para>Read tolerantly for the reason the preset beside it is: this is <c>settings.json</c>, and
+    /// a level a newer build wrote must not cost the file.</para>
+    /// </remarks>
+    [JsonPropertyName("GoalEffort")]
+    [JsonConverter(typeof(TolerantEnumConverter<AiEffort>))]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AiEffort? LegacyGoalEffort { get; set; }
 
     public bool DiffTrimIndent { get; set; } = true;
     /// <summary>
@@ -230,6 +274,12 @@ public sealed class AppSettings
     public string GitPath { get; set; } = "";
 
     public string? LastWorkspaceId { get; set; }
+
+    /// <summary>The agent instance the last Agent tile was pointed at, and what a new one opens on.</summary>
+    /// <remarks>An Agent tile asks nothing before it opens — the agent is picked in the conversation itself —
+    /// so this is what "the one you were using" means for the next tile. An id that names nothing any more
+    /// falls through to the first available instance, which is also what a first run gets.</remarks>
+    public string? LastAgentInstanceId { get; set; }
     public double WorkspacesPanelWidth { get; set; } = 240;
 
     public double WindowX { get; set; } = double.NaN;

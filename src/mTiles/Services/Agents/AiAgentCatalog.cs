@@ -26,6 +26,7 @@ public static class AiAgentCatalog
         new CodexAgent(),
         new PiAgent(),
         new AntigravityAgent(),
+        new GrokAgent(),
     ];
 
     /// <summary>The agent a stored id refers to, or null — a tile naming an agent this build does not
@@ -89,6 +90,11 @@ public static class AiAgentCatalog
         _everyAgentIsInstalled = false;
         Located.Clear();
     }
+
+    /// <summary>Drops what <see cref="Locate"/> remembers, so the next question looks again.</summary>
+    /// <remarks>For an install that has just finished: held for <see cref="LocationValidFor"/>, the
+    /// old answer would keep the row saying NOT INSTALLED with its button still offered.</remarks>
+    public static void ForgetLocations() => Located.Clear();
 
     /// <summary>Where <see cref="PretendEveryAgentIsInstalled"/> claims binaries are.</summary>
     /// <remarks>Nothing executes it — the callers this serves ask only whether the answer is null —

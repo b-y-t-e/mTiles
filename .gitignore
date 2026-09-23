@@ -44,3 +44,4 @@ publish/
 Releases/
 TestResults/
 .mtiles/
+.claude/skills/mtiles-database/

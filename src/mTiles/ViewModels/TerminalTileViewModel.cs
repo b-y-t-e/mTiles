@@ -17,12 +17,32 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
 {
     /// <inheritdoc />
     /// <remarks>Virtual for the one kind that is this tile with a different source of scripts — see
-    /// <see cref="AgentTileViewModel"/>. Everything a shell tile does, an agent tile does identically;
+    /// <see cref="TerminalAgentTileViewModel"/>. Everything a shell tile does, a terminal agent tile does identically;
     /// what differs is where its commands come from and what it calls itself in the layout.</remarks>
     public virtual string KindId => TileKindIds.Terminal;
 
     public string WorkingDirectory { get; }
     public ShellInstallation Shell { get; }
+
+    /// <summary>Whether text typed into this tile is read by a shell, or by whatever the tile is running.</summary>
+    /// <remarks><para>A shell's prompt parses a command line, so a dropped path is quoted that shell's way;
+    /// an AI CLI's own prompt does not, and there those quotes are literal characters that stop the path
+    /// being one.</para>
+    /// <para><b>What decides is the process running now, never the kind of tile.</b> Every launch chain
+    /// ends at a plain interactive shell and goes there whenever the CLI exits, so an agent tile is a bash
+    /// or PowerShell prompt for much of its life — and a file called <c>a;calc.png</c> typed into it
+    /// unquoted is a second command the moment the user presses Enter.</para></remarks>
+    public bool TypedTextReachesAShell { get; private set; } = true;
+
+    /// <summary>Whether the commands this tile is configured to run read their own prompt rather than
+    /// handing it to a shell.</summary>
+    /// <remarks>A fact about the tile's kind, and the only half of the question a kind can answer — the
+    /// other half is which of those commands is running, which only the chain knows.</remarks>
+    protected virtual bool OwnCommandsReadTheirOwnPrompt => false;
+
+    /// <summary>Whether the terminal draws its vertical scrollbar. A plain shell always does; an agent
+    /// tile whose program keeps its own history on the alternate screen does not.</summary>
+    public virtual bool ShowsScrollbar => true;
 
     /// <summary>Where the tile's identity is read from — see <see cref="TileId"/>.</summary>
     private readonly Func<string>? _tileId;
@@ -47,7 +67,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
 
     /// <summary>What this tile was created to run.</summary>
     /// <remarks>Nothing but a bare interactive shell for a shell tile — the scripts that used to come
-    /// from a profile are an agent's own commands now, and an agent tile answers with them by overriding
+    /// from a profile are an agent's own commands now, and a terminal agent tile answers with them by overriding
     /// <see cref="ResolveCurrentScripts"/>. Kept as a constructor argument because a test drives the
     /// launch chain through it.</remarks>
     private readonly LaunchScripts _ownScripts;
@@ -95,7 +115,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// <remarks><b>Not a <see cref="LaunchProblem"/>: this one launches.</b> The difference is whether
     /// there is a way to carry on that is faithful to what the user asked for — a model that cannot be
     /// resolved has none, while an agent instance that has been deleted leaves a tile that can still run
-    /// its agent. Set once, when the tile is built (<c>AgentTileKind</c>), rather than at every launch:
+    /// its agent. Set once, when the tile is built (<c>TerminalAgentTileKind</c>), rather than at every launch:
     /// it is an answer about the layout, not about the session, and a line that came back on every
     /// restart would be a warning nobody could put down. Dismissible for the same reason — the tile
     /// underneath is running.</remarks>
@@ -119,7 +139,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// <summary>Whether the sources have been added yet. Done once, at the first
     /// <see cref="AttachControl"/> rather than in the constructor: <see cref="ConfigureActivity"/> is
     /// virtual, and a virtual call from a base constructor reaches an override whose own fields have
-    /// not been assigned — an agent tile would hand the title source a null agent.</summary>
+    /// not been assigned — a terminal agent tile would hand the title source a null agent.</summary>
     private bool _activityConfigured;
 
     /// <summary>What this tile is doing — what the workspace list draws its row from.</summary>
@@ -133,9 +153,9 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// </summary>
     /// <remarks>
     /// <para>The two that need to know nothing about what is running, which is exactly the case a shell
-    /// tile is: raw output, and the progress a child reports of its own accord. An agent tile adds the
-    /// ones that can read its CLI — see <c>AgentTileViewModel.ConfigureActivity</c>.</para>
-    /// <para><b>The progress source is here rather than on the agent tile</b>, and that is the point of
+    /// tile is: raw output, and the progress a child reports of its own accord. A terminal agent tile adds the
+    /// ones that can read its CLI — see <c>TerminalAgentTileViewModel.ConfigureActivity</c>.</para>
+    /// <para><b>The progress source is here rather than on the terminal agent tile</b>, and that is the point of
     /// it: <c>npm</c>, <c>cargo</c> and <c>winget</c> all report progress, so a plain shell tile gets a
     /// real answer about the build running in it — one that no amount of reading somebody's status bar
     /// could have given it.</para>
@@ -206,9 +226,54 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
 
     private volatile bool _disposed;
 
+    /// <summary>Whether this tile has been closed.</summary>
+    /// <remarks>Readable by a subclass because the answers a tile waits on outlive it: a session read, a
+    /// capture, a model resolution all come back on some other thread and must not write to a tile that
+    /// has gone. The field stays private — what a subclass may do is ask, not set.</remarks>
+    protected bool IsDisposed => _disposed;
+
     /// <summary>Claims this tile for a launch that is starting now, and gives it the token it is known
     /// by. Every earlier launch stops being the current one at this call.</summary>
     internal int BeginLaunch() => Interlocked.Increment(ref _launchGeneration);
+
+    /// <summary>
+    /// Tells the tile a process is about to be started in it — the launch's own first command, the next
+    /// link of its chain, or the same one again after the tool exited.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Not a launch, and deliberately not one.</b> It claims nothing and takes no generation:
+    /// the chain already owns this tile, and bumping the counter would tell a launch waiting on its
+    /// preparation that it had been superseded by the very chain it started. What it is for is the half
+    /// of a launch that is about the process rather than about the claim — a notice asking for a restart
+    /// that has now happened.</para>
+    /// <para><b>Said where the process starts, never where the launch is claimed.</b> A claim is made
+    /// before the launcher has looked at <see cref="LaunchProblem"/> and before a launch that waited
+    /// finds out whether it is still this tile's — so a launch refused for an instance whose provider
+    /// has gone starts nothing at all, while the old CLI runs on with the old skills. Answered at the
+    /// claim, the one line asking the user to restart came down for a restart that never happened. This
+    /// is the same placement <c>AgentConversationTileViewModel</c> makes for the same reason: after the
+    /// refusals, in front of the process.</para>
+    /// </remarks>
+    /// <param name="isOneOfTheTilesOwnCommands">False for the plain interactive shell a chain falls back
+    /// to, which reads its own input however the tile was configured — see
+    /// <see cref="TypedTextReachesAShell"/>.</param>
+    internal void NoteProcessStarting(bool isOneOfTheTilesOwnCommands)
+    {
+        if (_disposed) return;
+
+        TypedTextReachesAShell = !(isOneOfTheTilesOwnCommands && OwnCommandsReadTheirOwnPrompt);
+        OnLaunchBeginning();
+    }
+
+    /// <summary>What stops being true because a process is starting in this tile.</summary>
+    /// <remarks>Empty here: a plain shell has nothing on its bar that a relaunch answers. It is the one
+    /// moment a notice asking for a restart can be taken down by whoever put it up — see
+    /// <c>TerminalAgentTileViewModel</c> — and the tile that put it up is the only thing that knows which
+    /// line is its own. Reached only through <see cref="NoteProcessStarting"/>, so what answers a notice
+    /// is a process starting and never a launch that may yet be refused.</remarks>
+    protected virtual void OnLaunchBeginning()
+    {
+    }
 
     /// <summary>
     /// Whether the launch that took <paramref name="generation"/> may still start a session in this
@@ -314,8 +379,22 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     [
         new(TileActionIds.Restart, "Restart shell", "restart",
             IsEnabled: CachedControl is Terminal.Avalonia.TerminalControl,
-            IsDestructive: true),
+            IsDestructive: true,
+            Urgency: RestartUrgency),
     ];
+
+    /// <summary>Why this tile's restart wants doing now, or null when nothing is waiting on it.</summary>
+    /// <remarks>Null here and overridden where there is something to say: a plain shell is never waiting
+    /// to be restarted for a reason this application knows about. Virtual rather than a flag the base
+    /// class sets, for the reason <c>Configure</c> is virtual on <c>AiAgent</c> — the subclass owns the
+    /// question and the base owns the rule that the answer reaches the header.</remarks>
+    protected virtual string? RestartUrgency => null;
+
+    /// <summary>How full the model's context is, or null for a tile that is not running a model.</summary>
+    /// <remarks>Null on a plain shell, and that is an answer rather than an omission: a shell has no
+    /// context to be full. Asked of the content the way the header asks it for its actions, so the view
+    /// draws a bar for any tile that grows one without learning which kinds those are.</remarks>
+    public virtual ContextGaugeViewModel? ContextGauge => null;
 
     /// <inheritdoc />
     public Task<TileActionResult> InvokeAsync(string id)
@@ -348,7 +427,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// from resolving the destination precisely so it can be tested without a shell. A second copy of it
     /// living on this class would be the copy nothing covers.</para>
     /// </remarks>
-    public bool TrySendText(string text, bool submit) =>
+    public virtual bool TrySendText(string text, bool submit) =>
         LiveTerminal is { } terminal && DictationTextSink.Type(terminal.SendText, text, submit);
 
     /// <summary>
@@ -374,6 +453,10 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     private Terminal.Avalonia.TerminalControl? LiveTerminal =>
         CachedControl is Terminal.Avalonia.TerminalControl { IsRunning: true } control ? control : null;
 
+    /// <summary>Whether this tile has a session running now — neither refused, nor still being prepared,
+    /// nor ended.</summary>
+    protected bool HasRunningSession => !HasLaunchProblem && LiveTerminal is not null;
+
     /// <summary>What this tile launches, asked at every launch rather than captured once.</summary>
     /// <remarks>A shell tile runs a shell; the question only has an interesting answer for an agent
     /// tile, which overrides this so that an instance edited in Settings takes effect on the next
@@ -389,7 +472,7 @@ public partial class TerminalTileViewModel : ObservableObject, IBusyTile, ICusto
     /// The variables this tile's commands run with, where a <c>null</c> value <b>unsets</b> one.
     /// </summary>
     /// <remarks>Nothing for a shell — a tile the user opened runs in the environment they have — and
-    /// what an agent tile puts here is a provider's address and key. That route rather than the startup
+    /// what a terminal agent tile puts here is a provider's address and key. That route rather than the startup
     /// script, because a script is typed into a live prompt and lands in the scrollback and in the
     /// shell's history file.</remarks>
     public virtual IReadOnlyDictionary<string, string?>? LaunchEnvironment => null;

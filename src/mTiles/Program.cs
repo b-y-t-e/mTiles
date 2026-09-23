@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using mTiles.Services.Agents;
+using System.Diagnostics;
 using Avalonia;
 using mTiles.Services;
 using Velopack;
@@ -22,13 +23,15 @@ public static class Program
         if (AppPaths.MigrationNote is { } moved)
             Trace.TraceInformation(moved);
 
-        // Claude Code ≥2.1.89 defaults to "fullscreen rendering": it draws on the
-        // alternate screen buffer and captures the mouse, which kills the terminal's
-        // native scrollback, drag-selection and select-while-scrolling in tiles.
-        // Opt back into the classic renderer for all PTYs spawned by mTiles.
-        // A user-defined value (set before launching mTiles) always wins.
-        SetDefaultEnv("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1");
-        SetDefaultEnv("CLAUDE_CODE_DISABLE_MOUSE", "1");
+        // The same sweep the logs get, and for the same reason: a picture dropped without a file behind
+        // it is kept only so an agent can be handed a path, and nothing else ever comes back to delete it.
+        DroppedImageStore.PruneAll(DateTime.Now);
+
+        // Claude Code runs on its fullscreen renderer in every tile, forced rather than left to its
+        // default, which it switches off by itself after a crashed start. The classic renderer breaks the
+        // scrollback whenever a tile is narrowed. See docs/adr/0001-claude-code-fullscreen-renderer.md.
+        // A value set before launching mTiles always wins.
+        SetDefaultEnv(ClaudeAgent.FullscreenRendererVariable, "1");
 
         try
         {

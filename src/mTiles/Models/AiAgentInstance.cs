@@ -12,7 +12,7 @@ namespace mTiles.Models;
 /// one instance, seeded on first run; further instances are how "Claude Code on GLM 5.3 via OpenRouter"
 /// exists at all, and the reason the two could never be one type.</para>
 /// <para><see cref="DefaultEffort"/> and <see cref="DefaultBehaviour"/> apply <b>wherever the instance
-/// is used</b> — the agent tile included, not only the Goal tile. Which is why the two "defaults" have
+/// is used</b> — the agent tiles included, not only the Goal tile. Which is why the two "defaults" have
 /// to be named apart on screen or they become a trap: a Goal tile's combo offers <em>from the
 /// agent</em>, meaning take the instance's setting, while the instance editor offers <em>tool
 /// default</em>, meaning pass no flag at all.</para>
@@ -153,6 +153,25 @@ public sealed class AiAgentInstance
         set => field = value ?? [];
     } = [];
 
+    /// <summary>Whether this instance's sessions run their shell commands through the output proxy
+    /// (<c>rtk</c>), where the agent has a route for one.</summary>
+    /// <remarks>
+    /// <para><b>Per instance rather than per machine, and that is the whole shape of the feature.</b>
+    /// What the proxy does is rewrite the shell commands the agent runs, so its output arrives
+    /// filtered: an agent that asked for <c>git log --format=%H</c> is handed the answer to a
+    /// different question. That is worth it for the tokens and it is not something to turn on behind
+    /// somebody's back, so it is a tick beside the instance whose commands it rewrites — next to
+    /// <see cref="ExtraArgs"/>, which is the other field on this object that changes what the CLI is
+    /// actually told.</para>
+    /// <para><b>Off by default</b>, for the reason <see cref="DefaultBehaviour"/> is seeded at
+    /// <see cref="AiBehaviour.ToolDefault"/>: a row nobody has been asked about must not quietly do
+    /// something to the agent's commands.</para>
+    /// <para>An ordinary <c>bool</c> and no tolerant converter: <c>false</c> is both the default and
+    /// the safe answer, so a file this build cannot read costs the user a tick rather than a
+    /// permission.</para>
+    /// </remarks>
+    public bool UseOutputProxy { get; set; }
+
     /// <summary>Arguments appended to whatever the agent builds, for the flag this application has not
     /// heard of yet.</summary>
     public List<string> ExtraArgs
@@ -160,4 +179,15 @@ public sealed class AiAgentInstance
         get;
         set => field = value ?? [];
     } = [];
+
+    /// <summary>A copy that shares nothing mutable with this one, the same id included.</summary>
+    /// <remarks>Member-wise, so a property added later is copied without anybody remembering to; only the
+    /// collections are copied by hand, because a shallow copy would share them.</remarks>
+    public AiAgentInstance Clone()
+    {
+        var copy = (AiAgentInstance)MemberwiseClone();
+        copy.ExtraEnv = new Dictionary<string, string?>(ExtraEnv);
+        copy.ExtraArgs = [.. ExtraArgs];
+        return copy;
+    }
 }

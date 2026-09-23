@@ -1,4 +1,4 @@
-using mTiles.Models;
+﻿using mTiles.Models;
 
 namespace mTiles.Services;
 
@@ -32,7 +32,33 @@ public static class AiEfforts
     };
 
     /// <summary>How it reads in the status strip — lower case, like everything else there.</summary>
-    public static string Label(AiEffort effort) => Name(effort) ?? "tool default";
+    public static string Label(AiEffort effort) => Name(effort) ?? "default";
+
+    /// <summary>What picking this level costs and buys, in one sentence.</summary>
+    /// <remarks>
+    /// <para>About the <i>scale</i>, never about a model: t3code's manifest can say that <c>high</c> is
+    /// Opus 5's own default because it carries a table per model, and this asks the agent instead, which
+    /// answers with a list and no opinion about it. So these say what a rung means here — five words that
+    /// otherwise stand alone and read as five synonyms for "more".</para>
+    /// <para>The asymmetry in the rounding is worth knowing while choosing, which is why the sentences
+    /// talk about time and money: an agent whose scale is shorter rounds <b>to nearest, ties upward</b>,
+    /// because a shallow attempt spends as much of the budget as a careful one.</para>
+    /// </remarks>
+    public static string? Description(AiEffort effort) => effort switch
+    {
+        AiEffort.Low => "Answers quickly and cheaply. For small, well-defined work.",
+        AiEffort.Medium => "A middle setting: some thinking, without the wait.",
+        AiEffort.High => "Thinks it through. Slower and dearer, usually worth it.",
+        AiEffort.XHigh => "Thinks harder again, for work that has already been got wrong once.",
+        AiEffort.Max => "As much thinking as the tool offers. Slowest, and the most expensive.",
+        _ => "Passes nothing, so the tool's own settings decide.",
+    };
+
+    /// <summary>The same sentence, for a level named the way a session reports it.</summary>
+    /// <remarks>Separate from <see cref="AiBehaviours.DescriptionOf"/> for the reason stated there: both
+    /// enums have a <c>ToolDefault</c>, so an id alone does not say which scale it belongs to.</remarks>
+    public static string? DescriptionOf(string? id) =>
+        Enum.TryParse<AiEffort>(id, ignoreCase: false, out var effort) ? Description(effort) : null;
 
     /// <summary>
     /// Where this level sits on the scale, as a number that can be compared.
@@ -135,6 +161,6 @@ public static class AiEfforts
     /// </summary>
     public const string RejectedEffortAdvice =
         "This looks like the AI tool refusing the effort flag this tile asked for, which a version of " +
-        "it older than that flag will do. Pick \"tool default\" in the strip above to pass no flag at " +
+        "it older than that flag will do. Pick \"default\" in the strip above to pass no flag at " +
         "all, or update the tool.";
 }

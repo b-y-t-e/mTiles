@@ -23,12 +23,12 @@ public abstract class ShellTerminal : IShellTerminal
     public abstract string Quote(string value);
 
     /// <inheritdoc />
-    /// <remarks>A command word followed by its quoted arguments, which is every shell here but one.
-    /// The executable is quoted too — a path with a space in it is the ordinary case for a program
-    /// that is not on <c>PATH</c> — and POSIX shells read a quoted first word as a command name.
-    /// </remarks>
-    public virtual string Invoke(string executable, IReadOnlyList<string> arguments) =>
-        string.Join(' ', new[] { executable }.Concat(arguments).Select(Quote));
+    /// <remarks>The name itself, and the path is ignored: every shell here but PowerShell looks a name
+    /// up in <c>PATH</c> and cannot come back with a file the platform then refuses to run. Leaving the
+    /// lookup to the shell is also what keeps a per-directory shim working — mise, asdf, volta and
+    /// nvm all answer <c>claude</c> with a different binary depending on where the tile sits, and a
+    /// path resolved once by this application would pin one of them.</remarks>
+    public virtual string Program(string name, string? path, IReadOnlyList<string> arguments) => name;
 
     public string SetEnv(string name, string value) => Assign(Named(name), value);
 

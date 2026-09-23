@@ -37,8 +37,14 @@ namespace mTiles.Services.Agents;
 /// an older agy could refuse, which fails <em>every</em> run rather than the long ones — so this is
 /// written down rather than worked around.</para>
 /// </remarks>
-public sealed class AntigravityAgent : AiAgent
+public sealed class AntigravityAgent : AiAgent, Sessions.IConversationalAgent
 {
+    /// <summary>A conversation through agy's kept-open stream-json print mode — see
+    /// <see cref="Sessions.Antigravity.AntigravityStreamSession"/>.</summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.Antigravity.AntigravityStreamSession(launch, this, sink);
+
     /// <summary>The flag whose value is the prompt, named once because two places depend on the pair
     /// staying together.</summary>
     private const string PrintFlag = "--print";
@@ -65,6 +71,26 @@ public sealed class AntigravityAgent : AiAgent
     /// decide the same thing, and only one of them would be listened to.</para></remarks>
     public override bool SupportsSignIns => false;
     public override string? InstallUrl => "https://antigravity.google/product/antigravity-cli";
+    /// <summary>
+    /// <b>agy is the one agent here with no readable session store, and that is measured rather than
+    /// unfinished.</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured 2026-09-18 against 1.1.22. Its conversations are
+    /// <c>~/.gemini/antigravity-cli/conversations/&lt;id&gt;.db</c> — one SQLite file each, whose every
+    /// interesting column is a protobuf blob. Two consequences: the <b>working directory</b> appears only
+    /// as a <c>file:///</c> URI inside <c>trajectory_metadata_blob</c>, so telling this workspace's
+    /// conversations from another's would mean scanning blobs for a substring, and there are <b>no token
+    /// counts anywhere in the file</b> — agy reports what it has spent per account, through the quota
+    /// endpoint <c>AntigravityUsageReader</c> asks, and never per conversation.</para>
+    /// <para>So there is no gauge to draw and no id to pick up after a <c>/new</c> inside the TUI. What
+    /// this tile keeps instead is what it has always had: the conversation created for it before launch
+    /// (<see cref="SessionStrategy.CapturedAfterStart"/>). Answering with a reader built on a substring
+    /// search of somebody else's protobuf would be a tile confidently resuming the wrong conversation,
+    /// which is worse than a tile that says nothing.</para>
+    /// </remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog => null;
+
     public override SessionStrategy SessionStrategy => SessionStrategy.CapturedAfterStart;
 
     /// <summary>Nothing to offer. Antigravity is installed by Google's own installer rather than from a
@@ -135,9 +161,9 @@ public sealed class AntigravityAgent : AiAgent
     /// <remarks>The empty case is what keeps the pre-create honest: handing <c>--conversation</c> an id
     /// we invented would not fail, it would silently open a different conversation and report success.
     /// </remarks>
-    protected override LaunchScripts Resume(string sessionId) =>
+    protected override LaunchScripts Resume(string program, string sessionId) =>
         LaunchScripts.FromProfile(
-            sessionId is { Length: > 0 } ? $"agy --conversation {sessionId}" : "agy", "agy");
+            sessionId is { Length: > 0 } ? $"{program} --conversation {sessionId}" : program, program);
 
     /// <summary>
     /// Opens a conversation by asking agy something trivial, and keeps the id it answers with.

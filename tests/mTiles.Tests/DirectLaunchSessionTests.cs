@@ -321,6 +321,78 @@ public class DirectLaunchSessionTests
             Assert.Equal("fake-shell -c claude", CommandOf(spawned[1]));
         });
 
+    /// <summary>A tile whose own commands read their own prompt, the way an agent tile's do — the one
+    /// kind for which a dropped path is typed unquoted, and so the one where getting "what is running
+    /// now" wrong is a second command in a shell.</summary>
+    private sealed class PromptReadingTile(SettingsService settings, LaunchScripts scripts)
+        : TerminalTileViewModel("", DirectLaunchSessionTests.Shell, settings, scripts, tileId: () => "tile-1")
+    {
+        protected override bool OwnCommandsReadTheirOwnPrompt => true;
+    }
+
+    /// <summary>
+    /// The chain says, at every start, whether what it starts is one of the tile's commands or the plain
+    /// shell it ends at — and the shell is what a dropped path has to be quoted for. Driven through the
+    /// real chain rather than by calling the tile by hand, because dropping or inverting the one call in
+    /// front of the fallback shell hands bash a file called <c>a;calc.png</c> unquoted.
+    /// </summary>
+    [Fact]
+    public void A_chain_that_falls_back_to_its_shell_has_dropped_paths_quoted_for_that_shell()
+        => OnUiThread(async () =>
+        {
+            using var settings = new TempSettings();
+            var (control, spawned) = NewTerminal();
+            var tile = new PromptReadingTile(settings.Service, LaunchScripts.FromProfile("startup", "fallback"));
+
+            try
+            {
+                TileLauncher.Launch(control, tile);
+
+                await WaitUntil(() => spawned.Count == 1, "the startup command is spawned");
+                Assert.False(tile.TypedTextReachesAShell);
+                spawned[0].EndProcess(1);
+
+                await WaitUntil(() => spawned.Count == 2, "the fallback is spawned");
+                Assert.False(tile.TypedTextReachesAShell);
+                spawned[1].EndProcess(1);
+
+                await WaitUntil(() => spawned.Count == 3, "the interactive shell is started");
+                Assert.Equal("fake-shell -l", CommandOf(spawned[2]));
+                Assert.True(tile.TypedTextReachesAShell);
+            }
+            finally
+            {
+                tile.Dispose();
+            }
+        });
+
+    /// <summary>With no fallback the tile is an interactive shell with the script typed into it, and
+    /// nothing watches for the CLI inside it exiting — so it is quoted for that shell from the start.</summary>
+    [Fact]
+    public void A_tile_without_a_chain_has_dropped_paths_quoted_for_its_shell()
+        => OnUiThread(async () =>
+        {
+            using var settings = new TempSettings();
+            var (control, spawned) = NewTerminal();
+            var tile = new PromptReadingTile(settings.Service, LaunchScripts.FromProfile("claude", null));
+
+            try
+            {
+                // As a restart finds it: the previous launch had the CLI's own prompt in front.
+                tile.NoteProcessStarting(isOneOfTheTilesOwnCommands: true);
+                Assert.False(tile.TypedTextReachesAShell);
+
+                TileLauncher.Launch(control, tile);
+
+                await WaitUntil(() => spawned.Count == 1, "the shell starts");
+                Assert.True(tile.TypedTextReachesAShell);
+            }
+            finally
+            {
+                tile.Dispose();
+            }
+        });
+
     [Fact]
     public void A_chain_where_nothing_survives_ends_at_a_plain_interactive_shell()
         => OnUiThread(async () =>

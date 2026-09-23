@@ -24,8 +24,34 @@ namespace mTiles.Services;
 public static class InstallCommand
 {
     /// <summary>The line to type into a tile running <paramref name="shell"/>.</summary>
+    /// <remarks><b>The installer is resolved to a file before the shell is asked to run it</b>, for the
+    /// reason <c>IShellTerminal.Program</c> gives: every plan here runs <c>npm</c>, npm on Windows is
+    /// <c>npm.ps1</c> as far as PowerShell's own lookup is concerned, and a default Windows refuses to
+    /// load a script — so the Install… button failed with an execution-policy error on exactly the
+    /// machines that have nothing installed yet. The shell decides whether that file is used at all
+    /// (<c>IShellTerminal.Program</c>: only PowerShell takes the path, the rest keep the name).
+    /// <c>ExecutableFinder.Anywhere</c> answers with the <c>.exe</c> or the
+    /// <c>.cmd</c> and never with a <c>.ps1</c>, and a name it cannot find is passed through as the
+    /// name, which is what this always did.</remarks>
     public static string For(InstallPlan plan, IShellTerminal shell) =>
+        For(plan, shell, ExecutableFinder.Anywhere);
+
+    /// <summary>As <see cref="For(InstallPlan, IShellTerminal)"/>, with where a binary is found
+    /// supplied by the caller — so a test states the machine instead of depending on it.</summary>
+    internal static string For(InstallPlan plan, IShellTerminal shell, Func<string, string?> locate) =>
         plan.Arguments.Count == 0
             ? plan.Executable
-            : shell.Invoke(plan.Executable, plan.Arguments);
+            : Line(plan.Executable, plan.Arguments, shell, locate);
+
+    /// <summary>The line that runs the program called <paramref name="name"/> with
+    /// <paramref name="arguments"/> in <paramref name="shell"/>, the binary resolved to a file by the
+    /// same rule an install uses — for a command composed here rather than carried by a plan (the CCS
+    /// proxy's login).</summary>
+    public static string Line(string name, IReadOnlyList<string> arguments, IShellTerminal shell) =>
+        Line(name, arguments, shell, ExecutableFinder.Anywhere);
+
+    private static string Line(string name, IReadOnlyList<string> arguments, IShellTerminal shell,
+        Func<string, string?> locate) =>
+        string.Join(' ',
+            new[] { shell.Program(name, locate(name), arguments) }.Concat(arguments.Select(shell.Quote)));
 }

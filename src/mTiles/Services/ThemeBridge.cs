@@ -63,6 +63,14 @@ public static class ThemeBridge
         var textFaint = borderStrong;
         var textHover = Lerp(fg, Colors.White, 0.25);
 
+        // Prose in a conversation, and the words in it somebody set in bold. A transcript is a page of
+        // monospace in the theme's full foreground, which on a dark ground reads as bold from end to
+        // end - and then the words that really are bold have nowhere left to go. So the body is taken
+        // one small step toward the ground and the bold one step past the foreground, away from it:
+        // the weight is then carried by contrast as well as by stroke.
+        var textBody = Lerp(fg, bg, 0.14);
+        var textStrong = Lerp(fg, theme.IsDark ? Colors.White : Colors.Black, 0.35);
+
         var green = Color.Parse(theme.Green);
         var dangerSubtle = WithAlpha(red, 0.12, bg);
         var dangerText = brightRed;
@@ -77,6 +85,8 @@ public static class ThemeBridge
 
         Set(app, "TextPrimary", fg);
         Set(app, "TextSecondary", textSecondary);
+        Set(app, "TextBody", textBody);
+        Set(app, "TextStrong", textStrong);
         Set(app, "TextMuted", textMuted);
         Set(app, "TextFaint", textFaint);
         Set(app, "TextHover", textHover);
@@ -116,6 +126,15 @@ public static class ThemeBridge
         Set(app, "DangerSubtle", dangerSubtle);
         Set(app, "DangerText", dangerText);
         Set(app, "TagColor", green);
+
+        // A diff's two grounds. Blended against the surface a diff is actually drawn on rather than
+        // against the terminal's background, or the tint is a shade off wherever the block sits in a
+        // card. Kept faint: the band runs the whole width of the row, which is the longest line colour
+        // is asked to carry anywhere in the application, and at the strength the +/- text uses it
+        // stops being a ground and becomes a highlight the eye cannot read code through.
+        Set(app, "DiffAddedBg", WithAlpha(green, 0.16, bgSurface));
+        Set(app, "DiffRemovedBg", WithAlpha(red, 0.16, bgSurface));
+        Set(app, "DiffGutter", Lerp(textFaint, bgSurface, 0.25));
 
         // A warning is a caution, not an error: ANSI yellow with the same light-theme treatment as the
         // phase markers above, so it stays readable on a pale ground.

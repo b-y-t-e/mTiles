@@ -92,6 +92,20 @@ public static class ClaudeCredentialStore
     private static readonly Dictionary<string, SemaphoreSlim> Gates = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The access token this file holds while it is still good, or null — never renewing it.
+    /// </summary>
+    /// <remarks>For a caller asking on behalf of a CLI that is running on this login right now, such as
+    /// a tile's context gauge: the CLI renews its own token when it starts and as it runs, and a rotating
+    /// refresh token spent here at that same moment leaves one of the two exchanges refused — the CLI's,
+    /// possibly, which lands the tile on a login prompt for the sake of a bar. The per-file gate only
+    /// orders this application's own refreshes, never the CLI's. An expired token is simply no answer,
+    /// and the CLI's next renewal is what makes the question answerable again.</remarks>
+    public static string? LiveAccessToken(string credentialsFile) =>
+        Read(credentialsFile) is { } credentials && !credentials.NeedsRefresh(DateTimeOffset.Now)
+            ? credentials.AccessToken
+            : null;
+
+    /// <summary>
     /// A usable access token for this credentials file, or null when nobody is signed in there.
     /// </summary>
     /// <remarks>Null means <em>there is no login here</em> and nothing else — the distinction

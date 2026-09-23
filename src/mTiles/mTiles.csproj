@@ -23,12 +23,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Controls with no idea this application exists — the same one-way rule mTiles.AgentSessions keeps. -->
+    <ProjectReference Include="..\mTiles.Controls\mTiles.Controls.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Ships with the application, not only with the repository. Handy and transcribe-rs are MIT and
          parts of the dictation feature are ports of their code; the Parakeet model is CC-BY-4.0. Both
          licences require the notice to reach whoever receives the software, which a file sitting in a
          git repository does not do. Settings → General opens it. -->
-    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets\mtiles-icon.png" />
     <!-- The typeface the interface and the terminal default to, compiled into the executable rather
          than installed on the user's machine - see Services/AppFonts.cs. Only the faces: the collection
@@ -53,17 +57,16 @@
          Program.BuildAvaloniaApp. Exists only from Avalonia 12.1, which is what that bump bought. -->
     <PackageReference Include="Avalonia.Wayland" Version="12.1.*" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="Terminal.Avalonia" Version="0.3.4" />
+    <PackageReference Include="Terminal.Avalonia" Version="0.4.0" />
     <PackageReference Include="TodoList.Avalonia" Version="0.2.10" />
-    <PackageReference Include="Notepad.Avalonia" Version="0.3.1" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.*" />
     <PackageReference Include="AvaloniaEdit.TextMate" Version="12.0.*" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />
     <PackageReference Include="Material.Icons.Avalonia" Version="3.0.2" />
-    <PackageReference Include="Velopack" Version="0.0.*" />
+    <PackageReference Include="Velopack" Version="1.2.*" />
     <!-- Dictation. PortAudioSharp2 is the wrapper that ships prebuilt portaudio for win-x64 and
          linux-x64, so recording works on both RIDs without this repository carrying binaries.
          Whisper.net is whisper.cpp, the engine Handy transcribes with, and takes the same ggml models. -->
@@ -71,7 +74,7 @@
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
     <!-- Parakeet, the model Handy recommends, is three ONNX graphs and a greedy loop over them. -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
     <!-- Dictation from a phone. QRCoder is pure managed and carries no native binaries, so it does not
          reach verify-natives.ps1; PngByteQRCode is used rather than the System.Drawing renderer. -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
@@ -89,6 +92,10 @@
          Runtime; on a *self-contained* one it is weight in the publish and nothing else. This ships
          self-contained through Velopack, so the price paid is megabytes rather than a prerequisite. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\mTiles.AgentSessions\mTiles.AgentSessions.csproj" />
   </ItemGroup>
 
 </Project>

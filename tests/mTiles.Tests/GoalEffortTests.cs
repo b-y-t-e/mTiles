@@ -12,27 +12,31 @@ namespace mTiles.Tests;
 public class GoalEffortTests
 {
     /// <summary>
-    /// The spellings are what `claude --effort` accepts, and the default is the tile's own opinion
-    /// rather than the tool's.
+    /// The spellings are what `claude --effort` accepts, and the scale is this application's own.
     /// </summary>
     /// <remarks>
-    /// High rather than whatever the tool would choose, because a goal run is left alone for an hour
-    /// and the budget is in attempts: an attempt spent on a shallow answer costs exactly as much of it
-    /// as a careful one. The tool's own default is tuned for interactive use, where a person is
-    /// watching and can redirect.
+    /// The Goal tile's own default is no longer a level at all — it is a preset over the roles, and
+    /// <see cref="GoalRolesTests"/> is what argues it. What is left here is the scale itself, which
+    /// every agent and both tiles speak.
     /// </remarks>
     [Fact]
-    public void The_levels_are_the_ones_the_tool_accepts_and_the_default_is_high()
+    public void The_levels_are_the_ones_the_tool_accepts()
     {
-        Assert.Equal(AiEffort.High, new AppSettings().GoalEffort);
-
         // Measured against `claude --effort`: low, medium, high, xhigh, max.
         Assert.Equal(["low", "medium", "high", "xhigh", "max"],
             AiEfforts.All.Select(AiEfforts.Name).Where(f => f != null));
 
         // One level passes no flag at all, which is the way out on a Claude Code older than the option.
+        // It reads as "default" and not "tool default": on a list that now carries a sentence per level,
+        // the sentence is where "the tool's own settings decide" belongs, and the label's job is to be the
+        // shortest true word for it.
         Assert.Null(AiEfforts.Name(AiEffort.ToolDefault));
-        Assert.Equal("tool default", AiEfforts.Label(AiEffort.ToolDefault));
+        Assert.Equal("default", AiEfforts.Label(AiEffort.ToolDefault));
+
+        // Every level says what it costs. The one that passes no flag says so rather than claiming a speed.
+        Assert.All(AiEfforts.All, effort => Assert.False(string.IsNullOrWhiteSpace(AiEfforts.Description(effort))));
+        Assert.Equal(AiEfforts.Description(AiEffort.Max), AiEfforts.DescriptionOf("Max"));
+        Assert.Null(AiEfforts.DescriptionOf("not-a-level"));
 
         // A label round-trips, and an unrecognised one is the default rather than an exception while a
         // tile is being built.

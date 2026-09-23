@@ -1,4 +1,5 @@
-﻿using mTiles.Services.Agents;
+﻿using System.Diagnostics;
+using mTiles.Services.Agents;
 
 namespace mTiles.Services;
 
@@ -65,10 +66,40 @@ public sealed class WorkspaceAgentFiles
     /// there is what was remembered here.</remarks>
     private readonly Dictionary<string, string> _skills = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>What agents have been offered under each skill name this session — the grant the skill was
+    /// written for, or null for withdrawn — and therefore what a change is measured against.</summary>
+    /// <remarks>Kept apart from <see cref="_skills"/> because <see cref="ForgetSkill"/> empties that without
+    /// anybody having decided anything: measured against it, the database skill written again once discovery
+    /// answers read as new on every launch.</remarks>
+    private readonly Dictionary<string, string?> _offered = new(StringComparer.OrdinalIgnoreCase);
+
     public WorkspaceAgentFiles(string workspaceDir) => _workspaceDir = workspaceDir;
 
     /// <summary>The workspace whose files these are.</summary>
     public string WorkspaceDirectory => _workspaceDir;
+
+    /// <summary>
+    /// A skill this workspace offers was added, changed or withdrawn.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>What it is for.</b> Ticking a database in the Database tile wrote <c>SKILL.md</c> to disk
+    /// and stopped there: an agent already running was never told, never restarted and — for five of the
+    /// six CLIs — never re-read it. It picked the change up only when somebody happened to restart it, and
+    /// nothing on screen said that was needed. This is the one wire that was missing.</para>
+    /// <para><b>Raised for a change, not for a rewrite.</b> <see cref="Follow"/> writes every skill again
+    /// whenever the tile tree moves — a dragged splitter reaches it — and the content is the same nearly
+    /// every time. Raising there would be a notice per splitter drag. So it is raised only from
+    /// <see cref="WriteSkill"/> and <see cref="RemoveSkill"/>, and only when what agents are offered
+    /// differs from <see cref="_offered"/>.</para>
+    /// <para><b>Never for the first answer, and never for <see cref="ForgetSkill"/>.</b> The first answer
+    /// of a session is a restored tile saying what it already offered, and a forget is a tile closing or
+    /// the registry not knowing yet — neither is a decision, and each used to restart every idle agent
+    /// on every launch.</para>
+    /// <para><b>Raised outside the lock</b>, because what is on the other end of it draws, restarts
+    /// agents and asks questions, and none of that belongs inside the gate that serialises file writes.
+    /// A handler that throws is caught here: a subscriber's failure must not cost the write.</para>
+    /// </remarks>
+    public event Action<string>? SkillsChanged;
 
     /// <summary>
     /// Recomputes every path from the agents this workspace is holding, then makes the disk match.
@@ -108,6 +139,22 @@ public sealed class WorkspaceAgentFiles
         }
     }
 
+    /// <summary>Tells whoever is listening that a skill moved, without letting them cost the write.</summary>
+    /// <remarks>Outside the lock and inside a try: on the other end of this are tiles that draw, restart
+    /// agents and ask the user questions. None of that belongs inside the gate that serialises file
+    /// writes, and a subscriber that throws must not turn a successful write into a failed one.</remarks>
+    private void Announce(string name)
+    {
+        try
+        {
+            SkillsChanged?.Invoke(name);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"[AgentFiles] A listener for the skill {name} failed: {ex}");
+        }
+    }
+
     /// <summary>Takes each skill not yet seen in this session out of every path any agent could read,
     /// and answers whether anything was swept.</summary>
     /// <remarks>See <see cref="_sweptSkills"/>: what it is for is the previous session's paths, which
@@ -132,10 +179,20 @@ public sealed class WorkspaceAgentFiles
 
     /// <summary>Offers a skill to every agent in this workspace, replacing whatever it said before.
     /// </summary>
-    public void WriteSkill(string name, string content)
+    /// <param name="grant">What the user decided this skill offers, when that is narrower than its
+    /// content — the change <see cref="SkillsChanged"/> is measured by. Null means the content is the
+    /// decision.</param>
+    /// <remarks><b>Why the content is not always the measure.</b> The database skill spells out only the
+    /// selected databases discovery already knows, and discovery registers SQL Server before PostgreSQL,
+    /// so at every launch the same selection is written twice — a partial list, then the whole one — and
+    /// again whenever a periodic scan briefly loses a network server. Measured by content, that read as a
+    /// user decision and restarted every idle agent on every start.</remarks>
+    public void WriteSkill(string name, string content, string? grant = null)
     {
+        bool moved;
         lock (_gate)
         {
+            moved = Offer(name, grant ?? content);
             _skills[name] = content;
             // A skill offered before the tile tree has been followed — the database tile writes from
             // its own constructor — reaches the sweep here instead, so the order of the two cannot
@@ -143,6 +200,8 @@ public sealed class WorkspaceAgentFiles
             SweepOrphansOf(name);
             WriteSkillIn(_skillDirectories, name, content);
         }
+
+        if (moved) Announce(name);
     }
 
     /// <summary>Withdraws a skill: forgotten here, and gone from every path any agent could read.
@@ -153,11 +212,15 @@ public sealed class WorkspaceAgentFiles
     /// the user's <c>.gitignore</c> goes with it.</remarks>
     public void RemoveSkill(string name)
     {
+        bool moved;
         lock (_gate)
         {
             _skills.Remove(name);
+            moved = Offer(name, null);
             RemoveSkillEverywhere(_workspaceDir, name);
         }
+
+        if (moved) Announce(name);
     }
 
     /// <summary>Takes a skill's files away without touching the <c>.gitignore</c> line they added.
@@ -176,8 +239,38 @@ public sealed class WorkspaceAgentFiles
         lock (_gate)
         {
             _skills.Remove(name);
+            ForgetOffer(name);
             RemoveSkillEverywhere(_workspaceDir, name, unlistFromGitIgnore: false);
         }
+    }
+
+    /// <summary>Records that nothing is offered under <paramref name="name"/> any more, without announcing
+    /// it — but only where something was.</summary>
+    /// <remarks><para><b>Why it is recorded at all.</b> The files are gone from every directory, so an agent
+    /// started from now on reads no skill. Left saying what it said before, the same grant coming back later
+    /// was no change and nothing was announced: close the Database tile, open an Agent tile on opencode, add
+    /// the Database tile back with the same databases, and that agent never sees the skill and is never told
+    /// to restart — the silence this event exists to end, reached by closing and reopening a tile.</para>
+    /// <para><b>Why only where something was.</b> The first thing a restored database tile does is forget
+    /// the skill, from its own constructor, while discovery is still running; recorded there, the write that
+    /// follows once the registry answers would be a change and would restart every idle agent on every
+    /// launch. Nothing was offered yet, so there is nothing to withdraw, and the write that follows is the
+    /// session's baseline exactly as before.</para>
+    /// <para>Called under the gate.</para></remarks>
+    private void ForgetOffer(string name)
+    {
+        if (_offered.ContainsKey(name)) _offered[name] = null;
+    }
+
+    /// <summary>Records what agents are now offered under <paramref name="name"/>, and answers whether that
+    /// is a change worth announcing.</summary>
+    /// <remarks>The first answer of a session is the baseline and is not a change — see
+    /// <see cref="SkillsChanged"/>. Called under the gate.</remarks>
+    private bool Offer(string name, string? grant)
+    {
+        var known = _offered.TryGetValue(name, out var was);
+        _offered[name] = grant;
+        return known && !string.Equals(was, grant, StringComparison.Ordinal);
     }
 
     /// <summary>

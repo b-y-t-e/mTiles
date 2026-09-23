@@ -242,7 +242,7 @@ internal static partial class SessionCapture
     /// <paramref name="workingDirectory"/>.</summary>
     /// <remarks>Only the first line is read — codex writes its session metadata there and the rest of
     /// the file is the conversation, which can run to megabytes.</remarks>
-    private static bool StartedIn(string rolloutPath, string workingDirectory)
+    internal static bool StartedIn(string rolloutPath, string workingDirectory)
     {
         try
         {

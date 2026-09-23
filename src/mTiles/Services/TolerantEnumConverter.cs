@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using mTiles.Models;
 
@@ -131,6 +131,34 @@ internal sealed class TolerantAiBehaviourConverter : TolerantEnumOrDefaultConver
 internal sealed class TolerantAiInstanceBehaviourConverter : TolerantEnumOrDefaultConverter<AiBehaviour>
 {
     protected override AiBehaviour Fallback => AiBehaviour.ToolDefault;
+}
+
+/// <summary>
+/// A Goal effort preset this build has never heard of reads as
+/// <see cref="GoalEffortPreset.Balanced"/> — the default.
+/// </summary>
+/// <remarks>The default rather than the cheapest or the dearest: an unreadable answer must claim
+/// nothing about what somebody wanted, and this is the preset a file nobody has touched carries. The
+/// stakes are the settings file's, so the fallback matters for the same reason
+/// <see cref="TolerantAiBehaviourConverter"/>'s does — a word written by a newer build and read after a
+/// Velopack rollback must not quarantine the provider keys beside it.</remarks>
+internal sealed class TolerantGoalEffortPresetConverter : TolerantEnumOrDefaultConverter<GoalEffortPreset>
+{
+    protected override GoalEffortPreset Fallback => GoalEffortPreset.Balanced;
+}
+
+/// <summary>
+/// A review-gate mode this build has never heard of reads as
+/// <see cref="GoalReviewGateMode.Countdown"/> — the default, and what a goal file that predates the
+/// field means as well.
+/// </summary>
+/// <remarks>Deliberately not <see cref="GoalReviewGateMode.Off"/>, although that is the quieter
+/// fallback: a run that carries straight on is the one answer here that cannot be taken back, and an
+/// unreadable setting must not silently remove the pause somebody asked for. The countdown costs a few
+/// seconds and is visible while it costs them.</remarks>
+internal sealed class TolerantGoalReviewGateModeConverter : TolerantEnumOrDefaultConverter<GoalReviewGateMode>
+{
+    protected override GoalReviewGateMode Fallback => GoalReviewGateMode.Countdown;
 }
 
 /// <summary>An effort level this build has never heard of reads as <see cref="AiEffort.High"/> — the

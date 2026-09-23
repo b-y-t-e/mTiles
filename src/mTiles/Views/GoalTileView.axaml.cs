@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using Avalonia.Platform.Storage;
+using System.Diagnostics;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia;
@@ -12,21 +13,117 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Material.Icons;
 using Material.Icons.Avalonia;
+using mTiles.Controls;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.ViewModels;
 
 namespace mTiles.Views;
 
-public partial class GoalTileView : UserControl
+public partial class GoalTileView : UserControl, IFocusTargetView
 {
+    /// <summary>The composer, docked to the foot of the tile - the one place a goal is acted on from.
+    /// </summary>
+    public InputElement? PreferredFocusTarget => InputBox;
+
     private GoalTileViewModel? _subscribedVm;
+
+    /// <summary>What keeps the reader in place — and what a send asks for the end of.</summary>
+    private readonly TranscriptAnchor _anchor;
 
     public GoalTileView()
     {
         InitializeComponent();
+        _anchor = TranscriptAnchor.Attach(ChatScroll);
+        JumpToBottom.Attach(ChatScroll, _anchor, this);
+        TeachThePickers();
+
+        // One line for the strip, giving up words before width in the order GoalStripLayout writes
+        // down - the Agent tile's strip does the same with its own. Nothing keeps the fitter but the
+        // handlers it hangs on these controls, which is exactly as long as it is needed.
+        new RowFitter(StripRow, GoalStripLayout.Steps,
+            ExecutionAgentPicker, PermissionModePicker, EffortPicker);
+        // The status bar under the composer has its own order - see GoalStatusBarLayout.
+        new RowFitter(StatusRow, GoalStatusBarLayout.Steps, StatusView, Badges)
+            .Watch(StatusView, StripStatus.TextProperty)
+            .Watch(Badges, BoundsProperty);
+
+        // The keys and gestures every conversation's composer answers to — see ComposerInput.
+        ComposerInput.Attach(InputBox, SendFromComposer, () => IsPickingAFile, Composer, AttachImage,
+            AttachFilesAsync, PasteLongTextAsync);
+        // The plan field is the same text in a second box - both are bound to InputText and to its caret -
+        // so a long paste is folded there too: it is the one place a review's worth of notes gets pasted.
+        ComposerInput.Attach(PlanBox, () => (DataContext as GoalTileViewModel)?.ApproveOrChangeCommand.Execute(null),
+            () => IsPickingAFile, pasteLongText: PasteLongTextAsync);
+        ComposerHistoryInput.Attach(InputBox,
+            () => (DataContext as GoalTileViewModel)?.SentFromComposer ?? [],
+            () => IsPickingAFile, HistoryPicker);
+
+        // Anywhere on the tile, as on the Agent tile — attached to the composer, never sent.
+        ImageDrop.Attach(this, DropHint,
+            items => DataContext is GoalTileViewModel && (items.HasPicture || items.Files.Count > 0),
+            AttachDroppedAsync);
     }
 
+    private async Task AttachDroppedAsync(DroppedItems items)
+    {
+        if (items.Bitmap is { } dropped)
+            using (dropped) AttachImage(dropped);
+        await AttachFilesAsync(items.Files);
+    }
+
+    private async void AttachButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
+        await AttachFilesAsync(await ComposerImages.PickAsync(storage));
+        InputBox.Focus();
+    }
+
+    /// <summary>A paste too long for the composer, folded into a note — see <c>PastedNote</c>.</summary>
+    private Task PasteLongTextAsync(string text) =>
+        DataContext is GoalTileViewModel vm ? vm.AttachPastedTextAsync(text) : Task.CompletedTask;
+
+    /// <summary>Attaches every file in the order given — the Agent tile's rule, see
+    /// <see cref="ComposerImages.AttachAllAsync"/>.</summary>
+    private Task AttachFilesAsync(IEnumerable<Avalonia.Platform.Storage.IStorageItem> files) =>
+        ComposerImages.AttachAllAsync(files,
+            (picture, _) => AttachImage(picture),
+            path => DataContext is GoalTileViewModel vm ? vm.AttachFileAsync(path) : Task.CompletedTask);
+
+    /// <summary>Teaches this tile's five pickers how to read its own lists, and where a pick goes.</summary>
+    /// <remarks>The rows are the view model's lists as they stand — agent choices and the words of the
+    /// two scales — so nothing is kept in step. The mode row carries the vocabulary's own sentence, the
+    /// one the Agent tile's composer shows, so the two tiles explain a mode in the same words; the
+    /// effort row carries the three levels its one word stands for, which is what lets the strip offer
+    /// an effort per role from a single control. A pick is written through the view model's own
+    /// setters, which is where bypass is asked about.</remarks>
+    private void TeachThePickers()
+    {
+        ExecutionAgentPicker.OptionSelector = item => item is GoalAgentChoice agent
+            ? new PickerOption { Id = agent.InstanceId, Title = agent.Label, Detail = agent.Agent.DisplayName }
+            : null;
+        ReviewAgentPicker.OptionSelector = item => item is GoalAgentSlotChoice reviewer
+            ? new PickerOption { Id = reviewer.InstanceId, Title = reviewer.Label }
+            : null;
+        PermissionModePicker.OptionSelector = item => item is string label ? SettingPickerRows.Mode(label) : null;
+        GateModePicker.OptionSelector = item => item is string label ? SettingPickerRows.GateMode(label) : null;
+        EffortPicker.OptionSelector = item => item is string label ? SettingPickerRows.EffortPreset(label) : null;
+        PlanningAgentPicker.OptionSelector = item => item is GoalAgentSlotChoice planner
+            ? new PickerOption { Id = planner.InstanceId, Title = planner.Label }
+            : null;
+
+        ExecutionAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ExecutionAgentInstanceId = e.Option.Id);
+        ReviewAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ReviewAgentInstanceId = e.Option.Id);
+        PermissionModePicker.SelectionRequested += (_, e) => WithVm(vm => vm.PermissionModeLabel = e.Option.Id);
+        GateModePicker.SelectionRequested += (_, e) => WithVm(vm => vm.GateModeLabel = e.Option.Id);
+        EffortPicker.SelectionRequested += (_, e) => WithVm(vm => vm.EffortPresetLabel = e.Option.Id);
+        PlanningAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.PlanningAgentInstanceId = e.Option.Id);
+    }
+
+    private void WithVm(Action<GoalTileViewModel> apply)
+    {
+        if (DataContext is GoalTileViewModel vm) apply(vm);
+    }
 
     /// <summary>The dialog this tile has open, if any.</summary>
     private GoalFindingsDialog? _findings;
@@ -88,7 +185,7 @@ public partial class GoalTileView : UserControl
         if (_subscribedVm != null)
         {
             _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
-            _subscribedVm.Messages.CollectionChanged -= OnMessagesChanged;
+            _subscribedVm.SentByUser -= GoToEnd;
 
             // ConfirmAction too, and for more than tidiness: the closure holds this view, so a view
             // model left with it keeps the view alive — and if that view model ever asks again, the
@@ -100,16 +197,13 @@ public partial class GoalTileView : UserControl
         if (DataContext is GoalTileViewModel vm)
         {
             _subscribedVm = vm;
+            vm.SentByUser += GoToEnd;
 
-            // The collection, and only the collection. There used to be a hook on the view model as
-            // well, called where the workflow adds a message — which is most of them and not all: a
-            // tile reopened from its file fills the transcript without going through it, and opened on
-            // a finished run it showed the top of a conversation whose interesting end was several
-            // screens down. Watching the collection covers both, and covers the hook's cases twice
-            // over: every message cost two synchronous UpdateLayout passes over the whole transcript,
-            // markdown views included, and four ScrollToEnd calls. One event is the whole answer.
-            vm.Messages.CollectionChanged += OnMessagesChanged;
-            ScrollTranscriptToEnd();
+            // The transcript is read off disk in this view model's own constructor, long before any
+            // view is bound to it, so there is no event to wait for: what is on screen at this moment
+            // is a whole run that somebody has just opened, and its end is what they came for.
+            GoToEnd();
+
             vm.ConfirmAction = async message =>
             {
                 // No window to ask in means no, the same answer the Settings dialog gives. The view
@@ -120,164 +214,19 @@ public partial class GoalTileView : UserControl
                     whenUnavailable: false);
             };
             vm.PropertyChanged += OnVmPropertyChanged;
-            UpdatePhaseDot(vm.CurrentPhase);
 
         }
     }
 
-    private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (e.Action is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Reset)
-            FollowTheEndSoon();
-    }
-
-    /// <summary>
-    /// Decides now, scrolls once.
-    /// </summary>
-    /// <remarks>
-    /// <para>One change to the view model reaches here several times: setting <c>IsRunning</c> raises
-    /// <c>CanDetectGoal</c>, <c>HasFinishedRunActions</c>, the three ask flags and then itself, four of
-    /// which this view follows — so every boundary of a run paid for four synchronous
-    /// <c>UpdateLayout</c> passes over the whole transcript, markdown views included, and eight
-    /// <c>ScrollToEnd</c> calls, to end where the first one already was. Exactly the cost that was
-    /// taken out of the per-message path by watching the collection instead of a hook, and it grew back
-    /// on the other side.</para>
-    /// <para><b>The decision cannot be deferred with the work.</b> Whether to follow at all is "was the
-    /// reader at the bottom <em>before</em> this arrived", and the answer is only readable while the
-    /// new content is still unmeasured — a turn later the extent has grown and every reader looks
-    /// scrolled up. So it is taken on the first call of the turn and kept. Which also settles what was
-    /// previously decided four times against an extent that the first of the four had already
-    /// changed.</para>
-    /// </remarks>
-    private void FollowTheEndSoon()
-    {
-        if (_scrollQueued) return;
-        _scrollQueued = true;
-        _scrollWanted = IsNearTheEnd();
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            _scrollQueued = false;
-            if (_scrollWanted) ScrollTranscriptToEnd();
-        }, DispatcherPriority.Loaded);
-    }
-
-    private bool _scrollQueued;
-    private bool _scrollWanted;
-
-    /// <summary>
-    /// Goes to the end of the transcript, unconditionally.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>Whether</b> to follow is not asked here and must not be — it is
-    /// <see cref="FollowTheEndSoon"/>'s, taken while the new content is still unmeasured. This is only
-    /// the doing, and it is reached having already been decided. It had a <c>force</c> parameter with a
-    /// guard behind it, left over from when the two were one method; both callers passed true, so the
-    /// guard was unreachable and the paragraph explaining it described a rule that had moved. A third
-    /// caller written against that paragraph would have got a decision taken a turn late, against an
-    /// extent that had already grown — which is the one thing the rule exists to prevent.</para>
-    /// <para>The scroll happens twice, and both are needed. <c>UpdateLayout</c> forces the new message
-    /// to be measured so <c>ScrollToEnd</c> has the real extent to scroll to — without it the call used
-    /// the old one and stopped a message short, which is the bug this replaced. The posted one catches
-    /// what sizes late: a rendered markdown answer arrives at its final height after its own pass, and
-    /// <c>Loaded</c> is the priority that runs once layout is done.</para>
-    /// </remarks>
-    private void ScrollTranscriptToEnd()
-    {
-        ChatScroll.UpdateLayout();
-        ChatScroll.ScrollToEnd();
-        Dispatcher.UIThread.Post(ChatScroll.ScrollToEnd, DispatcherPriority.Loaded);
-    }
-
-    /// <summary>Whether the reader is watching the run rather than reading back through it.</summary>
-    /// <remarks>The rule itself is <see cref="TranscriptFollow"/> — pure, so it can be argued in a
-    /// table test; this only reads the three numbers off the scroller, which cannot be.</remarks>
-    private bool IsNearTheEnd() =>
-        TranscriptFollow.ShouldFollow(
-            ChatScroll.Extent.Height, ChatScroll.Viewport.Height, ChatScroll.Offset.Y);
-
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (sender is not GoalTileViewModel vm) return;
-
-        if (e.PropertyName == nameof(GoalTileViewModel.CurrentPhase))
-            UpdatePhaseDot(vm.CurrentPhase);
 
         if (e.PropertyName == nameof(GoalTileViewModel.ShowQuestions) && vm.ShowQuestions)
             FocusFirstAnswer();
 
         if (e.PropertyName == nameof(GoalTileViewModel.IsShowingFindings))
             ApplyFindingsModality(vm.IsShowingFindings);
-
-        if (e.PropertyName is not { } name) return;
-
-        // Everything the tile asks of the user is a block at the end of the conversation, so each of
-        // these changes the length of the thing being scrolled without adding a message — and the
-        // follow-to-the-bottom rule is driven by the message collection, which never hears about them.
-        //
-        // Followed on the ordinary terms and no others: if the reader is at the end they see the block
-        // arrive, and if they are reading further up nothing moves. A block appearing used to overrule
-        // that, on the reasoning that a plan waiting to be approved is worth interrupting for — but
-        // being pulled away from what you are reading is the thing this rule exists to prevent, and it
-        // does not become acceptable because the tile has something to say. The block is still there
-        // when the reader arrives at the bottom.
-        if (Showing(vm, name) is not null || FollowsTheEnd.Contains(name))
-            FollowTheEndSoon();
-    }
-
-    /// <summary>
-    /// What each of the four blocks is showing now, and null for a name that is not one of them.
-    /// </summary>
-    /// <remarks>
-    /// <para>Read rather than listed, so a name here that cannot be answered does not compile — the
-    /// alternative was a second set beside the first, where "in the set" and "how to read it" drift.</para>
-    /// <para>Only whether the block is showing, which is all that is asked of it: what it is for is
-    /// saying that this property is one of the four, so that a block arriving or leaving asks the
-    /// transcript to follow on the ordinary terms. Nothing here overrules a reader's position any
-    /// more.</para>
-    /// <para><c>CanDetectGoal</c> and <c>IsRunning</c> are not here because they are not requests, but
-    /// both are in <see cref="FollowsTheEnd"/> and reach the same call: with the overruling gone the
-    /// two lists differ only in what they are called, and they are kept apart because the next thing
-    /// added to either has to be read as one or the other.</para>
-    /// <para>Internal so it can be stated in a test, as <see cref="TextOf"/> is.</para>
-    /// </remarks>
-    internal static bool? Showing(GoalTileViewModel vm, string name) => name switch
-    {
-        nameof(GoalTileViewModel.ShowQuestions) => vm.ShowQuestions,
-        nameof(GoalTileViewModel.ShowApproval) => vm.ShowApproval,
-        nameof(GoalTileViewModel.ShowComposer) => vm.ShowComposer,
-        nameof(GoalTileViewModel.HasFinishedRunActions) => vm.HasFinishedRunActions,
-        _ => null,
-    };
-
-    /// <summary>
-    /// What, changing, moves the end of the conversation without being a request in its own right.
-    /// </summary>
-    /// <remarks>
-    /// A set rather than a chain of comparisons, because the failure it guards against is a block added
-    /// to the markup and forgotten here: one place to look, next to nothing else. It is the *end* being
-    /// followed rather than each block in turn — whichever of them appears, the answer is the same.
-    /// </remarks>
-    private static readonly HashSet<string> FollowsTheEnd =
-    [
-        nameof(GoalTileViewModel.IsRunning),
-        nameof(GoalTileViewModel.CanDetectGoal),
-    ];
-
-    /// <summary>
-    /// Enter in the plan box sends, as it does in the composer and in an answer box.
-    /// </summary>
-    /// <remarks>
-    /// This box takes line breaks, so Shift+Enter is the one that adds one. An empty box approves —
-    /// the command decides that, not this, so Enter means the same thing the button says it does.
-    /// </remarks>
-    private void PlanBox_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None) return;
-        if (DataContext is not GoalTileViewModel vm || IsPickingAFile) return;
-
-        vm.ApproveOrChangeCommand.Execute(null);
-        e.Handled = true;
     }
 
     /// <summary>
@@ -301,37 +250,7 @@ public partial class GoalTileView : UserControl
     }
 
     /// <summary>
-    /// Every phase class, so the dot can be told which one it is by setting all of them. The list is
-    /// the reason <c>Classes.Clear()</c> is not used: clearing takes out whatever else was put on the
-    /// element, which today is nothing and tomorrow is a bug nobody connects to this method.
-    /// </summary>
-    private static readonly (GoalPhase Phase, string Class)[] PhaseClasses =
-    [
-        (GoalPhase.Clarify, "phase-clarify"),
-        (GoalPhase.Plan, "phase-plan"),
-        (GoalPhase.Implement, "phase-implement"),
-        (GoalPhase.Review, "phase-review"),
-        (GoalPhase.Summary, "phase-summary"),
-        (GoalPhase.Goal, "phase-goal"),
-    ];
-
-    /// <summary>
-    /// The phase becomes a style class, not a brush: the class carries a <c>DynamicResource</c> fill,
-    /// so the dot follows a theme change on its own. Resolving the brush here painted it once, with
-    /// whatever the palette held at the time.
-    /// </summary>
-    private void UpdatePhaseDot(GoalPhase phase)
-    {
-        // A phase the enum does not know — a hand-edited file saying 99 — falls back to the Goal
-        // marker rather than to no class at all, which is a dot with no fill.
-        var known = PhaseClasses.Any(c => c.Phase == phase) ? phase : GoalPhase.Goal;
-
-        foreach (var (p, cls) in PhaseClasses)
-            PhaseDot.Classes.Set(cls, p == known);
-    }
-
-    /// <summary>
-    /// Puts the criteria fields back to what the tile is really using, once the user has left one.
+    /// Puts the panel's number fields back to what the tile is really using, once the user has left one.
     /// <para>These are text boxes bound to integers, and Avalonia surfaces a failed conversion as a
     /// binding error rather than as data validation — so the property is simply never set, the
     /// <c>:error</c> pseudo-class never fires, and "50x" sits in the box looking like a setting. This
@@ -341,31 +260,7 @@ public partial class GoalTileView : UserControl
     private void NumberBox_LostFocus(object? sender, RoutedEventArgs e)
     {
         if (DataContext is GoalTileViewModel vm)
-            vm.Criteria.Refresh();
-    }
-
-    /// <summary>
-    /// The composer draws the field's border, so it has to show the field's focus as well.
-    /// </summary>
-    private void InputBox_FocusChanged(object? sender, RoutedEventArgs e)
-        => Composer.Classes.Set("focused", InputBox.IsFocused);
-
-    /// <summary>
-    /// The composer looks like one field with a prompt in it, so the whole of it has to behave like
-    /// one: clicking the padding, or the prompt glyph, puts the caret in the box. Clicks that land on
-    /// the field or the Send button are left alone — those already do the right thing.
-    /// </summary>
-    private void Composer_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (e.Source is Visual source &&
-            (source.FindAncestorOfType<TextBox>(includeSelf: true) != null ||
-             source.FindAncestorOfType<Button>(includeSelf: true) != null))
-        {
-            return;
-        }
-
-        InputBox.Focus();
-        InputBox.CaretIndex = InputBox.Text?.Length ?? 0;
+            vm.RefreshNumberFields();
     }
 
     /// <summary>
@@ -387,83 +282,35 @@ public partial class GoalTileView : UserControl
         e.Handled = true;
     }
 
-    private void InputBox_KeyDown(object? sender, KeyEventArgs e)
+    /// <summary>Takes the reader to the end because they have just sent something.</summary>
+    private void GoToEnd() => _anchor.GoToEnd();
+
+    /// <summary>Enter in the composer.</summary>
+    /// <remarks>
+    /// Only with something typed, and that is the whole rule: Enter is what sends what is in the box, and
+    /// on an empty box it has always been a no-op. Wired straight to the primary segment it stopped being
+    /// one — an empty box beside uncommitted changes reads as "Detect goal", so a stray Enter on a fresh
+    /// tile started a paid run (the tile has nothing to discard, so the confirmation lets it through in
+    /// silence) that nobody asked for. Detection is a click, not a keystroke; the primary command still
+    /// dispatches for both, so a typed goal goes the one way its label says.
+    /// </remarks>
+    private void SendFromComposer()
     {
-        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None && !IsPickingAFile)
-        {
-            // Only with something typed, and that is the whole rule: Enter is what sends what is in
-            // the box, and on an empty box it has always been a no-op. Wired straight to the primary
-            // segment it stopped being one — an empty box beside uncommitted changes reads as
-            // "Detect goal", so a stray Enter on a fresh tile started a paid run (the tile has nothing
-            // to discard, so the confirmation lets it through in silence) that nobody asked for.
-            // Detection is a click, not a keystroke; the primary command still dispatches for both, so
-            // a typed goal goes the one way its label says.
-            if (DataContext is GoalTileViewModel { HasTypedGoal: true } vm &&
-                vm.PrimaryActionCommand.CanExecute(null))
-            {
-                vm.PrimaryActionCommand.Execute(null);
-                e.Handled = true;
-            }
-        }
-
-        if (e.Key != Key.V) return;
-
-        // Alt+V is the image whatever else is on the clipboard, and nothing else wants the key — the
-        // box ignores it — so it is marked handled and taken outright. Ctrl+V is deliberately *not*
-        // marked: the box's own paste has to go on working, and whether there is an image to take
-        // instead cannot be known here, because reading a clipboard is asynchronous and the key has
-        // been dispatched long before the answer comes back. Letting both run is safe precisely
-        // because the two are exclusive — the image is taken only when there is no text, which is the
-        // case in which the box's paste does nothing at all.
-        if (e.KeyModifiers == KeyModifiers.Alt)
-        {
-            e.Handled = true;
-            _ = AttachClipboardImageAsync(evenWhenThereIsText: true);
-        }
-        else if (e.KeyModifiers == KeyModifiers.Control)
-        {
-            _ = AttachClipboardImageAsync(evenWhenThereIsText: false);
-        }
+        if (DataContext is GoalTileViewModel { HasTypedGoal: true } vm &&
+            vm.PrimaryActionCommand.CanExecute(null))
+            vm.PrimaryActionCommand.Execute(null);
     }
 
-    /// <summary>
-    /// Hands the clipboard's image to the tile, as PNG bytes.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>Text wins when the clipboard holds both</b>, which is the rule the terminal tile
-    /// already follows: a copy from a browser or a screenshot tool routinely puts text and an image on
-    /// the clipboard at once, and pasting the picture instead of the words the user selected is the
-    /// more surprising of the two mistakes. <b>Alt+V</b> is the way past it, as it is in a terminal
-    /// tile — and here it is the way past it <em>everywhere</em>, because the clipboard is read on this
-    /// side. In a terminal tile that gesture is only as good as the agent's own keymap, and Claude Code
-    /// binds it on Windows and WSL alone.</para>
-    /// <para>Encoded here rather than in the view model: what Avalonia hands back is a decoded bitmap,
+    /// <summary>Hands a pasted image to the tile, as PNG bytes.</summary>
+    /// <remarks>Encoded here rather than in the view model: what Avalonia hands back is a decoded bitmap,
     /// and turning one into bytes needs the imaging stack. The view model is given something it can be
-    /// handed by a test.</para>
-    /// </remarks>
-    private async Task AttachClipboardImageAsync(bool evenWhenThereIsText)
+    /// handed by a test.</remarks>
+    private void AttachImage(Avalonia.Media.Imaging.Bitmap bitmap)
     {
         if (DataContext is not GoalTileViewModel vm) return;
-        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
-
-        try
-        {
-            if (!evenWhenThereIsText && await clipboard.TryGetTextAsync() is { Length: > 0 }) return;
-            if (await clipboard.TryGetBitmapAsync() is not { } bitmap) return;
-
-            using (bitmap)
-            {
-                using var png = new MemoryStream();
-                bitmap.Save(png);
-                vm.AttachImageCommand.Execute(png.ToArray());
-            }
-        }
-        catch (Exception ex)
-        {
-            // A clipboard can be held by another application, and an image on it can be one this
-            // machine cannot decode. Neither is worth a dialog over a paste that can be tried again.
-            System.Diagnostics.Trace.TraceWarning($"Reading an image from the clipboard failed: {ex.Message}");
-        }
+        using var png = new MemoryStream();
+        bitmap.Save(png);
+        vm.AttachImageCommand.Execute(png.ToArray());
     }
 
     /// <summary>

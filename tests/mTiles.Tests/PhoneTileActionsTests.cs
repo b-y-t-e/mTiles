@@ -141,9 +141,18 @@ public sealed class PhoneTileActionsTests
             finally { tile.Dispose(); }
         }
 
-        // Distinct, because two shipped kinds now run a shell — a terminal and an agent — and both
-        // withhold the same one action. What this pins is which actions a phone never sees, not how
-        // many tiles offer them.
-        Assert.Equal([TileActionIds.Restart], withheld.Distinct());
+        // Distinct, because three shipped kinds run a process — a terminal, an agent and an agent held as
+        // a conversation — and share the restart. The conversation adds the two a phone must never do
+        // unseen: throwing a conversation away, and leaving the one on screen for another. Neither is
+        // withheld only for being destructive — starting a new conversation destroys nothing now that the
+        // old one stays in the store — but both can put a question on a desktop nobody is standing at.
+        // What this pins is which actions a phone never sees, not how many tiles offer them.
+        Assert.Equal(
+            [
+                mTiles.ViewModels.AgentConversation.AgentConversationTileViewModel.DeleteConversationActionId,
+                mTiles.ViewModels.AgentConversation.AgentConversationTileViewModel.NewConversationActionId,
+                TileActionIds.Restart,
+            ],
+            withheld.Distinct().Order(StringComparer.Ordinal));
     }
 }

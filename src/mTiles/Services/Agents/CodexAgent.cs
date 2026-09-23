@@ -31,7 +31,7 @@ namespace mTiles.Services.Agents;
 /// <see cref="ConsumesApiFlavors"/> names only <see cref="ApiFlavor.OpenAiResponses"/>: pairing codex
 /// with a local provider through configuration would be offered, and would not work.</para>
 /// </remarks>
-public sealed class CodexAgent : AiAgent
+public sealed class CodexAgent : AiAgent, Sessions.IConversationalAgent
 {
     /// <summary>The config key that carries effort, and the token to blame when it is refused.</summary>
     private const string EffortKey = "model_reasoning_effort";
@@ -39,11 +39,48 @@ public sealed class CodexAgent : AiAgent
     public override string Id => "codex";
     public override string DisplayName => "Codex";
 
+    /// <summary>A conversation through <c>codex app-server</c> — see
+    /// <see cref="Sessions.Codex.CodexAppServerSession"/>.</summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.Codex.CodexAppServerSession(launch, this, sink);
+
+    /// <summary>The effort levels a <c>turn/start</c> can carry — codex's scale.</summary>
+    internal static IReadOnlyList<AiEffort> AppServerEfforts => Efforts;
+
+    /// <summary>
+    /// The approval policy and the sandbox a conversation runs under, by the same table as
+    /// <see cref="BehaviourArgs"/> uses for the TUI.
+    /// </summary>
+    /// <remarks>The app server's spellings are the TUI's flags' values — <c>untrusted</c>,
+    /// <c>on-request</c>, <c>never</c>; <c>read-only</c>, <c>workspace-write</c>,
+    /// <c>danger-full-access</c> (codex 0.153.2's schema). Null for both is "pass nothing": the user's
+    /// own <c>config.toml</c> decides, which is what <see cref="AiBehaviour.ToolDefault"/> means.</remarks>
+    internal static (string? Approval, string? Sandbox) AppServerPermissions(AiBehaviour behaviour) => behaviour switch
+    {
+        AiBehaviour.Plan => ("on-request", "read-only"),
+        AiBehaviour.Ask => ("on-request", "workspace-write"),
+        AiBehaviour.Auto or AiBehaviour.AcceptEdits => ("never", "workspace-write"),
+        AiBehaviour.BypassPermissions => ("never", "danger-full-access"),
+        _ => (null, null),
+    };
+
     /// <summary>Measured 2026-09-03: <c>.agents/skills</c> — shared with pi and agy, which is what
     /// <see cref="WorkspaceAgentFiles"/> exists to keep three tiles from deleting from under one
     /// another.</summary>
     public override string? SkillsDirectory(string workspaceDir) =>
         Path.Combine(workspaceDir, ".agents", "skills");
+
+    /// <summary>Not taken at its word, and that is the decision worth recording.</summary>
+    /// <remarks>Measured 2026-09-17 against codex-cli 0.153.2's own documentation, which says both
+    /// <i>"Codex detects skill changes automatically"</i> and <i>"If an update doesn't appear, restart
+    /// Codex"</i> — no version, no mechanism, no reload command, and not one word about
+    /// <c>codex exec</c> or the app-server, which is the long-lived process an Agent tile actually talks
+    /// to. A claim hedged by its own author is not one to build a silent behaviour on: answering true
+    /// here would make this application stop telling the user to restart, on the strength of a sentence
+    /// that ends "restart Codex".</remarks>
+    public override bool WatchesSkillsDirectory(AgentSurface surface) => false;
+
     public override string BinaryName => "codex";
 
     /// <summary>
@@ -228,9 +265,9 @@ public sealed class CodexAgent : AiAgent
     /// <remarks><b>Never <c>resume</c> with an id we invented.</b> An unknown id makes codex open its
     /// session picker, and a picker in a launch chain is a tile that waits for a keystroke nobody knows
     /// it wants. The fallback is a plain <c>codex</c> for the same reason.</remarks>
-    protected override LaunchScripts Resume(string sessionId) =>
+    protected override LaunchScripts Resume(string program, string sessionId) =>
         LaunchScripts.FromProfile(
-            sessionId is { Length: > 0 } ? $"codex resume {sessionId}" : "codex", "codex");
+            sessionId is { Length: > 0 } ? $"{program} resume {sessionId}" : program, program);
 
     /// <summary>Read from the session codex itself started, so there is nothing to read until it has.
     /// </summary>
@@ -254,6 +291,14 @@ public sealed class CodexAgent : AiAgent
         Task.FromResult(SessionCapture.NewestSessionId(SessionsRoot, request.StartedAt,
             request.WorkingDirectory,
             sessionId => CapturedSessions.TryClaim(sessionId, request.TileId)));
+
+    /// <inheritdoc />
+    /// <remarks>The only one of the six that names its own context window, so a codex gauge needs
+    /// nothing from the provider side. Its sessions move with <c>CODEX_HOME</c>, which is the same fact
+    /// <see cref="SignInEnv"/> and <see cref="UsageAsync"/> both already rest on.</remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog { get; } =
+        new SessionLogs.CodexSessionLog(signIn =>
+            SessionsRootFor(signIn is null ? null : AiSignInStore.DirectoryFor(signIn)));
 
     /// <summary>Where codex keeps its rollout files: <c>~/.codex/sessions</c>, then a directory per
     /// year, month and day.</summary>

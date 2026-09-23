@@ -29,7 +29,7 @@ public class ClipboardHelpersTests
             // as it stands, and anywhere else it fails in a tile saying it needs privileges — which
             // names the problem better than a sudo that is not installed either.
             ("dnf", ["install", "wl-clipboard", "xclip"], null,
-                "dnf install wl-clipboard xclip", "no elevator on this machine"),
+                "dnf install wl-clipboard xclip -y", "no elevator on this machine, so it runs in the background"),
         ];
 
         foreach (var (manager, arguments, elevator, expected, why) in cases)
@@ -52,7 +52,7 @@ public class ClipboardHelpersTests
     }
 
     /// <summary>
-    /// No manager is told to skip its own confirmation.
+    /// No manager's table entry is told to skip its own confirmation — only the background plan adds that.
     /// </summary>
     /// <remarks>
     /// The one rule in the table that a later hand would undo without noticing, and the one that makes
@@ -69,6 +69,37 @@ public class ClipboardHelpersTests
             foreach (var argument in arguments)
                 Assert.False(skips.Contains(argument),
                     $"{manager} is told to skip its confirmation with {argument}");
+    }
+
+    /// <summary>
+    /// The plan that runs in the background answers its manager's question up front; the tile's does not.
+    /// </summary>
+    [Fact]
+    public void Only_the_background_plan_skips_the_confirmation()
+    {
+        foreach (var (manager, arguments) in ClipboardHelpers.Managers)
+        {
+            var background = ClipboardHelpers.PlanFor(manager, arguments, null);
+            var inATile = ClipboardHelpers.PlanFor(manager, arguments, "sudo");
+
+            Assert.False(background.NeedsATerminal);
+            Assert.Equal([.. arguments, .. ClipboardHelpers.SkipConfirmation(manager)], background.Arguments);
+            Assert.Equal([manager, .. arguments], inATile.Arguments);
+        }
+    }
+
+    /// <summary>pkexec asks for the password in a window of its own, so its plan needs no tile.</summary>
+    [Fact]
+    public void A_polkit_plan_runs_in_the_background_and_answers_up_front()
+    {
+        foreach (var (manager, arguments) in ClipboardHelpers.Managers)
+        {
+            var plan = ClipboardHelpers.PlanFor(manager, arguments, ClipboardHelpers.GraphicalElevator);
+
+            Assert.False(plan.NeedsATerminal);
+            Assert.Equal("pkexec", plan.Executable);
+            Assert.Equal([manager, .. arguments, .. ClipboardHelpers.SkipConfirmation(manager)], plan.Arguments);
+        }
     }
 
     /// <summary>
@@ -165,5 +196,15 @@ public class ClipboardHelpersTests
             Assert.True(ClipboardHelpers.ArePresent);
             Assert.Null(ClipboardHelpers.Install);
         }
+    }
+
+    [Fact]
+    public void Pkexec_is_chosen_only_where_a_polkit_agent_can_ask()
+    {
+        static bool All(string _) => true;
+
+        Assert.Equal(ClipboardHelpers.GraphicalElevator, ClipboardHelpers.ChooseElevator(All, hasPolkitAgent: true));
+        Assert.Equal("sudo", ClipboardHelpers.ChooseElevator(All, hasPolkitAgent: false));
+        Assert.Null(ClipboardHelpers.ChooseElevator(name => name == "pkexec", hasPolkitAgent: false));
     }
 }

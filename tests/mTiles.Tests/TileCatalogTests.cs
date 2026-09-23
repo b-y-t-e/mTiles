@@ -219,7 +219,13 @@ public sealed class TileCatalogTests
                             o => o.State?[TerminalTileKind.ShellNameKey]?.GetValue<string>()));
                 }
             }
-            else if (entry.Kind.Id == TileKindIds.Agent)
+            else if (entry.Kind.Id == TileKindIds.AgentConversation)
+            {
+                // Nothing: the Agent tile opens straight into its conversation and the agent is picked
+                // there, where it can also be changed while nothing has been said.
+                Assert.Empty(options);
+            }
+            else if (entry.Kind.Id == TileKindIds.TerminalAgent)
             {
                 // One card per agent this machine has, and nothing to ask when it has at most one —
                 // which is why the expectation is computed rather than written out: how many of the
@@ -236,7 +242,7 @@ public sealed class TileCatalogTests
                 {
                     Assert.Equal(available.Select(i => i.Name), options.Select(o => o.Label));
                     Assert.Equal(available.Select(i => i.Id),
-                        options.Select(o => o.State?[AgentTileKind.InstanceIdKey]?.GetValue<string>()));
+                        options.Select(o => o.State?[AgentStateKeys.InstanceIdKey]?.GetValue<string>()));
                 }
             }
             else

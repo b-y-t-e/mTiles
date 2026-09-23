@@ -46,7 +46,7 @@ public static class AgentAvailability
     /// The same question about an agent the caller has already resolved.
     /// </summary>
     /// <remarks><b>A launch knows which agent is really running, and it is not always the one the
-    /// instance names.</b> After a Velopack rollback <c>AgentTileKind.WithAgent</c> stands another
+    /// instance names.</b> After a Velopack rollback <c>TerminalAgentTileKind.WithAgent</c> stands another
     /// agent in and says so through <c>AgentSubstitution</c> — a notice, over a tile that <em>is</em>
     /// running. Judging by the instance's own id there answered "this build does not have that agent",
     /// which became a <c>LaunchProblem</c> and a dead tile carrying two messages at once. Asked about

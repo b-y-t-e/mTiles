@@ -137,6 +137,104 @@ public class GoalWorkflowLoopTests : IDisposable
     }
 
     [Fact]
+    public void The_composer_history_outlives_the_goal_it_started()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", "VERDICT: PASS");
+
+            using var vm = NewTile();
+
+            vm.InputText = "make the tile resumable";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of them";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            await vm.ApproveOrChangeCommand.ExecuteAsync(null); // an empty plan box approves as "ok"
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+
+            // A new goal clears the transcript; what was typed before it must still be one Up away.
+            vm.InputText = "now make it pausable";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal(["make the tile resumable", "all of them", "now make it pausable"], vm.SentFromComposer);
+        });
+    }
+
+    [Fact]
+    public void The_composer_history_survives_a_restart()
+    {
+        OnUiThread(async () =>
+        {
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            AnswerWith("Which files?");
+
+            var first = new GoalTileViewModel(_dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+            var path = first.FilePath;
+            first.InputText = "make the tile resumable";
+            await first.SubmitCommand.ExecuteAsync(null);
+            first.Dispose();
+
+            using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+
+            Assert.Equal(["make the tile resumable"], second.SentFromComposer);
+        });
+    }
+
+    [Fact]
+    public void Words_handed_back_by_a_stopped_run_are_not_remembered_as_sent()
+    {
+        OnUiThread(async () =>
+        {
+            using var vm = NewTile();
+
+            var asked = 0;
+            GoalTileViewModel.AiRunnerFactory = (_, _, _, _) =>
+            {
+                asked++;
+                if (asked == 4) vm.PauseCommand.Execute(null);
+                return Task.FromResult<AiOutput>(asked switch
+                {
+                    1 => "Which files?",
+                    2 => NoMoreQuestions,
+                    3 => "The plan",
+                    _ => "Implemented it",
+                });
+            };
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "ok";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            Assert.Equal(GoalPhase.Review, vm.CurrentPhase);
+
+            vm.InputText = "also fix the tests";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            Assert.Equal("also fix the tests", vm.InputText);
+            Assert.Equal(["a goal", "all of it", "ok"], vm.SentFromComposer);
+        });
+    }
+
+    [Fact]
+    public void A_detected_goal_is_not_something_the_user_sent_but_the_scope_beside_it_is()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", "VERDICT: PASS");
+
+            using var vm = NewTile();
+            File.WriteAllText(Path.Combine(_dir, "pairing.cs"), "// changed");
+
+            vm.InputText = "only the pairing";
+            await vm.DetectGoalAndRunCommand.ExecuteAsync(null);
+
+            Assert.Equal(["only the pairing"], vm.SentFromComposer);
+        });
+    }
+
+    [Fact]
     public void A_goal_runs_through_to_a_summary_when_the_review_passes()
     {
         OnUiThread(async () =>
@@ -1402,6 +1500,475 @@ public class GoalWorkflowLoopTests : IDisposable
             Assert.DoesNotContain("implementing", vm.PhaseLabel);
             Assert.DoesNotContain("reviewing", vm.PhaseLabel);
             Assert.Contains("Resume", vm.PhaseLabel);
+        });
+    }
+
+    [Fact]
+    public void A_tile_closed_at_the_gate_comes_back_owing_the_implementation_and_not_the_review()
+    {
+        // Closing the tile cancels the gate's wait, and the state is flushed before the loop's own
+        // pause branch — the one that moves the lap on — can run, so the phase that lands on disk is
+        // Review. Left there, Resume read it as "the review is owed" and ran the reviewer a second
+        // time over a tree nobody had touched: one AI run spent, and the same verdict twice in the
+        // transcript, a few seconds after the user had finished unticking what they did not want fixed.
+        var engine = new GoalWorkflowEngine();
+        engine.StartNewGoal("make it work");
+        engine.RecordProposedPlan("the plan");
+        Assert.True(engine.ApprovePlan());
+        engine.IterationCount = 1;
+        engine.CurrentPhase = GoalPhase.Review;
+        engine.IsPaused = true;
+        engine.PausedAtReviewGate = true;
+
+        var finding = new GoalFinding { Severity = GoalSeverity.Warning, Title = "nit" };
+        engine.LastReview = new GoalReviewResult { WasStructured = true, Findings = [finding] };
+        engine.LastReviewFeedback = "the lap before's feedback";
+
+        var path = Path.Combine(_dir, "closed-at-the-gate.json");
+        new GoalStatePersistence().Save(path, engine.ToState(
+            [new GoalMessage { Role = GoalMessageRole.Assistant, Text = "reviewed",
+                Phase = GoalPhase.Review, Findings = [finding] }],
+            "", ""));
+
+        OnUiThread(() =>
+        {
+            using var vm = new GoalTileViewModel(path, _dir, new SettingsService(Path.Combine(_dir, "settings.json")));
+
+            Assert.True(vm.IsPaused);
+
+            // The lap had its review; what it owes is the next implementation.
+            Assert.Equal(GoalPhase.Implement, vm.CurrentPhase);
+            Assert.False(GoalTilePolicy.ResumesAtReview(vm.CurrentPhase));
+
+            return Task.CompletedTask;
+        });
+
+        // The loop writes the feedback only after the gate, so the closed tile never did: what the
+        // implementation gets on Resume has to be this review's, not the lap before's.
+        var feedback = new GoalStatePersistence().Load(path)?.LastReviewFeedback;
+        Assert.NotNull(feedback);
+        Assert.Contains("nit", feedback);
+    }
+
+    [Fact]
+    public void A_pause_gate_over_a_review_with_nothing_to_pick_comes_back_the_same_way()
+    {
+        // A pause gate stands over every review, findings or none — prose the parser could not
+        // structure included. Demanding findings on the way back in left such a tile with the phase
+        // still in Review, no gate on screen and a Resume that ran the reviewer a second time over an
+        // untouched tree: the very failure the case above exists to prevent, reached by the one review
+        // that has nothing to untick.
+        var engine = new GoalWorkflowEngine();
+        engine.StartNewGoal("make it work");
+        engine.RecordProposedPlan("the plan");
+        Assert.True(engine.ApprovePlan());
+        engine.IterationCount = 1;
+        engine.CurrentPhase = GoalPhase.Review;
+        engine.IsPaused = true;
+        engine.PausedAtReviewGate = true;
+        engine.ReviewGateMode = GoalReviewGateMode.Manual;
+        engine.LastReview = new GoalReviewResult { RawText = "it looks unfinished to me" };
+
+        var path = Path.Combine(_dir, "closed-at-an-empty-gate.json");
+        new GoalStatePersistence().Save(path, engine.ToState(
+            [new GoalMessage { Role = GoalMessageRole.Assistant, Text = "reviewed",
+                Phase = GoalPhase.Review }],
+            "", ""));
+
+        OnUiThread(() =>
+        {
+            using var vm = new GoalTileViewModel(path, _dir, new SettingsService(Path.Combine(_dir, "settings.json")));
+
+            Assert.True(vm.IsPaused);
+            Assert.True(vm.ShowReviewGate);
+            Assert.Equal(GoalPhase.Implement, vm.CurrentPhase);
+            Assert.False(GoalTilePolicy.ResumesAtReview(vm.CurrentPhase));
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void The_seconds_field_is_redrawn_when_it_is_left_after_a_failed_conversion()
+    {
+        // The panel's number boxes do not all belong to the criteria editor: the gate's wait is on the
+        // tile. Asking only the editor to redraw left "abc" sitting in the seconds box while the gate
+        // went on counting the last good value — the panel showing one number and the run using
+        // another. A failed conversion never sets the property, so all the box needs is being told to
+        // read a source that did not move.
+        OnUiThread(() =>
+        {
+            using var vm = NewTile();
+            vm.GateSeconds = 42;
+
+            var notified = 0;
+            vm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(vm.GateSeconds)) notified++;
+            };
+
+            vm.RefreshNumberFields();
+
+            Assert.True(notified > 0);
+            Assert.Equal(42, vm.GateSeconds);
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void Pause_at_the_gate_stops_the_sentence_counting_down_as_well_as_the_clock()
+    {
+        // The block's own Pause only answered the wait; the state machine stayed on Counting, so the
+        // line under a stopped clock went on reading "continuing in 9 s" for the whole of the pause —
+        // the disagreement GoalReviewGatePolicy.Line exists to prevent.
+        OnUiThread(async () =>
+        {
+            // A different tree on every read, or the loop takes its "the attempt changed no files"
+            // route and stops before the gate is ever reached.
+            var read = 0;
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>($"diff --git a/x{read++} b/x{read}");
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", WarningReview);
+
+            using var vm = NewTile();
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            // Long enough that nothing expires while the test presses the button.
+            vm.GateSeconds = GoalReviewGatePolicy.MaxSeconds;
+
+            vm.InputText = "ok";
+            var run = vm.SubmitCommand.ExecuteAsync(null);
+
+            var deadline = Environment.TickCount64 + 10_000;
+            while (!vm.GateOffersTheClock && Environment.TickCount64 < deadline)
+                await Task.Delay(10);
+
+            Assert.True(vm.GateOffersTheClock);
+            Assert.Contains("continuing in", vm.ReviewGateLine);
+
+            vm.PauseAtGateCommand.Execute(null);
+            await run;
+
+            Assert.True(vm.GateOffersResume);
+            Assert.DoesNotContain("continuing in", vm.ReviewGateLine);
+            Assert.Contains("paused", vm.ReviewGateLine);
+        });
+    }
+
+    [Fact]
+    public void Unticking_the_last_error_at_the_gate_stops_the_clock_drops_it_from_the_feedback_and_finishes_the_goal()
+    {
+        // The three halves of one decision, each of which fails silently on its own: the clock must
+        // stop under the tick, the next implementation must not be handed the finding, and a review
+        // whose only error was dismissed is a goal that is met — on Resume, not an attempt later.
+        OnUiThread(async () =>
+        {
+            var read = 0;
+            WorktreeReader.Factory = (_, _) => Task.FromResult<string?>($"diff --git a/x{read++} b/x{read}");
+            AnswerWith("Which files?", NoMoreQuestions, "The plan", "Implemented it", ErrorReview, "Summary");
+
+            using var vm = NewTile();
+            vm.Criteria.RequireGoalMet = false;
+
+            vm.InputText = "a goal";
+            await vm.SubmitCommand.ExecuteAsync(null);
+            vm.InputText = "all of it";
+            await vm.SubmitCommand.ExecuteAsync(null);
+
+            vm.GateSeconds = GoalReviewGatePolicy.MaxSeconds;
+
+            vm.InputText = "ok";
+            var run = vm.SubmitCommand.ExecuteAsync(null);
+
+            var deadline = Environment.TickCount64 + 10_000;
+            while (!vm.GateOffersTheClock && Environment.TickCount64 < deadline)
+                await Task.Delay(10);
+            Assert.True(vm.GateOffersTheClock);
+
+            var finding = vm.Messages.Last(m => m.Findings is { Count: > 0 }).Findings!
+                .Single(f => f.Title == "null deref");
+            finding.Fix = false;
+            await run;
+
+            Assert.True(vm.GateOffersResume);
+            var path = vm.FilePath;
+            var paused = new GoalStatePersistence().Load(path);
+            Assert.DoesNotContain("null deref", paused?.LastReviewFeedback ?? "");
+
+            await vm.ResumeCommand.ExecuteAsync(null);
+
+            Assert.Equal(GoalPhase.Summary, vm.CurrentPhase);
+            vm.Dispose();
+            Assert.Equal(GoalStopReason.Met, new GoalStatePersistence().Load(path)!.LastStopReason);
+        });
+    }
+
+    private const string TwoErrorsReview =
+        "```json\n{\"goalMet\":false,\"findings\":[" +
+        "{\"severity\":\"error\",\"title\":\"null deref\",\"file\":\"a.cs\"}," +
+        "{\"severity\":\"error\",\"title\":\"race on save\",\"file\":\"b.cs\"}]}\n```";
+
+    private static IReadOnlyList<GoalFinding> LastFindings(GoalTileViewModel vm) =>
+        vm.Messages.Last(m => m.Findings is { Count: > 0 }).Findings!;
+
+    /// <summary>
+    /// A review asked for on its own offers the same choice the gate does, before Continue implements
+    /// what it found - and without becoming the gate.
+    /// </summary>
+    [Fact]
+    public void A_review_on_its_own_lets_the_findings_be_narrowed_before_continue()
+    {
+        OnUiThread(async () =>
+        {
+            var prompts = new List<string>();
+            var answers = new Queue<string>(["Finish the pairing flow.", TwoErrorsReview,
+                "Implemented it", "VERDICT: PASS"]);
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers.Count > 0 ? answers.Dequeue() : "VERDICT: PASS");
+            };
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            vm.Criteria.RequireGoalMet = false;
+            await vm.ReviewCommand.ExecuteAsync(null);
+
+            var findings = LastFindings(vm);
+            Assert.All(findings, f => Assert.True(f.CanPick));
+            // The choice, and nothing of the gate: no block, no pause for a reload to find.
+            Assert.False(vm.ShowReviewGate);
+            Assert.False(vm.IsPaused);
+            Assert.True(vm.CanContinue);
+
+            findings.Single(f => f.Title == "null deref").Fix = false;
+            await vm.ContinueRunCommand.ExecuteAsync(null);
+
+            var implement = prompts.Single(p => p.Contains("Fix these findings from the previous review"));
+            Assert.Contains("race on save", implement);
+            Assert.DoesNotContain("null deref", implement);
+
+            // The attempt closed the choice: it was acted on.
+            Assert.All(findings, f => Assert.False(f.CanPick));
+        });
+    }
+
+    /// <summary>Leaving everything the review found takes Continue away, and ticking one back
+    /// returns it: an implementation against nothing is a run spent proving nothing.</summary>
+    [Fact]
+    public void Leaving_every_finding_of_a_review_takes_continue_away()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", TwoErrorsReview);
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            vm.Criteria.RequireGoalMet = false;
+            await vm.ReviewCommand.ExecuteAsync(null);
+            Assert.True(vm.CanContinue);
+
+            var findings = LastFindings(vm);
+            foreach (var finding in findings) finding.Fix = false;
+            Assert.False(vm.CanContinue);
+
+            findings[0].Fix = true;
+            Assert.True(vm.CanContinue);
+        });
+    }
+
+    /// <summary>The same on the default criteria, where the reviewer's own verdict still says no
+    /// after every finding is left alone: that verdict is not something Continue can implement.</summary>
+    [Fact]
+    public void Leaving_every_finding_takes_continue_away_on_the_default_criteria()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", TwoErrorsReview);
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            Assert.True(vm.Criteria.RequireGoalMet);
+            await vm.ReviewCommand.ExecuteAsync(null);
+            Assert.True(vm.CanContinue);
+
+            var findings = LastFindings(vm);
+            foreach (var finding in findings) finding.Fix = false;
+            Assert.False(vm.CanContinue);
+
+            findings[0].Fix = true;
+            Assert.True(vm.CanContinue);
+        });
+    }
+
+    /// <summary>A suggestion cannot be ticked away and never refuses the goal, so leaving every
+    /// error beside one still leaves nothing for Continue.</summary>
+    [Fact]
+    public void Leaving_every_error_takes_continue_away_even_beside_a_suggestion()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.",
+                "```json\n{\"goalMet\":false,\"findings\":[" +
+                "{\"severity\":\"error\",\"title\":\"null deref\",\"file\":\"a.cs\"}," +
+                "{\"severity\":\"suggestion\",\"title\":\"rename it\",\"file\":\"b.cs\"}]}\n```");
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            await vm.ReviewCommand.ExecuteAsync(null);
+            Assert.True(vm.CanContinue);
+
+            LastFindings(vm).Single(f => f.Title == "null deref").Fix = false;
+            Assert.False(vm.CanContinue);
+        });
+    }
+
+    /// <summary>A clean review offers its suggestions unticked, and ticking one is asking for it: the
+    /// goal is no longer finished, Continue appears, and the suggestion is what it is sent to fix.</summary>
+    [Fact]
+    public void Ticking_a_suggestion_after_a_review_asks_continue_to_fix_it()
+    {
+        OnUiThread(async () =>
+        {
+            const string onlyANit =
+                "```json\n{\"goalMet\":true,\"findings\":[{\"severity\":\"suggestion\"," +
+                "\"title\":\"rename x\",\"file\":\"a.cs\"}]}\n```";
+            var prompts = new List<string>();
+            var answers = new Queue<string>(["Finish the pairing flow.", onlyANit, "Implemented it", "VERDICT: PASS"]);
+            GoalTileViewModel.AiRunnerFactory = (_, prompt, _, _) =>
+            {
+                prompts.Add(prompt);
+                return Task.FromResult<AiOutput>(answers.Count > 0 ? answers.Dequeue() : "VERDICT: PASS");
+            };
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            using var vm = NewTile();
+            await vm.ReviewCommand.ExecuteAsync(null);
+
+            var nit = LastFindings(vm).Single();
+            Assert.True(nit.CanPick);
+            Assert.False(nit.Fix);
+            Assert.False(vm.CanContinue);
+
+            nit.Fix = true;
+            Assert.True(vm.CanContinue);
+
+            await vm.ContinueRunCommand.ExecuteAsync(null);
+            Assert.Contains(prompts, p => p.Contains("Fix these findings from the previous review")
+                                          && p.Contains("rename x"));
+        });
+    }
+
+    /// <summary>A tile closed over that summary comes back still offering the choice.</summary>
+    [Fact]
+    public void Reopening_a_reviewed_tile_offers_the_ticks_again()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", TwoErrorsReview);
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            var first = NewTile();
+            first.Criteria.RequireGoalMet = false;
+            await first.ReviewCommand.ExecuteAsync(null);
+            LastFindings(first).Single(f => f.Title == "null deref").Fix = false;
+            var path = first.FilePath;
+            first.Dispose();
+
+            using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+
+            var findings = LastFindings(second);
+            Assert.All(findings, f => Assert.True(f.CanPick));
+            Assert.False(findings.Single(f => f.Title == "null deref").Fix);
+            Assert.False(second.ShowReviewGate);
+            Assert.True(second.CanContinue);
+        });
+    }
+
+    /// <summary>Unticking every finding turns the summary Met, and the choice must still come back
+    /// with the tile - or Continue could never be brought back.</summary>
+    [Fact]
+    public void Reopening_after_leaving_every_finding_offers_the_ticks_again()
+    {
+        OnUiThread(async () =>
+        {
+            AnswerWith("Finish the pairing flow.", TwoErrorsReview);
+            GoalBaseline.Factory = (_, _) =>
+                Task.FromResult(new GoalBaselineResult("refs/mtiles/goals/test", false));
+
+            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+            var first = NewTile();
+            first.Criteria.RequireGoalMet = false;
+            await first.ReviewCommand.ExecuteAsync(null);
+            foreach (var finding in LastFindings(first)) finding.Fix = false;
+            Assert.False(first.CanContinue);
+            var path = first.FilePath;
+            first.Dispose();
+
+            using var second = new GoalTileViewModel(path, _dir, settings) { ConfirmAction = _ => Task.FromResult(true) };
+
+            var findings = LastFindings(second);
+            Assert.All(findings, f => Assert.True(f.CanPick));
+            Assert.False(second.CanContinue);
+            findings[0].Fix = true;
+            Assert.True(second.CanContinue);
+        });
+    }
+
+    [Fact]
+    public void Reopening_a_tile_paused_at_the_gate_does_not_spend_an_attempt_each_time()
+    {
+        // The ordinary case: the loop's own pause branch has already moved the lap on to Implement
+        // while the gate stayed open, so the flag is still set when the tile is opened again. Moved a
+        // second time, four closings and openings would take a five-attempt goal to its budget, and
+        // the Resume the user finally pressed would summarise instead of implementing.
+        var engine = new GoalWorkflowEngine();
+        engine.StartNewGoal("make it work");
+        engine.RecordProposedPlan("the plan");
+        Assert.True(engine.ApprovePlan());
+        engine.IterationCount = 1;
+        engine.CurrentPhase = GoalPhase.Implement;
+        engine.IsPaused = true;
+        engine.PausedAtReviewGate = true;
+
+        var finding = new GoalFinding { Severity = GoalSeverity.Warning, Title = "nit" };
+        engine.LastReview = new GoalReviewResult { WasStructured = true, Findings = [finding] };
+
+        var path = Path.Combine(_dir, "reopened-at-the-gate.json");
+        new GoalStatePersistence().Save(path, engine.ToState(
+            [new GoalMessage { Role = GoalMessageRole.Assistant, Text = "reviewed",
+                Phase = GoalPhase.Review, Findings = [finding] }],
+            "", ""));
+
+        OnUiThread(() =>
+        {
+            for (var opening = 0; opening < 3; opening++)
+            {
+                var vm = new GoalTileViewModel(path, _dir, new SettingsService(Path.Combine(_dir, "settings.json")));
+
+                Assert.Equal(GoalPhase.Implement, vm.CurrentPhase);
+
+                // And the ticks are still there to be moved.
+                Assert.True(vm.ShowReviewGate);
+
+                vm.Dispose();
+
+                // The attempt the lap was already standing in, however often the tile is reopened.
+                Assert.Equal(1, new GoalStatePersistence().Load(path)!.IterationCount);
+            }
+
+            return Task.CompletedTask;
         });
     }
 

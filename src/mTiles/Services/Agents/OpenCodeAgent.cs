@@ -24,10 +24,16 @@ namespace mTiles.Services.Agents;
 /// measured fact behind <see cref="AiUsage"/> being a parameter rather than a property: the honest
 /// answer to "what efforts does opencode support" is different in the two places.</para>
 /// </remarks>
-public sealed class OpenCodeAgent : AiAgent
+public sealed class OpenCodeAgent : AiAgent, Sessions.IConversationalAgent
 {
     public override string Id => "opencode";
     public override string DisplayName => "OpenCode";
+
+    /// <summary>A conversation through <c>opencode serve</c> — see
+    /// <see cref="Sessions.OpenCode.OpenCodeServerSession"/>.</summary>
+    public AgentSessions.IAgentSession CreateSession(Sessions.AgentSessionLaunch launch,
+        AgentSessions.IAgentEventSink sink) =>
+        new Sessions.OpenCode.OpenCodeServerSession(launch, this, sink);
 
     /// <summary>Measured 2026-09-03: <c>.opencode/skills</c> under the project — configurable through
     /// its own <c>paths</c>, and this is the default.</summary>
@@ -55,11 +61,32 @@ public sealed class OpenCodeAgent : AiAgent
     /// into <c>PtyOptions.Environment</c>, so every program the user then runs in that tile inherits
     /// them, and on Unix these two are where <em>any</em> XDG-aware tool keeps its configuration and
     /// data. It is not fixable from here — the agent is started by that shell — and it is bounded: the
-    /// tile is an agent tile the user opened for this instance, and the redirection is to a directory
+    /// tile is a terminal agent tile the user opened for this instance, and the redirection is to a directory
     /// this application made. Anything narrower would mean not launching the agent through a shell at
     /// all.</para>
     /// </remarks>
     public override bool SupportsSignIns => true;
+
+    /// <inheritdoc />
+    /// <remarks><b>The gauge follows this CLI and the session id does not.</b> An opencode tile resumes
+    /// through <c>OpenCodeSession</c>'s import document, whose path is a pure function of the tile's own
+    /// id — so adopting a conversation the user moved to inside the TUI would leave the resume command
+    /// and its fallback naming two different sessions, which shows up only once the adopted one is gone.
+    /// Reading the store for the context bar has no such cost.</remarks>
+    public override bool FollowsSessionChanges => false;
+
+    /// <inheritdoc />
+    /// <remarks>The data root <see cref="SignInEnv"/> points <c>XDG_DATA_HOME</c> at, and for the
+    /// default account the machine's own <c>XDG_DATA_HOME</c> or <c>~/.local/share</c> — the same three
+    /// cases <see cref="ReadSignIn"/> spells out, and for the same reason: a store read from anywhere
+    /// else is answering about a directory the launch does not use.</remarks>
+    public override SessionLogs.IAgentSessionLog? SessionLog { get; } =
+        new SessionLogs.OpenCodeSessionLog(signIn => signIn is not null
+            ? Path.Combine(AiSignInStore.DirectoryFor(signIn), "data")
+            : Environment.GetEnvironmentVariable("XDG_DATA_HOME") is { Length: > 0 } xdg
+                ? xdg
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".local", "share"));
 
     /// <inheritdoc />
     public override IReadOnlyDictionary<string, string?> SignInEnv(string configDirectory) =>
@@ -144,6 +171,10 @@ public sealed class OpenCodeAgent : AiAgent
     /// <remarks><c>opencode run --help</c>: "model to use in the format of provider/model".</remarks>
     public override string QualifiedModel(AgentRuntime runtime) => WithProviderPrefix(runtime);
 
+    /// <inheritdoc />
+    public override string InstanceModel(AgentRuntime runtime, string qualifiedModel) =>
+        WithoutProviderPrefix(runtime, qualifiedModel);
+
     /// <summary>
     /// opencode has its own slot for the small, frequent calls: <c>small_model</c> in its config.
     /// </summary>
@@ -218,16 +249,28 @@ public sealed class OpenCodeAgent : AiAgent
     /// <em>import's</em> working directory, which is the tile's. Re-importing an id that exists is
     /// non-destructive, so this is create-if-missing and not a way to wipe the conversation being
     /// resumed.</remarks>
-    protected override LaunchScripts Resume(string sessionId)
+    protected override LaunchScripts Resume(string program, string sessionId)
     {
-        var resume = $"opencode --session {sessionId}";
+        var resume = $"{program} --session {sessionId}";
         // The token rather than the path it expands to: writing the document is the launcher's job, and
         // what tells it there is one to write is exactly this token in the script (see
         // OpenCodeSession.PrepareIfReferenced). A path spelled out here reads the same to a shell and is
         // invisible to the launcher, so the import would point at a file nobody ever wrote.
         return LaunchScripts.FromProfile(resume,
-            $"opencode import \"{TileScript.OpenCodeSessionFileToken}\" ; {resume}");
+            $"{program} import \"{TileScript.OpenCodeSessionFileToken}\" ; {resume}");
     }
+
+    /// <summary>The import document's path — what <see cref="TileScript.OpenCodeSessionFileToken"/>
+    /// expands to at launch.</summary>
+    /// <remarks>The path is under the user's profile, and a profile name may carry an <c>&amp;</c> or a
+    /// <c>%</c>, which <c>cmd.exe</c> behind an <c>opencode.cmd</c> shim would read as a second command
+    /// or a variable. A session id that was not made from a usable tile id adds nothing: the launch
+    /// refuses to expand the token for it (<see cref="TileScript.TryResolve"/>), so no path is ever
+    /// written into that line.</remarks>
+    protected override IEnumerable<string> ResumeArguments(string sessionId) =>
+        OpenCodeSession.TileIdOf(sessionId) is { } tileId && TileScript.IsUsableId(tileId)
+            ? [OpenCodeSession.DocumentPath(tileId)]
+            : [];
 
     /// <inheritdoc />
     /// <remarks>The <c>ses_</c> prefix is the only thing opencode enforces on an imported id, and the
@@ -291,4 +334,18 @@ public sealed class OpenCodeAgent : AiAgent
         new("Working...", TileActivity.Working),
         new("Allow always", TileActivity.Blocked, "Waiting for permission"),
     ];
+
+    /// <inheritdoc />
+    /// <remarks><b>A real route this application will not take.</b> Probed 2026-09-22 against rtk
+    /// 0.46.0: <c>rtk init --opencode</c> writes <c>~/.config/opencode/plugins/rtk.ts</c> — the user's
+    /// own configuration — and opencode carries no flag that loads a plugin for one run, so there is
+    /// nothing for <c>SessionDefaultArgs</c> to answer with. Taking it would turn a tick on one
+    /// instance into a change to every opencode session on the machine, this application's own and the
+    /// ones started from a shell alike, and nothing here could take it back off again on that
+    /// instance's behalf. Anyone who wants it machine-wide has rtk's own command for it.
+    /// <para>Worth re-measuring if <c>OPENCODE_CONFIG</c> — the generated document
+    /// <see cref="OpenCodeProviderConfig"/> already points opencode at — grows a key naming a plugin
+    /// by path. That would make this the same shape as Claude Code's overnight.</para></remarks>
+    public override OutputProxy.Support OutputProxySupport =>
+        OutputProxy.Support.WritesOutsideOurDirectories;
 }

@@ -1,6 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using System.Diagnostics;
 using Material.Icons;
 
 namespace mTiles.Views;
@@ -30,15 +33,69 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
         Error,
     }
 
+    /// <summary>How long after it opens a dialog refuses a bare answer key, unless told otherwise.</summary>
+    /// <remarks>
+    /// <para>These dialogs appear <em>under</em> somebody's typing — a discard asked for from the git
+    /// tile, with a terminal and a composer a keystroke away — so a letter already on its way to the
+    /// keyboard lands in a dialog the user has not read yet. Long enough that such a key is gone, short
+    /// enough that a deliberate press never waits for it: Firefox guards its download buttons the same
+    /// way and for the same reason.</para>
+    /// <para>Only the <b>bare</b> letter is held back. Enter, Escape and Alt+D are gestures aimed at a
+    /// dialog — nobody makes them by accident — and they work from the first frame.</para>
+    /// </remarks>
+    public static TimeSpan DefaultSettlingTime { get; } = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>This dialog's own settling window, taken from <see cref="DefaultSettlingTime"/>.</summary>
+    /// <remarks>Per instance rather than a static a test moves: test classes run in parallel, so a
+    /// shared window is one class widening it while another's deliberate keypress is refused — a flake
+    /// with no trace of its cause in the test that fails.</remarks>
+    internal TimeSpan SettlingTime { get; set; } = DefaultSettlingTime;
+
     private readonly Button _focusOnOpen;
+    private readonly Stopwatch _sinceOpened = new();
+    private char? _confirmKey;
+    private char? _cancelKey;
 
     public MessageDialog()
     {
         InitializeComponent();
         _focusOnOpen = ConfirmButton;
+
+        // Bubble: a control that means something else by a letter has already handled it. Nothing in
+        // this dialog is typed into today, and that is a fact about its markup rather than a promise.
+        AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Bubble);
+
+
     }
 
-    private MessageDialog(string title, string message, Tone tone, string? confirmText, string cancelText)
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _sinceOpened.Restart();
+    }
+
+    /// <summary>The bare letter that answers: <c>y</c>, <c>n</c>, <c>d</c> for Discard.</summary>
+    /// <remarks>The letter is the one underlined on the button, asked of the same rule that put the
+    /// mark there — so what the dialog shows and what it accepts cannot drift apart.</remarks>
+    private void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled) return;
+        if (_sinceOpened.Elapsed < SettlingTime) return;
+
+        Button? pressed = null;
+        if (AccessKeyLabel.Answers(e.Key, e.KeyModifiers, _confirmKey))
+            pressed = ConfirmButton;
+        else if (CancelButton.IsVisible && AccessKeyLabel.Answers(e.Key, e.KeyModifiers, _cancelKey))
+            pressed = CancelButton;
+
+        if (pressed is null) return;
+
+        e.Handled = true;
+        pressed.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+    }
+
+    private MessageDialog(string title, string message, Tone tone, string? confirmText, string cancelText,
+        bool defaultsToYes)
         : this()
     {
         TitleText.Text = title;
@@ -58,36 +115,66 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
         {
             // A statement rather than a question: one button, and it takes the keyboard.
             CancelButton.IsVisible = false;
-            ConfirmButton.Content = cancelText;
+            ConfirmButton.Content = Label(cancelText, taken: null);
+            _confirmKey = AccessKeyLabel.KeyOf(cancelText);
             ConfirmButton.Click += (_, _) => OverlayHost.CloseWith(this, false);
         }
         else
         {
-            ConfirmButton.Content = confirmText;
-            CancelButton.Content = cancelText;
+            _confirmKey = AccessKeyLabel.KeyOf(confirmText);
+            _cancelKey = AccessKeyLabel.KeyOf(cancelText, taken: _confirmKey);
+            ConfirmButton.Content = Label(confirmText, taken: null);
+            CancelButton.Content = Label(cancelText, taken: _confirmKey);
             ConfirmButton.Click += (_, _) => OverlayHost.CloseWith(this, true);
             CancelButton.Click += (_, _) => OverlayHost.CloseWith(this, false);
 
             // The safe answer takes the keyboard, so Enter on a keystroke nobody aimed declines:
-            // every one of these confirms something that pressing it again will not undo.
-            _focusOnOpen = CancelButton;
+            // nearly every one of these confirms something that pressing it again will not undo.
+            // `defaultsToYes` is for the ones that do not — see the parameter's own remarks.
+            _focusOnOpen = defaultsToYes ? ConfirmButton : CancelButton;
         }
     }
+
+    /// <summary>A button's label with its access key underlined.</summary>
+    /// <remarks>
+    /// <para><b>An <see cref="AccessText"/> rather than a string</b>, which is the part that was
+    /// measured rather than assumed: a <see cref="ContentPresenter"/> turns a string into an
+    /// <see cref="AccessText"/> only when its template asks for it, and the Button theme this
+    /// application uses (Avalonia 12's Fluent) does not — so <c>"_Yes"</c> handed over as a string
+    /// reached the screen as a plain TextBlock reading <c>_Yes</c>, underscore and all, with no
+    /// access key registered anywhere. Built here, the control parses the mark itself.</para>
+    /// <para><b>The underline is on from the start</b>, not only while Alt is held, which is what
+    /// Avalonia's own <c>AccessKeyHandler</c> does with it. Alt-to-reveal is right where Alt is the
+    /// whole gesture; here the bare letter answers too, so a mark nobody sees is a shortcut nobody
+    /// knows about.</para>
+    /// </remarks>
+    private static AccessText Label(string text, char? taken) => new()
+    {
+        Text = AccessKeyLabel.Mark(text, taken),
+        ShowAccessKey = true,
+    };
 
     public void FocusOnOpen() => _focusOnOpen.Focus();
 
     /// <summary>Asks a yes/no question.</summary>
     /// <param name="whenUnavailable">The answer when there is no window to ask in — see the class
     /// remarks for why this is the caller's decision and not one value.</param>
+    /// <param name="defaultsToYes">Which button takes the keyboard, and therefore what Enter answers.
+    /// <b>Off by default and opt-in per call</b>: the reason the safe answer normally has it is that
+    /// nearly every question here confirms something pressing it again will not undo, and a stray Enter
+    /// must not be the thing that does it. Turn it on only where <em>no</em> is the cautious answer to
+    /// nothing — where saying yes loses nothing the user could want back — so that the question is a
+    /// pause rather than an obstacle. Compacting a conversation's context is the one such call today.
+    /// </param>
     public static Task<bool> ConfirmAsync(Visual owner, string title, string message,
         bool whenUnavailable, Tone tone = Tone.Question,
-        string confirmText = "Yes", string cancelText = "No")
+        string confirmText = "Yes", string cancelText = "No", bool defaultsToYes = false)
     {
         if (OverlayHost.For(owner) is not { } host)
             return Task.FromResult(whenUnavailable);
 
         return host.ShowAsync<bool>(
-            new MessageDialog(title, message, tone, confirmText, cancelText), width: 460);
+            new MessageDialog(title, message, tone, confirmText, cancelText, defaultsToYes), width: 460);
     }
 
     /// <summary>States something and waits for it to be dismissed.</summary>
@@ -97,6 +184,7 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
             return;
 
         await host.ShowAsync<bool>(
-            new MessageDialog(title, message, tone, confirmText: null, cancelText: "OK"), width: 460);
+            new MessageDialog(title, message, tone, confirmText: null, cancelText: "OK", defaultsToYes: false),
+            width: 460);
     }
 }

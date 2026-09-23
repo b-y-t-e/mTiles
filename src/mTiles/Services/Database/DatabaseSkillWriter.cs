@@ -34,6 +34,20 @@ public static class DatabaseSkillWriter
     public const string SkillName = "mtiles-database";
 
     /// <summary>
+    /// What the user granted, independent of what discovery has found so far: every selected database,
+    /// its access, and the port the bridge answers on.
+    /// </summary>
+    /// <remarks>The measure of a change to this skill (<see cref="WorkspaceAgentFiles.WriteSkill"/>).
+    /// <see cref="Build"/> names only the databases the registry already knows, so its output moves while
+    /// discovery is still answering — SQL Server first, PostgreSQL after — although nobody decided
+    /// anything. Ordered, so the same selection in a different order is the same grant.</remarks>
+    public static string GrantOf(IReadOnlyList<WorkspaceDatabaseConfig> databases, int httpPort) =>
+        string.Join('\n', databases
+            .Select(config => $"{config.DatabaseKey}:{(config.AllowModifications ? "rw" : "ro")}")
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .Prepend($"port:{httpPort}"));
+
+    /// <summary>
     /// The whole <c>SKILL.md</c> for these databases, or null when there is nothing to offer.
     /// </summary>
     /// <remarks>Null rather than an empty skill: a skill announcing an empty list of databases is worse

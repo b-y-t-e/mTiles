@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
@@ -151,8 +152,11 @@ public class OverlayHostTests
         window.UpdateLayout();
 
         var dialog = window.GetVisualDescendants().OfType<MessageDialog>().Single();
+        // An AccessText and not a string: the underscore is the access key mark, and the Button
+        // theme here does not turn a string into one — see MessageDialog.Label. Matched with the
+        // mark in it, so a label losing its mnemonic fails here rather than passing quietly.
         var button = dialog.GetVisualDescendants().OfType<Button>()
-            .First(b => (string?)b.Content == (yes ? "Yes" : "No"));
+            .First(b => (b.Content as AccessText)?.Text == (yes ? "_Yes" : "_No"));
 
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
