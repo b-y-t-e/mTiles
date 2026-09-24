@@ -763,7 +763,7 @@
                                  in the column, and the rail was costing it two characters of every line. -->
                             <Border Classes="ask wide">
                                 <DockPanel>
-                                    <StackPanel Margin="8,6,8,8" Spacing="4">
+                                    <StackPanel Margin="14,6,14,8" Spacing="4">
                                         <TextBlock Classes="ask-title" Text="Proposed plan" />
                                         <v:GoalMarkdownView MarkdownText="{Binding Markdown}" />
                                     </StackPanel>
@@ -899,7 +899,7 @@
                         <DataTemplate DataType="ac:HandoverItemViewModel">
                             <Border Classes="ask wide">
                                 <DockPanel>
-                                    <StackPanel Margin="8,6,8,8" Spacing="4">
+                                    <StackPanel Margin="14,6,14,8" Spacing="4">
                                         <TextBlock Classes="ask-title" Text="{Binding Title}" />
                                         <TextBlock Classes="ask-why" TextWrapping="Wrap" Text="{Binding Headline}" />
                                         <Button Classes="fold" Command="{Binding ToggleBriefCommand}"
@@ -934,7 +934,7 @@
                 <!-- ======== The agent's own to-do list ======== -->
                 <Border Classes="ask wide" IsVisible="{Binding HasPlan}">
                     <DockPanel>
-                        <StackPanel Margin="8,6,8,8" Spacing="2">
+                        <StackPanel Margin="14,6,14,8" Spacing="2">
                             <TextBlock Classes="ask-title" Text="Plan" />
                             <ItemsControl ItemsSource="{Binding PlanSteps}">
                                 <ItemsControl.ItemTemplate>
@@ -957,7 +957,7 @@
                         <DataTemplate DataType="ac:ApprovalRequestViewModel">
                             <Border Classes="ask wide">
                                 <DockPanel>
-                                    <StackPanel Margin="8,6,8,8" Spacing="5">
+                                    <StackPanel Margin="14,6,14,8" Spacing="5">
                                         <TextBlock Classes="ask-title" Text="{Binding KindLabel}" />
                                         <TextBlock Classes="ask-question" Text="{Binding Title}" />
                                         <SelectableTextBlock Classes="code" Text="{Binding Text}" IsVisible="{Binding HasText}" />
@@ -1004,7 +1004,7 @@
                      is picked rather than copied into the field. -->
                 <Border Classes="ask wide" IsVisible="{Binding PendingQuestions, Converter={x:Static ObjectConverters.IsNotNull}}">
                     <DockPanel>
-                        <StackPanel Margin="8,6,8,8" DataContext="{Binding PendingQuestions}"
+                        <StackPanel Margin="14,6,14,8" DataContext="{Binding PendingQuestions}"
                                     x:DataType="ac:QuestionRoundViewModel">
                             <TextBlock Classes="ask-title" Margin="0,0,0,6" Text="The agent asks" />
                             <ItemsControl ItemsSource="{Binding Questions}">
@@ -1077,7 +1077,7 @@
                 <!-- ======== Why it did not start ======== -->
                 <Border Classes="ask wide" IsVisible="{Binding HasLaunchProblem}">
                     <DockPanel>
-                        <StackPanel Margin="8,6,8,8" Spacing="6">
+                        <StackPanel Margin="14,6,14,8" Spacing="6">
                             <TextBlock Classes="ask-title" Text="The agent did not start" />
                             <SelectableTextBlock Classes="msg" Text="{Binding LaunchProblem}" />
                             <Button Classes="chat-action" HorizontalAlignment="Left" Command="{Binding RestartCommand}">
