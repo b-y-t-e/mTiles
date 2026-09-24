@@ -63,11 +63,18 @@ public sealed class AiUsageService : IDisposable
     /// a failure and never by nothing — which is what keeps a card from going blank the moment its
     /// account has one bad round; <see cref="LastGoodAt"/> is what stops that courtesy becoming a lie,
     /// through <see cref="MaskLimit"/>.</remarks>
+    /// <param name="BackoffUntil">The service asked not to be asked before this (a 429's
+    /// <c>Retry-After</c>). Until then the source is not asked at all, and its last good reading goes on
+    /// standing in past <see cref="MaskLimit"/>: the refusal is the service's own statement that the
+    /// account is fine and only the question is unwelcome.</param>
+    /// <param name="Failing">The last attempt did not answer, so what <see cref="LastGood"/> shows is held
+    /// over and is stamped with its age (<see cref="AiUsageReport.HeldOver"/>).</param>
     private sealed record Entry(AiUsageReport? LastGood, DateTimeOffset LastGoodAt,
-        DateTimeOffset LastAttemptAt);
+        DateTimeOffset LastAttemptAt, DateTimeOffset? BackoffUntil = null, bool Failing = false);
 
     private readonly SettingsService _settings;
     private readonly UsageHistory _history;
+    private readonly UsageSnapshots? _snapshots;
     private readonly Func<AppSettings, IReadOnlyList<IUsageSource>> _sources;
     private readonly Func<DateTimeOffset> _now;
     private readonly Lock _gate = new();
@@ -83,12 +90,34 @@ public sealed class AiUsageService : IDisposable
 
     public AiUsageService(SettingsService settings, UsageHistory? history = null,
         Func<AppSettings, IReadOnlyList<IUsageSource>>? sources = null,
-        Func<DateTimeOffset>? now = null)
+        Func<DateTimeOffset>? now = null, UsageSnapshots? snapshots = null)
     {
         _settings = settings;
         _history = history ?? new UsageHistory();
         _sources = sources ?? UsageSources.From;
         _now = now ?? (() => DateTimeOffset.Now);
+        _snapshots = snapshots;
+        Restore();
+    }
+
+    /// <summary>Puts back what the previous run last knew, where this service was given somewhere to
+    /// keep it.</summary>
+    /// <remarks>Every restored entry is <see cref="Entry.Failing"/>, so its card is stamped with its age
+    /// until the account is asked again. A refusal still in force keeps the account from being asked at
+    /// all; any other entry counts as never attempted, so the first round asks it.</remarks>
+    private void Restore()
+    {
+        if (_snapshots is null) return;
+
+        var now = _now();
+        foreach (var (id, snapshot) in _snapshots.Load())
+        {
+            var backoff = snapshot.BackoffUntil is { } until && until > now ? until : (DateTimeOffset?)null;
+            if (snapshot.LastGood is null && backoff is null) continue;
+
+            _cache[id] = new Entry(snapshot.LastGood, snapshot.LastGoodAt,
+                LastAttemptAt: backoff is null ? DateTimeOffset.MinValue : now, backoff, Failing: true);
+        }
     }
 
     /// <summary>Raised when the reports have been replaced. Never on the UI thread.</summary>
@@ -216,6 +245,7 @@ public sealed class AiUsageService : IDisposable
             var sources = _sources(_settings.Settings);
             var outcomes = await Task.WhenAll(sources.Select(source => AskIfDue(source, now, ct, deadline.Token)));
             var reports = outcomes.Select(outcome => outcome.Report).OfType<AiUsageReport>().ToArray();
+            Dictionary<string, UsageSnapshot>? toPersist = null;
 
             lock (_gate)
             {
@@ -228,8 +258,14 @@ public sealed class AiUsageService : IDisposable
                 // "refreshed just now" line that the figures are fresh when they are, at best, the same
                 // ones it already had.
                 if (outcomes.Any(outcome => outcome.WasAsked))
+                {
                     _lastRefresh = now;
+                    if (_snapshots is not null) toPersist = SnapshotsOfCache();
+                }
             }
+
+            // Outside the lock: a disk write under _gate would block every reader of Reports.
+            if (toPersist is not null) _snapshots!.Save(toPersist);
         }
         catch (Exception ex)
         {
@@ -273,11 +309,19 @@ public sealed class AiUsageService : IDisposable
         Entry? entry;
         lock (_gate) _cache.TryGetValue(source.Id, out entry);
 
+        if (entry is { BackoffUntil: { } until } && now < until)
+        {
+            Trace.TraceInformation(
+                "Usage of '{0}' was refused with a request to wait until {1:HH:mm:ss}; not asked again.",
+                source.Id, until);
+            return new Outcome(Shown(entry, now), WasAsked: false);
+        }
+
         if (entry is not null && now - entry.LastAttemptAt < RefreshInterval)
         {
             Trace.TraceInformation(
                 "Usage of '{0}' is still within its 3-minute window; not asked again.", source.Id);
-            return new Outcome(StillWorthShowing(entry, now), WasAsked: false);
+            return new Outcome(Shown(entry, now), WasAsked: false);
         }
 
         var fresh = await Ask(source, ct, deadline);
@@ -294,7 +338,7 @@ public sealed class AiUsageService : IDisposable
         if (fresh is not { Answered: true })
             TraceMasking(source.Id, entry, updated);
 
-        return new Outcome(updated.LastGood ?? fresh, WasAsked: true);
+        return new Outcome(Shown(updated, now) ?? fresh, WasAsked: true);
     }
 
     /// <summary>What this round leaves in the cache for one source.</summary>
@@ -306,15 +350,45 @@ public sealed class AiUsageService : IDisposable
     {
         if (fresh is { Answered: true }) return new Entry(fresh, now, now);
 
-        var masked = entry is null ? null : StillWorthShowing(entry, now);
+        var backoff = fresh?.RetryNotBefore is { } requested ? AtLeastOneInterval(requested, now) : (DateTimeOffset?)null;
+        var masked = entry is null ? null : StillWorthShowing(entry with { BackoffUntil = backoff }, now);
 
-        return new Entry(masked, masked is null ? now : entry!.LastGoodAt, now);
+        return new Entry(masked, masked is null ? now : entry!.LastGoodAt, now, backoff, Failing: true);
     }
+
+    /// <summary>A service's own request to wait, never shorter than this service's own interval: a
+    /// <c>Retry-After: 0</c> must not turn into asking on every tick.</summary>
+    private static DateTimeOffset AtLeastOneInterval(DateTimeOffset requested, DateTimeOffset now) =>
+        requested > now + RefreshInterval ? requested : now + RefreshInterval;
+
+    /// <summary>What goes to disk: every entry with a reading or a refusal still worth honouring.</summary>
+    /// <remarks>The <see cref="AiUsageReport.AccountKey"/> is dropped — it is an account's own id, to be
+    /// compared in memory and never stored. A restored reading only loses the merge with its twin until
+    /// the next answer brings the key back. Called under <see cref="_gate"/>.</remarks>
+    private Dictionary<string, UsageSnapshot> SnapshotsOfCache() =>
+        _cache
+            .Where(pair => pair.Value.LastGood is not null || pair.Value.BackoffUntil is not null)
+            .ToDictionary(pair => pair.Key, pair => new UsageSnapshot(
+                pair.Value.LastGood is { } good ? good with { HeldOver = false, AccountKey = null } : null,
+                pair.Value.LastGoodAt, pair.Value.BackoffUntil));
+
+    /// <summary>What to draw for an entry: <see cref="StillWorthShowing"/>, stamped as held over when
+    /// the last attempt failed.</summary>
+    private static AiUsageReport? Shown(Entry entry, DateTimeOffset now) =>
+        StillWorthShowing(entry, now) is { } report
+            ? entry.Failing ? report with { HeldOver = true } : report
+            : null;
 
     /// <summary>The entry's last good reading while it is young enough to stand in for a fresh one, and
     /// null once it is not.</summary>
+    /// <remarks>A refusal still in force outlasts <see cref="MaskLimit"/>: the account is not broken, it
+    /// asked not to be asked, and a card that vanished for the length of a <c>Retry-After</c> would be
+    /// this application's own politeness reading as an account gone missing.</remarks>
     private static AiUsageReport? StillWorthShowing(Entry entry, DateTimeOffset now) =>
-        entry.LastGood is not null && now - entry.LastGoodAt < MaskLimit ? entry.LastGood : null;
+        entry.LastGood is not null
+        && (now - entry.LastGoodAt < MaskLimit || entry.BackoffUntil is { } until && now < until)
+            ? entry.LastGood
+            : null;
 
     /// <summary>Says in the log which of the two things just happened to a failing account: its figures
     /// are being held over, or they have been given up on and its own sentence is what the round
@@ -350,7 +424,10 @@ public sealed class AiUsageService : IDisposable
     private DateTimeOffset EarliestDueAt(DateTimeOffset now) =>
         _cache.Count == 0
             ? now
-            : _cache.Values.Min(entry => entry.LastAttemptAt) + RefreshInterval;
+            : _cache.Values.Min(entry =>
+                entry.BackoffUntil is { } until && until > entry.LastAttemptAt + RefreshInterval
+                    ? until
+                    : entry.LastAttemptAt + RefreshInterval);
 
     /// <summary>
     /// Puts the reason an account could not be asked somewhere a person can find it.

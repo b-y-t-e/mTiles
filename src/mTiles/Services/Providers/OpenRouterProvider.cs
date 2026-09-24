@@ -116,10 +116,10 @@ public sealed class OpenRouterProvider : AiProvider
         if (AddressProblem(instance) is { } addressProblem)
             return AiUsageReport.Failed(sourceId, instance.Name, addressProblem.Message, measuredAt);
 
-        using var key = await GetJsonAsync(instance, "api/v1/key", ct);
+        var (key, retryNotBefore) = await GetJsonOrRefusalAsync(instance, "api/v1/key", ct);
+        using var _ = key;
         if (key is null)
-            return AiUsageReport.Failed(sourceId, instance.Name,
-                "OpenRouter did not answer for this key, so nothing here is a figure.", measuredAt);
+            return UsageRefusal.Failed(sourceId, instance.Name, "OpenRouter", measuredAt, retryNotBefore);
 
         // An answer this reader cannot find a `data` object in is a failure and has to say so. Built as
         // a normal report it came out Answered, with three windows of nulls and no balance - a card

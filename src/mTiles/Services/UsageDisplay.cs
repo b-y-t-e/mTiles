@@ -72,7 +72,8 @@ public static class UsageDisplay
     }
 
     /// <summary>How old a reading is, where that is worth saying.</summary>
-    /// <remarks>Only where it is older than the window it describes: figures a minute old are simply
+    /// <remarks>Only where it is older than the window it describes, or is held over (see
+    /// <see cref="AiUsageReport.HeldOver"/>): figures a minute old are simply
     /// the figures, and stamping every card with an age would bury the one stamp that matters —
     /// codex's, which is as fresh as its last reply and no fresher.</remarks>
     public static string Age(AiUsageReport report, DateTimeOffset now)
@@ -84,6 +85,12 @@ public static class UsageDisplay
             .Min();
 
         var age = now - report.MeasuredAt;
+
+        // A reading held over for a round that could not ask — a rate limit, a restart — is stamped
+        // however young it is: it looks exactly like a fresh one otherwise, and the difference is the
+        // one thing somebody reading the card during a 429 needs to know.
+        if (report.HeldOver && age >= TimeSpan.FromMinutes(1)) return $"{Rough(age)} old";
+
         return shortest > TimeSpan.Zero && age > shortest ? $"{Rough(age)} old" : "";
     }
 

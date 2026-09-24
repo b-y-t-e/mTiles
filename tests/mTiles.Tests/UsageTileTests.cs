@@ -164,7 +164,8 @@ public class UsageTileTests
         now += AiUsageService.RefreshInterval + TimeSpan.FromSeconds(1);
         await service.RefreshAsync(force: true);
 
-        Assert.Equal(good, Assert.Single(service.Reports));
+        // The same figures, marked as held over so the card says how old they are.
+        Assert.Equal(good with { HeldOver = true }, Assert.Single(service.Reports));
     }
 
     /// <summary>Holding a good reading over is for a bad round, not for an account that has stopped

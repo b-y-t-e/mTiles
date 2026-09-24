@@ -58,12 +58,11 @@ public static class AntigravityUsageReader
         string accessToken, DateTimeOffset measuredAt, string? accountKey = null,
         CancellationToken ct = default)
     {
-        var json = await FetchAsync(accessToken, ct);
+        var (json, retryNotBefore) = await FetchAsync(accessToken, measuredAt, ct);
 
-        return json is null
-            ? AiUsageReport.Failed(sourceId, sourceName,
-                "Antigravity did not answer the usage question for this account.", measuredAt)
-            : Parse(json, sourceId, sourceName, measuredAt, accountKey);
+        if (json is not null) return Parse(json, sourceId, sourceName, measuredAt, accountKey);
+
+        return UsageRefusal.Failed(sourceId, sourceName, "Antigravity", measuredAt, retryNotBefore);
     }
 
     /// <summary>The windows the answer describes, in the order it lists them.</summary>
@@ -176,8 +175,10 @@ public static class AntigravityUsageReader
             ? value.GetString()
             : null;
 
-    /// <summary>The document, or null for every way of not getting one.</summary>
-    private static async Task<string?> FetchAsync(string accessToken, CancellationToken ct)
+    /// <summary>The document, or null for every way of not getting one — and, for a refusal that says
+    /// when to come back, that instant.</summary>
+    private static async Task<(string? Json, DateTimeOffset? RetryNotBefore)> FetchAsync(
+        string accessToken, DateTimeOffset now, CancellationToken ct)
     {
         try
         {
@@ -197,19 +198,15 @@ public static class AntigravityUsageReader
             using var response = await client.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
             {
-                // The status and never the body: an error page from an endpoint authenticated with a
-                // bearer token is not something to copy into a log file.
-                Trace.TraceWarning("The Antigravity usage endpoint answered {0}.",
-                    (int)response.StatusCode);
-                return null;
+                return (null, UsageRefusal.Read("Antigravity", response, now));
             }
 
-            return await response.Content.ReadAsStringAsync(ct);
+            return (await response.Content.ReadAsStringAsync(ct), null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             Trace.TraceWarning("Asking Antigravity for usage failed: {0}", ex.Message);
-            return null;
+            return (null, null);
         }
     }
 }

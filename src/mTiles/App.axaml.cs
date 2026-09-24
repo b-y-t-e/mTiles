@@ -71,7 +71,7 @@ public partial class App : Application
         // One asker for the whole application, so two usage tiles in two workspaces are one set of calls.
         // It reaches nothing until a tile attaches to it: nothing here polls a service the user is not
         // looking at, the rule discovery already follows.
-        _usage = new AiUsageService(_settingsService);
+        _usage = new AiUsageService(_settingsService, snapshots: new UsageSnapshots());
 
         // One per application, like the database manager beside it: it holds the live watcher for every
         // workspace currently loaded and reacts to the global switch in Settings.

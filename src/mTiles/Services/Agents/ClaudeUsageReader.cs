@@ -51,12 +51,11 @@ public static class ClaudeUsageReader
         string accessToken, DateTimeOffset measuredAt, string? accountKey = null,
         CancellationToken ct = default)
     {
-        var json = await FetchAsync(accessToken, ct);
+        var (json, retryNotBefore) = await FetchAsync(accessToken, measuredAt, ct);
 
-        return json is null
-            ? AiUsageReport.Failed(sourceId, sourceName,
-                "Anthropic did not answer the usage question for this account.", measuredAt)
-            : Parse(json, sourceId, sourceName, plan, measuredAt, accountKey);
+        if (json is not null) return Parse(json, sourceId, sourceName, plan, measuredAt, accountKey);
+
+        return UsageRefusal.Failed(sourceId, sourceName, "Anthropic", measuredAt, retryNotBefore);
     }
 
     /// <summary>The two windows the answer describes.</summary>
@@ -109,8 +108,10 @@ public static class ClaudeUsageReader
             ResetsAt: UsageInstant.From(window, "resets_at"));
     }
 
-    /// <summary>The document, or null for every way of not getting one.</summary>
-    private static async Task<string?> FetchAsync(string accessToken, CancellationToken ct)
+    /// <summary>The document, or null for every way of not getting one — and, for a refusal that says
+    /// when to come back, that instant.</summary>
+    private static async Task<(string? Json, DateTimeOffset? RetryNotBefore)> FetchAsync(
+        string accessToken, DateTimeOffset now, CancellationToken ct)
     {
         try
         {
@@ -126,18 +127,15 @@ public static class ClaudeUsageReader
             using var response = await client.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
             {
-                // The status and never the body: an error page from an endpoint authenticated with a
-                // bearer token is not something to copy into a log file.
-                Trace.TraceWarning("The Claude usage endpoint answered {0}.", (int)response.StatusCode);
-                return null;
+                return (null, UsageRefusal.Read("Claude", response, now));
             }
 
-            return await response.Content.ReadAsStringAsync(ct);
+            return (await response.Content.ReadAsStringAsync(ct), null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             Trace.TraceWarning("Asking Anthropic for usage failed: {0}", ex.Message);
-            return null;
+            return (null, null);
         }
     }
 }

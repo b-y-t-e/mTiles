@@ -1882,6 +1882,9 @@ this application, named by process id, or one that has not finished exiting.
   is the boundary the counter being sampled resets on, and the **maximum** seen for a date wins: the
   value is a running daily total, so a poll landing just after midnight would otherwise write a fresh
   small number over a finished day. An unreadable file is a fresh start — what is lost is a row of bars
+- `usage/last.json` — each account's last good usage reading and any `Retry-After` still in force
+  (`UsageSnapshots`), so a restart during a 429 neither asks again nor loses the card. A restored
+  reading is always stamped with its age (`AiUsageReport.HeldOver`). Owner-only, like `history.json`
 - `models/` — downloaded speech-to-text models (hundreds of MB each; `.partial` while downloading)
 - `phone/` — the phone bridge's TLS material and its paired devices. `bridge.pfx` **contains a private key**; kept rather than regenerated per launch, because a new certificate every launch means a new browser warning every launch, and reissued when the machine's set of addresses changes (a certificate is only accepted for a host in its SANs). `sessions.json` holds SHA-256 of each paired device's token — never the token, so the file records *who* is paired without being usable to authenticate. Shutting the application down does not clear it; turning the bridge off does
 - Auto-save with debounce

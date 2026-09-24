@@ -165,10 +165,17 @@ public abstract class AiProvider : IAiProvider
     /// <paramref name="ct"/> instead of the type: only a caller who really did cancel gets the throw
     /// they asked for.</para></remarks>
     protected async Task<JsonDocument?> GetJsonAsync(AiProviderInstance instance, string path,
-        CancellationToken ct)
+        CancellationToken ct) =>
+        (await GetJsonOrRefusalAsync(instance, path, ct)).Json;
+
+    /// <summary><see cref="GetJsonAsync"/>, and for a refusal that says when to ask again, that instant
+    /// (see <see cref="UsageRefusal"/>) — for a usage question, where asking again too soon is what makes
+    /// the refusal longer.</summary>
+    protected async Task<(JsonDocument? Json, DateTimeOffset? RetryNotBefore)> GetJsonOrRefusalAsync(
+        AiProviderInstance instance, string path, CancellationToken ct)
     {
         if (BaseUrlFor(instance) is not { } baseUrl)
-            return null;
+            return (null, null);
 
         try
         {
@@ -180,15 +187,17 @@ public abstract class AiProvider : IAiProvider
             if (!response.IsSuccessStatusCode)
             {
                 Trace.TraceWarning("{0} answered {1} for {2}.", Id, (int)response.StatusCode, path);
-                return null;
+                return (null, RetryAfter.From(response.StatusCode, response.Headers.RetryAfter,
+                    DateTimeOffset.Now));
             }
 
-            return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), default, ct);
+            return (await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), default, ct),
+                null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             Trace.TraceWarning("Asking {0} for {1} failed: {2}", Id, path, ex.Message);
-            return null;
+            return (null, null);
         }
     }
 
