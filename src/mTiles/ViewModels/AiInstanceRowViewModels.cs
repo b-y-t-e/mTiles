@@ -25,6 +25,7 @@ public sealed partial class AiAgentInstanceViewModel : ObservableObject
         Instance = instance;
         Agent = AiAgentCatalog.Find(instance.AgentId);
         _isInstalled = Agent is not null && AiAgentCatalog.Locate(Agent) is not null;
+        DuplicateNote = _isInstalled ? DuplicatesOf(AiAgentCatalog.Installations(Agent!)) : "";
         _accountName = AccountNameOf(instance, settings);
         UnavailableNote = UnavailabilityOf(instance, settings);
     }
@@ -41,6 +42,27 @@ public sealed partial class AiAgentInstanceViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isInstalled;
+
+    /// <summary>What to say when the CLI is installed more than once, or empty when it is not.</summary>
+    /// <remarks><para><b>A warning, not a choice made for the user.</b> The first copy on <c>PATH</c> is
+    /// the one every tile runs, and the one the user's own shell runs too; picking the newest instead
+    /// would make the two disagree about which CLI the name means. What was missing is being told: a
+    /// forgotten winget install behind an npm one is invisible until a tile behaves like last month's
+    /// version.</para>
+    /// <para>Paths rather than versions: asking each copy for <c>--version</c> starts a process per
+    /// copy — a Node start-up for an npm shim — every time this page is built, and the directory
+    /// already says where each came from, which is what the user needs to remove one.</para></remarks>
+    public string DuplicateNote { get; }
+
+    public bool HasDuplicates => DuplicateNote.Length > 0;
+
+    internal static string DuplicatesOf(IReadOnlyList<string> installations) =>
+        installations.Count < 2
+            ? ""
+            : $"Installed {installations.Count} times. Tiles run the first one found, the same one your "
+              + "shell runs:\n"
+              + string.Join("\n", installations.Select((path, i) => (i == 0 ? "→ " : "   ") + path))
+              + "\nRemove the copies you do not use, or the tiles may run a different version than you expect.";
 
     /// <summary>What installing it would run, or null where nothing can honestly be offered.</summary>
     public InstallPlan? InstallPlan => Agent?.InstallPlan;

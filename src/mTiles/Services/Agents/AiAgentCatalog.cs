@@ -66,6 +66,27 @@ public static class AiAgentCatalog
         return path;
     }
 
+    /// <summary>Every copy of an agent's binary on this machine, the one <see cref="Locate"/> answers
+    /// first — for the Settings row that says a second one exists.</summary>
+    /// <remarks>Held for <see cref="LocationValidFor"/> like <see cref="Locate"/>, and for the same
+    /// reason: it is asked on the UI thread once per row every time the AI page is built, and a scan is
+    /// a <c>File.Exists</c> per <c>PATH</c> entry and extension — on a machine with an unreachable
+    /// network drive on <c>PATH</c>, a stall per row. Empty under
+    /// <see cref="PretendEveryAgentIsInstalled"/>, which claims one copy and no more.</remarks>
+    public static IReadOnlyList<string> Installations(IAiAgent agent)
+    {
+        if (_everyAgentIsInstalled) return [];
+
+        var now = DateTimeOffset.UtcNow;
+        if (InstallationsFound.TryGetValue(agent.BinaryName, out var known)
+            && now - known.Asked < LocationValidFor)
+            return known.Paths;
+
+        var paths = ExecutableFinder.Installations(agent.BinaryName);
+        InstallationsFound[agent.BinaryName] = (now, paths);
+        return paths;
+    }
+
     /// <summary>Answers <see cref="Locate"/> for every agent without looking at this machine.</summary>
     /// <remarks>
     /// <para>The seam a test needs: whether an agent is installed is otherwise a fact about whoever
@@ -88,13 +109,17 @@ public static class AiAgentCatalog
     internal static void ForgetWhatIsInstalled()
     {
         _everyAgentIsInstalled = false;
-        Located.Clear();
+        ForgetLocations();
     }
 
     /// <summary>Drops what <see cref="Locate"/> remembers, so the next question looks again.</summary>
     /// <remarks>For an install that has just finished: held for <see cref="LocationValidFor"/>, the
     /// old answer would keep the row saying NOT INSTALLED with its button still offered.</remarks>
-    public static void ForgetLocations() => Located.Clear();
+    public static void ForgetLocations()
+    {
+        Located.Clear();
+        InstallationsFound.Clear();
+    }
 
     /// <summary>Where <see cref="PretendEveryAgentIsInstalled"/> claims binaries are.</summary>
     /// <remarks>Nothing executes it — the callers this serves ask only whether the answer is null —
@@ -112,6 +137,10 @@ public static class AiAgentCatalog
     /// background thread while the chooser asks from the UI one.</summary>
     private static readonly ConcurrentDictionary<string, (DateTimeOffset Asked, string? Path)> Located =
         new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What <see cref="Installations"/> found, keyed and held as <see cref="Located"/> is.</summary>
+    private static readonly ConcurrentDictionary<string, (DateTimeOffset Asked, IReadOnlyList<string> Paths)>
+        InstallationsFound = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Whether this instance can be chosen: the agent is installed, and the provider it names is one

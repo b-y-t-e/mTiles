@@ -56,18 +56,100 @@ internal static class ExecutableFinder
 
     /// <summary>What a shell would run for <paramref name="name"/> typed bare: <c>PATH</c> alone, with
     /// the extensions Windows resolves a bare name through (<c>.exe</c>, <c>.cmd</c>, <c>.bat</c>).</summary>
+    /// <remarks><b>Directory by directory, then extension by extension</b> — the order a shell searches
+    /// in. It used to be the other way round, one pass over the whole of <c>PATH</c> per extension, so a
+    /// <c>claude.exe</c> in a later directory beat the <c>claude.cmd</c> npm put in an earlier one: the
+    /// tile ran a different, older CLI than the user's own terminal did, and nothing on screen said
+    /// so. A bare name is still the last resort and only after every directory has been asked, because
+    /// Windows cannot launch an extensionless file on its own — npm puts one beside every shim.</remarks>
     public static string? OnPathRunnable(string name) =>
-        OperatingSystem.IsWindows()
-            ? OnPath(name + ".exe") ?? OnPath(name + ".cmd") ?? OnPath(name + ".bat") ?? OnPath(name)
-            : OnPath(name);
+        OnPathRunnable(name, Environment.GetEnvironmentVariable("PATH") ?? "", OperatingSystem.IsWindows(),
+            File.Exists);
+
+    /// <summary><see cref="OnPathRunnable(string)"/> over a given <c>PATH</c>, for a test.</summary>
+    internal static string? OnPathRunnable(string name, string path, bool windows, Func<string, bool> exists) =>
+        RunnableOnPath(name, path, windows, exists).FirstOrDefault()
+        ?? (windows ? Candidates(name, path, [""]).FirstOrDefault(exists) : null);
+
+    /// <summary>
+    /// Every copy of <paramref name="name"/> this machine has, in the order they would be found — the
+    /// first is the one that runs.
+    /// </summary>
+    /// <remarks>
+    /// <para>For a warning and nothing else. Two installations of one CLI — an npm install and a
+    /// forgotten winget one, say — mean whichever comes first on <c>PATH</c> runs everywhere, here and
+    /// in the user's own shell alike, and that is kept on purpose: running the newest instead would make
+    /// a tile and a terminal disagree about which CLI <c>claude</c> is. What is missing is somebody
+    /// being told there is a second one.</para>
+    /// <para>One entry per directory, so npm's <c>claude</c>, <c>claude.cmd</c> and <c>claude.ps1</c>
+    /// are one installation and not three.</para>
+    /// </remarks>
+    public static IReadOnlyList<string> Installations(string name)
+    {
+        var windows = OperatingSystem.IsWindows();
+        var found = RunnableOnPath(name, Environment.GetEnvironmentVariable("PATH") ?? "", windows, File.Exists)
+            .Concat(InHomeDirectoriesAll(name, windows ? [".exe", ".cmd"] : []));
+
+        var seen = new HashSet<string>(windows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var result = new List<string>();
+        foreach (var candidate in found)
+        {
+            string directory;
+            try { directory = RealDirectory(Path.GetDirectoryName(candidate) ?? candidate); }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException
+                                       or UnauthorizedAccessException)
+            { continue; }
+
+            if (seen.Add(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))
+                result.Add(candidate);
+        }
+        return result;
+    }
+
+    /// <summary>The directory with every link resolved, so <c>/bin</c> and <c>/usr/bin</c> on a merged-usr
+    /// system are one place and not two installations.</summary>
+    private static string RealDirectory(string directory)
+    {
+        var full = Path.GetFullPath(directory);
+        return new DirectoryInfo(full).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? full;
+    }
+
+    /// <summary>Every runnable match on <paramref name="path"/>, directory by directory.</summary>
+    private static IEnumerable<string> RunnableOnPath(string name, string path, bool windows,
+        Func<string, bool> exists) =>
+        Candidates(name, path, windows ? [".exe", ".cmd", ".bat"] : [""]).Where(exists);
+
+    /// <summary>The file names to try, outer loop the directories and inner loop the extensions.</summary>
+    private static IEnumerable<string> Candidates(string name, string path, string[] extensions)
+    {
+        foreach (var dir in path.Split(Path.PathSeparator))
+        {
+            if (dir.Length == 0) continue;
+
+            foreach (var extension in extensions)
+            {
+                // A PATH entry can be anything the user has ever typed, including characters that are
+                // not legal in a path at all; one bad entry must not stop the scan.
+                string full;
+                try { full = Path.Combine(dir, name + extension); }
+                catch (ArgumentException) { continue; }
+
+                yield return full;
+            }
+        }
+    }
 
     /// <summary>The places an install puts a binary without asking <c>PATH</c> about it.</summary>
     /// <param name="extensions">Tried in turn before the bare name, so a <c>.cmd</c> shim is preferred
     /// to an extensionless script Windows cannot launch on its own.</param>
-    private static string? InHomeDirectories(string name, params string[] extensions)
+    private static string? InHomeDirectories(string name, params string[] extensions) =>
+        InHomeDirectoriesAll(name, extensions).FirstOrDefault();
+
+    /// <summary>Every match in <see cref="InHomeDirectories"/>' directories, in its order.</summary>
+    private static IEnumerable<string> InHomeDirectoriesAll(string name, string[] extensions)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrEmpty(home)) return null;
+        if (string.IsNullOrEmpty(home)) yield break;
 
         string[] directories =
         [
@@ -98,13 +180,11 @@ internal static class ExecutableFinder
             foreach (var extension in extensions)
             {
                 var candidate = Path.Combine(directory, name + extension);
-                if (File.Exists(candidate)) return candidate;
+                if (File.Exists(candidate)) yield return candidate;
             }
 
             var bare = Path.Combine(directory, name);
-            if (File.Exists(bare)) return bare;
+            if (File.Exists(bare)) yield return bare;
         }
-
-        return null;
     }
 }

@@ -560,6 +560,18 @@
                                                                    FontWeight="SemiBold"
                                                                    Foreground="{DynamicResource DangerText}" />
                                                     </Border>
+                                                    <!-- Installed more than once: the first on PATH
+                                                         runs, and the user has not been told. -->
+                                                    <Border CornerRadius="{DynamicResource RadiusSm}"
+                                                            Padding="4,0"
+                                                            VerticalAlignment="Center"
+                                                            IsVisible="{Binding HasDuplicates}"
+                                                            ToolTip.Tip="{Binding DuplicateNote}"
+                                                            Background="{DynamicResource StatusMutedSubtle}">
+                                                        <TextBlock Text="SEVERAL COPIES" FontSize="{DynamicResource FontChip}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{DynamicResource WarnText}" />
+                                                    </Border>
                                                     <!-- The other reason a row is not offered on a
                                                          tile, and the one nothing else can say. -->
                                                     <Border CornerRadius="{DynamicResource RadiusSm}"
