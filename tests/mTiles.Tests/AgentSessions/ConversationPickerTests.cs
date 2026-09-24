@@ -128,7 +128,7 @@ public class ConversationPickerTests
     public void A_tile_that_was_never_pointed_elsewhere_writes_no_conversation_id()
     {
         using var settings = new TempSettings();
-        var kind = new AgentConversationTileKind(TestTiles.ConversationStore(), NoStarter.Instance);
+        var kind = new AgentConversationTileKind(TestTiles.ConversationStore(), NoSessionStarter.Instance);
         using var tile = Tile(kind, settings, "tile-1", new JsonObject());
 
         // Asked twice, because nothing may cache it: the leaf is given its id before the kind builds its
@@ -148,7 +148,7 @@ public class ConversationPickerTests
     {
         using var settings = new TempSettings();
         var tileId = "";
-        var kind = new AgentConversationTileKind(TestTiles.ConversationStore(), NoStarter.Instance);
+        var kind = new AgentConversationTileKind(TestTiles.ConversationStore(), NoSessionStarter.Instance);
         using var tile = (AgentConversationTileViewModel)((ITileKind)kind).Create(
             new TileContext(Path.GetTempPath(), settings.Service) { TileId = () => tileId }, new JsonObject());
 
@@ -166,7 +166,7 @@ public class ConversationPickerTests
         var claude = settings.Service.Settings.AiAgentInstances.First(i => i.AgentId == "claude");
         Record(store, "earlier", "claude", Path.GetTempPath(), "Fix the build", DateTimeOffset.UtcNow.AddDays(-1));
 
-        var kind = new AgentConversationTileKind(store, NoStarter.Instance);
+        var kind = new AgentConversationTileKind(store, NoSessionStarter.Instance);
         JsonObject saved;
         using (var tile = Tile(kind, settings, "tile-1",
                    new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id }))
@@ -196,7 +196,7 @@ public class ConversationPickerTests
         var store = TestTiles.ConversationStore();
         Record(store, "tile-1", "codex", Path.GetTempPath(), "Held by codex", DateTimeOffset.UtcNow);
 
-        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+        using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings, "tile-1",
             new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
         tile.ConfirmAction = _ => Task.FromResult(true);
 
@@ -224,7 +224,7 @@ public class ConversationPickerTests
         Record(store, "tile-1", "claude", Path.GetTempPath(), "The open one", DateTimeOffset.UtcNow);
         Record(store, "other", "claude", Path.GetTempPath(), "The one reached for", DateTimeOffset.UtcNow);
 
-        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+        using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings, "tile-1",
             new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
 
         // Answering the question is where the other conversation gets picked, which is the whole race.
@@ -253,7 +253,7 @@ public class ConversationPickerTests
         var store = TestTiles.ConversationStore();
         Record(store, "tile-1", "claude", Path.GetTempPath(), "The old one", DateTimeOffset.UtcNow);
 
-        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+        using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings, "tile-1",
             new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
 
         tile.ConfirmAction = _ => Task.FromResult(true);
@@ -277,7 +277,7 @@ public class ConversationPickerTests
         var store = TestTiles.ConversationStore();
         Record(store, "tile-1", "claude", Path.GetTempPath(), "The old one", DateTimeOffset.UtcNow);
 
-        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+        using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings, "tile-1",
             new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
         var asked = 0;
         if (wired)
@@ -303,7 +303,7 @@ public class ConversationPickerTests
         var store = TestTiles.ConversationStore();
         Record(store, "codex-one", "codex", Path.GetTempPath(), "Held by codex", DateTimeOffset.UtcNow);
 
-        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+        using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings, "tile-1",
             new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
 
         await tile.SwitchConversationAsync(store.List(Path.GetTempPath()).Single(c => c.Id == "codex-one"));
@@ -327,7 +327,7 @@ public class ConversationPickerTests
         var store = TestTiles.ConversationStore();
         Record(store, "codex-one", "codex", Path.GetTempPath(), "Held by codex", DateTimeOffset.UtcNow);
 
-        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+        using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings, "tile-1",
             new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
         tile.KeepOverride(new SessionSettings(Mode: "BypassPermissions", Effort: "Max"));
 
@@ -353,7 +353,7 @@ public class ConversationPickerTests
         try
         {
             Assert.True(OpenConversations.TryHold("shared-delete", "tile-holder"));
-            using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings,
+            using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings,
                 "shared-delete", new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
             var asked = false;
             tile.ConfirmAction = _ =>
@@ -386,7 +386,7 @@ public class ConversationPickerTests
         try
         {
             Assert.True(OpenConversations.TryHold("shared-start", "tile-holder"));
-            using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings,
+            using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings,
                 "shared-start", new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
 
             await tile.InvokeAsync(TileActionIds.Restart);
@@ -494,7 +494,7 @@ public class ConversationPickerTests
 
         var store = TestTiles.ConversationStore();
         Record(store, "codex-one", "codex", Path.GetTempPath(), "Something", DateTimeOffset.UtcNow);
-        using var tile = Tile(new AgentConversationTileKind(store, NoStarter.Instance), settings, "tile-1",
+        using var tile = Tile(new AgentConversationTileKind(store, NoSessionStarter.Instance), settings, "tile-1",
             new JsonObject { [AgentStateKeys.InstanceIdKey] = claude.Id });
 
         tile.Conversations.Draw(store.List(Path.GetTempPath()));
@@ -524,18 +524,4 @@ public class ConversationPickerTests
         string tileId, JsonObject state) =>
         (AgentConversationTileViewModel)((ITileKind)kind).Create(
             new TileContext(Path.GetTempPath(), settings.Service) { TileId = () => tileId }, state);
-
-    /// <summary>Prepares no launch, so nothing here starts whichever CLIs the machine happens to have.</summary>
-    private sealed class NoStarter : IAgentSessionStarter
-    {
-        public static NoStarter Instance { get; } = new();
-
-        public Task<(AgentSessionLaunch? Launch, string? Problem)> PrepareAsync(AppSettings settings,
-            IAiAgent agent, AiAgentInstance instance, string workingDirectory, string conversationId,
-            string? resumeToken, CancellationToken ct) =>
-            Task.FromResult<(AgentSessionLaunch?, string?)>((null, "Not in a test."));
-
-        public IAgentSession Create(IAiAgent agent, AgentSessionLaunch launch, IAgentEventSink sink) =>
-            throw new NotSupportedException();
-    }
 }

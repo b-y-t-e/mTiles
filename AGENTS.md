@@ -24,7 +24,7 @@ release. Never a manual `git push` or a hand-written version bump.
   `Picker` — the trigger-plus-searchable-list that replaced the model field's combo-box-versus-autocomplete
   dead end — see [`src/mTiles.Controls/README.md`](src/mTiles.Controls/README.md) — and `Notepad/`, the
   vendored `MarkdownViewer`/`NoteEditor` (see [`src/mTiles.Controls/Notepad/README.md`](src/mTiles.Controls/Notepad/README.md))
-- `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds
+- `tests/mTiles.Tests/` — the launch chain, driven through a fake `IPtyConnection` injected via `TerminalControl.PtyFactory` (no shell is spawned). `ChainPolicy` holds the thresholds so a test drives the chain in milliseconds instead of sleeping through the real ten-second and two-minute thresholds. **Read [`tests/mTiles.Tests/README.md`](tests/mTiles.Tests/README.md) before adding a test**: no test waits on a real clock (every interval is shortened in `Kit/TestTimings.cs`), a rule is tested once as a table, and CI fails a test over 2 s that is not marked `Slow`
 - `Models/` — DTOs and data models, no behaviour (Workspace, WorkspaceState, TileNode, SplitFixedSide (which side of a split, if either, is held at a size in pixels rather than a share — never written for a split that has none, so a workspace layout saves byte for byte as before), TileKindIds, TileContentType (closed — see Tiles below), AppSettings, AppDefaults, LaunchScripts, UserShellProfile, TerminalTheme, GitFileChange, CommitLogEntry, GoalTileState, GoalCommit, GoalFinding, GoalReviewResult, GoalClarifyResult, IGoalParsedBlock (the two members the JSON re-send round reads, so a clarification and a review get one round rather than a copy each), GoalCompletionCriteria, GoalRole, GoalEffortPreset, GoalStopReason, GoalReviewGateMode, GoalImageAttachment, SolidPrinciples, AiBehaviour, AiEffort, AiUsage, AiAgentInstance, AiProviderInstance, AiSignIn, AiModelInfo, ProviderCheck, SessionStrategy, ApiFlavor, InstallPlan, DatabaseSettings, DatabaseInstance, ManualDatabaseConnection, WorkspaceDatabaseConfig, WorkspaceAgentFileSyncConfig, SpeechSettings, PhoneSettings)
 - `ViewModels/` — MVVM with CommunityToolkit.Mvvm (source generators)
 - `Views/` — Avalonia AXAML + code-behind
@@ -143,7 +143,7 @@ release. Never a manual `git push` or a hand-written version bump.
   - Detaching from the visual tree does **not** end the session (only UI timers pause), so moving tiles between panes needs no bracketing.
   - It never launches on its own, and never twice at once: `RestartAsync(options, startupInput)` is what this app uses — it kills the live session, waits for it to be reported dead, starts the new one and types the startup script into it once *that* session is ready.
   - **A session has an identity.** `SessionId` and `SessionExitedEventArgs.SessionId` are how a relaunch-on-exit tells its own session from the next one. Never infer it from elapsed time.
-  - API used here: `RestartAsync`/`Dispose`/`IsRunning`/`IsDisposed`/`SessionId`, `Exited`, `WhenSessionEndedAsync(sessionId)` (the launch chain's one wait: it carries `ExitCode` — `int?`, null when there is none — and `Reason`, so "the command failed" is never confused with "we could not tell"), `Copy`/`ClearSelection`/`HasSelection`/`SelectionChanged`, `Palette`, `ScrollbackCapacity`, `RedrawShellOnResize`, `ForwardCtrlVWhenClipboardHasNoText`, `Title`/`TitleChanged`, `Progress`/`ProgressChanged` and `NotificationReceived` (OSC 9, since 0.3.2 — see *Tile activity*). The startup script is handed to `RestartAsync` rather than typed with `SendText`, and the chain waits on `WhenSessionEndedAsync` rather than `WhenNotRunningAsync` — neither is called from here any more. **`Kill()` is deliberately unused**: it only asks the child to die, and the exit is reported when it actually does, so anything that kills and then starts races that report. `RestartAsync` sequences kill → wait → start and serialises overlapping restarts; `Dispose` ends the tile for good. Note this does *not* avoid the stall — `RestartAsync` calls `Kill()` itself and it blocks the UI thread for as long as the child takes (up to 2s). That is Open risk #3 in the library's ROADMAP, not something the host can fix.
+  - API used here: `RestartAsync`/`Dispose`/`IsRunning`/`IsDisposed`/`SessionId`, `Exited`, `WhenSessionEndedAsync(sessionId)` (the launch chain's one wait: it carries `ExitCode` — `int?`, null when there is none — and `Reason`, so "the command failed" is never confused with "we could not tell"), `Copy`/`ClearSelection`/`HasSelection`/`SelectionChanged`, `Palette`, `ScrollbackCapacity`, `RedrawShellOnResize`, `ForwardCtrlVWhenClipboardHasNoText`, `Title`/`TitleChanged`, `Progress`/`ProgressChanged` and `NotificationReceived` (OSC 9, since 0.3.2 — see *Tile activity*), and `TimeProvider` (0.4.1: the clock a session's `Lifetime` is measured on — the tests hand it a `ManualClock` so the launch chain's two-minute threshold is an `Advance` rather than a wait). The startup script is handed to `RestartAsync` rather than typed with `SendText`, and the chain waits on `WhenSessionEndedAsync` rather than `WhenNotRunningAsync` — neither is called from here any more. **`Kill()` is deliberately unused**: it only asks the child to die, and the exit is reported when it actually does, so anything that kills and then starts races that report. `RestartAsync` sequences kill → wait → start and serialises overlapping restarts; `Dispose` ends the tile for good. Note this does *not* avoid the stall — `RestartAsync` calls `Kill()` itself and it blocks the UI thread for as long as the child takes (up to 2s). That is Open risk #3 in the library's ROADMAP, not something the host can fix.
   - Ctrl+C copies when there is a selection and sends SIGINT otherwise; Ctrl+V / Ctrl+Shift+V / Shift+Insert paste clipboard **text** (filtered). Keys go out as win32 INPUT_RECORDs whenever the child enabled `?9001`.
   - Ships the open-source console host (`conpty/<arch>/OpenConsole.exe`), which is what fixed opencode taking the shell down with it. `Terminal.Pty` delivers it through `buildTransitive`, so it copies to the app's output automatically — **verified in `bin/`, not assumed**. The files must stay next to the app: without them the session silently falls back to the in-box `conhost.exe`.
 - **The dictation stack** (see Dictation below) — three packages, all of which carry native binaries:
@@ -719,7 +719,7 @@ Settings dialog as a modal overlay with responsive sizing (50% window width / 80
   down: the agent's own `SupportedEfforts` narrowed by the chosen model's (`NarrowEfforts`, fed by the
   models fetched for the chosen account), and a level neither accepts falls back to the tool's own
   default.
-  **`bypass` asks once before it is stored here too**, and an unwired `ConfirmAction` answers no
+  **The agent rows can be dragged into another order** (`Views/ListReorder.cs`, `SettingsViewModel.MoveAgentInstance`), and that order is the one every chooser lists them in. **`bypass` asks once before it is stored here too**, and an unwired `ConfirmAction` answers no
   **Under the two model fields, what the provider says about the model, said in tokens.** The Model and
   Fast model fields each show `N tokens context` as soon as the chosen model is one the account
   describes — answered free from the list already fetched (OpenRouter, LM Studio), or, for a model the
@@ -834,7 +834,7 @@ chooser in the strip's right-hand corner, holding conversations only, `Conversat
 `conversationId` in the layout **written only once one has been chosen** — absent means the tile's own id,
 so a layout from before this opens exactly what it always did — rather than a change of `TileId`, which is
 the tile's identity to the layout and would let two leaves be saved under one id. Consequences worth
-knowing: **"New conversation" no longer forgets and always asks** (a button beside the list, not a row in it; it opens one beside the old, and *Delete this
+knowing: **"New conversation" no longer forgets and always asks** (a button in the tile's header — `INewConversationTile`, which the Goal tile answers too as "New goal" — not a row in the list; it opens one beside the old, and *Delete this
 conversation* is what takes it), **a conversation is one tile's at a time** (`OpenConversations` — two hosts
 of one conversation number their events from the same starting point and the store keeps whichever landed
 last), and **the agent comes with the conversation** rather than the other way round, because a resume token
@@ -846,7 +846,7 @@ fail a cold resume in silence, and both are now caught before the first message 
 answers an unknown id with an error. The table is in
 [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) → *Which conversation a tile is showing*.
 
-**Another agent is picked, and the work is handed to it.** No CLI can continue another's session, and that
+**The chooser leaves out an agent whose CLI is not installed** (the tile's own instance excepted), as the Terminal agent and Goal tiles do. **Another agent is picked, and the work is handed to it.** No CLI can continue another's session, and that
 was read for a long time as a refusal: another agent was offered dimmed, with a sentence saying to start a
 new conversation. Right about the mechanism, wrong about the user — the transcript is ours and the working
 tree is on disk, so the *work* moves perfectly well even though the session cannot. What travels is a brief
@@ -873,6 +873,18 @@ sentence of its own. **Undo changes still works across the seam**, because `ITur
 the conversation and knows nothing of agents — the working tree is the shared state. The one refusal left
 is `RefusalFor`'s: an agent this machine cannot run has nothing to hand the work to.
 
+**The switch asks three ways, not two** (`ChooseHandover`, `HandoverAnswer`, `MessageDialog.ChooseAsync`):
+carry the context over (the brief above), switch **without** it — the seam is still written, since it is what
+moves the record and clears the token, but with an empty brief that `BriefOwedIn` never sends — or stay.
+
+**A terminal agent tile asks the same question** when Run as or Change type moves it to another CLI or another
+login (`LeafTileNodeViewModel.AskAboutSwitchingAsync`). Its brief comes out of the CLI's own transcript
+(`IAgentSessionLog.ReadTranscriptAsync`, measured for Claude Code and codex only — the rest answer
+`ReadsTranscripts` false and get the plain confirmation), folded by `TerminalHandover` into
+`.mtiles/handover/*.md`, and the arriving agent is pointed at it by **one typed line** (`HandoverDelivery`) —
+typed rather than put on the command line, because the launch chain reruns its commands and would hand the
+brief over again at every relaunch.
+
 **A conversation remembers which account each stretch of it ran as, and says so.** The agent is only half
 the identity: a resume token lives in the *account's* own directory, so the same CLI on a second
 subscription starts cold while the transcript — which is ours — goes on being drawn as one unbroken column.
@@ -888,11 +900,11 @@ comes back **through `IAiAgent.InstanceModel`**, the round trip a model picked i
 since what a session lists is spelled that CLI's way and opencode and pi would otherwise qualify it a second
 time into `openrouter/openrouter/auto`. The first entry of a new stretch carries a
 rule with the account's name on it (`TimelineItemViewModel.Seam`, `MarkSeams`), drawn on the *item* rather
-than as an item of its own because `TimelineSync` matches view models to records by position. And the switch
-**asks first** (`ConfirmLeavingTheAccountAsync`) — only where the login actually moves, and a missing dialog
-is a yes here, since nothing is lost that the transcript does not still hold. Carrying the *work* across
-that seam is still [`docs/ROADMAP.md`](docs/ROADMAP.md) §6, and is cheaper than it was written to be: a
-segment is now the stretch between two `SessionConfigured`s naming different accounts.
+than as an item of its own because `TimelineSync` matches view models to records by position. And **another login of the same agent is a handover**, exactly as another agent is
+(`MovesTheLogin`, feeding `ApplySwitchAsync`'s `handingOver`): the brief is written and sent and the token
+cleared, because the arriving session could resume nothing — it used to start cold under a transcript the
+model had never seen, with a warning (`ConfirmLeavingTheAccountAsync`, now asked only before anything has
+been said, where there is no work to brief) as the whole of the answer.
 
 **The context bar carries the one act there is about the figure on it** (`ICompactingSession`,
 `CompactContext`, `SessionOptionsReported.CanCompact`). Compact asks the agent to summarise what has been
@@ -916,7 +928,7 @@ on a tile where two of the three would never have produced it. **Whether it is o
 answer and not the session's**, stamped in `Stamp` beside `SessionConfigured.Account`: it is whether the
 object the host holds implements the interface, and a session saying it separately is a second copy of
 one fact that can disagree with the method actually called. On screen it is at the right-hand end of the
-context bar rather than among the composer's pickers — those say what the *next message* runs as, and
+context bar — or, with the bar off, beside the composer's paperclip with the reading in one word (`42%`) — rather than among the composer's pickers — those say what the *next message* runs as, and
 this is an act — quieter than anything in the composer, because that one accent belongs to Send; it
 takes `WarnText` past 80% of the window, which is `ModelContextWindow`'s own margin rather than a second
 opinion, and never without the sentence in its tooltip.
@@ -982,7 +994,11 @@ round of questions, the plan box, the finished-run actions — each as a block w
 conversation goes. The composer, with the detect buttons and its pickers under it, sits **outside** that
 scroller, docked to the foot of the tile: it is not something the conversation said but the one place you
 act from, and scrolling back two attempts to re-read a review must not take it off the bottom of the tile
-(`GoalAskPanelTests.What_the_tile_asks_scrolls_and_what_you_type_in_does_not` pins both halves). A round is *replaced by the record of itself* when it is answered, in place,
+(`GoalAskPanelTests.What_the_tile_asks_scrolls_and_what_you_type_in_does_not` pins both halves). **Both
+transcripts — this one and the Agent tile's — draw only the tail of the conversation** (`TranscriptWindow`,
+`TranscriptPaging`): the last 40 entries, a page of 30 more whenever the reader comes within a screen of the
+top, and the top given back while they follow the end; `TranscriptAnchor` is what keeps the reader in place
+as a page appears above them. The list's `ItemsSource` is set there and bound nowhere. A round is *replaced by the record of itself* when it is answered, in place,
 rather than being asked in a docked panel and recorded as a numbered paragraph several screens above
 it. Anything in the conversation can be copied on its own — a message, one finding, one question with
 its answer — through one handler and one builder, so a finding copied alone reads exactly as it does
@@ -1065,8 +1081,8 @@ per-run flag at all, so it answers `WritesOutsideOurDirectories` — a route nam
 one nobody found, because taking it would turn a tick on one instance into a change to every opencode
 session on the machine, the ones started from a shell included, with nothing here able to take it back off.
 
-**Three facts decide it and the tick is only one.** rtk has to be on this machine
-(`ExecutableFinder.Anywhere`, so a GUI process finds `~/.local/bin`), and Claude Code's own settings
+**Three facts decide it and the tick is only one.** rtk has to be on this machine at all
+(`OutputProxy.Locate`), and Claude Code's own settings
 must **not** already carry an rtk hook — the CLI runs every matching entry, so ours beside theirs is one
 command handed to the proxy twice, which is a behaviour nobody chose arrived at by two pieces of
 configuration that cannot see each other. Asked at the moment the file is written rather than
@@ -1097,6 +1113,33 @@ for it. The notice above the lists appears **only where an instance asked for th
 missing**, which is the difference from the clipboard notice beside it: that one is about a capability
 every agent on the platform lacks, this one about a decision already made that has quietly been doing
 nothing.
+
+**What the hook produces is a bare name, so the launch puts rtk on the session's `PATH`.**
+Measured 2026-09-23 against rtk 0.46.0 by feeding it a `PreToolUse` payload: it answers
+`{"updatedInput":{"command":"rtk git status"}}`. So however carefully the hook's *own* command is
+spelled — and it is spelled with the full path, which is what makes it survive a `PATH` ours does not
+carry — what finally runs is `rtk …` in the tile's shell. On a machine where rtk sits somewhere no
+shell searches, that would be `rtk: command not found` on **every** Bash call the agent makes: the
+command *fails* rather than merely missing its saving, which is worse than having no proxy at all.
+**And that case is ordinary rather than exotic**: winget installs into
+`%LOCALAPPDATA%\Microsoft\WinGet\Links` and adds it to the *user's* `PATH`, a change no
+already-running process sees — so mTiles that installed rtk from its own Settings row is, by
+construction, a process whose `PATH` does not carry what it just installed. The first answer was a
+sentence on the row telling the user to fix their `PATH` and restart; it is now closed instead
+(`OutputProxy.DirectoryToPrependToPath`, applied in `ClaudeAgent.Configure`): rtk's own directory goes
+in front of the `PATH` of any session carrying the hook, additively, so a shell rc file that appends
+to what it was given keeps its own entries. `OutputProxyFor` and that `PATH` line belong together and
+will be wrong together if either moves alone.
+
+**And `rtk gain` cannot see any of this, which misleads in the one direction that costs something.**
+It reports on the hook in the CLI's *own* settings — the one `rtk init -g` writes — so on a machine
+hooked from here it prints *No hook installed — run `rtk init -g`* whatever our hook is doing.
+Measured 2026-09-23 on a machine where the proxy was verifiably rewriting: the counter rose by exactly
+one per rewritten shell call while that warning stayed on screen. Following its advice adds a second
+hook beside ours and hands one command to the proxy twice, so the active state on the Settings row
+says the warning is expected and names the command not to run. **The counter is also a weak
+instrument in the other direction**: rtk records what it *rewrote*, and a command it has no rule for
+passes through uncounted — so a flat counter is not evidence that the hook failed to fire.
 
 ## Agent-facing files
 
@@ -1774,10 +1817,10 @@ this application, named by process id, or one that has not finished exiting.
 - `%APPDATA%/mTiles/` (Windows) or `~/.config/mTiles/` (Linux). Renamed from `MTerminal`, and `AppPaths` **moves** the old directory into place on first use rather than leaving it: everything the user has is in there, and the first run *saves*, so a fresh path would have written defaults over a reachable installation within milliseconds. A move that fails keeps using the old path — a locked file must not become a lost installation
 - `settings.json` — everything in Settings, the configured `AiProviderInstances` (**not** seeded — an empty list means nothing has been set up, rather than six services none of which work — with the key encrypted the way the database passwords are), the seeded `AiAgentInstances` (one per agent, added and
   never replaced, so a rename or a repointed provider survives every launch and an agent shipped by a
-  later version still gets its row, and seeded on the CLI's **own** permission default — `ToolDefault`,
-  which passes no behaviour flag at all, because a row nobody has been asked about must not start
-  every agent tile with the tool's own asking switched off, and the first symptom of that is an edit
-  that already happened; its `DefaultBehaviour`/`DefaultEffort` are read through the tolerant converters
+  later version still gets its row, and seeded on **`auto`** where the agent has that gate and on
+  `ToolDefault` (no flag) where it has not (`AiAgentCatalog.DefaultBehaviourFor` — the user's call,
+  2026-09-23, reversing the earlier all-`ToolDefault` seeding for new rows only — an existing row is
+  never moved, since a row on `ToolDefault` may be somebody's decision to keep the tool asking); its `DefaultBehaviour`/`DefaultEffort` are read through the tolerant converters
   for the reason `GoalPermissionMode` is, the behaviour falling to `ToolDefault` rather than `Auto` so an
   unreadable answer is never *more* permissive than the one it replaced), the configured `AiSignIns` (**not** seeded, and the one list here with **no secret in it** — a name
   and a location, so nothing to blank on export and nothing to restore on import; the login itself stays
@@ -1903,7 +1946,7 @@ Recorded so far:
   **It draws the Agent tile's context bar** (`ContextGaugeViewModel`, one class for both kinds, and
   `Border.context-bar` in `Controls.axaml`): the same figure about the same conversation, differing only
   in where it is read from — the Agent tile is told it by the protocol it drives, this one reads it out
-  of the CLI's own store. **The row is there from the first frame**, reading `context not known yet`
+  of the CLI's own store. **The bar is off by default** (`AppSettings.ShowContextBar`, Settings → General): with it off the reading moves into the tile's header as one word (`42%`, `IContextReadingTile`) and nothing is lost. **With it on, the row is there from the first frame**, reading `context not known yet`
   wherever a reading can ever arrive (`ContextGaugeViewModel.KeepsItsPlace`, asked of the agent's own
   `SessionLog`) — the Agent tile's rule, and here it is about the terminal rather than the figure: a row
   that appears with the first reading pushes the terminal up one line mid-turn, which remeasures the

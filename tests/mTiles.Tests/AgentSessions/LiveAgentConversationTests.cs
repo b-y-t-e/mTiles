@@ -27,7 +27,7 @@ namespace mTiles.Tests.AgentSessions;
 /// </remarks>
 public class LiveAgentConversationTests(ITestOutputHelper output)
 {
-    [Theory]
+    [LiveAgentTheory]
     [InlineData("claude")]
     [InlineData("codex")]
     [InlineData("opencode")]
@@ -128,7 +128,7 @@ public class LiveAgentConversationTests(ITestOutputHelper output)
     /// </summary>
     /// <remarks><c>MTILES_LIVE_SWITCH_MODEL</c> names a model to switch to for an agent
     /// (<c>claude=haiku;pi=openai-codex/gpt-5.5</c>); without it only the mode is switched.</remarks>
-    [Theory]
+    [LiveAgentTheory]
     [InlineData("claude")]
     [InlineData("codex")]
     [InlineData("opencode")]

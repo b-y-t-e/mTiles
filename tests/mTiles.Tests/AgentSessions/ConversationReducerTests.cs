@@ -229,40 +229,20 @@ public class ConversationReducerTests
         Assert.Equal("c2", state.LatestCheckpointId);
     }
 
-    [Fact]
-    public void Restoring_the_start_of_a_turn_marks_that_turn()
-    {
-        var state = Play(
-            new CheckpointCaptured("c2", "c1", [new ChangedFile("a.cs", FileChangeKind.Added, 1, 0)]),
-            new CheckpointRestored("c1"));
-
-        Assert.True(Assert.IsType<CheckpointEntry>(state.Timeline[0]).Restored);
-        Assert.IsType<NoticeEntry>(state.Timeline[1]);
-    }
-
-    [Fact]
-    public void Restoring_the_start_of_a_turn_marks_every_later_turn_too()
+    /// <summary>Undoing a turn marks it and every later turn, never an earlier one, and says so.</summary>
+    [Theory]
+    [InlineData("c0", new[] { true, true })]
+    [InlineData("c2", new[] { false, true })]
+    public void Restoring_the_start_of_a_turn_marks_it_and_every_later_turn(string restored, bool[] expected)
     {
         var file = new ChangedFile("a.cs", FileChangeKind.Modified, 1, 1);
         var state = Play(
             new CheckpointCaptured("c1", "c0", [file]),
             new CheckpointCaptured("c3", "c2", [file]),
-            new CheckpointRestored("c0"));
+            new CheckpointRestored(restored));
 
-        Assert.All(state.Timeline.OfType<CheckpointEntry>(), entry => Assert.True(entry.Restored));
-    }
-
-    [Fact]
-    public void Restoring_a_later_turn_leaves_the_earlier_one_undoable()
-    {
-        var file = new ChangedFile("a.cs", FileChangeKind.Modified, 1, 1);
-        var state = Play(
-            new CheckpointCaptured("c1", "c0", [file]),
-            new CheckpointCaptured("c3", "c2", [file]),
-            new CheckpointRestored("c2"));
-
-        var entries = state.Timeline.OfType<CheckpointEntry>().ToList();
-        Assert.Equal([false, true], entries.Select(e => e.Restored));
+        Assert.Equal(expected, state.Timeline.OfType<CheckpointEntry>().Select(e => e.Restored));
+        Assert.IsType<NoticeEntry>(state.Timeline[^1]);
     }
 
     [Fact]

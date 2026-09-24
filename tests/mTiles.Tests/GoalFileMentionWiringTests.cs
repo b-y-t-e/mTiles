@@ -32,13 +32,6 @@ public class GoalFileMentionWiringTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* a temp directory */ }
     }
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(GoalFileMentionWiringTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     private GoalTileViewModel Tile() =>
         new(_dir, new SettingsService(Path.Combine(_dir, "settings.json")));
 
@@ -69,9 +62,10 @@ public class GoalFileMentionWiringTests : IDisposable
     [Theory]
     [InlineData("InputBox")]
     [InlineData("PlanBox")]
+    [Trait("Category", "Slow")] // builds the Goal tile's whole view headless; its first layout is close to the budget
     public void The_composer_and_the_plan_box_offer_the_tiles_files(string name)
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -93,7 +87,7 @@ public class GoalFileMentionWiringTests : IDisposable
     [Fact]
     public void So_does_an_answer_box_inside_a_question()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var question = new GoalQuestionAnswer(1, new GoalQuestion { Question = "Which file?" });

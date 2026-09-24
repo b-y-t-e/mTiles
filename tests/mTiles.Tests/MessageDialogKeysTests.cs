@@ -25,7 +25,7 @@ namespace mTiles.Tests;
 public class MessageDialogKeysTests
 {
     [Fact]
-    public void A_key_in_flight_does_not_answer_the_dialog() => OnUiThread(() =>
+    public void A_key_in_flight_does_not_answer_the_dialog() => Ui.Run(() =>
         {
             var (window, asked) = Ask(settling: TimeSpan.FromSeconds(30));
 
@@ -41,7 +41,7 @@ public class MessageDialogKeysTests
     [Theory]
     [InlineData(Key.Y, true)]
     [InlineData(Key.N, false)]
-    public void A_deliberate_key_answers_it(Key key, bool expected) => OnUiThread(() =>
+    public void A_deliberate_key_answers_it(Key key, bool expected) => Ui.Run(() =>
         {
             var (window, asked) = Ask();
 
@@ -52,7 +52,7 @@ public class MessageDialogKeysTests
         });
 
     [Fact]
-    public void The_letter_is_taken_from_the_label_the_caller_wrote() => OnUiThread(() =>
+    public void The_letter_is_taken_from_the_label_the_caller_wrote() => Ui.Run(() =>
         {
             var (window, asked) = Ask(confirmText: "Discard", cancelText: "Keep");
 
@@ -67,7 +67,7 @@ public class MessageDialogKeysTests
         });
 
     [Fact]
-    public void A_modified_letter_is_somebody_elses_gesture() => OnUiThread(() =>
+    public void A_modified_letter_is_somebody_elses_gesture() => Ui.Run(() =>
         {
             var (window, asked) = Ask();
 
@@ -78,7 +78,7 @@ public class MessageDialogKeysTests
         });
 
     [Fact]
-    public void The_key_is_underlined_without_holding_Alt() => OnUiThread(() =>
+    public void The_key_is_underlined_without_holding_Alt() => Ui.Run(() =>
     {
         var (window, _) = Ask();
 
@@ -147,10 +147,4 @@ public class MessageDialogKeysTests
         _ => PhysicalKey.None,
     };
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(MessageDialogKeysTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

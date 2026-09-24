@@ -52,6 +52,9 @@ public class BlockedNotificationPolicyTests
         var tile = new Script();
         Assert.True(tile.Report(TileActivity.Blocked));
         tile.Wait(60);
+        // An unchanged state is not a new arrival...
+        Assert.False(tile.Report(TileActivity.Blocked));
+        // ...and neither is one that went stale in between.
         Assert.False(tile.Report(TileActivity.Unknown));
         Assert.False(tile.Report(TileActivity.Blocked));
     }
@@ -85,15 +88,6 @@ public class BlockedNotificationPolicyTests
         var tile = new Script();
         Assert.False(tile.Report(TileActivity.Blocked, onScreen: true));
         Assert.False(tile.Report(TileActivity.Unknown));
-        Assert.False(tile.Report(TileActivity.Blocked));
-    }
-
-    [Fact]
-    public void An_unchanged_state_is_not_a_new_arrival()
-    {
-        var tile = new Script();
-        Assert.True(tile.Report(TileActivity.Blocked));
-        tile.Wait(60);
         Assert.False(tile.Report(TileActivity.Blocked));
     }
 

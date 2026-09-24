@@ -36,13 +36,6 @@ public class GoalAskPanelTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* a temp directory */ }
     }
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(GoalAskPanelTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     private GoalTileViewModel Tile()
     {
         var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
@@ -105,7 +98,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void Only_the_panel_for_what_is_being_asked_is_on_screen()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -133,7 +126,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void A_tile_with_nothing_in_it_can_be_asked_every_question_the_markup_asks()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
 
@@ -169,7 +162,7 @@ public class GoalAskPanelTests : IDisposable
     [InlineData(GoalMessageRole.System, false)]
     public void A_message_is_drawn_by_exactly_one_control(GoalMessageRole role, bool markdown)
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -194,7 +187,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void Only_the_tools_own_words_are_rendered_as_markdown()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -245,7 +238,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void The_markdown_view_wears_this_applications_colours_and_not_its_own()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var view = new GoalMarkdownView { MarkdownText = "## Plan" };
             var window = new Window { Content = view, Width = 400, Height = 300 };
@@ -300,7 +293,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void A_selection_in_a_rendered_answer_is_not_answered_with_text_from_a_terminal()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             // The window-level Ctrl+C handler runs before the focused control sees the key, so anything
             // holding a selection of its own has to be named or the copy is served from whichever
@@ -321,7 +314,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void The_question_list_is_bound_to_the_questions()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
 
@@ -366,7 +359,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void What_the_tile_asks_scrolls_and_what_you_type_in_does_not()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm);
@@ -408,7 +401,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void In_a_short_tile_the_transcript_gives_way_rather_than_drawing_over_the_strip()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
             var view = Shown(vm, height: 120);
@@ -441,7 +434,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void The_composer_gives_way_to_a_round_of_questions()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var vm = Tile();
 
@@ -471,7 +464,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void The_plan_and_the_finished_run_actions_are_blocks_too()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var waitingForApproval = TileWith(new GoalTileState
             {
@@ -508,7 +501,7 @@ public class GoalAskPanelTests : IDisposable
     [Fact]
     public void A_stopped_run_offers_Resume_in_the_conversation()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             using var stopped = TileWith(new GoalTileState
             {
@@ -528,21 +521,21 @@ public class GoalAskPanelTests : IDisposable
 
             var view = Shown(stopped);
             Assert.Contains(view.GetVisualDescendants().OfType<Button>(),
-                b => b.IsVisible && (b.Content as string) == "Resume");
+                b => b.IsVisible && b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Resume"));
 
             // And no composer over it. There is nothing for one to send in Implement or Review —
             // Submit's own case for those phases hands the text back — so the box accepted typing and
             // answered with a sentence. Resume says the same thing and can be pressed.
             Assert.False(stopped.ShowComposer);
 
-            // Under the box, not above it: everything the tile offers is one group at the foot of the
-            // conversation. The row used to sit between the transcript and a composer it had nothing to
-            // do with, which put an input in the middle of the buttons.
+            // Directly above the box, in the same group at the foot of the tile: under it, the row was a
+            // second line of buttons below the one inside the composer, with Set goal and Commit competing
+            // for one corner. The box stays the last thing on the tile.
             var column = view.GetVisualDescendants().OfType<StackPanel>()
                 .First(c => c.Children.OfType<Border>().Any(b => b.Classes.Contains("composer")));
             var composer = column.Children.First(c => c.Classes.Contains("composer"));
             var actions = column.Children.First(c => c.Classes.Contains("chat-actions"));
-            Assert.True(column.Children.IndexOf(actions) > column.Children.IndexOf(composer));
+            Assert.Equal(column.Children.IndexOf(composer) - 1, column.Children.IndexOf(actions));
 
             // And down where the plan is waiting: Resume re-runs the phase, which there means proposing
             // a plan again beside the one the user has not answered yet.
@@ -570,7 +563,7 @@ public class GoalAskPanelTests : IDisposable
             Assert.False(pausedBeforeAGoal.ShowResume);
             Assert.False(pausedBeforeAGoal.HasFinishedRunActions);
             Assert.DoesNotContain(Shown(pausedBeforeAGoal).GetVisualDescendants().OfType<Button>(),
-                b => b.IsVisible && (b.Content as string) == "Resume");
+                b => b.IsVisible && b.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Resume"));
         });
     }
 

@@ -13,17 +13,6 @@ namespace mTiles.Tests;
 /// </remarks>
 public class SpeechModelOfferTests : IDisposable
 {
-    private sealed class SilentCapture(bool available) : IAudioCapture
-    {
-        public bool IsAvailable => available;
-        public bool IsRecording => false;
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => [];
-        public void Start(string deviceName) { }
-        public IRecordingHandle? Detach() => null;
-        public float[] Finish(IRecordingHandle? detached) => [];
-        public void Dispose() { }
-    }
-
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
 
@@ -36,15 +25,10 @@ public class SpeechModelOfferTests : IDisposable
     }
 
     private DictationService Build(TempSettings settings, bool audio = true)
-        => new(settings.Service, new SilentCapture(audio), store: new SpeechModelStore(_directory),
+        => new(settings.Service, new IdleMicrophone { IsAvailable = audio }, store: new SpeechModelStore(_directory),
             dispatch: action => action());
 
-    private void PlaceOnDisk(string modelId)
-    {
-        var model = SpeechModelCatalog.Find(modelId)!;
-        using var file = File.Create(Path.Combine(_directory, model.FileName));
-        file.SetLength(model.DownloadBytes);
-    }
+    private void PlaceOnDisk(string modelId) => SpeechModelFiles.PlaceOnDisk(_directory, modelId);
 
     [Fact]
     public void A_fresh_installation_is_asked()

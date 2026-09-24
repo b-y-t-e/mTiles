@@ -25,13 +25,6 @@ public class FileMentionBehaviorTests
             Task.FromResult<IReadOnlyList<string>>(paths);
     }
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(FileMentionBehaviorTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     /// <summary>A box wired to suggestions, on screen, with its list to hand.</summary>
     private static (FileMentionsViewModel Mentions, ListBox List) Wired(params string[] paths)
     {
@@ -51,7 +44,7 @@ public class FileMentionBehaviorTests
     [Fact]
     public void The_row_Enter_would_take_is_the_lit_one()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var (mentions, list) = Wired("Goal.cs", "GoalTileView.axaml");
 
@@ -65,7 +58,7 @@ public class FileMentionBehaviorTests
     [Fact]
     public void Arrows_move_the_lit_row()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var (mentions, list) = Wired("Goal.cs", "GoalTileView.axaml");
             Type(mentions, "@goal");
@@ -88,7 +81,7 @@ public class FileMentionBehaviorTests
     [Fact]
     public void Another_letter_leaves_the_top_row_lit()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var (mentions, list) = Wired("Goal.cs", "GoalTileView.axaml");
             Type(mentions, "@go");
@@ -112,7 +105,7 @@ public class FileMentionBehaviorTests
     [Fact]
     public void A_box_off_the_screen_stops_listening()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var mentions = new FileMentionsViewModel(new ReadySource("Goal.cs"));
             var box = new TextBox();
@@ -131,7 +124,7 @@ public class FileMentionBehaviorTests
     [Fact]
     public void Putting_the_list_away_lights_nothing()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var (mentions, list) = Wired("Goal.cs");
             Type(mentions, "@goal");
@@ -155,7 +148,7 @@ public class FileMentionBehaviorTests
     [Fact]
     public void A_row_for_no_path_is_built_rather_than_thrown()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var (_, list) = Wired("Goal.cs");
 
@@ -181,7 +174,7 @@ public class FileMentionBehaviorTests
     [Fact]
     public void A_box_that_comes_back_is_listening_again()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var mentions = new FileMentionsViewModel(new ReadySource("Goal.cs", "GoalTileView.axaml"));
             var box = new TextBox();
@@ -213,7 +206,7 @@ public class FileMentionBehaviorTests
     [Fact]
     public void A_second_wiring_adopts_the_pick_the_suggestions_already_hold()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var mentions = new FileMentionsViewModel(new ReadySource("Goal.cs", "GoalTileView.axaml"));
             var box = new TextBox();
@@ -231,5 +224,80 @@ public class FileMentionBehaviorTests
             Assert.Equal(mentions.SelectedIndex, list.SelectedIndex);
             Assert.Equal(mentions.SelectedPath, list.SelectedItem);
         });
+    }
+
+    /// <summary>Runs <paramref name="test"/> against a focused box with a template, so there is laid-out
+    /// text to measure the <c>@</c> in.</summary>
+    /// <remarks>The test application carries no theme, and a <c>TextBox</c> without one has no presenter.
+    /// The theme is taken off again afterwards: the headless application is shared by the whole assembly,
+    /// and a theme left on it templates every control a later test builds.</remarks>
+    private static void WithFocusedWideBox(Action<TextBox> test)
+    {
+        var app = Avalonia.Application.Current!;
+        var theme = new Avalonia.Themes.Fluent.FluentTheme();
+        app.Styles.Insert(0, theme);
+
+        var box = new TextBox();
+        var window = new Window { Content = box, Width = 800, Height = 200 };
+        try
+        {
+            window.Show();
+            FileMentionBehavior.SetMentions(box, new FileMentionsViewModel(new ReadySource("Goal.cs")));
+            box.Focus();
+            test(box);
+        }
+        finally
+        {
+            window.Close();
+            app.Styles.Remove(theme);
+        }
+    }
+
+    private static void LayOut(TextBox box)
+    {
+        box.UpdateLayout();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>
+    /// The list is hung from the <c>@</c> being typed, not from the box's left edge.
+    /// </summary>
+    /// <remarks>
+    /// In a wide tile the box's corner is half a screen away from the end of a long line, which is where
+    /// the eye is when a mention is started there.
+    /// </remarks>
+    [Fact]
+    public void The_list_is_hung_from_the_at_sign()
+    {
+        Ui.Run(() => WithFocusedWideBox(box =>
+        {
+            box.Text = "a sentence long enough to push the mention well to the right @go";
+            box.CaretIndex = box.Text.Length;
+            LayOut(box);
+
+            var anchor = FileMentionBehavior.GetAnchor(box);
+            Assert.NotNull(anchor);
+            Assert.True(anchor.Value.X > 200, $"anchored at {anchor.Value.X}");
+        }));
+    }
+
+    /// <summary>The <c>@</c>, not the caret: typing the query does not walk the list to the right.</summary>
+    [Fact]
+    public void Typing_the_query_leaves_the_list_where_it_is()
+    {
+        Ui.Run(() => WithFocusedWideBox(box =>
+        {
+            box.Text = "see @g";
+            box.CaretIndex = box.Text.Length;
+            LayOut(box);
+            var before = FileMentionBehavior.GetAnchor(box);
+
+            box.Text = "see @goal";
+            box.CaretIndex = box.Text.Length;
+            LayOut(box);
+
+            Assert.NotNull(before);
+            Assert.Equal(before, FileMentionBehavior.GetAnchor(box));
+        }));
     }
 }

@@ -36,9 +36,16 @@ namespace mTiles.ViewModels.AgentConversation;
 /// shell is.</para>
 /// </remarks>
 public sealed partial class AgentConversationTileViewModel : ObservableObject,
-    IBusyTile, IMaximizableTile, ITextInputTile, IDescribedTile, ITileActions, IAgentTile, IProcessTile
+    IBusyTile, IMaximizableTile, ITextInputTile, IDescribedTile, ITileActions, IAgentTile, IProcessTile,
+    INewConversationTile
 {
-    public const string NewConversationActionId = "new-conversation";
+    public const string NewConversationActionId = TileActionIds.NewConversation;
+
+    /// <inheritdoc />
+    public string NewConversationLabel => "New conversation";
+
+    /// <inheritdoc />
+    public Task StartNewConversationAsync() => NewConversationAsync();
     public const string DeleteConversationActionId = "delete-conversation";
 
     private readonly string _workingDirectory;
@@ -85,7 +92,28 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [NotifyPropertyChangedFor(nameof(HasUsageReading))]
     [NotifyPropertyChangedFor(nameof(ContextBarText))]
     [NotifyPropertyChangedFor(nameof(ShowsCompact))]
+    [NotifyPropertyChangedFor(nameof(ShowsComposerContext))]
+    [NotifyPropertyChangedFor(nameof(ComposerContextTip))]
     [ObservableProperty] private string _usageText = "";
+
+    /// <summary>Whether the bar along the foot of the tile is drawn — <c>AppSettings.ShowContextBar</c>.
+    /// </summary>
+    [NotifyPropertyChangedFor(nameof(ShowsComposerContext))]
+    [ObservableProperty] private bool _showContextBar;
+
+    /// <summary>The reading in one word — <c>42%</c>, or the tokens where no window is known.</summary>
+    [ObservableProperty] private string _contextShortReading = "";
+
+    /// <summary>Whether the composer carries the reading and Compact, beside the paperclip.</summary>
+    /// <remarks>Only with the bar put away, and only once there is something to say or something to do:
+    /// the bar keeps its place before the first reading because it is a row, and a row appearing moves the
+    /// conversation; a button among the composer's own moves nothing.</remarks>
+    public bool ShowsComposerContext => !ShowContextBar && (HasUsageReading || CanCompact);
+
+    /// <summary>The composer button's tooltip: the whole reading, and what pressing it does.</summary>
+    public string ComposerContextTip => CanCompact
+        ? $"Context: {ContextBarText}{Environment.NewLine}{CompactTip}"
+        : $"Context: {ContextBarText}{Environment.NewLine}This agent cannot be asked to compact its context.";
 
     /// <summary>Whether the agent has said anything about its context yet.</summary>
     public bool HasUsageReading => UsageText.Length > 0;
@@ -230,7 +258,16 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
 
         _agentFiles = agentFiles;
         if (_agentFiles is not null) _agentFiles.SkillsChanged += OnSkillsChanged;
+        _showContextBar = settings.Settings.ShowContextBar;
+        settings.SettingsChanged += OnContextBarSettingChanged;
     }
+
+    /// <summary>Settings turned the bar on or off: the reading moves between the foot of the tile and the
+    /// composer.</summary>
+    private void OnContextBarSettingChanged() => _post(() =>
+    {
+        if (!_disposed) ShowContextBar = _settings.Settings.ShowContextBar;
+    });
 
     private readonly WorkspaceAgentFiles? _agentFiles;
 
@@ -459,7 +496,14 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// caller reaching for the convenient default on a question where it is the wrong one.</remarks>
     public Func<string, Task<bool>>? ConfirmExpectingYes { get; set; }
 
-    public string HeaderNote => Model.Length > 0 ? $"{Instance.Name} · {Model}" : Instance.Name;
+    /// <summary>Asked when the agent changes under a conversation with work in it: carry the work over as a
+    /// brief, switch without it, or stay. <b>Unwired answers <see cref="HandoverAnswer.Cancel"/>.</b></summary>
+    public Func<string, Task<HandoverAnswer>>? ChooseHandover { get; set; }
+
+    /// <summary>The model alone: the strip's agent picker, one line below, already names the instance, and
+    /// the header saying it again was the same words twice on one tile. The terminal agent tile has no such
+    /// strip and keeps both.</summary>
+    public string HeaderNote => Model;
 
     /// <summary>What the strip's model control says at rest.</summary>
     /// <remarks>An empty model is the ordinary state and not a failure: the session reports one only once it
@@ -583,6 +627,10 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// the one that was forgotten is the one that would be found by somebody months later.</para>
     /// </remarks>
     public event Action? TranscriptOpened;
+
+    /// <summary>Raised before another conversation's timeline is drawn over this one, so a view that draws
+    /// only part of it can hold back from building the whole of it first.</summary>
+    public event Action? TranscriptOpening;
 
     /// <summary>Raised when the reader hands a message over, however they asked for it.</summary>
     /// <remarks>On the view model and not on each of the controls that can send: Enter, the button, a
@@ -791,6 +839,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     partial void OnCanCompactChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowsCompact));
+        OnPropertyChanged(nameof(ShowsComposerContext));
+        OnPropertyChanged(nameof(ComposerContextTip));
         CompactCommand.NotifyCanExecuteChanged();
     }
 
@@ -798,6 +848,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         OnPropertyChanged(nameof(IsContextTight));
         OnPropertyChanged(nameof(CompactTip));
+        OnPropertyChanged(nameof(ComposerContextTip));
     }
 
     partial void OnSelectedModeChanged(SessionOption? value)
@@ -832,7 +883,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <para><b>The session is settled once the conversation has something in it, and the work is not</b> — the
     /// resume token belongs to the CLI that issued it and the stored conversation is that agent's, so no other
     /// agent can <i>continue</i> it. That was read for a long time as a refusal; the transcript is ours and the
-    /// working tree is on disk, so picking another agent now asks (<see cref="ConfirmHandoverAsync"/>) and hands
+    /// working tree is on disk, so picking another agent now asks (<see cref="ChooseHandoverAsync"/>) and hands
     /// the work over, rather than sending the user off to type the state of it again into a fresh conversation.
     /// </para>
     /// <para>Which agent holds the conversation is asked of the store as well as of the screen, because a tile
@@ -869,7 +920,11 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         // the layout's would have the next tile and this one's next launch open on an agent that never ran
         // here. The drawn answer outranks it, since that is the agent whose host is writing now.
         var heldBy = ConversationAgentId ?? await _binding.StoredAgentAsync(ConversationId);
-        var handingOver = heldBy is not null && heldBy != agent.Id;
+        var anotherAgent = heldBy is not null && heldBy != agent.Id;
+        // Another login of the same agent is a handover too: the resume token lives in the login's own
+        // directory, so the arriving session could resume nothing and would start cold, told nothing about
+        // the work the transcript above it shows.
+        var handingOver = anotherAgent || (heldBy is not null && ChangesTheLogin(instance, agent));
 
         if (!await ConfirmInterruptingTurnAsync(handingOver
                 ? "Hand the work over now? The agent is working, and this stops what it is doing."
@@ -879,23 +934,25 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             return;
         }
 
-        if (handingOver && !await ConfirmHandoverAsync(instance, agent, heldBy!))
+        var answer = handingOver ? await ChooseHandoverAsync(instance, agent, heldBy!) : HandoverAnswer.WithContext;
+        if (answer == HandoverAnswer.Cancel)
         {
             // Declined: the conversation goes on belonging to whoever holds it, said out loud rather than
             // left to be rediscovered — this is often the first time the tile has learnt it, since a tile
             // restored from a layout knows nothing until its start has read the store.
-            HoldStoredConversationOf(heldBy);
+            if (anotherAgent) HoldStoredConversationOf(heldBy);
             Chooser.RestoreSelection();
             return;
         }
 
-        if (!await ConfirmLeavingTheAccountAsync(instance, agent))
+        if (!handingOver && !await ConfirmLeavingTheAccountAsync(instance, agent))
         {
             Chooser.RestoreSelection();
             return;
         }
 
-        await UnderStartGateAsync(() => CommitSwitchAsync(instance, agent, handingOver));
+        await UnderStartGateAsync(() => CommitSwitchAsync(instance, agent, handingOver,
+            withBrief: answer == HandoverAnswer.WithContext));
     }
 
     /// <summary>
@@ -915,53 +972,66 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// what the user asked for — a switch that silently dropped them back to the tool's own asking is a
     /// change of permissions nobody was told about — but bypass reached this way is a grant given for one
     /// agent arriving at another, so it is said out loud rather than inherited in silence.</para>
-    /// <para><b>No dialog to ask in is a no here</b>, unlike a change of account on the same agent: that one
-    /// loses nothing the transcript does not still hold, while this starts a different CLI in somebody's
-    /// repository on a brief nobody has read.</para>
+    /// <para><b>Another login of the same agent is asked the same way</b> (<see cref="MovesTheLogin"/>): the
+    /// resume token lives in the login's own directory, so the arriving session is as cold as another CLI
+    /// would be, and without the brief it carried on under a transcript the model had never seen.</para>
+    /// <para><b>No dialog to ask in is a no here</b>, unlike a change of instance on the same login: that one
+    /// resumes the same session, while this starts one in somebody's repository on a brief nobody has
+    /// read.</para>
     /// <para>The refusal that remains is <see cref="RefusalFor"/>'s: an agent this machine cannot run at all
     /// has nothing to hand the work to.</para>
     /// </remarks>
-    private async Task<bool> ConfirmHandoverAsync(AiAgentInstance instance, IAiAgent agent, string heldBy)
+    private async Task<HandoverAnswer> ChooseHandoverAsync(AiAgentInstance instance, IAiAgent agent, string heldBy)
     {
-        if (ConfirmAction is null) return false;
+        if (ChooseHandover is null) return HandoverAnswer.Cancel;
 
-        var leaving = AiAgentCatalog.Find(heldBy)?.DisplayName ?? heldBy;
+        var sameAgent = heldBy == agent.Id;
+        var leaving = sameAgent ? $"\"{Instance.Name}\"" : AiAgentCatalog.Find(heldBy)?.DisplayName ?? heldBy;
         var bypass = BehaviourNow == AiBehaviour.BypassPermissions
             ? $" It starts in bypass mode, as {leaving} was running, so it edits without asking."
             : "";
+        var why = sameAgent
+            ? $"It is a different {agent.DisplayName} account, and a session cannot be resumed across accounts, "
+            : $"{leaving} cannot be resumed by {agent.DisplayName}, ";
 
-        return await ConfirmAction(
-            $"Hand this work over to \"{instance.Name}\"? {leaving} cannot be resumed by {agent.DisplayName}, " +
-            $"so {agent.DisplayName} starts cold and is given a written brief instead: what was asked for, " +
-            "what was decided, the plan as it stands and which files have changed. The transcript here stays, " +
-            $"and the permission mode and effort travel with the work.{bypass}");
+        return await ChooseHandover(
+            $"Switch this conversation to \"{instance.Name}\"? {why}" +
+            $"so {agent.DisplayName} starts cold. Carry the context over and it is given a written brief: what " +
+            "was asked for, what was decided, the plan as it stands and which files have changed. Without it, it " +
+            "starts knowing nothing of the work above. Either way the transcript here stays, and the permission " +
+            $"mode and effort travel with it.{bypass}");
     }
 
     /// <summary>
-    /// Asks before a switch that lands on another login of the same agent.
+    /// Asks before a switch that lands on another login of the same agent while nothing is stored to hand over.
     /// </summary>
     /// <remarks>
-    /// <para><b>The loss is silent and comes after the fact.</b> The transcript is ours and is drawn whatever
-    /// happens, but the resume token belongs to the CLI and lives in the account's own directory, so the same
-    /// agent on a second subscription finds nothing to resume and starts cold — and the only thing that ever
-    /// said so was a notice arriving once the new session had already begun. The terminal agent tile has asked
-    /// this question from the start (<c>TerminalAgentTileViewModel.ConfirmationForSwitchTo</c>); this is the
-    /// same question, in the one place it was missing.</para>
-    /// <para>Only when the login actually moves: another model or another key on the same account resumes
-    /// perfectly well, and a dialog in front of every pick is one nobody reads. <b>No dialog to ask in is a
-    /// yes</b> — unlike a destructive action, nothing here is lost that the transcript does not still hold,
-    /// and refusing would leave a tile with no way to change account at all.</para>
+    /// <para><b>Reachable only before anything has been said</b>: the store names no agent for a conversation
+    /// without a message (<c>ConversationAgentBinding.StoredAgentAsync</c>), yet the host can already hold a
+    /// resume token, so there is a session to lose and no work to brief. Everything past the first message goes
+    /// through <see cref="ChooseHandoverAsync"/> instead.</para>
+    /// <para>Only when the login actually moves, and <b>no dialog to ask in is a yes</b> — nothing is lost that
+    /// the transcript does not still hold.</para>
     /// </remarks>
     private async Task<bool> ConfirmLeavingTheAccountAsync(AiAgentInstance instance, IAiAgent agent)
     {
-        var moving = agent.Id == Agent.Id && HoldsASessionToResume
-            && !AccountOf(agent, instance).SharesLoginWith(AccountNow(agent));
-        if (!moving || ConfirmAction is null) return true;
+        if (!MovesTheLogin(instance, agent) || ConfirmAction is null) return true;
 
         return await ConfirmAction(
             $"Run this conversation as \"{instance.Name}\"? It is a different account, so {agent.DisplayName} " +
             "starts a new session — the transcript stays, what the model remembers does not.");
     }
+
+    /// <summary>Whether picking this instance moves a conversation holding a live session onto another login
+    /// of the same agent — which resumes nothing, since the token lives in the login's directory.</summary>
+    private bool MovesTheLogin(AiAgentInstance instance, IAiAgent agent) =>
+        HoldsASessionToResume && ChangesTheLogin(instance, agent);
+
+    /// <summary>Whether this instance is another login of the agent the tile runs now — asked without the live
+    /// host, so a conversation with stored work is handed over even while its host is still starting or was
+    /// refused, rather than giving the new login a token issued to the old one.</summary>
+    private bool ChangesTheLogin(AiAgentInstance instance, IAiAgent agent) =>
+        agent.Id == Agent.Id && !AccountOf(agent, instance).SharesLoginWith(AccountNow(agent));
 
     /// <summary>Whether the conversation holds a session the CLI could resume, which is what a change of login
     /// costs.</summary>
@@ -976,7 +1046,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// earlier start holds the gate, and a message sent meanwhile binds the conversation to the agent it was sent
     /// to. Committed before the old host is gone, a message could still reach it and leave the tile, the last-used
     /// instance and the layout on an agent whose start then refuses that conversation.</remarks>
-    private async Task CommitSwitchAsync(AiAgentInstance instance, IAiAgent agent, bool handingOver)
+    private async Task CommitSwitchAsync(AiAgentInstance instance, IAiAgent agent, bool handingOver,
+        bool withBrief = true)
     {
         if (!handingOver && IsHeldByAnotherAgent(agent))
         {
@@ -987,7 +1058,9 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         // Folded before anything is torn down: the brief is written from what the outgoing host replayed,
         // and a host disposed first would leave nothing to write it from.
         var handedOver = handingOver ? await ConversationToHandOverAsync() : null;
-        var brief = handedOver is null ? null : ConversationHandover.Write(handedOver);
+        // Without the context the seam is written just the same — it is what moves the record onto the new
+        // agent and clears the token — but with an empty brief, which is never sent (BriefOwedIn).
+        var brief = handedOver is null ? null : withBrief ? ConversationHandover.Write(handedOver) : "";
         var from = handedOver?.Account;
 
         // The seam before the tile moves: taking the instance saves the layout, and a layout naming the new
@@ -1181,16 +1254,21 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         CanInterrupt = false;
         var sending = ++_sendNumber;
-        _ = Task.Delay(StopButtonHold).ContinueWith(_ => _post(() =>
+        AfterStopButtonHold(() => _post(() =>
         {
             // Only the send that armed it releases it: two messages in quick succession would
             // otherwise have the first one's timer unlock the button under the second.
             if (sending == _sendNumber) CanInterrupt = true;
-        }), TaskScheduler.Default);
+        }));
     }
 
     /// <summary>How long Stop is held after a send — the double-click window and nothing more.</summary>
-    internal static readonly TimeSpan StopButtonHold = TimeSpan.FromMilliseconds(500);
+    internal static TimeSpan StopButtonHold { get; set; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Runs the release once the hold is over. A seam for the tests, which release it
+    /// themselves instead of racing a real timer.</summary>
+    internal Action<Action> AfterStopButtonHold { get; set; } =
+        release => Task.Delay(StopButtonHold).ContinueWith(_ => release(), TaskScheduler.Default);
 
     private int _sendNumber;
 
@@ -1240,7 +1318,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <remarks>80%, which is the margin <c>ModelContextWindow</c> already chose for the point at which
     /// Claude Code is told to compact on its own — one number for one idea, rather than this screen
     /// having an opinion of its own about when a window is nearly full.</remarks>
-    public bool IsContextTight => ContextPercent >= 80;
+    public bool IsContextTight => ContextGaugeViewModel.IsTight(ContextPercent);
 
     [RelayCommand]
     private Task RestartAsync() => StartAsync();
@@ -1837,28 +1915,36 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         var opened = _drawnConversation != conversationId;
         _drawnConversation = conversationId;
 
-        TimelineSync.Sync(Timeline, state.Timeline, CreateItem);
-        FollowTurn(state);
-        MarkSeams(state);
-        _binding.Drawn(state);
-        SyncApprovals(state);
-
-        if (PendingQuestions?.Round != state.PendingQuestions.FirstOrDefault())
-            PendingQuestions = state.PendingQuestions.FirstOrDefault() is { } round
-                ? new QuestionRoundViewModel(round, AnswerQuestionsAsync)
-                : null;
-
-        if (!ReferenceEquals(_drawnPlan, state.Plan))
+        if (opened) TranscriptOpening?.Invoke();
+        try
         {
-            _drawnPlan = state.Plan;
-            PlanSteps.Clear();
-            foreach (var step in state.Plan?.Steps ?? []) PlanSteps.Add(step);
-            OnPropertyChanged(nameof(HasPlan));
-        }
+            TimelineSync.Sync(Timeline, state.Timeline, CreateItem);
+            FollowTurn(state);
+            MarkSeams(state);
+            _binding.Drawn(state);
+            SyncApprovals(state);
 
-        // After the timeline, so what the view is taken to the end of is this conversation and not the
-        // last one still on screen.
-        if (opened) TranscriptOpened?.Invoke();
+            if (PendingQuestions?.Round != state.PendingQuestions.FirstOrDefault())
+                PendingQuestions = state.PendingQuestions.FirstOrDefault() is { } round
+                    ? new QuestionRoundViewModel(round, AnswerQuestionsAsync)
+                    : null;
+
+            if (!ReferenceEquals(_drawnPlan, state.Plan))
+            {
+                _drawnPlan = state.Plan;
+                PlanSteps.Clear();
+                foreach (var step in state.Plan?.Steps ?? []) PlanSteps.Add(step);
+                OnPropertyChanged(nameof(HasPlan));
+            }
+        }
+        finally
+        {
+            // After the timeline, so what the view is taken to the end of is this conversation and not the
+            // last one still on screen. In a finally because Opening holds the view's window at its tail
+            // until this arrives: a draw that threw between the two would leave it cutting a reader's
+            // pages away on every append.
+            if (opened) TranscriptOpened?.Invoke();
+        }
 
         IsWorking = state.IsWorking;
         Model = state.Model ?? "";
@@ -1879,6 +1965,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         var usage = WithAWindow(state.Usage);
         UsageText = UsageDisplay(usage);
         ContextPercent = ContextGauge.PercentUsed(usage);
+        ContextShortReading = ContextGaugeViewModel.ShortReadingOf(ContextPercent, usage?.UsedTokens);
         TurnStageText = TurnStage.For(state);
         (StatusText, StatusTone) = StatusOf(state);
         Activity = state.IsWaitingForUser
@@ -2073,6 +2160,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         _disposed = true;
         _lifetime.Cancel();
         if (_agentFiles is not null) _agentFiles.SkillsChanged -= OnSkillsChanged;
+        _settings.SettingsChanged -= OnContextBarSettingChanged;
         OpenConversations.ReleaseAllOf(_tileId());
         Chooser.Dispose();
         FileMentions.Dispose();

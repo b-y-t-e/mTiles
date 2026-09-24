@@ -18,16 +18,9 @@ namespace mTiles.Tests;
 /// out alike would be a gesture whose meaning the user has to guess.</remarks>
 public class DropHintColourTests
 {
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(DropHintColourTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     /// <summary>Every built-in theme, dark and light, gives the two levels different colours.</summary>
     [Fact]
-    public void Every_theme_tells_the_window_from_a_workspace() => OnUiThread(() =>
+    public void Every_theme_tells_the_window_from_a_workspace() => Ui.Run(() =>
     {
         var app = Avalonia.Application.Current!;
         try
@@ -52,7 +45,7 @@ public class DropHintColourTests
 
     /// <summary>The window's surface paints in the window's colour; a workspace's keeps the default.</summary>
     [Fact]
-    public void Each_surface_paints_its_own_level() => OnUiThread(() =>
+    public void Each_surface_paints_its_own_level() => Ui.Run(() =>
     {
         var window = new MainWindow { Width = 800, Height = 600 };
         window.Show();
@@ -74,7 +67,7 @@ public class DropHintColourTests
 
     /// <summary>The brushes come from the key they are asked for, at the weights every hint shares.</summary>
     [Fact]
-    public void A_hint_is_painted_from_the_colour_it_is_given() => OnUiThread(() =>
+    public void A_hint_is_painted_from_the_colour_it_is_given() => Ui.Run(() =>
     {
         var host = new Border();
         host.Resources[DropHintBrushes.WindowKey] = new SolidColorBrush(Color.FromRgb(200, 60, 180));

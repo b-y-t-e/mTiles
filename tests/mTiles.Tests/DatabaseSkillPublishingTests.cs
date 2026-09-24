@@ -36,12 +36,20 @@ public sealed class DatabaseSkillPublishingTests : IDisposable
 
         var db = _settings.Service.Settings.Database;
         db.Enabled = true;
-        db.HttpPort = FreePort();
         db.SqlServer.Enabled = false;                            // no discovery: this test provides the
         db.PostgreSql.Enabled = false;                           // registry's answers itself
 
-        _manager = new DatabaseServiceManager(_settings.Service);
-        _manager.Start();
+        // HttpListener cannot be handed port 0, so a free port is found first and bound a moment later —
+        // a window in which something else can take it. Losing that race is a retry, not a failed run.
+        DatabaseServiceManager? manager = null;
+        for (var attempt = 0; attempt < 5 && manager is not { IsRunning: true }; attempt++)
+        {
+            manager?.Dispose();
+            db.HttpPort = FreePort();
+            manager = new DatabaseServiceManager(_settings.Service);
+            manager.Start();
+        }
+        _manager = manager!;
         Assert.True(_manager.IsRunning, _manager.LastError);
 
         _agentFiles = new WorkspaceAgentFiles(_dir);
@@ -55,8 +63,8 @@ public sealed class DatabaseSkillPublishingTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* a temp directory */ }
     }
 
-    /// <summary>A port nothing else on this machine holds, so a busy 18090 cannot fail the run.
-    /// </summary>
+    /// <summary>A port nothing else on this machine held a moment ago, so a busy 18090 cannot fail the
+    /// run.</summary>
     private static int FreePort()
     {
         var probe = new TcpListener(IPAddress.Loopback, 0);

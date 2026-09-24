@@ -33,6 +33,16 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
         Error,
     }
 
+    /// <summary>The answer to a question with two ways forward (<see cref="ChooseAsync"/>).</summary>
+    /// <remarks><see cref="Cancel"/> is zero on purpose: Escape, the X and a dialog taken down with its window
+    /// all answer null, and null read as this enum is its default.</remarks>
+    public enum Choice
+    {
+        Cancel = 0,
+        Confirm,
+        Alternate,
+    }
+
     /// <summary>How long after it opens a dialog refuses a bare answer key, unless told otherwise.</summary>
     /// <remarks>
     /// <para>These dialogs appear <em>under</em> somebody's typing — a discard asked for from the git
@@ -55,6 +65,7 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
     private readonly Stopwatch _sinceOpened = new();
     private char? _confirmKey;
     private char? _cancelKey;
+    private char? _alternateKey;
 
     public MessageDialog()
     {
@@ -87,6 +98,8 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
             pressed = ConfirmButton;
         else if (CancelButton.IsVisible && AccessKeyLabel.Answers(e.Key, e.KeyModifiers, _cancelKey))
             pressed = CancelButton;
+        else if (AlternateButton.IsVisible && AccessKeyLabel.Answers(e.Key, e.KeyModifiers, _alternateKey))
+            pressed = AlternateButton;
 
         if (pressed is null) return;
 
@@ -125,8 +138,8 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
             _cancelKey = AccessKeyLabel.KeyOf(cancelText, taken: _confirmKey);
             ConfirmButton.Content = Label(confirmText, taken: null);
             CancelButton.Content = Label(cancelText, taken: _confirmKey);
-            ConfirmButton.Click += (_, _) => OverlayHost.CloseWith(this, true);
-            CancelButton.Click += (_, _) => OverlayHost.CloseWith(this, false);
+            ConfirmButton.Click += ConfirmWithTrue;
+            CancelButton.Click += CancelWithFalse;
 
             // The safe answer takes the keyboard, so Enter on a keystroke nobody aimed declines:
             // nearly every one of these confirms something that pressing it again will not undo.
@@ -134,6 +147,34 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
             _focusOnOpen = defaultsToYes ? ConfirmButton : CancelButton;
         }
     }
+
+    /// <summary>A question with two ways forward and a way out: the three buttons answer with
+    /// <see cref="Choice"/> rather than a bool.</summary>
+    /// <remarks>The keyboard goes to Cancel, for the reason it does in the two-answer dialog: both ways
+    /// forward change something, and a stray Enter must not pick either.</remarks>
+    private MessageDialog(string title, string message, Tone tone, string confirmText, string alternateText,
+        string cancelText)
+        : this(title, message, tone, confirmText, cancelText, defaultsToYes: false)
+    {
+        _alternateKey = AccessKeyLabel.KeyOf(alternateText, _confirmKey, _cancelKey);
+        AlternateButton.Content = new AccessText
+        {
+            Text = AccessKeyLabel.Mark(alternateText, _confirmKey, _cancelKey),
+            ShowAccessKey = true,
+        };
+        AlternateButton.IsVisible = true;
+
+        // The two-answer constructor wired these to a bool; this dialog answers with a Choice instead.
+        ConfirmButton.Click -= ConfirmWithTrue;
+        CancelButton.Click -= CancelWithFalse;
+        ConfirmButton.Click += (_, _) => OverlayHost.CloseWith(this, Choice.Confirm);
+        CancelButton.Click += (_, _) => OverlayHost.CloseWith(this, Choice.Cancel);
+        AlternateButton.Click += (_, _) => OverlayHost.CloseWith(this, Choice.Alternate);
+    }
+
+    private void ConfirmWithTrue(object? sender, RoutedEventArgs e) => OverlayHost.CloseWith(this, true);
+
+    private void CancelWithFalse(object? sender, RoutedEventArgs e) => OverlayHost.CloseWith(this, false);
 
     /// <summary>A button's label with its access key underlined.</summary>
     /// <remarks>
@@ -176,6 +217,31 @@ public partial class MessageDialog : UserControl, OverlayHost.IFocusOnOpen
         return host.ShowAsync<bool>(
             new MessageDialog(title, message, tone, confirmText, cancelText, defaultsToYes), width: 460);
     }
+
+    /// <summary>Asks a question with two ways forward — <paramref name="confirmText"/> (the accent) and
+    /// <paramref name="alternateText"/> — and a way out.</summary>
+    /// <param name="whenUnavailable">The answer when there is no window to ask in.</param>
+    public static async Task<Choice> ChooseAsync(Visual owner, string title, string message,
+        string confirmText, string alternateText, string cancelText = "Cancel",
+        Choice whenUnavailable = Choice.Cancel, Tone tone = Tone.Question)
+    {
+        if (OverlayHost.For(owner) is not { } host)
+            return whenUnavailable;
+
+        return await host.ShowAsync<Choice>(
+            new MessageDialog(title, message, tone, confirmText, alternateText, cancelText), width: 520);
+    }
+
+    /// <summary>The one question a switch of agent or login asks, in both agent tiles: carry the context over,
+    /// switch without it, or stay. Nowhere to ask answers <see cref="mTiles.ViewModels.HandoverAnswer.Cancel"/>.</summary>
+    public static async Task<mTiles.ViewModels.HandoverAnswer> ChooseHandoverAsync(Visual owner, string message) =>
+        await ChooseAsync(owner, "Switch agent", message,
+                confirmText: "Carry context over", alternateText: "Without context") switch
+            {
+                Choice.Confirm => mTiles.ViewModels.HandoverAnswer.WithContext,
+                Choice.Alternate => mTiles.ViewModels.HandoverAnswer.WithoutContext,
+                _ => mTiles.ViewModels.HandoverAnswer.Cancel,
+            };
 
     /// <summary>States something and waits for it to be dismissed.</summary>
     public static async Task ShowAsync(Visual owner, string title, string message, Tone tone)

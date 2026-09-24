@@ -122,3 +122,68 @@ they are built.
 **One install at a time for the whole page**, because two package managers writing to one machine is a
 lock file and a failure nobody asked for; the four buttons go down together and a line above the lists
 says what is running, which is the whole of what the user can now see of it.
+
+## Amendment, 2026-09-23 (second) — what the hook emits decides which `PATH` question to ask
+
+Measured against rtk 0.46.0 by feeding it the payload Claude Code sends:
+
+```
+{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}
+→ {"hookSpecificOutput":{"permissionDecisionReason":"RTK auto-rewrite",
+                         "updatedInput":{"command":"rtk git status"}}}
+```
+
+Two things follow, and the first one settles a question that had been answered by reasoning alone.
+
+**`rtk init -g` is not a prerequisite.** The hook rewrote a command on a machine whose `rtk gain`
+says `No hook installed — run rtk init -g`, i.e. where `init` had never run. There is no state for
+`init` to create; what it does is put the same `PreToolUse` block into the user's own
+`settings.json` that this application puts into its generated one. The difference is the file, the
+scope, and that `init` writes the hook's command as a bare name while this writes the full path.
+
+**But the rewrite it produces is a bare name, and that is a different `PATH` question.** However the
+hook's own command is spelled, what finally runs is `rtk …` in the tile's shell. On a machine where
+rtk sits somewhere no shell searches — exactly the winget case the first amendment dealt with — every
+Bash call the agent makes becomes `rtk: command not found`. The command *fails* rather than missing
+its saving, which is worse than having no proxy at all.
+
+So the hook is now gated on `OutputProxy.OnTheShellsPath()` — our `PATH`, plus the login shell's on
+Unix — and explicitly not on `ExecutableFinder.Anywhere`, which looks in places (`~/.local/bin`,
+`WindowsApps`) that are right for a binary we start by its full path and wrong for a name somebody
+else's rewrite is about to emit. Installed-but-unreachable is a fourth state on the Settings row,
+naming where rtk is and what to do.
+
+**`rtk gain` is the wrong instrument in both directions, and the row now says so.** It reads the
+global hook, so it warns on a machine hooked from here whatever our hook is doing — and its advice,
+`rtk init -g`, adds a second hook beside ours. It also counts only commands rtk *rewrote*, so a flat
+counter is not evidence the hook did not fire. Both cost a real debugging session before being
+written down.
+
+## Amendment, 2026-09-23 (third) — the unreachable-rtk state is closed, not reported
+
+The second amendment gated the hook on `OutputProxy.OnTheShellsPath()` and gave the Settings row a
+fourth state: *rtk is installed at X but is not on PATH; this stays off until you add that folder and
+restart mTiles*. Correct about the mechanism, and the wrong response.
+
+**The case is the ordinary one, not an edge.** winget installs into
+`%LOCALAPPDATA%\Microsoft\WinGet\Links` and adds that directory to the **user's** `PATH` — a change
+no already-running process ever sees. So mTiles that has just installed rtk from its own Settings row
+is, by construction, a process whose `PATH` does not carry it, and the row's advice was "restart the
+application you are configuring". It fired on a real machine within an hour of shipping.
+
+**And the gap is ours to close.** The environment a session runs in is composed here anyway
+(`IAiAgent.EnvFor` → `Configure`), and every route that carries the hook — the terminal agent tile and
+the Agent tile — carries that environment with it. So `ClaudeAgent.Configure` prepends rtk's own
+directory to the `PATH` of any session that asks for the proxy, and `OutputProxyFor` is back to
+`OutputProxy.Locate()`: being *findable by name* stopped being a precondition the moment this
+application started guaranteeing it.
+
+Three details that keep it honest. It is **additive and in front** (`OutputProxy.PathWith`, pure and
+argued in a table test): in front because the point is to be found, additive because a shell rc file
+appends to what it was given and must not find its own entries gone. It is added **only where it buys
+something** — `DirectoryToPrependToPath()` answers null when rtk is already reachable or is not
+installed at all — so no other session's environment moves. And the two halves are **written as a
+pair**, because `OutputProxyFor` asking a weaker question than the launch can satisfy is the failure
+this amendment removes, reintroduced by moving either one alone.
+
+What is left on the Settings row is the one state this cannot fix: rtk not on the machine at all.

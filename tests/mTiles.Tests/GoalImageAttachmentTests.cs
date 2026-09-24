@@ -1,5 +1,4 @@
 ﻿using System.Text.Json;
-using Avalonia.Headless;
 using mTiles.Models;
 using mTiles.Services;
 using mTiles.ViewModels;
@@ -16,44 +15,9 @@ namespace mTiles.Tests;
 /// clipboard. Everything below is about the run's own bookkeeping — the view's part is turning a
 /// clipboard bitmap into bytes, which has nothing to decide.
 /// </remarks>
-public class GoalImageAttachmentTests : IDisposable
+[Collection(GoalSeamCollection.Name)]
+public class GoalImageAttachmentTests : GoalTileFixture
 {
-    private readonly string _dir =
-        Path.Combine(Path.GetTempPath(), "mtiles-images-" + Guid.NewGuid().ToString("N"));
-
-    public GoalImageAttachmentTests() => Directory.CreateDirectory(_dir);
-
-    /// <summary>Both seams are static, so they are put back whatever the test did with them.</summary>
-    /// <remarks>A stub left standing is the next test in this assembly writing its images through
-    /// somebody else's lambda, or refusing to — a failure that appears in a file nobody edited.</remarks>
-    public void Dispose()
-    {
-        GoalImageStore.Factory = null;
-        GoalTileViewModel.AiRunnerFactory = null;
-
-        try { Directory.Delete(_dir, recursive: true); } catch { /* a temp directory */ }
-    }
-
-    /// <summary>
-    /// Runs the body on the headless UI thread, as the loop tests do.
-    /// </summary>
-    /// <remarks>The view model dispatches every message it adds, so a test driving it from the test
-    /// thread would wait on a dispatcher nobody is pumping.</remarks>
-    private static void OnUiThread(Func<Task> body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(
-            typeof(GoalImageAttachmentTests).Assembly);
-
-        session.Dispatch(async () => { await body(); return true; }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
-    private GoalTileViewModel NewTile() =>
-        new(_dir, new SettingsService(Path.Combine(_dir, "settings.json")))
-        {
-            ConfirmAction = _ => Task.FromResult(true),
-        };
-
     private static GoalWorkflowEngine WithImages(string goal, params string[] paths)
     {
         var engine = new GoalWorkflowEngine();
@@ -256,7 +220,7 @@ public class GoalImageAttachmentTests : IDisposable
     [Fact]
     public void A_save_that_fails_inserts_no_marker()
     {
-        OnUiThread(async () =>
+        Ui.Run(async () =>
         {
             GoalImageStore.Factory = _ => throw new IOException("the disk is full");
 
@@ -276,7 +240,7 @@ public class GoalImageAttachmentTests : IDisposable
     [Fact]
     public void A_save_that_works_inserts_the_marker_at_the_caret()
     {
-        OnUiThread(async () =>
+        Ui.Run(async () =>
         {
             GoalImageStore.Factory = _ => @"C:\shots\one.png";
 

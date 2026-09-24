@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -36,13 +35,13 @@ public class XmlDocPlacementTests
     {
         var offenders = new List<string>();
 
-        foreach (var file in SourceFiles())
+        foreach (var file in RepoSources.CSharp)
         {
             var line = 0;
             var runStart = 0;
             var summaries = 0;
 
-            foreach (var text in File.ReadLines(file))
+            foreach (var text in file.Lines)
             {
                 line++;
                 var trimmed = text.TrimStart();
@@ -60,7 +59,7 @@ public class XmlDocPlacementTests
                 // members' documentation and not one block with two summaries.
                 if (trimmed.StartsWith('[')) continue;
 
-                if (summaries > 1) offenders.Add($"{Path.GetFileName(file)}:{runStart}");
+                if (summaries > 1) offenders.Add($"{file.Name}:{runStart}");
 
                 summaries = 0;
                 runStart = 0;
@@ -71,30 +70,6 @@ public class XmlDocPlacementTests
             "a documentation block describes two members — the first summary belongs to a member "
             + "somewhere below it, which now has none:\n  " + string.Join("\n  ", offenders));
     }
-
-    /// <summary>Both projects, since the rule is about how the files are read, not what they do.</summary>
-    private static IEnumerable<string> SourceFiles()
-    {
-        var root = Root();
-
-        foreach (var directory in new[] { "src", "tests" })
-            foreach (var file in Directory.EnumerateFiles(
-                         Path.Combine(root, directory), "*.cs", SearchOption.AllDirectories))
-                if (!file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                    && !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
-                    yield return file;
-    }
-
-    /// <summary>The repository root, taken from this file's own compile-time path.</summary>
-    /// <remarks>
-    /// Not <c>AppContext.BaseDirectory</c>. The output directory moves — a build redirected with
-    /// <c>BaseOutputPath</c> lands outside the repository altogether, and walking up from there finds
-    /// no <c>src</c> and fails the test for a reason that has nothing to do with what it checks.
-    /// <c>CallerFilePath</c> is filled in by the compiler from the source tree being built, so it is
-    /// right on a developer's machine and on a build agent with its own checkout alike.
-    /// </remarks>
-    private static string Root([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", ".."));
 
     /// <summary>
     /// Every <c>cref</c> naming a type of ours names a member that exists on it.
@@ -120,8 +95,8 @@ public class XmlDocPlacementTests
 
         var offenders = new List<string>();
 
-        foreach (var file in SourceFiles())
-        foreach (var reference in References(File.ReadAllText(file)))
+        foreach (var file in RepoSources.CSharp)
+        foreach (var reference in References(file.Text))
         {
             var dot = reference.LastIndexOf('.');
             if (dot <= 0) continue;
@@ -138,7 +113,7 @@ public class XmlDocPlacementTests
                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
                     | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static
                     | System.Reflection.BindingFlags.FlattenHierarchy).Length == 0)
-                offenders.Add($"{Path.GetFileName(file)}: {typeName}.{member}");
+                offenders.Add($"{file.Name}: {typeName}.{member}");
         }
 
         Assert.True(offenders.Count == 0,
@@ -188,10 +163,10 @@ public class XmlDocPlacementTests
     {
         var offenders = new List<string>();
 
-        foreach (var file in SourceFiles())
+        foreach (var file in RepoSources.CSharp)
         {
             var line = 0;
-            foreach (var text in File.ReadLines(file))
+            foreach (var text in file.Lines)
             {
                 line++;
 
@@ -206,7 +181,7 @@ public class XmlDocPlacementTests
                 foreach (var c in text)
                     if (char.IsControl(c) && char.IsWhiteSpace(c))
                     {
-                        offenders.Add($"{Path.GetFileName(file)}:{line} U+{(int)c:X4}");
+                        offenders.Add($"{file.Name}:{line} U+{(int)c:X4}");
                         break;
                     }
             }

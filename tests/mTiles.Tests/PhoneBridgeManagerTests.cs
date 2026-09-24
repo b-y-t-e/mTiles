@@ -17,8 +17,10 @@ namespace mTiles.Tests;
 /// </remarks>
 public sealed class PhoneBridgeManagerTests : IDisposable
 {
-    private readonly string _certificateDirectory =
-        Path.Combine(Path.GetTempPath(), "mtiles-bridge-tests-" + Guid.NewGuid().ToString("N"));
+    /// <summary>The run's shared certificate, copied in: it names every address these tests serve on,
+    /// so no test here generates a key.</summary>
+    private readonly string _certificateDirectory = PhoneTestCertificate.CopyTo(
+        Path.Combine(Path.GetTempPath(), "mtiles-bridge-tests-" + Guid.NewGuid().ToString("N")));
 
     private readonly TempSettings _settings = new();
     private readonly List<PhoneBridgeManager> _built = [];
@@ -50,21 +52,13 @@ public sealed class PhoneBridgeManagerTests : IDisposable
         public SessionLocation Current => SessionLocation.Console;
     }
 
-    /// <summary>Runs the work inline. There is no UI thread here and nothing needs one.</summary>
-    private sealed class InlineDispatcher : IUiDispatcher
-    {
-        public void Post(Action action) => action();
-
-        public Task<T> InvokeAsync<T>(Func<T> work) => Task.FromResult(work());
-    }
-
     private PhoneBridgeManager Build(StubEndpoints endpoints) => Build(endpoints, IPAddress.Loopback, null);
 
     private PhoneBridgeManager Build(StubEndpoints endpoints, IPAddress bindTo, IPhoneSessionStore? store)
     {
         // A real dictation service, given a capture that opens nothing. It is never asked to record here;
         // what matters is that the manager holds the same object the application gives it.
-        var router = new RoutedAudioCapture(new SilentCapture(), new PhoneAudioCapture());
+        var router = new RoutedAudioCapture(new IdleMicrophone(), new PhoneAudioCapture());
         var dictation = new DictationService(_settings.Service, router);
 
         var manager = new PhoneBridgeManager(
@@ -74,9 +68,9 @@ public sealed class PhoneBridgeManagerTests : IDisposable
             activeTile: () => null,
             directory: new PhoneEndpointDirectory([endpoints], new StubLocation()),
             certificates: new PhoneCertificateProvider([new SelfSignedCertificateSource(_certificateDirectory)]),
-            dispatcher: new InlineDispatcher(),
+            dispatcher: new InlineUiDispatcher(),
             bindTo: bindTo,
-            sessionStore: store ?? new NowhereStore());
+            sessionStore: store ?? new NowherePhoneSessionStore());
 
         _built.Add(manager);
         return manager;
@@ -497,34 +491,5 @@ public sealed class PhoneBridgeManagerTests : IDisposable
         settings.Speech.AppendTrailingSpace = false;
 
         Assert.False(PhoneBridgeManager.PhoneDelivery(settings).AppendTrailingSpace);
-    }
-
-    /// <summary>Keeps paired devices nowhere, so a test never writes into the running user's profile.</summary>
-    private sealed class NowhereStore : IPhoneSessionStore
-    {
-        public IReadOnlyList<PhoneSession> Load() => [];
-
-        public void Save(IReadOnlyList<PhoneSession> sessions) { }
-    }
-
-    /// <summary>A capture that reports itself present and records nothing.</summary>
-    private sealed class SilentCapture : IAudioCapture
-    {
-        public bool IsAvailable => true;
-        public bool IsRecording { get; private set; }
-
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["silent"];
-
-        public void Start(string deviceName) => IsRecording = true;
-
-        public IRecordingHandle? Detach()
-        {
-            IsRecording = false;
-            return null;
-        }
-
-        public float[] Finish(IRecordingHandle? recording) => [];
-
-        public void Dispose() { }
     }
 }

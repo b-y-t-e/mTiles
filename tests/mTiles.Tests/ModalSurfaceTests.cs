@@ -25,14 +25,7 @@ public class ModalSurfaceTests : IDisposable
     public void Dispose()
     {
         if (_claim is { } claim)
-            OnUiThread(claim.Dispose);
-    }
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(ModalSurfaceTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
+            Ui.Run(claim.Dispose);
     }
 
     private static void Pump() => Avalonia.Threading.Dispatcher.UIThread.RunJobs();
@@ -61,7 +54,7 @@ public class ModalSurfaceTests : IDisposable
     /// control outside it.</summary>
     [Fact]
     public void Tab_from_the_last_control_wraps_inside_the_claimed_surface()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var scene = BuildScene();
             _claim = ModalSurface.Take(scene.Surface);
@@ -83,7 +76,7 @@ public class ModalSurfaceTests : IDisposable
     /// swallows it, a control restoring focus as it goes away — is pulled straight back in.</summary>
     [Fact]
     public void Focus_landing_outside_the_surface_is_pulled_back_in()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var scene = BuildScene();
             _claim = ModalSurface.Take(scene.Surface);
@@ -101,7 +94,7 @@ public class ModalSurfaceTests : IDisposable
     /// again — the trap must not outlive the dialog it was guarding.</summary>
     [Fact]
     public void Releasing_the_claim_frees_both_the_tab_cycle_and_focus()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var scene = BuildScene();
             var claim = ModalSurface.Take(scene.Surface);

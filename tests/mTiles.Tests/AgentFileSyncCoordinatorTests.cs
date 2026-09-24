@@ -1,5 +1,6 @@
 ﻿using mTiles.Services;
 using mTiles.Services.Agents;
+using mTiles.Models;
 using Xunit;
 
 namespace mTiles.Tests;
@@ -46,7 +47,7 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     /// <summary>How long to wait before asserting that nothing happened. Comfortably past the engine's
     /// debounce, and short because a negative is settled by the first quiet moment rather than needing
     /// the timeout a positive does.</summary>
-    private const int QuietMs = 600;
+    private static int QuietMs => AppDefaults.WatcherDebounceMs * 4;
 
     private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 3000)
     {
@@ -54,7 +55,7 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
         while (DateTime.UtcNow < deadline)
         {
             if (condition()) return;
-            await Task.Delay(50);
+            await Task.Delay(10);
         }
         Assert.True(condition(), "Condition was not met within the timeout.");
     }
@@ -66,8 +67,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Turning_the_global_switch_back_on_asks_a_workspace_that_was_never_asked()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         var coordinator = NewCoordinator();
         _settings!.Settings.AgentFileSyncEnabled = false;
 
@@ -93,8 +94,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task No_wizard_wired_records_no_answer()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
 
         await NewCoordinator().EvaluateWorkspaceAsync(_dir, NoAgents());
 
@@ -107,8 +108,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task A_question_asked_too_early_is_replayed_once_the_wizard_is_wired()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         var coordinator = NewCoordinator();
 
         await coordinator.EvaluateWorkspaceAsync(_dir, NoAgents());
@@ -129,8 +130,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task A_held_question_is_dropped_when_the_workspace_is_unloaded()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         var coordinator = NewCoordinator();
         await coordinator.EvaluateWorkspaceAsync(_dir, NoAgents());
 
@@ -151,8 +152,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Declining_is_remembered_and_not_asked_again()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         var asked = 0;
         var coordinator = NewCoordinator();
         coordinator.ShowWizard = _ =>
@@ -172,8 +173,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Enabling_overwrites_the_file_the_user_did_not_pick()
     {
-        File.WriteAllText(Claude, "from claude");
-        File.WriteAllText(Agents, "from agents");
+        TestFiles.WriteWhenFree(Claude, "from claude");
+        TestFiles.WriteWhenFree(Agents, "from agents");
         var coordinator = NewCoordinator();
         coordinator.ShowWizard = request =>
         {
@@ -194,8 +195,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Explicit_enable_without_a_wizard_changes_nothing()
     {
-        File.WriteAllText(Claude, "older");
-        File.WriteAllText(Agents, "newer");
+        TestFiles.WriteWhenFree(Claude, "older");
+        TestFiles.WriteWhenFree(Agents, "newer");
         File.SetLastWriteTimeUtc(Claude, DateTime.UtcNow.AddMinutes(-5));
 
         var coordinator = NewCoordinator();
@@ -207,106 +208,56 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
         Assert.Equal("newer", File.ReadAllText(Agents));
     }
 
-    /// <summary>Two files that already agree are no conflict, so there is nothing to ask about and the
-    /// toggle works with no wizard wired at all.</summary>
-    [Fact]
-    public async Task Explicit_enable_without_a_conflict_needs_no_wizard()
+    /// <summary>Two files that already agree are no conflict, so the toggle starts a mirror with no wizard
+    /// wired at all; unloading one workspace, or everything, stops it and keeps the answer. UnloadAll is
+    /// what reaches an engine the toggle started for a row no workspace view model owns.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Explicit_enable_needs_no_wizard_and_unloading_stops_the_engine_but_keeps_the_answer(bool everything)
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
-
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         var coordinator = NewCoordinator();
         await coordinator.SetWorkspaceEnabledAsync(_dir, enabled: true);
-
         Assert.True(coordinator.IsEnabled(_dir));
 
-        File.WriteAllText(Claude, "two");
-        await WaitUntilAsync(() => File.ReadAllText(Agents) == "two");
-    }
-
-    [Fact]
-    public async Task Unloading_stops_the_engine_and_keeps_the_answer()
-    {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
-        var coordinator = NewCoordinator();
-        await coordinator.SetWorkspaceEnabledAsync(_dir, enabled: true);
-
-        File.WriteAllText(Claude, "two");
+        TestFiles.WriteWhenFree(Claude, "two");
         await WaitUntilAsync(() => File.ReadAllText(Agents) == "two");
 
-        coordinator.Unload(_dir);
-        File.WriteAllText(Claude, "three");
+        if (everything) coordinator.UnloadAll();
+        else coordinator.Unload(_dir);
+        TestFiles.WriteWhenFree(Claude, "three");
         await Task.Delay(QuietMs);
 
         Assert.Equal("two", File.ReadAllText(Agents));
         Assert.True(coordinator.IsEnabled(_dir));
     }
 
-    /// <summary>The same interleaving one workspace down: unloading while the dialog is open must not
-    /// be undone by the answer that arrives afterwards.</summary>
-    [Fact]
-    public async Task Unloading_while_the_wizard_is_open_leaves_nothing_running()
+    /// <summary>Unloading the workspace, or shutting down, while the dialog is open must not be undone by
+    /// the answer that arrives afterwards — on shutdown <see cref="AgentFileSyncCoordinator.Dispose"/> has
+    /// already stopped every engine it could see, so the call itself has to take down what it starts.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Going_away_while_the_wizard_is_open_leaves_nothing_running(bool dispose)
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         var coordinator = NewCoordinator();
         coordinator.ShowWizard = _ =>
         {
-            coordinator.Unload(_dir);
+            if (dispose) coordinator.Dispose();
+            else coordinator.Unload(_dir);
             return Task.FromResult<AgentFileSyncWizardResult?>(new AgentFileSyncWizardResult(true, null));
         };
 
         await coordinator.EvaluateWorkspaceAsync(_dir, NoAgents());
 
-        File.WriteAllText(Claude, "two");
+        TestFiles.WriteWhenFree(Claude, "two");
         await Task.Delay(QuietMs);
 
         Assert.Equal("one", File.ReadAllText(Agents));
-    }
-
-    /// <summary>Shutting down while the dialog is open is the one interleaving the coordinator cannot
-    /// order for itself: the answer arrives after <see cref="AgentFileSyncCoordinator.Dispose"/> has
-    /// already stopped every engine it could see, so whatever this call would otherwise start has to be
-    /// taken back down by the call itself.</summary>
-    [Fact]
-    public async Task Disposing_while_the_wizard_is_open_leaves_nothing_running()
-    {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
-        var coordinator = NewCoordinator();
-        coordinator.ShowWizard = _ =>
-        {
-            coordinator.Dispose();
-            return Task.FromResult<AgentFileSyncWizardResult?>(new AgentFileSyncWizardResult(true, null));
-        };
-
-        await coordinator.EvaluateWorkspaceAsync(_dir, NoAgents());
-
-        File.WriteAllText(Claude, "two");
-        await Task.Delay(QuietMs);
-
-        Assert.Equal("one", File.ReadAllText(Agents));
-    }
-
-    /// <summary>The panel's toggle starts an engine for a row that was never opened, and the removal
-    /// path that unloads a workspace view model cannot reach it. UnloadAll is what does.</summary>
-    [Fact]
-    public async Task Unloading_everything_stops_an_engine_no_workspace_view_model_owns()
-    {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
-        var coordinator = NewCoordinator();
-        await coordinator.SetWorkspaceEnabledAsync(_dir, enabled: true);
-
-        File.WriteAllText(Claude, "two");
-        await WaitUntilAsync(() => File.ReadAllText(Agents) == "two");
-
-        coordinator.UnloadAll();
-        File.WriteAllText(Claude, "three");
-        await Task.Delay(QuietMs);
-
-        Assert.Equal("two", File.ReadAllText(Agents));
     }
 
     /// <summary>A directory that has gone since the layout was saved makes the watcher's constructor
@@ -315,8 +266,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task A_workspace_directory_that_is_gone_starts_nothing_and_throws_nothing()
     {
-        File.WriteAllText(Claude, "one");
-        File.WriteAllText(Agents, "one");
+        TestFiles.WriteWhenFree(Claude, "one");
+        TestFiles.WriteWhenFree(Agents, "one");
         var coordinator = NewCoordinator();
         await coordinator.SetWorkspaceEnabledAsync(_dir, enabled: true);
         coordinator.UnloadAll();
@@ -332,8 +283,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Enabling_a_never_opened_workspace_takes_the_legacy_shim_out_first()
     {
-        File.WriteAllText(Claude, "@AGENTS.md" + Environment.NewLine);
-        File.WriteAllText(Agents, "the real instructions");
+        TestFiles.WriteWhenFree(Claude, "@AGENTS.md" + Environment.NewLine);
+        TestFiles.WriteWhenFree(Agents, "the real instructions");
         var coordinator = NewCoordinator();
         coordinator.ShowWizard = _ => throw new InvalidOperationException(
             "There is no conflict left to ask about once the shim has gone.");
@@ -351,8 +302,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Enabling_with_the_global_switch_off_leaves_the_shim_where_it_is()
     {
-        File.WriteAllText(Claude, "@AGENTS.md" + Environment.NewLine);
-        File.WriteAllText(Agents, "the real instructions");
+        TestFiles.WriteWhenFree(Claude, "@AGENTS.md" + Environment.NewLine);
+        TestFiles.WriteWhenFree(Agents, "the real instructions");
         var coordinator = NewCoordinator();
         _settings!.Settings.AgentFileSyncEnabled = false;
 
@@ -362,7 +313,7 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
         Assert.Equal("the real instructions", File.ReadAllText(Agents));
 
         // And the mirror really is off, not silently half-on: the recorded answer waits for the switch.
-        File.WriteAllText(Claude, "edited while the switch is off");
+        TestFiles.WriteWhenFree(Claude, "edited while the switch is off");
         await Task.Delay(QuietMs);
         Assert.Equal("the real instructions", File.ReadAllText(Agents));
     }
@@ -374,8 +325,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Turning_the_global_switch_on_later_takes_the_surviving_shim_out()
     {
-        File.WriteAllText(Claude, "@AGENTS.md" + Environment.NewLine);
-        File.WriteAllText(Agents, "the real instructions");
+        TestFiles.WriteWhenFree(Claude, "@AGENTS.md" + Environment.NewLine);
+        TestFiles.WriteWhenFree(Agents, "the real instructions");
         var coordinator = NewCoordinator();
         _settings!.Settings.AgentFileSyncEnabled = false;
         await coordinator.SetWorkspaceEnabledAsync(_dir, enabled: true);
@@ -398,8 +349,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
         Directory.CreateDirectory(second);
         foreach (var dir in new[] { _dir, second })
         {
-            File.WriteAllText(Path.Combine(dir, AgentFileSyncEngine.ClaudeFileName), "one");
-            File.WriteAllText(Path.Combine(dir, AgentFileSyncEngine.AgentsFileName), "one");
+            TestFiles.WriteWhenFree(Path.Combine(dir, AgentFileSyncEngine.ClaudeFileName), "one");
+            TestFiles.WriteWhenFree(Path.Combine(dir, AgentFileSyncEngine.AgentsFileName), "one");
         }
 
         var coordinator = NewCoordinator();
@@ -408,7 +359,7 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
         coordinator.ShowWizard = async _ =>
         {
             if (Interlocked.Increment(ref open) > 1) overlapped = true;
-            await Task.Delay(100);
+            await Task.Delay(AppDefaults.WatcherDebounceMs * 2);
             Interlocked.Decrement(ref open);
             return new AgentFileSyncWizardResult(false, null);
         };
@@ -442,8 +393,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Declining_leaves_the_legacy_shim_where_it_is()
     {
-        File.WriteAllText(Claude, "@AGENTS.md" + Environment.NewLine);
-        File.WriteAllText(Agents, "the real instructions");
+        TestFiles.WriteWhenFree(Claude, "@AGENTS.md" + Environment.NewLine);
+        TestFiles.WriteWhenFree(Agents, "the real instructions");
         var coordinator = NewCoordinator();
         coordinator.ShowWizard = _ => Task.FromResult<AgentFileSyncWizardResult?>(
             new AgentFileSyncWizardResult(false, null));
@@ -460,8 +411,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task The_legacy_shim_is_never_offered_as_a_version_to_choose()
     {
-        File.WriteAllText(Claude, "@AGENTS.md" + Environment.NewLine);
-        File.WriteAllText(Agents, "the real instructions");
+        TestFiles.WriteWhenFree(Claude, "@AGENTS.md" + Environment.NewLine);
+        TestFiles.WriteWhenFree(Agents, "the real instructions");
         var coordinator = NewCoordinator();
         AgentFileSyncWizardMode? asked = null;
         coordinator.ShowWizard = request =>
@@ -484,7 +435,7 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task Enabling_sync_where_the_shims_target_is_gone_creates_no_circular_agents_file()
     {
-        File.WriteAllText(Claude, "@AGENTS.md" + Environment.NewLine);
+        TestFiles.WriteWhenFree(Claude, "@AGENTS.md" + Environment.NewLine);
         var coordinator = NewCoordinator();
         coordinator.ShowWizard = _ => Task.FromResult<AgentFileSyncWizardResult?>(
             new AgentFileSyncWizardResult(true, null));
@@ -496,7 +447,7 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
 
         // The mirror is live over an empty pair — the first thing written either way is carried
         // across, which is what "sync enabled" means here.
-        File.WriteAllText(Agents, "the real instructions");
+        TestFiles.WriteWhenFree(Agents, "the real instructions");
         await WaitUntilAsync(() =>
             File.Exists(Claude) && File.ReadAllText(Claude) == "the real instructions");
     }
@@ -508,8 +459,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task The_wizards_choice_outlives_an_unload_during_the_dialog()
     {
-        File.WriteAllText(Claude, "from claude");
-        File.WriteAllText(Agents, "from agents");
+        TestFiles.WriteWhenFree(Claude, "from claude");
+        TestFiles.WriteWhenFree(Agents, "from agents");
         // The mtimes point the other way: the newest file is the one the user did not pick.
         File.SetLastWriteTimeUtc(Claude, DateTime.UtcNow.AddMinutes(-5));
         var coordinator = NewCoordinator();
@@ -542,8 +493,8 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
     [Fact]
     public async Task An_evaluation_queued_behind_the_dialog_does_not_run_after_an_unload()
     {
-        File.WriteAllText(Claude, "from claude");
-        File.WriteAllText(Agents, "from agents");
+        TestFiles.WriteWhenFree(Claude, "from claude");
+        TestFiles.WriteWhenFree(Agents, "from agents");
         var coordinator = NewCoordinator();
         var wizardShown = new TaskCompletionSource();
         var releaseWizard = new TaskCompletionSource();
@@ -557,13 +508,13 @@ public sealed class AgentFileSyncCoordinatorTests : IAsyncLifetime
         var first = coordinator.EvaluateWorkspaceAsync(_dir, NoAgents());
         await wizardShown.Task;
         var second = coordinator.EvaluateWorkspaceAsync(_dir, NoAgents());
-        await Task.Delay(QuietMs); // let the second evaluation queue behind the dialog's turnstile
+        await Task.Delay(AppDefaults.WatcherDebounceMs); // let the second evaluation queue behind the dialog's turnstile
         coordinator.Unload(_dir);
         releaseWizard.TrySetResult();
         await Task.WhenAll(first, second);
-        await Task.Delay(QuietMs);
+        await Task.Delay(AppDefaults.WatcherDebounceMs);
 
-        File.WriteAllText(Claude, "edited after the unload");
+        TestFiles.WriteWhenFree(Claude, "edited after the unload");
         await Task.Delay(QuietMs);
 
         Assert.Equal("from agents", File.ReadAllText(Agents));

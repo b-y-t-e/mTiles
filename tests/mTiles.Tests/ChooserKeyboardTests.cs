@@ -45,7 +45,7 @@ public class ChooserKeyboardTests
     }
 
     [Fact]
-    public void The_highlight_starts_on_the_first_answer_and_never_on_back() => OnUiThread(() =>
+    public void The_highlight_starts_on_the_first_answer_and_never_on_back() => Ui.Run(() =>
     {
         var chooser = new Chooser("PowerShell", "Git Bash");
 
@@ -53,7 +53,7 @@ public class ChooserKeyboardTests
     });
 
     [Fact]
-    public void Enter_picks_the_first_answer_rather_than_going_back() => OnUiThread(() =>
+    public void Enter_picks_the_first_answer_rather_than_going_back() => Ui.Run(() =>
     {
         var chooser = new Chooser("PowerShell", "Git Bash");
 
@@ -63,7 +63,7 @@ public class ChooserKeyboardTests
     });
 
     [Fact]
-    public void Typing_narrows_the_cards_and_back_is_never_filtered_out() => OnUiThread(() =>
+    public void Typing_narrows_the_cards_and_back_is_never_filtered_out() => Ui.Run(() =>
     {
         var chooser = new Chooser("PowerShell", "Git Bash");
 
@@ -77,7 +77,7 @@ public class ChooserKeyboardTests
     });
 
     [Fact]
-    public void Escape_clears_the_filter_first_and_leaves_only_once_it_is_empty() => OnUiThread(() =>
+    public void Escape_clears_the_filter_first_and_leaves_only_once_it_is_empty() => Ui.Run(() =>
     {
         var chooser = new Chooser("PowerShell");
         chooser.Type("pow");
@@ -91,7 +91,7 @@ public class ChooserKeyboardTests
     });
 
     [Fact]
-    public void Left_and_right_move_between_cards_only_while_the_filter_is_empty() => OnUiThread(() =>
+    public void Left_and_right_move_between_cards_only_while_the_filter_is_empty() => Ui.Run(() =>
     {
         var chooser = new Chooser("PowerShell", "Pwsh");
 
@@ -104,10 +104,4 @@ public class ChooserKeyboardTests
         Assert.Equal("PowerShell", chooser.Current.Tag);
     });
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(ChooserKeyboardTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

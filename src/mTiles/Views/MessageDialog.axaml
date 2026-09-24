@@ -32,6 +32,19 @@
                         FontFamily="{DynamicResource UiFontFamily}"
                         FontSize="{DynamicResource FontSm}"
                         Cursor="Hand" />
+                <!-- The third answer, drawn only by ChooseAsync: a second way forward, bordered like
+                     Cancel so the accent stays with the one the question recommends. -->
+                <Button x:Name="AlternateButton"
+                        IsVisible="False"
+                        MinWidth="70" Padding="12,5" MinHeight="0"
+                        Background="{DynamicResource BgSurface}"
+                        Foreground="{DynamicResource TextPrimary}"
+                        BorderBrush="{DynamicResource BorderStrong}"
+                        BorderThickness="{DynamicResource BorderThin}"
+                        CornerRadius="{DynamicResource RadiusMd}"
+                        FontFamily="{DynamicResource UiFontFamily}"
+                        FontSize="{DynamicResource FontSm}"
+                        Cursor="Hand" />
                 <Button x:Name="ConfirmButton"
                         Classes="accent"
                         MinWidth="70" Padding="12,5" MinHeight="0"

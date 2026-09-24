@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using mTiles.Services;
 using Xunit;
 
@@ -19,17 +18,41 @@ namespace mTiles.Tests;
 /// path entirely: the reader only asks git when there is no stub. So nothing exercised the code that
 /// makes the two readings differ, and the difference is the bug.</para>
 /// </remarks>
-public class WorktreeScopeTests
+public class WorktreeScopeTests(WorktreeScopeTests.History history) : IClassFixture<WorktreeScopeTests.History>
 {
+    /// <summary>
+    /// One repository for the tests that only read: a committed <c>cart.cs</c>, then a committed
+    /// <c>discount.cs</c>, an <c>admin</c> branch, and two files never committed.
+    /// </summary>
+    /// <remarks>Built once per class: a repository with history is several git processes, and none of
+    /// these tests writes to it.</remarks>
+    public sealed class History : IDisposable
+    {
+        internal GitTestRepo Repo { get; } = new(prefix: "scope-history");
+
+        public History()
+        {
+            Repo.Write("cart.cs", "class Cart { }\n");
+            Repo.CommitAll("initial");
+            Repo.Write("discount.cs", "class Discount { }\n");
+            Repo.CommitAll("discounts");
+            Repo.Git("branch admin");
+            Repo.Write("notes.md", "a note\n");
+            Repo.Write("scratch.md", "not committed\n");
+        }
+
+        public void Dispose() => Repo.Dispose();
+    }
+
+    private GitTestRepo Shared => history.Repo;
+
     [Fact]
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
     public async Task A_baseline_taken_over_existing_work_hides_it_and_HEAD_shows_it()
     {
-        Assert.True(HasGit(), "git is not on PATH, so this cannot say anything about WorktreeReader.");
-
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "scope");
         repo.Write("cart.cs", "class Cart { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        repo.CommitAll("initial");
 
         // The user's own uncommitted work — what "Detect & run" is asked to finish.
         repo.Write("cart.cs", "class Cart { int Total; }\n");
@@ -55,12 +78,9 @@ public class WorktreeScopeTests
     [Fact]
     public async Task Scoping_still_shows_what_changed_after_the_baseline_and_not_what_came_before()
     {
-        Assert.True(HasGit(), "git is not on PATH, so this cannot say anything about WorktreeReader.");
-
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "scope");
         repo.Write("cart.cs", "class Cart { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        repo.CommitAll("initial");
 
         repo.Write("theirs.cs", "class Theirs { }\n");
 
@@ -95,12 +115,9 @@ public class WorktreeScopeTests
     [Fact]
     public async Task A_whole_tree_read_carries_new_files_contents_where_the_ordinary_one_has_names()
     {
-        RequiresGit.OrFail("WorktreeReader");
-
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "scope");
         repo.Write("cart.cs", "class Cart { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        repo.CommitAll("initial");
 
         // The new work: a file git has never seen.
         repo.Write("discount.cs", "class Discount { const int Percent = 10; }\n");
@@ -123,27 +140,18 @@ public class WorktreeScopeTests
     [Fact]
     public async Task A_whole_tree_read_that_cannot_be_taken_answers_as_the_ordinary_one_does()
     {
-        RequiresGit.OrFail("WorktreeReader");
-
         // No repository at all, so there is no HEAD to write a tree against. The point is that this
         // degrades to the read it replaces rather than to an exception or to a tree that looks clean.
-        var plain = Path.Combine(Path.GetTempPath(), $"mtiles-scope-plain-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(plain);
-        try
-        {
-            File.WriteAllText(Path.Combine(plain, "notes.txt"), "no git here\n");
+        RequiresGit.OrFail("WorktreeReader");
+        using var plain = new GitTestRepo(init: false, prefix: "scope-plain");
+        plain.Write("notes.txt", "no git here\n");
 
-            var reader = new WorktreeReader(plain, "git");
-            var whole = await reader.ReadWholeTreeAsync(CancellationToken.None);
-            var ordinary = await reader.ReadAsync(CancellationToken.None);
+        var reader = new WorktreeReader(plain.Path, "git");
+        var whole = await reader.ReadWholeTreeAsync(CancellationToken.None);
+        var ordinary = await reader.ReadAsync(CancellationToken.None);
 
-            Assert.Equal(ordinary.Readable, whole.Readable);
-            Assert.False(whole.Readable);
-        }
-        finally
-        {
-            try { Directory.Delete(plain, recursive: true); } catch { /* not a test failure */ }
-        }
+        Assert.Equal(ordinary.Readable, whole.Readable);
+        Assert.False(whole.Readable);
     }
 
     /// <summary>
@@ -158,20 +166,7 @@ public class WorktreeScopeTests
     [Fact]
     public async Task A_named_commit_becomes_the_end_the_tree_is_read_from()
     {
-        RequiresGit.OrFail("WorktreeReader");
-
-        using var repo = new TempRepo();
-        repo.Write("cart.cs", "class Cart { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
-
-        // The work that is already committed, and therefore invisible to every read against HEAD.
-        repo.Write("discount.cs", "class Discount { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m discounts");
-
-        // And one thing still uncommitted beside it.
-        repo.Write("notes.md", "a note\n");
+        var repo = Shared;
 
         var reader = new WorktreeReader(repo.Path, "git");
 
@@ -201,15 +196,11 @@ public class WorktreeScopeTests
     [Fact]
     public async Task A_named_commit_is_pinned_and_does_not_move_when_the_user_commits()
     {
-        RequiresGit.OrFail("WorktreeReader");
-
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "scope");
         repo.Write("cart.cs", "class Cart { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        repo.CommitAll("initial");
         repo.Write("discount.cs", "class Discount { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m discounts");
+        repo.CommitAll("discounts");
 
         var named = await GoalScopeRef.ResolveAsync(["HEAD~1"], repo.Path, "git", CancellationToken.None);
         Assert.NotNull(named);
@@ -217,8 +208,7 @@ public class WorktreeScopeTests
 
         // Somebody commits while the run is under way.
         repo.Write("shipping.cs", "class Shipping { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m shipping");
+        repo.CommitAll("shipping");
 
         // The commit the goal was about is still in the read, which is what a relative token would
         // have lost the moment HEAD moved.
@@ -233,16 +223,7 @@ public class WorktreeScopeTests
     [Fact]
     public async Task A_named_range_compares_two_commits_and_leaves_the_working_tree_out()
     {
-        RequiresGit.OrFail("WorktreeReader");
-
-        using var repo = new TempRepo();
-        repo.Write("cart.cs", "class Cart { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
-        repo.Write("discount.cs", "class Discount { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m discounts");
-        repo.Write("scratch.md", "not committed\n");
+        var repo = Shared;
 
         var range = await GoalScopeRef.ResolveAsync(
             ["HEAD~1..HEAD"], repo.Path, "git", CancellationToken.None);
@@ -288,12 +269,7 @@ public class WorktreeScopeTests
     [Fact]
     public async Task A_token_that_is_neither_a_file_nor_a_commit_changes_nothing()
     {
-        RequiresGit.OrFail("WorktreeReader");
-
-        using var repo = new TempRepo();
-        repo.Write("cart.cs", "class Cart { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        var repo = Shared;
 
         // "@admin about the failure" is prose with an at-sign in it, and an option-looking token is
         // refused before git ever sees it.
@@ -313,13 +289,7 @@ public class WorktreeScopeTests
     [Fact]
     public async Task A_word_that_is_also_a_branch_name_is_still_prose()
     {
-        RequiresGit.OrFail("WorktreeReader");
-
-        using var repo = new TempRepo();
-        repo.Write("cart.cs", "class Cart { }\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
-        repo.Git("branch admin");
+        var repo = Shared;
 
         Assert.Null(await GoalScopeRef.ResolveAsync(
             ["admin"], repo.Path, "git", CancellationToken.None));
@@ -331,75 +301,5 @@ public class WorktreeScopeTests
         // move. What still says "admin" is the spelling the prompt reads it out by.
         Assert.Equal(repo.Git("rev-parse admin").Trim(), named?.Base);
         Assert.Equal("admin", named?.Spelling);
-    }
-
-    private static bool HasGit()
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo("git", "--version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            p!.WaitForExit(5000);
-            return p.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private sealed class TempRepo : IDisposable
-    {
-        public string Path { get; }
-
-        public TempRepo()
-        {
-            Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), $"mtiles-scope-test-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
-
-            Git("init -q");
-            Git("config user.name tester");
-            Git("config user.email tester@localhost");
-            Git("config commit.gpgsign false");
-        }
-
-        public void Write(string name, string content) =>
-            File.WriteAllText(System.IO.Path.Combine(Path, name), content);
-
-        public string Git(string arguments)
-        {
-            using var p = Process.Start(new ProcessStartInfo("git", arguments)
-            {
-                WorkingDirectory = Path,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            })!;
-            var output = p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
-            p.WaitForExit();
-            return output;
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
-                    File.SetAttributes(file, FileAttributes.Normal);
-                Directory.Delete(Path, recursive: true);
-            }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning($"Cleaning up the test repository failed: {ex.Message}");
-            }
-        }
     }
 }

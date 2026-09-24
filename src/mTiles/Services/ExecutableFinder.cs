@@ -51,10 +51,16 @@ internal static class ExecutableFinder
         if (!OperatingSystem.IsWindows())
             return OnPath(name) ?? InHomeDirectories(name, "");
 
-        return OnPath(name, ".exe", ".cmd", ".bat")
-            ?? OnPath(name)
-            ?? InHomeDirectories(name, ".exe", ".cmd");
+        return OnPathRunnable(name) ?? InHomeDirectories(name, ".exe", ".cmd");
     }
+
+    /// <summary>What a shell would run for <paramref name="name"/> typed bare: <c>PATH</c> alone, with
+    /// the extensions Windows resolves a bare name through (<c>.exe</c>, <c>.cmd</c>, <c>.bat</c>) —
+    /// directory first, extension second, as the shell itself does.</summary>
+    public static string? OnPathRunnable(string name) =>
+        OperatingSystem.IsWindows()
+            ? OnPath(name, ".exe", ".cmd", ".bat") ?? OnPath(name)
+            : OnPath(name);
 
     /// <summary>
     /// Every installation of <paramref name="name"/> <see cref="Anywhere"/> could have answered with,

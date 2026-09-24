@@ -1,9 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Headless;
-using Avalonia.Markup.Xaml.Styling;
 using Avalonia.VisualTree;
 using mTiles.Controls;
+using mTiles.Tests.AgentSessions;
 using Xunit;
 
 namespace mTiles.Tests.Controls;
@@ -257,8 +256,7 @@ public class PickerTests
     [Fact]
     public void A_list_that_grows_while_it_is_open_is_followed()
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(PickerTests).Assembly);
-        session.Dispatch(() =>
+        Ui.Run(() =>
         {
             var options = new System.Collections.ObjectModel.ObservableCollection<PickerOption> { Option("a") };
             var picker = new Picker { Options = options };
@@ -274,7 +272,7 @@ public class PickerTests
             {
                 window.Close();
             }
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        });
     }
 
     /// <summary>A view rebuilt over the same view model must not leave its old picker subscribed to that
@@ -282,8 +280,7 @@ public class PickerTests
     [Fact]
     public void A_picker_taken_off_screen_stops_following_the_list()
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(PickerTests).Assembly);
-        session.Dispatch(() =>
+        Ui.Run(() =>
         {
             var options = new System.Collections.ObjectModel.ObservableCollection<PickerOption> { Option("a") };
             var picker = new Picker { Options = options };
@@ -295,7 +292,7 @@ public class PickerTests
             options.Add(Option("b"));
 
             Assert.Equal(["a"], picker.Rows.OfType<PickerRow>().Select(row => row.Title));
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        });
     }
 
     /// <summary>With search off the focus stays on the trigger, a toggle button that takes Enter as a click.
@@ -303,18 +300,10 @@ public class PickerTests
     [Fact]
     public void Enter_on_the_trigger_picks_the_highlighted_row()
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(PickerTests).Assembly);
-        session.Dispatch(() =>
+        Ui.Run(() =>
         {
-            var app = Avalonia.Application.Current!;
-            var theme = new StyleInclude(new Uri("avares://mTiles.Controls/Themes/"))
-            {
-                Source = new Uri("avares://mTiles.Controls/Themes/Picker.axaml"),
-            };
             // Fluent's window template is what carries the overlay layer the popup opens into.
-            var fluent = new Avalonia.Themes.Fluent.FluentTheme();
-            app.Styles.Add(fluent);
-            app.Styles.Add(theme);
+            using var theme = new HeadlessTheme();
             var picker = new Picker { Options = new[] { Option("a"), Option("b") } };
             var picked = new List<string>();
             picker.SelectionRequested += (_, e) => picked.Add(e.Option.Id);
@@ -335,10 +324,8 @@ public class PickerTests
             finally
             {
                 window.Close();
-                app.Styles.Remove(theme);
-                app.Styles.Remove(fluent);
             }
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        });
     }
 
     /// <summary>The trigger falls back to the placeholder while the caller has nothing to say.</summary>
@@ -357,22 +344,9 @@ public class PickerTests
     [Fact]
     public void It_draws()
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(PickerTests).Assembly);
-        session.Dispatch(() =>
+        Ui.Run(() =>
         {
-            var app = Avalonia.Application.Current!;
-            var fluent = new Avalonia.Themes.Fluent.FluentTheme();
-            var tokens = new ResourceInclude(new Uri("avares://mTiles/Styles/"))
-            {
-                Source = new Uri("avares://mTiles/Styles/AppTheme.axaml"),
-            };
-            var picker = new StyleInclude(new Uri("avares://mTiles.Controls/Themes/"))
-            {
-                Source = new Uri("avares://mTiles.Controls/Themes/Picker.axaml"),
-            };
-            app.Styles.Add(fluent);
-            app.Styles.Add(picker);
-            app.Resources.MergedDictionaries.Add(tokens);
+            using var theme = new HeadlessTheme();
 
             var control = new Picker
             {
@@ -417,11 +391,8 @@ public class PickerTests
             finally
             {
                 window.Close();
-                app.Styles.Remove(picker);
-                app.Styles.Remove(fluent);
-                app.Resources.MergedDictionaries.Remove(tokens);
             }
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        });
     }
 
     private static void Search(Picker picker, string text)

@@ -43,7 +43,8 @@ namespace mTiles.Services;
 public sealed class WorkspaceGitWatcher : IDisposable
 {
     /// <summary>How often an unstarted watch asks again whether the workspace is a repository yet.</summary>
-    private static readonly TimeSpan RepositoryPollInterval = TimeSpan.FromSeconds(5);
+    /// <remarks>Settable only by the test suite, which shortens it rather than waiting it out.</remarks>
+    internal static TimeSpan RepositoryPollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>How long the watcher's own answer about the ignored directories stays current.</summary>
     private static readonly TimeSpan IgnoreLifetime = TimeSpan.FromSeconds(30);

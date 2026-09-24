@@ -22,8 +22,7 @@ namespace mTiles.Tests;
 public class PhoneActionTargetTests : IDisposable
 {
     private readonly TempSettings _settings = new();
-    private readonly string _models =
-        Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _models = new("mtiles-phone-actions");
 
     private readonly List<PhoneBridgeManager> _managers = [];
     private readonly List<DictationService> _services = [];
@@ -37,7 +36,7 @@ public class PhoneActionTargetTests : IDisposable
             service.Dispose();
 
         _settings.Dispose();
-        try { Directory.Delete(_models, recursive: true); } catch { /* a temp directory nobody reads */ }
+        _models.Dispose();
     }
 
     /// <summary>
@@ -97,17 +96,14 @@ public class PhoneActionTargetTests : IDisposable
         var holder = new ActiveTile();
         active = holder;
 
-        var model = SpeechModelCatalog.Find("base")!;
-        Directory.CreateDirectory(_models);
-        using (var file = File.Create(Path.Combine(_models, model.FileName)))
-            file.SetLength(model.DownloadBytes);
+        var model = SpeechModelFiles.PlaceOnDisk(_models.Path);
 
         _settings.Service.Settings.Speech.Enabled = true;
         _settings.Service.Settings.Speech.ModelId = model.Id;
 
-        var router = new RoutedAudioCapture(new NothingCapture(), new PhoneAudioCapture());
-        var dictation = new DictationService(_settings.Service, router, new NothingEngine(),
-            new SpeechModelStore(_models), action => action());
+        var router = new RoutedAudioCapture(new IdleMicrophone(), new PhoneAudioCapture());
+        var dictation = new DictationService(_settings.Service, router, new FakeSpeechEngine { Transcript = "" },
+            new SpeechModelStore(_models.Path), action => action());
         _services.Add(dictation);
 
         var manager = new PhoneBridgeManager(
@@ -115,8 +111,8 @@ public class PhoneActionTargetTests : IDisposable
             dictation,
             router,
             activeTile: () => holder.Tile,
-            dispatcher: new InlineDispatcher(),
-            sessionStore: new NowhereStore());
+            dispatcher: new InlineUiDispatcher(),
+            sessionStore: new NowherePhoneSessionStore());
 
         _managers.Add(manager);
         return manager;
@@ -143,54 +139,6 @@ public class PhoneActionTargetTests : IDisposable
 
             return Task.FromResult(TileActionResult.Ok);
         }
-
-        public void Dispose() { }
-    }
-
-    private sealed class InlineDispatcher : IUiDispatcher
-    {
-        public void Post(Action action) => action();
-
-        public Task<T> InvokeAsync<T>(Func<T> work) => Task.FromResult(work());
-    }
-
-    private sealed class NowhereStore : IPhoneSessionStore
-    {
-        public IReadOnlyList<PhoneSession> Load() => [];
-
-        public void Save(IReadOnlyList<PhoneSession> sessions) { }
-    }
-
-    private sealed class NothingCapture : IAudioCapture
-    {
-        public bool IsAvailable => true;
-        public bool IsRecording => false;
-
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["silent"];
-
-        public void Start(string deviceName) { }
-
-        public IRecordingHandle? Detach() => null;
-
-        public float[] Finish(IRecordingHandle? recording) => [];
-
-        public void Dispose() { }
-    }
-
-    private sealed class NothingEngine : ISpeechToTextEngine
-    {
-        public bool IsLoaded { get; private set; }
-
-        public Task LoadAsync(string modelPath, CancellationToken cancellationToken = default)
-        {
-            IsLoaded = true;
-            return Task.CompletedTask;
-        }
-
-        public void Unload() => IsLoaded = false;
-
-        public Task<string> TranscribeAsync(float[] samples, TranscriptionOptions options,
-            CancellationToken cancellationToken = default) => Task.FromResult("");
 
         public void Dispose() { }
     }

@@ -29,4 +29,20 @@ jobs:
       # behaviour — DPAPI, a locked file, a hook without its executable bit — and each now asserts
       # what is true on the platform it is running on.
       - name: Test
-        run: dotnet test -c Release
+        run: dotnet test -c Release --logger "trx;LogFileName=r.trx" --results-directory TestResults
+
+      # Fails on a test slower than the budget that does not say why it may be (README, rule 1). After
+      # the suite, and on its result file, so a red test and a slow one are two different messages.
+      # Pinned rather than assumed: the Windows runner has no `python3`, only `python`.
+      - uses: actions/setup-python@v5
+        if: success() || failure()
+        with:
+          python-version: '3.x'
+
+      - name: Test time budget
+        if: success() || failure()
+        shell: bash
+        run: |
+          # The TRX file carries no traits, so the Slow ones are named by a run filtered to them.
+          dotnet test -c Release --no-build --filter "Category=Slow" --logger "trx;LogFileName=slow.trx" --results-directory TestResults || true
+          python scripts/test-budget.py TestResults/r.trx --slow TestResults/slow.trx

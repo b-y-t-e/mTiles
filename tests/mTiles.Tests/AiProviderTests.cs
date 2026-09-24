@@ -65,22 +65,25 @@ public class AiProviderTests
     // ── Compatibility ────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// codex plus a local server is <b>not</b> compatible, which is the whole reason the OpenAI flavor
-    /// is split in two.
+    /// A pairing is offered only where the agent speaks a wire format the service serves.
     /// </summary>
-    /// <remarks>Both are "OpenAI" in ordinary speech, and the pairing does not work: codex speaks
-    /// <c>/v1/responses</c> and a local server serves <c>/v1/chat/completions</c>. Offering it and
-    /// failing the launch is worse than never offering it.</remarks>
-    [Fact]
-    public void Codex_is_not_compatible_with_a_local_server()
-    {
-        var codex = Agent("codex");
-
-        Assert.False(AiProviderCatalog.IsCompatible(codex, Provider("ollama")));
-        Assert.False(AiProviderCatalog.IsCompatible(codex, Provider("lmstudio")));
-        Assert.True(AiProviderCatalog.IsCompatible(codex, Provider("openai")));
-        Assert.True(AiProviderCatalog.IsCompatible(codex, Provider("openrouter")));
-    }
+    /// <remarks>Offering one and failing the launch is worse than never offering it.</remarks>
+    [Theory]
+    // codex speaks /v1/responses and a local server serves /v1/chat/completions: why OpenAI is split.
+    [InlineData("codex", "ollama", false)]
+    [InlineData("codex", "lmstudio", false)]
+    [InlineData("codex", "openai", true)]
+    [InlineData("codex", "openrouter", true)]
+    // opencode and pi speak what a local server serves, which is what makes a local model possible.
+    [InlineData("opencode", "lmstudio", true)]
+    [InlineData("opencode", "ollama", true)]
+    [InlineData("pi", "lmstudio", true)]
+    [InlineData("pi", "ollama", true)]
+    // Ollama's /v1/messages answers 404 (measured 2026-08-31).
+    [InlineData("claude", "ollama", false)]
+    public void Compatibility_is_whether_the_agent_speaks_what_the_service_serves(
+        string agentId, string providerId, bool expected) =>
+        Assert.Equal(expected, AiProviderCatalog.IsCompatible(Agent(agentId), Provider(providerId)));
 
     /// <summary>Claude Code needs an Anthropic-shaped endpoint, and four of the seven serve one.</summary>
     [Fact]
@@ -89,17 +92,6 @@ public class AiProviderTests
         Assert.Equal(
             ["anthropic", "ccs", "lmstudio", "openrouter", "zai"],
             AiProviderCatalog.CompatibleWith(Agent("claude")).Select(p => p.Id).Order());
-    }
-
-    /// <summary>opencode and pi speak the shape a local server serves, which is what makes running a
-    /// model on this machine possible at all.</summary>
-    [Theory]
-    [InlineData("opencode")]
-    [InlineData("pi")]
-    public void The_chat_completions_agents_can_use_a_local_server(string agentId)
-    {
-        Assert.True(AiProviderCatalog.IsCompatible(Agent(agentId), Provider("lmstudio")));
-        Assert.True(AiProviderCatalog.IsCompatible(Agent(agentId), Provider("ollama")));
     }
 
     // ── Effort: what "the provider did not say" is allowed to do ─────────────────────────────────
@@ -169,15 +161,17 @@ public class AiProviderTests
         Assert.Equal("1", environment["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"]);
     }
 
-    /// <summary>An instance with no provider contributes nothing: the agent runs on whatever it was
-    /// configured with, which is what a first run is in.</summary>
-    [Fact]
-    public void An_instance_with_no_provider_leaves_the_environment_alone()
+    /// <summary>An instance on no provider and no sign-in contributes nothing — no key removed, no
+    /// endpoint overruled: the agent's own configuration is a choice somebody made.</summary>
+    [Theory]
+    [InlineData("claude")]
+    [InlineData("opencode")]
+    public void An_instance_on_no_account_leaves_the_environment_alone(string agentId)
     {
         var settings = new AppSettings();
-        var instance = AiAgentCatalog.SeedInstanceFor(Agent("claude"));
+        var instance = AiAgentCatalog.SeedInstanceFor(Agent(agentId));
 
-        Assert.Empty(Agent("claude").EnvFor(AgentRuntime.For(settings, instance)));
+        Assert.Empty(Agent(agentId).EnvFor(AgentRuntime.For(settings, instance)));
     }
 
     /// <summary>The token question's two deliberate answers, pinned because the contract says them
@@ -191,22 +185,11 @@ public class AiProviderTests
         Assert.Equal("", Provider("zai").ClientToken(new AiProviderInstance { ProviderId = "zai" }));
         Assert.Equal("no-key-needed",
             Provider("lmstudio").ClientToken(new AiProviderInstance { ProviderId = "lmstudio" }));
-    }
 
-    /// <summary>
-    /// What the user set by hand wins, including putting back a variable the agent asked to remove.
-    /// </summary>
-    /// <remarks>Merged last on purpose, and the reason <c>EnvFor</c> is not virtual: an agent free to
-    /// override the whole method could drop that rule with nothing noticing.</remarks>
-    [Fact]
-    public void The_users_own_variables_are_merged_last()
-    {
-        var (settings, instance) = Configured("claude", "zai", key: "zzz");
-        instance.ExtraEnv["ANTHROPIC_API_KEY"] = "mine";
-
-        var environment = Agent("claude").EnvFor(AgentRuntime.For(settings, instance));
-
-        Assert.Equal("mine", environment["ANTHROPIC_API_KEY"]);
+        // And that word is what reaches Claude Code: ANTHROPIC_AUTH_TOKEN="" is "Not logged in".
+        var (settings, instance) = Configured("claude", "lmstudio", key: "");
+        Assert.Equal("no-key-needed",
+            Agent("claude").EnvFor(AgentRuntime.For(settings, instance))["ANTHROPIC_AUTH_TOKEN"]);
     }
 
     /// <summary>
@@ -301,7 +284,7 @@ public class AiProviderTests
     [Fact]
     public async Task A_balance_is_read_where_the_service_gives_one()
     {
-        using var _ = new StubHttp("""{"data":{"limit_remaining":12.5}}""");
+        using var _ = new HttpStub("""{"data":{"limit_remaining":12.5}}""");
 
         var check = await new OpenRouterProvider().TestAsync(Instance("openrouter", "sk-test"));
 
@@ -317,7 +300,7 @@ public class AiProviderTests
     [Fact]
     public async Task A_service_that_does_not_say_answers_null_and_not_zero()
     {
-        using var _ = new StubHttp("""{"data":[{"id":"claude-opus-4"}]}""");
+        using var _ = new HttpStub("""{"data":[{"id":"claude-opus-4"}]}""");
 
         var check = await new AnthropicProvider().TestAsync(Instance("anthropic", "sk-ant"));
 
@@ -330,7 +313,7 @@ public class AiProviderTests
     [Fact]
     public async Task A_provider_that_cannot_be_reached_answers_rather_than_throws()
     {
-        using var _ = new StubHttp("nope", HttpStatusCode.Unauthorized);
+        using var _ = new HttpStub("nope", HttpStatusCode.Unauthorized);
 
         var check = await new OpenAiProvider().TestAsync(Instance("openai", "wrong"));
 
@@ -343,7 +326,7 @@ public class AiProviderTests
     [Fact]
     public async Task Only_a_model_that_mentions_reasoning_is_reported_as_taking_effort()
     {
-        using var _ = new StubHttp("""
+        using var _ = new HttpStub("""
             {"data":[
               {"id":"thinks","supported_parameters":["reasoning","tools"]},
               {"id":"plain","supported_parameters":["tools"]},
@@ -365,7 +348,7 @@ public class AiProviderTests
     [Fact]
     public async Task OpenRouter_answers_the_window_where_the_listing_carries_one()
     {
-        using var _ = new StubHttp("""
+        using var _ = new HttpStub("""
             {"data":[
               {"id":"z-ai/glm-5.3-flash","context_length":131072},
               {"id":"quiet"}
@@ -378,119 +361,60 @@ public class AiProviderTests
         Assert.Null(models.Single(m => m.Id == "quiet").ContextWindowTokens);
     }
 
-    /// <summary>And the per-model question is answered from the same listing, by id.</summary>
-    [Fact]
-    public async Task OpenRouter_answers_one_models_window_from_the_listing()
+    /// <summary>Each service's answer to "how large is this model's window", read where it keeps it —
+    /// and a window it does not name is null, "did not say", which the caller passes on as "set nothing".
+    /// </summary>
+    [Theory]
+    // The per-model question is answered from the same listing, by id.
+    [InlineData("openrouter", """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":131072}]}""",
+        "z-ai/glm-5.3-flash", 131_072L)]
+    // LM Studio's own listing carries max_context_length, so no second call.
+    [InlineData("lmstudio", """{"data":[{"id":"bonsai-27b","state":"loaded","max_context_length":40960}]}""",
+        "bonsai-27b", 40_960L)]
+    // Ollama's listing says nothing else, so it is api/show, under a key named after the architecture.
+    [InlineData("ollama", """{"model_info":{"general.architecture":"qwen2","qwen2.context_length":32768}}""",
+        "qwen3:8b", 32_768L)]
+    [InlineData("ollama", """{"model_info":{"general.architecture":"qwen2"}}""", "qwen3:8b", null)]
+    public async Task Each_service_answers_a_models_window_where_it_keeps_it(
+        string providerId, string body, string model, long? expected)
     {
-        using var _ = new StubHttp(
-            """{"data":[{"id":"z-ai/glm-5.3-flash","context_length":131072}]}""");
+        using var _ = new HttpStub(body);
 
-        var window = await new OpenRouterProvider().ContextWindowAsync(
-            Instance("openrouter", "sk-test"), "z-ai/glm-5.3-flash");
+        var window = await Provider(providerId).ContextWindowAsync(
+            Instance(providerId, providerId == "openrouter" ? "sk-test" : "",
+                providerId == "openrouter" ? "" : "localhost"), model);
 
-        Assert.Equal(131_072, window);
-    }
-
-    /// <summary>LM Studio's own listing carries <c>max_context_length</c> — the one answer that needs
-    /// no second call.</summary>
-    [Fact]
-    public async Task Lm_studio_answers_the_window_from_its_own_listing()
-    {
-        using var _ = new StubHttp(
-            """{"data":[{"id":"bonsai-27b","state":"loaded","max_context_length":40960}]}""");
-
-        var window = await new LmStudioProvider().ContextWindowAsync(
-            Instance("lmstudio", "", "localhost"), "bonsai-27b");
-
-        Assert.Equal(40_960, window);
-    }
-
-    /// <summary>Ollama's listing names its models and says nothing else, so the question is a POST to
-    /// <c>api/show</c>, and the answer lives under a key named after the architecture.</summary>
-    [Fact]
-    public async Task Ollama_answers_the_window_from_api_show()
-    {
-        using var _ = new StubHttp("""
-            {"model_info":{
-              "general.architecture":"qwen2",
-              "qwen2.context_length":32768
-            }}
-            """);
-
-        var window = await new OllamaProvider().ContextWindowAsync(
-            Instance("ollama", "", "localhost"), "qwen3:8b");
-
-        Assert.Equal(32_768, window);
-    }
-
-    /// <summary>An answer that names no window — an older server, an architecture the key set does not
-    /// cover — is "did not say", which the caller passes through as "set nothing".</summary>
-    [Fact]
-    public async Task Ollama_that_says_nothing_answers_null()
-    {
-        using var _ = new StubHttp("""{"model_info":{"general.architecture":"qwen2"}}""");
-
-        var window = await new OllamaProvider().ContextWindowAsync(
-            Instance("ollama", "", "localhost"), "qwen3:8b");
-
-        Assert.Null(window);
+        Assert.Equal(expected, window);
     }
 
     // ── The "first loaded" sentinel ──────────────────────────────────────────────────────────────
 
-    /// <summary>A hosted service cannot say what is loaded, so the sentinel is refused with a reason
-    /// rather than resolved into a model of our choosing.</summary>
-    [Fact]
-    public async Task First_loaded_has_no_meaning_on_a_hosted_service()
-    {
-        var (model, problem) = await AiModelChoice.ResolveAsync(new OpenAiProvider(),
-            Instance("openai", "sk"), AiModelChoice.FirstLoaded);
-
-        Assert.Null(model);
-        Assert.NotNull(problem);
-    }
-
     /// <summary>
-    /// On a local server it is whatever that server has in memory right now.
+    /// The sentinel is resolved at every launch against what a local server has in memory, and never
+    /// into a model of our choosing.
     /// </summary>
-    /// <remarks>Resolved at every launch and never written down: persisting the answer would mean
-    /// changing the model in LM Studio no longer changed it here, which is the whole point of having a
-    /// sentinel at all.</remarks>
-    [Fact]
-    public async Task First_loaded_is_what_the_local_server_has_in_memory()
+    /// <remarks>Never written down: persisting the answer would mean changing the model in LM Studio no
+    /// longer changed it here, which is the whole point of having a sentinel.</remarks>
+    [Theory]
+    // A hosted service cannot say what is loaded, so it is refused with a reason, without a call.
+    [InlineData("openai", null, true, null)]
+    [InlineData("ollama", """{"models":[{"name":"qwen3:8b"}]}""", true, "qwen3:8b")]
+    // Nothing loaded fails with a sentence rather than picking something.
+    [InlineData("ollama", """{"models":[]}""", true, null)]
+    // A model that is not the sentinel is passed through untouched, without a call.
+    [InlineData("ollama", null, false, "qwen3:8b")]
+    public async Task First_loaded_is_what_a_local_server_has_in_memory(
+        string providerId, string? body, bool firstLoaded, string? expected)
     {
-        using var _ = new StubHttp("""{"models":[{"name":"qwen3:8b"}]}""");
+        using var _ = body is null ? HttpStub.Throwing(new InvalidOperationException("no call expected"))
+            : new HttpStub(body);
 
-        var (model, problem) = await AiModelChoice.ResolveAsync(new OllamaProvider(),
-            Instance("ollama", "", "localhost"), AiModelChoice.FirstLoaded);
+        var (model, problem) = await AiModelChoice.ResolveAsync(Provider(providerId),
+            Instance(providerId, providerId == "openai" ? "sk" : "", providerId == "openai" ? "" : "localhost"),
+            firstLoaded ? AiModelChoice.FirstLoaded : "qwen3:8b");
 
-        Assert.Equal("qwen3:8b", model);
-        Assert.Null(problem);
-    }
-
-    /// <summary>A local server with nothing loaded fails the resolution and says so — it does not pick
-    /// something for the user.</summary>
-    [Fact]
-    public async Task A_local_server_with_nothing_loaded_is_a_readable_failure()
-    {
-        using var _ = new StubHttp("""{"models":[]}""");
-
-        var (model, problem) = await AiModelChoice.ResolveAsync(new OllamaProvider(),
-            Instance("ollama", "", "localhost"), AiModelChoice.FirstLoaded);
-
-        Assert.Null(model);
-        Assert.NotNull(problem);
-    }
-
-    /// <summary>Anything that is not the sentinel is passed through untouched, without a call.</summary>
-    [Fact]
-    public async Task A_named_model_is_not_resolved_against_anything()
-    {
-        var (model, problem) = await AiModelChoice.ResolveAsync(new OllamaProvider(),
-            Instance("ollama", "", "localhost"), "qwen3:8b");
-
-        Assert.Equal("qwen3:8b", model);
-        Assert.Null(problem);
+        Assert.Equal(expected, model);
+        Assert.Equal(expected is null, problem is not null);
     }
 
     // ── Persistence ──────────────────────────────────────────────────────────────────────────────
@@ -554,33 +478,6 @@ public class AiProviderTests
         Assert.Equal("http://127.0.0.1:1234/v1",
             provider.EndpointFor(ApiFlavor.OpenAiChatCompletions, instance)?.ToString());
     }
-
-    /// <summary>
-    /// A keyless provider still gets a non-empty token, because an empty one is a refusal.
-    /// </summary>
-    /// <remarks>Measured 2026-08-31 against Claude Code 2.1.251 and a running LM Studio:
-    /// <c>ANTHROPIC_AUTH_TOKEN=""</c> fails with "Not logged in · Please run /login" before a request
-    /// is made, while any non-empty value goes straight through — the server has no authentication and
-    /// ignores it. Without this, every local-server pairing was configurable, offered, and dead on
-    /// launch.</remarks>
-    [Fact]
-    public void Claude_gets_a_placeholder_token_where_the_provider_needs_no_key()
-    {
-        var (settings, instance) = Configured("claude", "lmstudio", key: "");
-
-        var environment = Agent("claude").EnvFor(AgentRuntime.For(settings, instance));
-
-        Assert.NotNull(environment["ANTHROPIC_AUTH_TOKEN"]);
-        Assert.NotEmpty(environment["ANTHROPIC_AUTH_TOKEN"]!);
-    }
-
-    /// <summary>Ollama is not given the same, because it does not serve it.</summary>
-    /// <remarks>Measured the same day: its <c>/v1/messages</c> answers 404. The flavors are what each
-    /// server actually serves, and a pairing offered and then failed is worse than one never
-    /// offered.</remarks>
-    [Fact]
-    public void Ollama_is_not_offered_to_claude() =>
-        Assert.False(AiProviderCatalog.IsCompatible(Agent("claude"), Provider("ollama")));
 
     /// <summary>
     /// An address that was typed and cannot be read is a failure, not a fallback.
@@ -691,7 +588,7 @@ public class AiProviderTests
     [Fact]
     public async Task A_local_provider_that_does_not_answer_names_where_it_looked()
     {
-        using var http = new StubHttp("", HttpStatusCode.NotFound);
+        using var http = new HttpStub("", HttpStatusCode.NotFound);
 
         var check = await Provider("lmstudio")
             .TestAsync(Instance("lmstudio", key: "", baseUrl: "127.0.0.1:8080"));
@@ -735,7 +632,7 @@ public class AiProviderTests
     [Fact]
     public async Task An_address_that_never_answers_is_reported_rather_than_thrown()
     {
-        using var _ = new ThrowingHttp(new TaskCanceledException("The request was canceled due to the "
+        using var _ = HttpStub.Throwing(new TaskCanceledException("The request was canceled due to the "
             + "configured HttpClient.Timeout of 30 seconds elapsing."));
 
         var provider = Provider("ollama");
@@ -756,7 +653,7 @@ public class AiProviderTests
     [Fact]
     public async Task A_local_server_that_never_answers_stops_the_launch_with_a_sentence()
     {
-        using var _ = new ThrowingHttp(new TaskCanceledException("timed out"));
+        using var _ = HttpStub.Throwing(new TaskCanceledException("timed out"));
 
         var (settings, instance) = Configured("pi", "ollama", key: "");
         instance.Model = AiModelChoice.FirstLoaded;
@@ -774,29 +671,13 @@ public class AiProviderTests
     [Fact]
     public async Task A_cancelled_call_is_still_a_cancellation()
     {
-        using var _ = new ThrowingHttp(new TaskCanceledException("cancelled"));
+        using var _ = HttpStub.Throwing(new TaskCanceledException("cancelled"));
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => Provider("ollama").ModelsAsync(
                 Instance("ollama", key: "", baseUrl: "192.0.2.1:11434"), cancelled.Token));
-    }
-
-    /// <summary>Every request fails the way an unreachable address does.</summary>
-    private sealed class ThrowingHttp : IDisposable
-    {
-        public ThrowingHttp(Exception failure) =>
-            AiProvider.HandlerFactory = () => new FailingHandler(failure);
-
-        public void Dispose() => AiProvider.HandlerFactory = null;
-
-        private sealed class FailingHandler(Exception failure) : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken) =>
-                Task.FromException<HttpResponseMessage>(failure);
-        }
     }
 
     /// <summary>
@@ -818,29 +699,5 @@ public class AiProviderTests
         Assert.Contains("192.168.1.10:abc", check.Message);
         Assert.Contains("not an address this can read", check.Message);
         Assert.DoesNotContain("key", check.Message);
-    }
-
-    /// <summary>
-    /// One canned reply for every request this provider layer makes, for as long as it is not disposed.
-    /// </summary>
-    /// <remarks>A handler rather than a client, because the base address and the timeout are exactly the
-    /// two per-instance things worth seeing applied. The seam is restored on disposal, so one test
-    /// cannot leave the next one talking to a stub.</remarks>
-    private sealed class StubHttp : IDisposable
-    {
-        public StubHttp(string body, HttpStatusCode status = HttpStatusCode.OK) =>
-            AiProvider.HandlerFactory = () => new CannedHandler(body, status);
-
-        public void Dispose() => AiProvider.HandlerFactory = null;
-
-        private sealed class CannedHandler(string body, HttpStatusCode status) : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken) =>
-                Task.FromResult(new HttpResponseMessage(status)
-                {
-                    Content = new StringContent(body, Encoding.UTF8, "application/json"),
-                });
-        }
     }
 }

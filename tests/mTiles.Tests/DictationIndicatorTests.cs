@@ -19,13 +19,6 @@ namespace mTiles.Tests;
 /// </remarks>
 public class DictationIndicatorTests
 {
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(DictationIndicatorTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     private static (LeafTileNodeViewModel Leaf, Border Indicator, LeafTileView View) Build()
     {
         var leaf = new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope());
@@ -54,7 +47,7 @@ public class DictationIndicatorTests
 
     [Fact]
     public void The_border_is_hidden_until_something_is_being_dictated()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var (_, indicator, _) = Build();
 
@@ -65,7 +58,7 @@ public class DictationIndicatorTests
 
     [Fact]
     public void Recording_and_transcribing_are_shown_differently_and_never_at_once()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var (leaf, indicator, _) = Build();
 
@@ -96,7 +89,7 @@ public class DictationIndicatorTests
     /// </remarks>
     [Fact]
     public void The_active_outline_stands_down_while_this_tile_is_being_dictated_into()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var (leaf, _, _) = Build();
             leaf.IsActive = true;
@@ -133,7 +126,7 @@ public class DictationIndicatorTests
     /// </remarks>
     [Fact]
     public void The_outline_on_screen_goes_dark_for_the_dictation_and_comes_back_after_it()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var (leaf, _, view) = Build();
             var lit = Token(view, "AccentOutline");
@@ -170,7 +163,7 @@ public class DictationIndicatorTests
     /// </remarks>
     [Fact]
     public void The_dictation_border_frames_the_whole_tile()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             // Recording from the start, so the border is laid out along with everything else — a
             // control that was collapsed when the window measured itself has no bounds to compare.

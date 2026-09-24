@@ -45,6 +45,10 @@ public partial class App : Application
             Avalonia.Threading.Dispatcher.UIThread.Post(_settingsService.NotifyChanged));
         _textScale.Start();
 
+        // Early, off the UI thread: whether rtk is where a tile's shell finds it is asked of the login
+        // shell's PATH without waiting, so the read must be under way before a tile or Settings asks.
+        LoginShellPath.StartReading();
+
         var workspaceService = new WorkspaceService();
         var persistenceService = new PersistenceService();
 
@@ -111,14 +115,12 @@ public partial class App : Application
             RequestedThemeVariant = colorTheme.IsDark ? ThemeVariant.Dark : ThemeVariant.Light;
             ThemeBridge.Apply(colorTheme);
             ApplyFontResources();
-            ApplyContextBarResource();
         };
 
         var initialColorTheme = TerminalTheme.GetByName(_settingsService.Settings.ColorThemeName);
         RequestedThemeVariant = initialColorTheme.IsDark ? ThemeVariant.Dark : ThemeVariant.Light;
         ThemeBridge.Apply(initialColorTheme);
         ApplyFontResources();
-        ApplyContextBarResource();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -280,16 +282,6 @@ public partial class App : Application
         Shutdown("text scale watcher", () => _textScale?.Dispose());
         Shutdown("browser relay", () => _browserRelay?.Dispose());
     }
-
-    /// <summary>Whether the agent tiles draw their context bar, as a resource both views read.</summary>
-    /// <remarks>A resource rather than a property on each tile's view model, for the reason the font
-    /// sizes are one: every open tile follows it the moment it changes, and no tile has to subscribe to
-    /// the settings or remember to unsubscribe.</remarks>
-    private void ApplyContextBarResource() =>
-        Resources[ContextBarResourceKey] = _settingsService.Settings.ShowContextBar;
-
-    /// <summary>The resource <see cref="ApplyContextBarResource"/> writes.</summary>
-    public const string ContextBarResourceKey = "ShowContextBar";
 
     private void ApplyFontResources()
     {

@@ -259,6 +259,10 @@ public partial class SettingsViewModel
     public bool ShowsOutputProxyNotice { get; private set; }
 
     /// <summary>The sentence itself.</summary>
+    /// <remarks>Installed-but-unreachable used to be a second sentence here, telling the user to put
+    /// rtk on <c>PATH</c> and restart. It is gone because the state is: <c>ClaudeAgent.Configure</c>
+    /// puts rtk's own directory in front of the <c>PATH</c> of any session carrying the hook, so the
+    /// only thing left to report is rtk not being on the machine at all.</remarks>
     public string OutputProxyNotice =>
         $"An agent here is set to filter command output through {OutputProxy.BinaryName}, which is not "
         + "installed on this machine. Those sessions run unfiltered until it is.";
@@ -280,11 +284,29 @@ public partial class SettingsViewModel
             && AiAgentCatalog.Find(instance.AgentId) is
                 { OutputProxySupport: OutputProxy.Support.GeneratedFile });
 
-        ShowsOutputProxyNotice = wanted && !OutputProxy.IsInstalled;
+        // Only rtk missing from the machine is left to report: one installed off PATH is put on the
+        // session's PATH by the launch (ClaudeAgent.Configure). Not while the login shell's PATH is
+        // still being read: rtk found only there would be named "not installed" until it answered.
+        ShowsOutputProxyNotice = wanted && OutputProxy.IsShellsPathKnown && !OutputProxy.IsInstalled;
         _outputProxyInstall = ShowsOutputProxyNotice ? OutputProxy.Plan : null;
         OnPropertyChanged(nameof(ShowsOutputProxyNotice));
+        OnPropertyChanged(nameof(OutputProxyNotice));
         OnPropertyChanged(nameof(CanInstallOutputProxy));
         OnPropertyChanged(nameof(CanOpenOutputProxyPage));
+        RefreshOnceTheShellsPathIsKnown(wanted);
+    }
+
+    /// <summary>Works the rtk notice and hint out again once the login shell's <c>PATH</c> has been
+    /// read, when they were worked out before it was — nothing else would bring them up to date.</summary>
+    private void RefreshOnceTheShellsPathIsKnown(bool wanted)
+    {
+        if (!wanted && !ShowsOutputProxy || OutputProxy.IsShellsPathKnown) return;
+        OutputProxy.WhenShellsPathIsKnownAsync().ContinueWith(_ =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                RefreshOutputProxy();
+                RefreshOutputProxyHint();
+            }), TaskScheduler.Default);
     }
 
     /// <summary>Shows what installing rtk would run, and runs it in the background.</summary>
@@ -297,6 +319,8 @@ public partial class SettingsViewModel
 
         await InstallInBackgroundAsync($"Install {OutputProxy.BinaryName}?", OutputProxy.BinaryName, plan, () =>
         {
+            // Installed is success: winget puts rtk in a folder this running process's PATH will not
+            // see until a restart, which the row and the notice then say in so many words.
             RefreshOutputProxy();
             return OutputProxy.IsInstalled;
         });
@@ -363,6 +387,11 @@ public partial class SettingsViewModel
     [ObservableProperty] private string _editAgentEffort = "";
     [ObservableProperty] private string _editAgentExtraArgs = "";
     [ObservableProperty] private bool _editAgentUseOutputProxy;
+
+    // The active sentence depends on the tick as well as on the machine, and a tick raises no
+    // refresh of its own.
+    partial void OnEditAgentUseOutputProxyChanged(bool value) =>
+        OnPropertyChanged(nameof(IsOutputProxyActive));
     private AiAgentInstance? _editingAgentInstance;
 
     /// <summary>Whether the agent form can be saved: it needs a name, for the reason the provider
@@ -427,14 +456,19 @@ public partial class SettingsViewModel
                 _editingAgentInstance ?? AiAgentCatalog.SeedInstanceFor(agent), AiUsage.Interactive)
             : AiBehaviours.All;
 
+        // Read before the list is cleared: clearing it makes the bound combo write null back into
+        // EditAgentBehaviour, so asking afterwards found nothing and reset every stored mode to default.
+        var chosen = EditAgentBehaviour;
+
         BehaviourLabels.Clear();
         foreach (var behaviour in AiBehaviours.All.Where(allowed.Contains))
             BehaviourLabels.Add(AiBehaviours.Label(behaviour));
 
         // A stored mode this agent has no gate for falls to the tool's own default rather than staying
         // selected in a chooser that no longer offers it — the same rule the effort chooser follows.
-        if (!BehaviourLabels.Contains(EditAgentBehaviour))
-            EditAgentBehaviour = AiBehaviours.Label(AiBehaviour.ToolDefault);
+        EditAgentBehaviour = BehaviourLabels.Contains(chosen)
+            ? chosen
+            : AiBehaviours.Label(AiBehaviour.ToolDefault);
     }
 
     private void RefreshEffortLabels()
@@ -447,14 +481,18 @@ public partial class SettingsViewModel
         var model = _agentModels.FirstOrDefault(info => info.Id == EditAgentModel.Trim());
         var allowed = AiProviderCatalog.NarrowEfforts(agentEfforts, model?.SupportedEfforts);
 
+        // Read before the list is cleared, for the reason RefreshBehaviourLabels gives.
+        var chosen = EditAgentEffort;
+
         EffortLabels.Clear();
         foreach (var effort in allowed)
             EffortLabels.Add(AiEfforts.Label(effort));
 
         // A stored level the agent or the model no longer accepts falls to the tool's own default
         // rather than staying selected in a chooser that no longer offers it.
-        if (!EffortLabels.Contains(EditAgentEffort))
-            EditAgentEffort = AiEfforts.Label(AiEffort.ToolDefault);
+        EditAgentEffort = EffortLabels.Contains(chosen)
+            ? chosen
+            : AiEfforts.Label(AiEffort.ToolDefault);
     }
 
     partial void OnEditAgentAgentNameChanged(string value)
@@ -500,15 +538,23 @@ public partial class SettingsViewModel
         OutputProxyHint = ShowsOutputProxy ? DescribeOutputProxyOnThisMachine() : "";
         OnPropertyChanged(nameof(OutputProxyHint));
         OnPropertyChanged(nameof(HasOutputProxyWarning));
+        OnPropertyChanged(nameof(IsOutputProxyActive));
+        if (ShowsOutputProxy) RefreshOnceTheShellsPathIsKnown(wanted: true);
     }
 
-    private string DescribeOutputProxyOnThisMachine() =>
-        !OutputProxy.IsInstalled
-            ? $"{OutputProxy.BinaryName} is not installed on this machine, so this does nothing yet."
-            : AgentBeingEdited?.IsOutputProxyAlreadyHooked(SignInBeingEdited) == true
-                ? $"{OutputProxy.BinaryName} is already hooked into {AgentBeingEdited?.DisplayName}'s own settings, so "
-                  + "mTiles adds nothing — your sessions are rewritten either way."
-                : "";
+    private string DescribeOutputProxyOnThisMachine()
+    {
+        if (!OutputProxy.IsInstalled)
+            return $"{OutputProxy.BinaryName} is not installed on this machine, so this does nothing yet.";
+
+        // Installed but nowhere a shell looks used to be a state here, telling the user to fix their
+        // PATH. It is not one any more: the launch puts rtk's directory in front of the session's own
+        // PATH, so being findable is this application's problem rather than a sentence.
+        return AgentBeingEdited?.IsOutputProxyAlreadyHooked(SignInBeingEdited) == true
+            ? $"{OutputProxy.BinaryName} is already hooked into {AgentBeingEdited?.DisplayName}'s own settings, so "
+              + "mTiles adds nothing — your sessions are rewritten either way."
+            : "";
+    }
 
     /// <summary>The sign-in the form's account names, or null for the CLI's default one.</summary>
     private AiSignIn? SignInBeingEdited =>
@@ -518,6 +564,27 @@ public partial class SettingsViewModel
 
     /// <summary>Whether that sentence is one worth colouring.</summary>
     public bool HasOutputProxyWarning => OutputProxyHint.Length > 0;
+
+    /// <summary>Whether the proxy is ticked and this machine can actually carry it.</summary>
+    /// <remarks>The third state the hint had no room for. Silence used to mean both "nothing is wrong"
+    /// and "it is working", which left the only way of telling them apart outside this application —
+    /// and the instrument people reach for there, <c>rtk gain</c>, cannot see our hook at all.</remarks>
+    public bool IsOutputProxyActive =>
+        ShowsOutputProxy && EditAgentUseOutputProxy && !HasOutputProxyWarning;
+
+    /// <summary>What to say when it is on and working.</summary>
+    /// <remarks><b>The second sentence is the one that earns its place.</b> <c>rtk gain</c> reports on
+    /// the hook in the CLI's <em>own</em> settings — the one <c>rtk init -g</c> writes and this
+    /// application deliberately does not — so on a machine hooked from here it prints
+    /// <c>No hook installed — run `rtk init -g`</c> whatever our hook is doing. Measured 2026-09-23 on
+    /// a machine where the proxy was verifiably rewriting commands: the counter rose by exactly one per
+    /// shell call while that warning stayed on screen. Without this sentence the obvious next step is
+    /// to follow rtk's advice, which adds a second hook beside ours and hands one command to the proxy
+    /// twice — so the warning does not merely confuse, it advises a change for the worse.</remarks>
+    public static string OutputProxyActiveNote =>
+        $"Active for this instance — its shell commands go through {OutputProxy.BinaryName}. "
+        + $"`{OutputProxy.BinaryName} gain` will still warn that no hook is installed: it only checks "
+        + "the global one, which mTiles does not write. Do not run `rtk init -g` to silence it.";
 
     /// <summary>Whether the Auto-compact field is shown: Claude Code's alone.</summary>
     /// <remarks>The field is the manual <c>CLAUDE_CODE_AUTO_COMPACT_WINDOW</c>, and only Claude Code
@@ -910,8 +977,13 @@ public partial class SettingsViewModel
     /// instances keep their names: those are rows nobody was asked about, and a blank one would be
     /// worse than an obvious one.</remarks>
     [RelayCommand]
-    private void AddAgentInstance() =>
-        BeginAgentEditing(new AiAgentInstance { AgentId = AiAgentCatalog.All[0].Id });
+    private void AddAgentInstance()
+    {
+        var agent = AiAgentCatalog.All[0];
+        var instance = new AiAgentInstance { AgentId = agent.Id };
+        instance.DefaultBehaviour = AiAgentCatalog.DefaultBehaviourFor(agent, instance);
+        BeginAgentEditing(instance);
+    }
 
     [RelayCommand]
     private void EditAgentInstance(AiAgentInstanceViewModel row) => BeginAgentEditing(row.Instance);
@@ -1052,6 +1124,36 @@ public partial class SettingsViewModel
         IsEditingAgentInstance = false;
         OnPropertyChanged(nameof(IsEditingAnything));
     }
+
+    /// <summary>Moves an agent instance to another place in the list, which is the order every chooser
+    /// offers them in — the Agent tile's, the terminal agent's setup step and the Goal tile's.</summary>
+    /// <remarks>The stored list follows the rows at once, so what is on screen and what a save would write
+    /// never disagree; telling everybody that it moved waits for <see cref="CommitAgentOrder"/>, since a drag
+    /// crosses several rows and each announcement redraws every open chooser.</remarks>
+    public void MoveAgentInstance(int from, int to)
+    {
+        if (from == to || from < 0 || to < 0 || from >= AgentInstances.Count || to >= AgentInstances.Count)
+            return;
+
+        AgentInstances.Move(from, to);
+
+        MoveStoredAgentInstance(AgentInstances[to].Instance, AgentInstances.ElementAtOrDefault(to + 1)?.Instance);
+    }
+
+    /// <summary>Moves one instance in the stored list to just before the row that now follows it.</summary>
+    /// <remarks>One removal and one insertion, never a clear and a refill: a debounced save serialises this
+    /// list on another thread, and a list passing through empty is a settings file written without its
+    /// agents.</remarks>
+    private void MoveStoredAgentInstance(AiAgentInstance moved, AiAgentInstance? next)
+    {
+        var stored = _settingsService.Settings.AiAgentInstances;
+        if (!stored.Remove(moved)) return;
+        var at = next is null ? -1 : stored.IndexOf(next);
+        stored.Insert(at < 0 ? stored.Count : at, moved);
+    }
+
+    /// <summary>The drag is over: the order is saved and the choosers redraw.</summary>
+    public void CommitAgentOrder() => _settingsService.NotifyChanged();
 
     [RelayCommand]
     private async Task DeleteAgentInstanceAsync(AiAgentInstanceViewModel row)

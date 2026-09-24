@@ -31,31 +31,6 @@ public sealed class TileCatalogTests
         Assert.DoesNotContain(TileKindIds.None, ids);
     }
 
-    /// <summary>
-    /// Every kind a layout written before this change could name is still buildable.
-    /// </summary>
-    /// <remarks>
-    /// The test that catches a user's layout opening as a row of empty tiles. It is written against the
-    /// historical enum on purpose: that is the exhaustive list of what is on people's disks, and it is
-    /// the one thing about the old design still worth keeping — an enum nobody may add to is a perfect
-    /// record of what was once written down.
-    /// </remarks>
-    [Theory]
-    [InlineData(TileContentType.Terminal)]
-    [InlineData(TileContentType.Note)]
-    [InlineData(TileContentType.Todo)]
-    [InlineData(TileContentType.Git)]
-    [InlineData(TileContentType.Database)]
-    [InlineData(TileContentType.Goal)]
-    public void Every_kind_an_old_layout_could_name_is_registered(TileContentType historical)
-    {
-        using var settings = new TempSettings();
-        var kind = TestTiles.Catalog(settings.Service).Kind(TileKindIds.FromLegacy(historical));
-
-        Assert.NotNull(kind);
-        Assert.Equal(TileKindIds.FromLegacy(historical), kind.Id);
-    }
-
     /// <summary>And the absence of a kind stays the absence of a kind rather than becoming one.</summary>
     [Fact]
     public void Empty_is_not_a_kind()
@@ -88,19 +63,23 @@ public sealed class TileCatalogTests
     /// <para>Every registered kind is listed, including the one that writes nothing down today: what
     /// this asks is a promise about the kind rather than about its current state, so the first field
     /// Database ever remembers is covered by a line that is already here.</para>
+    /// <para>The rows are the historical <see cref="TileContentType"/> — the exhaustive record of what is
+    /// on people's disks — so a kind an old layout could name and nothing registers fails here too.</para>
     /// </remarks>
     [Theory]
-    [InlineData(TileKindIds.Terminal)]
-    [InlineData(TileKindIds.Note)]
-    [InlineData(TileKindIds.Todo)]
-    [InlineData(TileKindIds.Git)]
-    [InlineData(TileKindIds.Database)]
-    [InlineData(TileKindIds.Goal)]
-    public void What_a_kind_saves_rebuilds_the_same_tile(string kindId)
+    [InlineData(TileContentType.Terminal)]
+    [InlineData(TileContentType.Note)]
+    [InlineData(TileContentType.Todo)]
+    [InlineData(TileContentType.Git)]
+    [InlineData(TileContentType.Database)]
+    [InlineData(TileContentType.Goal)]
+    public void What_a_kind_saves_rebuilds_the_same_tile(TileContentType historical)
     {
         using var settings = new TempSettings();
         using var directory = new TempDirectory();
-        var kind = TestTiles.Catalog(settings.Service).Kind(kindId)!;
+        var kind = TestTiles.Catalog(settings.Service).Kind(TileKindIds.FromLegacy(historical));
+        Assert.NotNull(kind);
+        Assert.Equal(TileKindIds.FromLegacy(historical), kind.Id);
         var context = new TileContext(directory.Path, settings.Service);
 
         var first = kind.Create(context, null);
@@ -278,13 +257,3 @@ public sealed class TileCatalogTests
     }
 }
 
-/// <summary>A directory that goes away with the test.</summary>
-internal sealed class TempDirectory : IDisposable
-{
-    public string Path { get; } = Directory.CreateTempSubdirectory("mtiles-tiles").FullName;
-
-    public void Dispose()
-    {
-        try { Directory.Delete(Path, recursive: true); } catch { /* a temp directory nobody will read */ }
-    }
-}

@@ -29,7 +29,13 @@ public static class AccessKeyLabel
     /// takes the first letter that is still free and goes without one if there is none — a missing
     /// mnemonic is a button reached by Tab, which every button here already is.</para>
     /// </remarks>
-    public static string Mark(string label, char? taken)
+    public static string Mark(string label, char? taken) => Mark(label, [taken]);
+
+    /// <summary><see cref="Mark(string, char?)"/> for a third button, whose letter has to avoid both of the
+    /// others'.</summary>
+    public static string Mark(string label, char? taken, char? takenToo) => Mark(label, [taken, takenToo]);
+
+    private static string Mark(string label, char?[] taken)
     {
         // Whatever is already in the text is literal: an underscore in a label is a word the caller
         // wrote, not a mark, and left alone it would silently eat the following character.
@@ -48,19 +54,24 @@ public static class AccessKeyLabel
     /// <remarks>Takes the same <paramref name="taken"/> as <see cref="Mark"/> and must be asked with
     /// it: the two answering differently is a dialog underlining one letter and accepting another.
     /// </remarks>
-    public static char? KeyOf(string label, char? taken = null)
+    public static char? KeyOf(string label, char? taken = null) => KeyOf(label, [taken]);
+
+    /// <summary><see cref="KeyOf(string, char?)"/> for a third button.</summary>
+    public static char? KeyOf(string label, char? taken, char? takenToo) => KeyOf(label, [taken, takenToo]);
+
+    private static char? KeyOf(string label, char?[] taken)
     {
         var at = IndexOf(label, taken);
         return at < 0 ? null : char.ToLowerInvariant(label[at]);
     }
 
-    private static int IndexOf(string label, char? taken)
+    private static int IndexOf(string label, char?[] taken)
     {
         for (var i = 0; i < label.Length; i++)
         {
             if (!char.IsLetter(label[i]))
                 continue;
-            if (taken is { } other && char.ToLowerInvariant(label[i]) == other)
+            if (taken.Contains(char.ToLowerInvariant(label[i])))
                 continue;
             return i;
         }

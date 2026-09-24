@@ -124,10 +124,12 @@ public sealed class AiAgentInstance
     public AiEffort DefaultEffort { get; set; } = AiEffort.High;
 
     /// <summary>How much this instance may do without asking, unless a tile says otherwise.</summary>
-    /// <remarks>Seeded as <see cref="AiBehaviour.ToolDefault"/> — no flag at all — because a seeded
-    /// instance is one nobody has been asked about: anything else would have a fresh install start
-    /// every agent tile with the CLI's own asking turned off, and the first symptom of that is an edit
-    /// that already happened. Loosening it is a choice made in the instance editor.
+    /// <remarks>Seeded as <see cref="AiBehaviour.Auto"/> where the agent has that gate and
+    /// <see cref="AiBehaviour.ToolDefault"/> where it has not (<c>AiAgentCatalog.DefaultBehaviourFor</c>) —
+    /// the user's call, made on 2026-09-23 against the earlier rule of seeding every row with no flag at
+    /// all: a tile that stops on every edit was the common complaint, and <c>auto</c> still asks before
+    /// anything <c>bypass</c> would wave through. The initialiser below stays the tool's default because it
+    /// is what a file that omits the key is read as, and that must never be the more permissive answer.
     /// <para>Read tolerantly for the reason <see cref="DefaultEffort"/> gives — this page writes the
     /// whole vocabulary and the vocabulary has grown once already — and to
     /// <see cref="AiBehaviour.ToolDefault"/> rather than to the settings file's <c>Auto</c>: an answer

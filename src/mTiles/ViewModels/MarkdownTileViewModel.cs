@@ -37,6 +37,21 @@ public abstract partial class MarkdownTileViewModel : ObservableObject, IFileCon
     private volatile bool _hasPendingChanges;
     private volatile string _lastSavedText = "";
 
+    /// <summary>The file was there and could not be read — held by an editor, a sync client, an antivirus.
+    /// </summary>
+    /// <remarks>Until a read succeeds the tile is showing nothing in front of a file that has something, so
+    /// nothing here may delete that file: an empty tile disposed in that state used to take the note with it.
+    /// </remarks>
+    private volatile bool _loadFailed;
+
+    /// <summary>How many more times a file that could not be read is tried again before the tile gives up.
+    /// </summary>
+    /// <remarks>Bounded, so a file unreadable for good does not arm a timer for the life of the session; long
+    /// enough to outlast a sync client hydrating the file or an antivirus scan.</remarks>
+    private int _loadRetriesLeft = MaxLoadRetries;
+
+    private const int MaxLoadRetries = 20;
+
     public string FilePath => _filePath;
 
     protected MarkdownTileViewModel(string filePath, SettingsService? settingsService = null)
@@ -78,12 +93,12 @@ public abstract partial class MarkdownTileViewModel : ObservableObject, IFileCon
         var dir = Path.GetDirectoryName(_filePath);
         if (dir == null) return;
 
-        var newPath = Path.Combine(dir, sanitized + ".md");
-        if (string.Equals(newPath, _filePath, StringComparison.OrdinalIgnoreCase)) return;
+        var newPath = FreePathFor(dir, sanitized);
+        if (newPath is null) return;
 
         _saveTimer?.Dispose();
         _saveTimer = null;
-        SaveToFile(_filePath);
+        if (_hasPendingChanges) SaveToFile(_filePath);
 
         try
         {
@@ -105,6 +120,23 @@ public abstract partial class MarkdownTileViewModel : ObservableObject, IFileCon
         }
     }
 
+    /// <summary>Where a tile named <paramref name="name"/> keeps its file, or null when that is where it
+    /// already is.</summary>
+    /// <remarks><b>Never a file somebody else's text is in.</b> The tile used to take the name's file whether
+    /// or not it existed, without loading it: a new note numbered <c>Note#2</c> — a number freed by a note
+    /// closed earlier, or one a lost layout save no longer remembered — adopted <c>Note#2.md</c>, showed an
+    /// empty page over it, and deleted it the moment the empty tile was closed. A name that is taken gets a
+    /// suffix instead, and the tile keeps its own name.</remarks>
+    private string? FreePathFor(string dir, string name)
+    {
+        for (var i = 1; ; i++)
+        {
+            var candidate = Path.Combine(dir, i == 1 ? name + ".md" : $"{name} ({i}).md");
+            if (string.Equals(candidate, _filePath, StringComparison.OrdinalIgnoreCase)) return null;
+            if (!File.Exists(candidate)) return candidate;
+        }
+    }
+
     private void ScheduleSave()
     {
         if (_isLoading) return;
@@ -114,7 +146,7 @@ public abstract partial class MarkdownTileViewModel : ObservableObject, IFileCon
         _saveTimer?.Dispose();
         _saveTimer = new Timer(_ =>
         {
-            SaveContent(text, path);
+            if (!TrySaveContent(text, path)) return;
             _lastSavedText = text;
             _hasPendingChanges = false;
         }, null, AppDefaults.SaveDebounceMs, Timeout.Infinite);
@@ -131,17 +163,50 @@ public abstract partial class MarkdownTileViewModel : ObservableObject, IFileCon
         }
         catch (Exception ex)
         {
+            _loadFailed = true;
             System.Diagnostics.Trace.TraceWarning("MarkdownTile load failed: {0}", ex.Message);
+            // Tried again shortly, the way an outside edit is followed: the usual cause is a file held open
+            // for a moment, and a tile left empty for the session is one the user types over.
+            RetryLoad();
         }
     }
+
+    private void RetryLoad() =>
+        OnFileChanged(this, new FileSystemEventArgs(WatcherChangeTypes.Changed, "", null));
 
     private void SaveToFile(string path)
     {
         var text = MdText ?? "";
-        SaveContent(text, path);
-        _lastSavedText = text;
+        if (TrySaveContent(text, path)) _lastSavedText = text;
     }
 
+    /// <summary>Saves the text, unless the file on disk has never been read — then beside it.</summary>
+    /// <remarks>While a load has failed the page is not the file's content, so writing it — typed text or
+    /// nothing — would replace a note nobody has seen with whatever was typed over the empty tile. What was
+    /// typed is not the file's either, and must not vanish with the tile: it goes to
+    /// <see cref="RecoveryPathFor"/>, where both texts survive and the user can put them together.</remarks>
+    private bool TrySaveContent(string text, string path)
+    {
+        if (_loadFailed && File.Exists(path))
+        {
+            System.Diagnostics.Trace.TraceWarning("MarkdownTile save skipped: '{0}' has not been read yet", path);
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var recovery = RecoveryPathFor(path);
+            FileHelper.WriteWithRetry(recovery, p => File.WriteAllText(p, text));
+            System.Diagnostics.Trace.TraceWarning("MarkdownTile text typed over an unread file kept in '{0}'", recovery);
+            return true;
+        }
+
+        SaveContent(text, path);
+        return true;
+    }
+
+    /// <summary>Where text typed over a file that could not be read is kept: <c>Note.unsaved.md</c> beside
+    /// <c>Note.md</c>.</summary>
+    internal static string RecoveryPathFor(string path) => Path.ChangeExtension(path, ".unsaved.md");
+
+    /// <remarks>An empty page deletes its file: somebody cleared the note. Reached only through
+    /// <see cref="TrySaveContent"/>, which refuses while the file has not been read.</remarks>
     private static void SaveContent(string text, string path)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -203,7 +268,15 @@ public abstract partial class MarkdownTileViewModel : ObservableObject, IFileCon
         try
         {
             var text = File.ReadAllText(_filePath);
+            if (_loadFailed) KeepTextTypedBeforeTheRead(text);
+            _loadFailed = false;
             if (text == _lastSavedText || text == MdText)
+                return;
+
+            // A file caught empty in the middle of somebody else's write — a sync client, a checkout, a second
+            // copy of this application — is not a page somebody cleared. Taking it would put an empty text in
+            // the tile, and the next save or close would then delete the note.
+            if (string.IsNullOrWhiteSpace(text) && !string.IsNullOrWhiteSpace(MdText))
                 return;
 
             _isLoading = true;
@@ -215,7 +288,24 @@ public abstract partial class MarkdownTileViewModel : ObservableObject, IFileCon
         {
             _isLoading = false;
             System.Diagnostics.Trace.TraceWarning("MarkdownTile reload failed: {0}", ex.Message);
+            if (_loadFailed && --_loadRetriesLeft > 0) RetryLoad();
         }
+    }
+
+    /// <summary>Takes back the save still waiting from before the file could be read, and keeps its text
+    /// beside the note instead.</summary>
+    /// <remarks>That save was armed over an empty page; once the read succeeds, <see cref="TrySaveContent"/>
+    /// would no longer refuse it, and the text typed over the empty tile would replace the note just
+    /// read.</remarks>
+    private void KeepTextTypedBeforeTheRead(string fileText)
+    {
+        if (!_hasPendingChanges) return;
+        _saveTimer?.Dispose();
+        _saveTimer = null;
+        _hasPendingChanges = false;
+
+        var typed = MdText ?? "";
+        if (typed != fileText) TrySaveContent(typed, _filePath);
     }
 
     public void Dispose()
@@ -224,7 +314,10 @@ public abstract partial class MarkdownTileViewModel : ObservableObject, IFileCon
             _settingsService.SettingsChanged -= OnSettingsChanged;
         _saveTimer?.Dispose();
         _reloadTimer?.Dispose();
-        SaveToFile(_filePath);
+        // Only what is still waiting to be written. Saving unconditionally wrote whatever the tile held over
+        // the file — and an empty tile deleted it — whether or not anybody had touched the page, which is how
+        // a note that never loaded, or a tile standing over somebody else's file, took the text with it.
+        if (_hasPendingChanges) SaveToFile(_filePath);
         _watcher?.Dispose();
     }
 }

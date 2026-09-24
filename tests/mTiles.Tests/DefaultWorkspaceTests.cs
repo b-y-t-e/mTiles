@@ -20,17 +20,19 @@ namespace mTiles.Tests;
 /// </remarks>
 public class DefaultWorkspaceTests : IDisposable
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("mtiles-default-workspace").FullName;
+    private TempDirectory? _temp;
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { /* a locked temp dir is not a failure */ }
-        GC.SuppressFinalize(this);
-    }
+    /// <summary>A real directory, made only for the tests that write the workspace list.</summary>
+    private string Dir => (_temp ??= new TempDirectory("mtiles-default-workspace")).Path;
 
-    private string WorkspacesFile => Path.Combine(_dir, "workspaces.json");
+    /// <summary>An ordinary project folder; nothing here asks the disk about it.</summary>
+    private static readonly string Project = Path.Combine(Path.GetTempPath(), "mterminal");
+
+    public void Dispose() => _temp?.Dispose();
+
+    private string WorkspacesFile => Path.Combine(Dir, "workspaces.json");
     private WorkspaceService NewWorkspaces() => new(WorkspacesFile);
-    private PersistenceService NewLayouts() => new(Path.Combine(_dir, "layouts"));
+    private PersistenceService NewLayouts() => new(Path.Combine(Dir, "layouts"));
 
     [Fact]
     public void A_first_run_opens_on_the_home_directory_with_one_terminal()
@@ -56,7 +58,7 @@ public class DefaultWorkspaceTests : IDisposable
     public void A_list_that_already_has_workspaces_gains_nothing()
     {
         var workspaces = NewWorkspaces();
-        workspaces.AddWorkspace(Path.Combine(_dir, "existing"), "Existing");
+        workspaces.AddWorkspace(Path.Combine(Dir, "existing"), "Existing");
 
         DefaultWorkspace.SeedFirstRun(workspaces, NewLayouts());
 
@@ -113,7 +115,7 @@ public class DefaultWorkspaceTests : IDisposable
     {
         Assert.Equal(WorkspaceDisplayName.Home,
             WorkspaceDisplayName.For("andrz", SpecialDirectories.Home));
-        Assert.Equal("mterminal", WorkspaceDisplayName.For("mterminal", _dir));
+        Assert.Equal("mterminal", WorkspaceDisplayName.For("mterminal", Project));
     }
 
     [Fact]
@@ -130,20 +132,14 @@ public class DefaultWorkspaceTests : IDisposable
     public void Only_the_home_directory_wears_the_home_glyph()
     {
         // Both the name and the glyph read the path, so a folder the user happens to have named the
-        // same gets the words and not the mark. The glyph now sits on the path line rather than in
-        // front of the name, where it was a second spelling of a name that already says "Home
-        // directory" — but which row wears it is unchanged, and this is that rule.
-        //
-        // Asserted on SpecialKind and on the glyph it is converted to, which is what the row draws.
-        // It used to be asserted on a WorkspaceItemViewModel.IsHome that nothing else read: the test
-        // passed, was named after the house, and would have gone on passing with no house anywhere.
+        // same gets the words and not the mark — asserted on the glyph the row actually draws.
         var home = new WorkspaceItemViewModel(new Workspace
         {
             Id = "home", Name = "andrz", DirectoryPath = SpecialDirectories.Home
         });
         var namesake = new WorkspaceItemViewModel(new Workspace
         {
-            Id = "namesake", Name = WorkspaceDisplayName.Home, DirectoryPath = _dir
+            Id = "namesake", Name = WorkspaceDisplayName.Home, DirectoryPath = Project
         });
 
         Assert.Equal(SpecialDirectoryKind.Home, home.SpecialKind);
@@ -151,15 +147,6 @@ public class DefaultWorkspaceTests : IDisposable
 
         Assert.Equal(MaterialIconKind.Home, Glyph(home));
         Assert.NotEqual(MaterialIconKind.Home, Glyph(namesake));
-
-        // And the line the glyph is on is shown for the one and not the other, once the check has
-        // answered: an ordinary folder without a repository offers to make one, and that offer takes
-        // the line. Both are told the same thing, so the path is the only difference between them.
-        home.HasRepository = false;
-        namesake.HasRepository = false;
-
-        Assert.True(home.ShowsDirectoryPath);
-        Assert.False(namesake.ShowsDirectoryPath);
     }
 
     /// <summary>The glyph the row's meta line draws, through the converter the markup uses.</summary>
@@ -174,9 +161,9 @@ public class DefaultWorkspaceTests : IDisposable
         // screen. An alphabetical list whose order cannot be read is worth no more than an unsorted one.
         var rows = new List<WorkspaceItemViewModel>
         {
-            Row("Golf", Path.Combine(_dir, "golf")),
+            Row("Golf", Path.Combine(Project, "golf")),
             Row("andrz", SpecialDirectories.Home),
-            Row("India", Path.Combine(_dir, "india"))
+            Row("India", Path.Combine(Project, "india"))
         };
 
         rows.Sort(WorkspaceDisplayOrder.Compare);
@@ -191,8 +178,8 @@ public class DefaultWorkspaceTests : IDisposable
         // bunch every aliased row at one end and override the alphabet the rest of the list is read by.
         // Pinning is the one thing that outranks the name, and it still does here.
         var home = Row("andrz", SpecialDirectories.Home);
-        var pinned = Row("Zulu", Path.Combine(_dir, "zulu"), isFavorite: true);
-        var rows = new List<WorkspaceItemViewModel> { home, pinned, Row("Alpha", Path.Combine(_dir, "alpha")) };
+        var pinned = Row("Zulu", Path.Combine(Project, "zulu"), isFavorite: true);
+        var rows = new List<WorkspaceItemViewModel> { home, pinned, Row("Alpha", Path.Combine(Project, "alpha")) };
 
         rows.Sort(WorkspaceDisplayOrder.Compare);
 
@@ -204,61 +191,11 @@ public class DefaultWorkspaceTests : IDisposable
         new(new Workspace { Name = storedName, DirectoryPath = path, IsFavorite = isFavorite });
 
     [Fact]
-    public void A_project_folder_is_offered_a_repository_and_the_home_directory_is_not()
-    {
-        Assert.True(SpecialDirectories.AllowsRepository(_dir));
-        Assert.False(SpecialDirectories.AllowsRepository(SpecialDirectories.Home));
-    }
-
-    [Fact]
-    public void A_directory_under_the_home_directory_is_still_offered_one()
-    {
-        // The rule is about the home directory itself, not about living under it — every checkout on a
-        // normal machine is somewhere below it.
-        Assert.True(SpecialDirectories.AllowsRepository(Path.Combine(SpecialDirectories.Home, "sources", "project")));
-    }
-
-    [Fact]
     public void A_trailing_separator_does_not_make_it_a_different_directory()
     {
         var home = SpecialDirectories.Home.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         Assert.True(SpecialDirectories.IsHome(home + Path.DirectorySeparatorChar));
         Assert.True(SpecialDirectories.IsHome(Path.Combine(home, "sub", "..")));
-    }
-
-    [Fact]
-    public void The_root_of_the_filesystem_is_not_offered_a_repository()
-    {
-        foreach (var root in Roots())
-            Assert.False(SpecialDirectories.AllowsRepository(root), root);
-    }
-
-    /// <summary>The roots this machine can name, the process's own drive among them.</summary>
-    /// <remarks>
-    /// The working directory's root is the one that matters: a root was once recognised by normalizing
-    /// it again, and <c>Path.GetFullPath("C:")</c> is the current directory on drive C: rather than
-    /// <c>C:\</c> — so the rule failed for exactly the drive the process was running on, which in an
-    /// installed copy is the system drive. A test using only the repository's own drive stayed green.
-    /// </remarks>
-    private IEnumerable<string> Roots()
-    {
-        foreach (var path in new[] { _dir, SpecialDirectories.Home, Environment.CurrentDirectory })
-        {
-            var root = Path.GetPathRoot(Path.GetFullPath(path));
-            Assert.False(string.IsNullOrEmpty(root));
-            yield return root!;
-        }
-    }
-
-    [Fact]
-    public void A_system_directory_and_anything_under_it_is_not_offered_a_repository()
-    {
-        var system = OperatingSystem.IsWindows()
-            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
-            : "/usr";
-
-        Assert.False(SpecialDirectories.AllowsRepository(system));
-        Assert.False(SpecialDirectories.AllowsRepository(Path.Combine(system, "share")));
     }
 
     [Fact]
@@ -269,7 +206,7 @@ public class DefaultWorkspaceTests : IDisposable
         // on every row, so blank is height spent on silence — and the path is the fact the name does
         // not carry here, "Home directory" being an alias this application chose.
         var home = Row("andrz", SpecialDirectories.Home);
-        var project = Row("mterminal", _dir);
+        var project = Row("mterminal", Project);
 
         home.HasRepository = false;
         project.HasRepository = false;
@@ -327,7 +264,6 @@ public class DefaultWorkspaceTests : IDisposable
             if (SpecialDirectories.IsHome(path)) continue;
 
             Assert.Equal(kind, SpecialDirectories.Kind(path));
-            Assert.False(SpecialDirectories.AllowsRepository(path), path);
         }
     }
 
@@ -359,27 +295,9 @@ public class DefaultWorkspaceTests : IDisposable
         var path = Path.Combine(home, name);
 
         Assert.Equal(kind, SpecialDirectories.Kind(path));
-        Assert.False(SpecialDirectories.AllowsRepository(path), path);
 
         // And only the folder itself, as with every other one of them.
         Assert.Equal(SpecialDirectoryKind.Ordinary, SpecialDirectories.Kind(Path.Combine(path, "a project")));
-    }
-
-    [Fact]
-    public void A_drive_root_and_a_system_directory_say_which_they_are()
-    {
-        // AllowsRepository is tested above; this is the other half of the same answer, and the half
-        // the row now draws its glyph from — a disk and a cog are two different pictures, and neither
-        // is the folder both would fall to.
-        foreach (var root in Roots())
-            Assert.Equal(SpecialDirectoryKind.DriveRoot, SpecialDirectories.Kind(root));
-
-        var system = OperatingSystem.IsWindows()
-            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
-            : "/usr";
-
-        Assert.Equal(SpecialDirectoryKind.System, SpecialDirectories.Kind(system));
-        Assert.Equal(SpecialDirectoryKind.System, SpecialDirectories.Kind(Path.Combine(system, "share")));
     }
 
     /// <summary>
@@ -409,48 +327,56 @@ public class DefaultWorkspaceTests : IDisposable
                 kind, typeof(MaterialIconKind), null, CultureInfo.InvariantCulture));
     }
 
-    [Fact]
-    public void A_project_under_one_of_them_is_an_ordinary_project()
+    /// <summary>
+    /// What kind of place each path is, and the offer to create a repository withheld for exactly the
+    /// paths that have a kind.
+    /// </summary>
+    /// <remarks>
+    /// <para>One rule, one reading: <c>AllowsRepository</c> is derived from <c>Kind</c> rather than
+    /// deciding again, so the glyph on a row and the offer on it cannot disagree about a path.</para>
+    /// <para>The home directory and the user's own folders match only themselves — every checkout on a
+    /// normal machine is below one of them — while a drive root and a system directory match everything
+    /// under them. "We cannot tell" is its own answer, not a fall to ordinary, and not a yes.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData("project", SpecialDirectoryKind.Ordinary)]
+    [InlineData("home", SpecialDirectoryKind.Home)]
+    [InlineData("under home", SpecialDirectoryKind.Ordinary)]
+    [InlineData("under documents", SpecialDirectoryKind.Ordinary)]
+    [InlineData("root of the temp directory", SpecialDirectoryKind.DriveRoot)]
+    [InlineData("root of home", SpecialDirectoryKind.DriveRoot)]
+    // The process's own drive: a root was once normalised again, and GetFullPath("C:") is not the root.
+    [InlineData("root of the working directory", SpecialDirectoryKind.DriveRoot)]
+    [InlineData("system", SpecialDirectoryKind.System)]
+    [InlineData("under system", SpecialDirectoryKind.System)]
+    [InlineData("empty", SpecialDirectoryKind.Unknown)]
+    [InlineData("blank", SpecialDirectoryKind.Unknown)]
+    public void A_place_has_its_kind_and_only_an_ordinary_one_is_offered_a_repository(
+        string place, SpecialDirectoryKind kind)
     {
-        // The whole difference between these and the system directories: those match everything under
-        // them, these match only themselves. A repository at ~/Documents tracks every file the user
-        // ever put there; a repository at ~/Documents/thing is what people actually do.
+        var system = OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+            : "/usr";
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        if (documents.Length == 0) return;
 
-        var project = Path.Combine(documents, "a project");
-
-        Assert.Equal(SpecialDirectoryKind.Ordinary, SpecialDirectories.Kind(project));
-        Assert.True(SpecialDirectories.AllowsRepository(project));
-    }
-
-    [Fact]
-    public void The_offer_is_withheld_for_exactly_the_paths_that_have_a_kind()
-    {
-        // One rule, one reading. AllowsRepository is derived from Kind rather than deciding again, so
-        // the glyph on a row and the offer on it cannot come to different conclusions about the same
-        // path — which is the failure two spellings of "is this the home directory" would produce.
-        foreach (var path in new[]
-                 {
-                     _dir, SpecialDirectories.Home, Path.Combine(_dir, "project"), "", "   ",
-                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                 })
+        var path = place switch
         {
-            Assert.Equal(SpecialDirectories.Kind(path) == SpecialDirectoryKind.Ordinary,
-                         SpecialDirectories.AllowsRepository(path));
-        }
-    }
+            "project" => Project,
+            "home" => SpecialDirectories.Home,
+            "under home" => Path.Combine(SpecialDirectories.Home, "sources", "project"),
+            "under documents" => documents.Length == 0 ? null : Path.Combine(documents, "a project"),
+            "root of the temp directory" => Path.GetPathRoot(Path.GetFullPath(Path.GetTempPath())),
+            "root of home" => Path.GetPathRoot(Path.GetFullPath(SpecialDirectories.Home)),
+            "root of the working directory" => Path.GetPathRoot(Path.GetFullPath(Environment.CurrentDirectory)),
+            "system" => system,
+            "under system" => Path.Combine(system, "share"),
+            "empty" => "",
+            "blank" => "   ",
+            _ => throw new ArgumentOutOfRangeException(nameof(place)),
+        };
+        if (path is null) return;
 
-    [Fact]
-    public void A_path_nothing_can_make_sense_of_is_not_offered_a_repository()
-    {
-        // "We cannot tell" is one of the answers, and it is not a yes: an empty DirectoryPath must not
-        // put an offer to write to somewhere unknown on a row.
-        Assert.False(SpecialDirectories.AllowsRepository(""));
-        Assert.False(SpecialDirectories.AllowsRepository("   "));
-
-        // And it is its own answer, not a fall to "ordinary": the row draws a glyph from this, and
-        // there is no true picture of a path nothing could read.
-        Assert.Equal(SpecialDirectoryKind.Unknown, SpecialDirectories.Kind(""));
+        Assert.Equal(kind, SpecialDirectories.Kind(path));
+        Assert.Equal(kind == SpecialDirectoryKind.Ordinary, SpecialDirectories.AllowsRepository(path));
     }
 }

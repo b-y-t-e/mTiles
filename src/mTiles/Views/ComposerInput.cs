@@ -37,13 +37,32 @@ public static class ComposerInput
     /// takes none.</param>
     /// <param name="pasteLongText">Takes a paste too long for the box (<see cref="mTiles.Services.PastedNote"/>);
     /// null where the box takes every paste as it comes.</param>
+    /// <param name="mayClear">Whether Escape pressed twice may empty the box now; null where it always may.
+    /// The Agent tile answers no while a turn runs, since Escape is its Stop then and pressing it twice to be
+    /// sure the agent stopped must not cost the draft.</param>
     public static void Attach(TextBox box, Action send, Func<bool> isPickingAFile,
         Border? frame = null, Action<Bitmap>? pasteImage = null,
         Func<IReadOnlyList<Avalonia.Platform.Storage.IStorageItem>, Task>? pasteFiles = null,
-        Func<string, Task>? pasteLongText = null)
+        Func<string, Task>? pasteLongText = null, Func<bool>? mayClear = null)
     {
+        var escape = new DoublePress(DoublePress.Window);
         box.AddHandler(InputElement.KeyDownEvent, (_, e) =>
         {
+            // Escape twice empties the box, Claude Code's own gesture. The first press is left unmarked so
+            // whatever else answers to Escape (the Agent tile's Stop) still gets it.
+            if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None && !isPickingAFile())
+            {
+                // A press made while clearing is not allowed does not count as a first half either: Escape
+                // that stops a turn, then Escape again as the turn ends, is two stops and not a clear.
+                if (mayClear?.Invoke() == false) escape.Reset();
+                else if (escape.Press(DateTime.UtcNow) && !string.IsNullOrEmpty(box.Text))
+                {
+                    box.Text = "";
+                    e.Handled = true;
+                }
+                return;
+            }
+
             // What a box takes is said by what was passed, and ComposerPaste is the one place that reads
             // it: a box that takes none of the three leaves every paste key unmarked for the box itself.
             if (ComposerPaste.TryPaste(box, e, pasteImage, pasteFiles, pasteLongText)) return;

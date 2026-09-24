@@ -188,13 +188,6 @@ public class ComposerImageMarkerTests
         }
     }
 
-    private static AgentConversationTileViewModel NewTile(TempSettings settings)
-    {
-        var agent = AiAgentCatalog.Find("claude")!;
-        return new AgentConversationTileViewModel(Path.GetTempPath(), settings.Service,
-            new mTiles.AgentSessions.Storage.SqliteConversationStore(
-                Path.Combine(Path.GetTempPath(), $"mtiles-markers-{Guid.NewGuid():N}.db")),
-            AiAgentCatalog.SeedInstanceFor(agent), agent, () => Guid.NewGuid().ToString(),
-            requestSave: null, post: action => action());
-    }
+    private static AgentConversationTileViewModel NewTile(TempSettings settings) =>
+        ConversationTiles.New(settings);
 }

@@ -297,7 +297,11 @@ public sealed partial class WindowLayoutViewModel : ObservableObject, IDisposabl
         _persistence.DebouncedSaveLayout(LayoutId, () => _serializer.Serialize(RootTile));
     }
 
-    public void Dispose() => DisposeTree(RootTile);
+    public void Dispose()
+    {
+        _persistence.FlushLayout(LayoutId);
+        DisposeTree(RootTile);
+    }
 
     private void DisposeTree(TileNodeViewModel? node)
     {

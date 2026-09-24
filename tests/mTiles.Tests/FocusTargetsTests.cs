@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using mTiles.Views;
@@ -82,8 +82,7 @@ public class FocusTargetsTests
     /// tile's own.</summary>
     private static void InWindow<TView>(Func<TView> build, Action<TView, InputElement> body) where TView : Control
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(FocusTargetsTests).Assembly);
-        session.Dispatch(() =>
+        Ui.Run(() =>
         {
             var view = build();
             var card = new Border { Focusable = true };
@@ -91,7 +90,6 @@ public class FocusTargetsTests
             window.Show();
             try { body(view, card); }
             finally { window.Close(); }
-            return Task.FromResult(true);
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        });
     }
 }

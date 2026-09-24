@@ -22,13 +22,6 @@ public class TileMinimumLayoutTests
 {
     private const double Gap = 8;
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(TileMinimumLayoutTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     private static LeafTileNodeViewModel Tile() =>
         new(TileKindIds.None, null, "", new TileActivationScope());
 
@@ -45,7 +38,7 @@ public class TileMinimumLayoutTests
     [Fact]
     public void A_pane_holding_a_further_split_keeps_room_for_both_of_its_tiles()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var inner = new SplitTileNodeViewModel(Orientation.Vertical, Tile(), Tile());
             var (grid, window) = Show(new SplitTileNodeViewModel(Orientation.Vertical, inner, Tile()));
@@ -61,7 +54,7 @@ public class TileMinimumLayoutTests
     [Fact]
     public void Splitting_a_tile_deep_inside_raises_the_minimum_of_the_panes_above_it()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var inner = new SplitTileNodeViewModel(Orientation.Vertical, Tile(), Tile());
             var (grid, window) = Show(new SplitTileNodeViewModel(Orientation.Vertical, inner, Tile()));
@@ -85,7 +78,7 @@ public class TileMinimumLayoutTests
     [Fact]
     public void A_grid_with_less_room_than_the_minimums_want_still_holds_both_panes()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var inner = new SplitTileNodeViewModel(Orientation.Vertical, Tile(), Tile());
             var root = new SplitTileNodeViewModel(Orientation.Vertical, inner, Tile());

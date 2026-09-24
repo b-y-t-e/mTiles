@@ -27,8 +27,8 @@ internal static class TestAppDataRoot
     [ModuleInitializer]
     internal static void Redirect()
     {
-        var root = Path.Combine(Path.GetTempPath(), "mTiles-tests",
-            $"appdata-{Environment.ProcessId}-{DateTime.Now:yyyyMMdd-HHmmss}");
+        // Inside this run's own temporary directory, which TestTempRoot clears once it is two runs old.
+        var root = Path.Combine(TestTempRoot.Root, "appdata");
 
         try
         {

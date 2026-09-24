@@ -26,6 +26,37 @@ internal static class LoginShellPath
     /// <summary>The login shell's <c>PATH</c>, or null where there is none to ask.</summary>
     public static string? Value => Cached.Value;
 
+    /// <summary>The login shell's <c>PATH</c> if it has already been read, without waiting for it; the
+    /// first ask starts the read in the background. For the UI thread, where the read's ten seconds
+    /// would freeze the window.</summary>
+    public static string? ValueIfRead
+    {
+        get
+        {
+            if (Cached.IsValueCreated) return Cached.Value;
+            StartReading();
+            return null;
+        }
+    }
+
+    /// <summary>Starts the read in the background without waiting for it — called at startup on Unix,
+    /// so a <see cref="ValueIfRead"/> asked when Settings opens or a tile launches already has the answer
+    /// rather than reporting a program on the login shell's <c>PATH</c> as off it.</summary>
+    public static void StartReading()
+    {
+        if (!OperatingSystem.IsWindows() && !Cached.IsValueCreated)
+            _ = ReadAsync();
+    }
+
+    /// <summary>Whether <see cref="ValueIfRead"/> already answers with the real value — always on
+    /// Windows, where there is nothing to read.</summary>
+    public static bool IsRead => OperatingSystem.IsWindows() || Cached.IsValueCreated;
+
+    /// <summary>The read, off the calling thread; for a caller that can wait without freezing the
+    /// window.</summary>
+    public static Task<string?> ReadAsync() =>
+        OperatingSystem.IsWindows() ? Task.FromResult<string?>(null) : Task.Run(() => Cached.Value);
+
     /// <summary>Where <paramref name="name"/> is on <paramref name="path"/>, or null.</summary>
     internal static string? Find(string name, string? path)
     {

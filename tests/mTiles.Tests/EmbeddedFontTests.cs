@@ -27,7 +27,7 @@ public class EmbeddedFontTests
     /// <remarks>On the UI thread because the asset loader is a service of a running application, not
     /// a static reader of the file on disk.</remarks>
     [Fact]
-    public void Every_face_is_compiled_into_the_assembly() => OnUiThread(() =>
+    public void Every_face_is_compiled_into_the_assembly() => Ui.Run(() =>
     {
         foreach (var face in Faces)
         {
@@ -43,7 +43,7 @@ public class EmbeddedFontTests
     [Theory]
     [InlineData(nameof(AppDefaults.FontFamily))]
     [InlineData(nameof(AppDefaults.TerminalFontFamily))]
-    public void The_default_families_resolve_to_the_embedded_copy(string which) => OnUiThread(() =>
+    public void The_default_families_resolve_to_the_embedded_copy(string which) => Ui.Run(() =>
     {
         var family = which == nameof(AppDefaults.FontFamily)
             ? AppDefaults.FontFamily
@@ -68,7 +68,7 @@ public class EmbeddedFontTests
     [InlineData(FontWeight.Normal, FontStyle.Italic)]
     [InlineData(FontWeight.Bold, FontStyle.Italic)]
     public void The_weights_the_interface_uses_are_shipped(FontWeight weight, FontStyle style)
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var typeface = new Typeface(new FontFamily(AppFonts.JetBrainsMono), style, weight);
 
@@ -82,10 +82,4 @@ public class EmbeddedFontTests
             Assert.StartsWith("JetBrains Mono", glyphs.FamilyName, StringComparison.Ordinal);
         });
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(EmbeddedFontTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

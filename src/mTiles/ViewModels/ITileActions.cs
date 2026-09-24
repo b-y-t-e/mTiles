@@ -16,6 +16,11 @@ public static class TileActionIds
     /// <summary>Adds an entry to whatever list the tile is — the header draws a <c>+</c> for it, with
     /// the action's own label as the tooltip.</summary>
     public const string Add = "add";
+
+    /// <summary>Starts the content over as a new conversation. The header draws its own button for it
+    /// (<see cref="INewConversationTile"/>), so the overflow's list of the content's actions leaves it out.
+    /// </summary>
+    public const string NewConversation = "new-conversation";
 }
 
 /// <summary>

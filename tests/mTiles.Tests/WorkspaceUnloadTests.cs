@@ -17,35 +17,16 @@ namespace mTiles.Tests;
 /// </remarks>
 public class WorkspaceUnloadTests : IDisposable
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("mtiles-unload").FullName;
+    private readonly TempDirectory _dir = new("mtiles-unload");
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WorkspaceUnloadTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
-    private MainWindowViewModel NewWindow()
-    {
-        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
-        workspaces.AddWorkspace(Path.Combine(_dir, "first"), "First");
-        workspaces.AddWorkspace(Path.Combine(_dir, "second"), "Second");
-
-        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-        return new MainWindowViewModel(
-            workspaces,
-            new PersistenceService(Path.Combine(_dir, "layouts")),
-            settings,
-            TestTiles.Catalog(settings));
-    }
+    private MainWindowViewModel NewWindow() => TestMainWindow.Create(_dir.Path);
 
     /// <summary>A workspace nobody has opened holds nothing, and its row has to say so: the shade is the
     /// only thing on the row that tells the two apart.</summary>
     [Fact]
     public void A_row_is_loaded_from_the_moment_its_workspace_is_opened()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var vm = NewWindow();
             var panel = vm.WorkspacesPanel;
@@ -64,7 +45,7 @@ public class WorkspaceUnloadTests : IDisposable
     [Fact]
     public void Unloading_lets_go_of_the_tiles_and_of_the_row()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var vm = NewWindow();
             var panel = vm.WorkspacesPanel;
@@ -96,7 +77,7 @@ public class WorkspaceUnloadTests : IDisposable
     [Fact]
     public void An_unanswered_confirmation_keeps_the_workspace()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var vm = NewWindow();
             var panel = vm.WorkspacesPanel;
@@ -114,7 +95,7 @@ public class WorkspaceUnloadTests : IDisposable
     [Fact]
     public void The_menu_item_is_dead_for_a_workspace_that_was_never_opened()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var panel = NewWindow().WorkspacesPanel;
             var unopened = panel.Workspaces.Single(w => w != panel.SelectedWorkspace);
@@ -124,10 +105,7 @@ public class WorkspaceUnloadTests : IDisposable
         });
     }
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
-    }
+    public void Dispose() => _dir.Dispose();
 
     /// <summary>Unload asks its own question, not the update's.</summary>
     /// <remarks>
@@ -140,7 +118,7 @@ public class WorkspaceUnloadTests : IDisposable
     [Fact]
     public void Unloading_does_not_borrow_the_update_dialog()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var vm = NewWindow();
             var panel = vm.WorkspacesPanel;

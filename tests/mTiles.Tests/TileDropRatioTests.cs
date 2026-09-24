@@ -18,24 +18,12 @@ public class TileDropRatioTests
     [InlineData(0.2)]
     [InlineData(0.35)]
     [InlineData(0.95)]
-    public void A_tile_dropped_on_a_gutter_takes_a_third(double ratio)
+    public void A_tile_dropped_on_a_gutter_takes_a_third_and_the_two_beside_it_keep_their_proportion(double ratio)
     {
         var (first, newcomer, second) = SharesAfterGutterDrop(ratio);
 
         Assert.Equal(TileDropRatio.NewcomerShare, newcomer, precision: 9);
         Assert.Equal(1.0, first + newcomer + second, precision: 9);
-    }
-
-    [Theory]
-    [InlineData(0.5)]
-    [InlineData(0.8)]
-    [InlineData(0.2)]
-    [InlineData(0.35)]
-    [InlineData(0.95)]
-    public void The_two_tiles_it_landed_between_keep_their_proportion(double ratio)
-    {
-        var (first, _, second) = SharesAfterGutterDrop(ratio);
-
         Assert.Equal(ratio / (1 - ratio), first / second, precision: 9);
     }
 

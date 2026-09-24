@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using mTiles.Models;
 using mTiles.Services;
 using Xunit;
@@ -23,14 +22,12 @@ namespace mTiles.Tests;
 public class GoalCommitterRootTests
 {
     [Fact]
+    [Trait("Category", "Slow")] // many real git processes; close to the budget on a Windows runner
     public async Task A_workspace_below_the_repository_root_still_commits_the_files_it_named()
     {
-        Assert.True(HasGit(), "git is not on PATH, so this cannot say anything about GoalCommitter.");
-
-        using var repo = new TempRepo();
+        using var repo = new GitTestRepo(prefix: "committer");
         repo.Write("README.md", "start\n");
-        repo.Git("add -A");
-        repo.Git("commit -q -m initial");
+        repo.CommitAll("initial");
 
         // The workspace is one directory down, and the file this run produced is new — which is what
         // most of an implementation produces, and the case that needs `add -N` before `commit --only`.
@@ -49,80 +46,5 @@ public class GoalCommitterRootTests
 
         // And nothing was left staged behind it — the intent-to-add is either committed or taken back.
         Assert.Equal("", repo.Git("status --porcelain").Trim());
-    }
-
-    private static bool HasGit()
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo("git", "--version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            p!.WaitForExit(5000);
-            return p.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private sealed class TempRepo : IDisposable
-    {
-        public string Path { get; }
-
-        public TempRepo()
-        {
-            Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), $"mtiles-committer-test-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
-
-            Git("init -q");
-
-            // On the repository rather than from the machine: a build agent has no global identity and
-            // `commit` would fail there for a reason that has nothing to do with what is being tested.
-            Git("config user.name tester");
-            Git("config user.email tester@localhost");
-            Git("config commit.gpgsign false");
-        }
-
-        public void Write(string name, string content) =>
-            File.WriteAllText(System.IO.Path.Combine(Path, name), content);
-
-        public string Git(string arguments)
-        {
-            using var p = Process.Start(new ProcessStartInfo("git", arguments)
-            {
-                WorkingDirectory = Path,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            })!;
-            var output = p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
-            p.WaitForExit();
-            return output;
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                // Git leaves read-only files under .git/objects on Windows, which Directory.Delete
-                // refuses. Clearing the attribute is cheaper than leaving a temp repository per test.
-                foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
-                    File.SetAttributes(file, FileAttributes.Normal);
-                Directory.Delete(Path, recursive: true);
-            }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning($"Cleaning up the test repository failed: {ex.Message}");
-            }
-        }
     }
 }

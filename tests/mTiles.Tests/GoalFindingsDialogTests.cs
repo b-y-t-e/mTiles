@@ -28,13 +28,6 @@ namespace mTiles.Tests;
 /// </remarks>
 public class GoalFindingsDialogTests
 {
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(GoalFindingsDialogTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     /// <summary>
     /// Puts a theme on the application for the duration of one test, and takes it off again.
     /// </summary>
@@ -129,7 +122,7 @@ public class GoalFindingsDialogTests
         var dir = Directory.CreateTempSubdirectory("mtiles-findings").FullName;
         try
         {
-            OnUiThread(() =>
+            Ui.Run(() =>
             {
                 using var theme = AppTheme();
                 var (window, vm) = Build(dir);

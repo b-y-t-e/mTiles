@@ -10,128 +10,29 @@ namespace mTiles.Tests;
 /// </summary>
 public class DictationServiceTests
 {
-    private sealed class FakeCapture : IAudioCapture
-    {
-        public bool IsAvailable { get; set; } = true;
-        public bool IsRecording { get; private set; }
-        public float[] Samples { get; set; } = new float[16_000];
-        public int StopCount { get; private set; }
-
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["fake microphone"];
-
-        /// <summary>Set to make the next start fail, as a device that is busy or gone would.</summary>
-        public bool FailNextStart { get; set; }
-
-        public void Start(string deviceName)
-        {
-            // The real capture refuses a second stream rather than replacing one, and the service must
-            // never ask it to: a start while the previous recording is still attached is the bug this
-            // fake exists to catch.
-            Assert.False(IsRecording, "started a recording while the previous one was still attached");
-
-            if (FailNextStart)
-            {
-                FailNextStart = false;
-                // And the real one leaves nothing behind when this happens: the device is released and
-                // IsRecording stays false, so the next attempt is allowed to try again.
-                throw new InvalidOperationException("the device could not be opened");
-            }
-
-            IsRecording = true;
-        }
-
-        /// <summary>What Detach hands back: this fake's whole recording is the samples it will return.</summary>
-        private sealed record Handle(float[] Samples) : IRecordingHandle;
-
-        /// <summary>The two halves, as the real one has them: detaching is instant, finishing is not.</summary>
-        public IRecordingHandle? Detach()
-        {
-            if (!IsRecording)
-                return null;
-
-            IsRecording = false;
-            return new Handle(Samples);
-        }
-
-        public float[] Finish(IRecordingHandle? detached)
-        {
-            if (detached is not Handle handle)
-                return [];
-
-            StopCount++;
-            return handle.Samples;
-        }
-
-        public void Dispose() { }
-    }
-
-    private sealed class FakeEngine : ISpeechToTextEngine
-    {
-        private readonly TaskCompletionSource _release = new();
-
-        public bool IsLoaded { get; private set; }
-        public string Transcript { get; set; } = "  hello   world  ";
-        public bool BlockUntilReleased { get; set; }
-        public int Calls { get; private set; }
-
-        public int Loads { get; private set; }
-
-        public Task LoadAsync(string modelPath, CancellationToken cancellationToken = default)
-        {
-            if (!IsLoaded)
-                Loads++;
-            IsLoaded = true;
-            return Task.CompletedTask;
-        }
-
-        public void Unload() => IsLoaded = false;
-
-        public async Task<string> TranscribeAsync(float[] samples, TranscriptionOptions options,
-            CancellationToken cancellationToken = default)
-        {
-            Calls++;
-            if (BlockUntilReleased)
-                await _release.Task.WaitAsync(cancellationToken);
-            return Transcript;
-        }
-
-        public void Release() => _release.TrySetResult();
-
-        public void Dispose() { }
-    }
-
-    /// <summary>A model store pointed at a directory holding a file of exactly the right size, so the
-    /// service believes the model is downloaded without any hundreds of megabytes being involved.</summary>
+    /// <summary>A model store over a directory holding the selected model, or holding nothing.</summary>
     private sealed class FakeModels : IDisposable
     {
-        /// <summary>A single-file model, so the fixture is one `SetLength` rather than an archive.</summary>
-        private static readonly SpeechModel Model = SpeechModelCatalog.Find("base")!;
-
-        private readonly string _directory =
-            Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
+        private readonly TempDirectory _directory = new("mtiles-dictation");
 
         public FakeModels(bool downloaded = true)
         {
-            Directory.CreateDirectory(_directory);
-            Store = new SpeechModelStore(_directory);
-            if (!downloaded)
-                return;
-
-            using var file = File.Create(Path.Combine(_directory, Model.FileName));
-            file.SetLength(Model.DownloadBytes);
+            Store = new SpeechModelStore(_directory.Path);
+            SelectedModelId = downloaded
+                ? SpeechModelFiles.PlaceOnDisk(_directory.Path).Id
+                : SpeechModelCatalog.Find("base")!.Id;
         }
 
         public SpeechModelStore Store { get; }
+        public string SelectedModelId { get; }
 
-        public string SelectedModelId => Model.Id;
-
-        public void Dispose()
-        {
-            try { Directory.Delete(_directory, recursive: true); } catch { }
-        }
+        public void Dispose() => _directory.Dispose();
     }
 
-    private static (DictationService Service, FakeCapture Capture, FakeEngine Engine) Build(
+    /// <summary>How long a key has to be held to count as meant, in every test that asks.</summary>
+    private static readonly TimeSpan DeliberateHold = TimeSpan.FromMilliseconds(10);
+
+    private static (DictationService Service, FakeMicrophone Capture, FakeSpeechEngine Engine) Build(
         TempSettings settings, FakeModels models, bool enabled = true,
         TimeSpan? maxRecording = null, TimeSpan? unloadAfter = null, TimeSpan? deliberateHold = null)
     {
@@ -139,14 +40,19 @@ public class DictationServiceTests
         speech.Enabled = enabled;
         speech.ModelId = models.SelectedModelId;
 
-        var capture = new FakeCapture();
-        var engine = new FakeEngine();
+        var capture = new FakeMicrophone();
+        var engine = new FakeSpeechEngine { Transcript = "  hello   world  " };
         // Dispatch inline: there is no UI thread here, and the ordering the tests rely on is the
         // service's own, not the dispatcher's.
         var service = new DictationService(settings.Service, capture, engine, models.Store, action => action(),
             maxRecording, unloadAfter, deliberateHold);
         return (service, capture, engine);
     }
+
+    /// <summary>Waits for the transcription the last <c>Stop</c> handed to the thread pool to finish:
+    /// delivery and any report happen before the state returns to idle.</summary>
+    private static Task<bool> FinishedAsync(DictationService service) =>
+        WaitUntilAsync(() => service.State == DictationState.Idle);
 
     private static async Task<bool> WaitUntilAsync(Func<bool> condition, int timeoutMs = 2000)
     {
@@ -156,47 +62,37 @@ public class DictationServiceTests
     }
 
     /// <summary>
-    /// The model is loaded when the recording <em>starts</em>, not when it ends.
+    /// A recording is transcribed, cleaned and delivered to its owner — and the model is loaded when the
+    /// recording <em>starts</em>, not when it ends, and not a second time for the transcription.
     /// </summary>
     /// <remarks>
-    /// A cold engine is seconds of work — building ONNX sessions, or reading a whisper file off disk —
-    /// and it used to happen after the user let go of the key, where it was the entire visible delay
-    /// between speaking and the words appearing. Speaking takes longer than loading, so paying for it
-    /// while the microphone is open makes it free on the common path. Pinned because it is invisible
-    /// when it works: nothing in the transcript says which of the two moments paid for the load, and
-    /// the preload is fire-and-forget, so losing it would look exactly like the feature being slow.
+    /// A cold engine is seconds of work, and it used to happen after the user let go of the key, where it
+    /// was the entire visible delay. Pinned because it is invisible when it works: the preload is
+    /// fire-and-forget, so losing it would look exactly like the feature being slow.
     /// </remarks>
     [Fact]
-    public async Task Starting_a_recording_loads_the_model_without_waiting_for_the_transcription()
+    public async Task A_recording_is_preloaded_transcribed_cleaned_and_delivered_to_its_owner()
     {
         using var settings = new TempSettings();
         using var models = new FakeModels();
         var (service, _, engine) = Build(settings, models);
         using var _guard = service;
 
-        Assert.True(service.Start(new object(), _ => true));
+        var owner = new object();
+        string? delivered = null;
+
+        Assert.True(service.Start(owner, text => { delivered = text; return true; }));
+        Assert.Equal(DictationState.Recording, service.State);
+        Assert.Same(owner, service.Owner);
 
         Assert.True(await WaitUntilAsync(() => engine.IsLoaded));
         Assert.Equal(DictationState.Recording, service.State);
         Assert.Equal(0, engine.Calls);
-    }
 
-    /// <summary>The preload does not cost a second load: the transcription finds the model already
-    /// there.</summary>
-    [Fact]
-    public async Task The_transcription_reuses_what_the_preload_loaded()
-    {
-        using var settings = new TempSettings();
-        using var models = new FakeModels();
-        var (service, _, engine) = Build(settings, models);
-        using var _guard = service;
-
-        string? delivered = null;
-        Assert.True(service.Start(new object(), text => { delivered = text; return true; }));
-        Assert.True(await WaitUntilAsync(() => engine.IsLoaded));
         service.Stop();
-
         Assert.Equal("hello world", await WaitForDeliveryAsync(() => delivered));
+        Assert.True(await FinishedAsync(service));
+        Assert.Null(service.Owner);
         Assert.Equal(1, engine.Loads);
     }
 
@@ -213,7 +109,7 @@ public class DictationServiceTests
     {
         using var settings = new TempSettings();
         using var models = new FakeModels();
-        var (service, _, _) = Build(settings, models, maxRecording: TimeSpan.FromMilliseconds(150));
+        var (service, _, _) = Build(settings, models, maxRecording: TimeSpan.FromMilliseconds(30));
         using var _guard = service;
 
         string? delivered = null;
@@ -232,12 +128,12 @@ public class DictationServiceTests
     {
         using var settings = new TempSettings();
         using var models = new FakeModels();
-        var (service, _, engine) = Build(settings, models, unloadAfter: TimeSpan.FromMilliseconds(100));
+        var (service, _, engine) = Build(settings, models, unloadAfter: TimeSpan.FromMilliseconds(20));
         using var _guard = service;
 
         Assert.True(service.Start(new object(), _ => true));
         service.Stop();
-        Assert.True(await WaitUntilAsync(() => engine.IsLoaded), "the model was never loaded");
+        Assert.True(await WaitUntilAsync(() => engine.Loads > 0), "the model was never loaded");
 
         Assert.True(await WaitUntilAsync(() => !engine.IsLoaded), "the model was never unloaded");
     }
@@ -250,15 +146,16 @@ public class DictationServiceTests
         using var settings = new TempSettings();
         using var models = new FakeModels();
         settings.Service.Settings.Speech.ModelUnloadMinutes = 0;
-        var (service, _, engine) = Build(settings, models, unloadAfter: TimeSpan.FromMilliseconds(50));
+        var unloadAfter = TimeSpan.FromMilliseconds(10);
+        var (service, _, engine) = Build(settings, models, unloadAfter: unloadAfter);
         using var _guard = service;
 
         Assert.True(service.Start(new object(), _ => true));
         service.Stop();
         Assert.True(await WaitUntilAsync(() => engine.IsLoaded), "the model was never loaded");
 
-        // Three times the period a non-zero setting would have used.
-        await Task.Delay(150);
+        // Several times the period a non-zero setting would have used.
+        await Task.Delay(unloadAfter * 6);
         Assert.True(engine.IsLoaded);
     }
 
@@ -269,49 +166,14 @@ public class DictationServiceTests
         return read();
     }
 
-    [Fact]
-    public async Task A_recording_is_transcribed_cleaned_and_delivered_to_its_owner()
+    [Theory]
+    [InlineData(false, true)]    // switched off
+    [InlineData(true, false)]    // the model has not been downloaded
+    public void It_refuses_to_start_and_says_so(bool enabled, bool downloaded)
     {
         using var settings = new TempSettings();
-        using var models = new FakeModels();
-        var (service, _, _) = Build(settings, models);
-        using var _guard = service;
-
-        var owner = new object();
-        string? delivered = null;
-
-        Assert.True(service.Start(owner, text => { delivered = text; return true; }));
-        Assert.Equal(DictationState.Recording, service.State);
-        Assert.Same(owner, service.Owner);
-
-        service.Stop();
-        Assert.Equal("hello world", await WaitForDeliveryAsync(() => delivered));
-        Assert.Equal(DictationState.Idle, service.State);
-        Assert.Null(service.Owner);
-    }
-
-    [Fact]
-    public void It_refuses_to_start_when_dictation_is_switched_off()
-    {
-        using var settings = new TempSettings();
-        using var models = new FakeModels();
-        var (service, capture, _) = Build(settings, models, enabled: false);
-        using var _guard = service;
-
-        string? error = null;
-        service.Error += message => error = message;
-
-        Assert.False(service.Start(new object(), _ => true));
-        Assert.False(capture.IsRecording);
-        Assert.NotNull(error);
-    }
-
-    [Fact]
-    public void It_refuses_to_start_when_the_model_has_not_been_downloaded()
-    {
-        using var settings = new TempSettings();
-        using var models = new FakeModels(downloaded: false);
-        var (service, capture, _) = Build(settings, models);
+        using var models = new FakeModels(downloaded);
+        var (service, capture, _) = Build(settings, models, enabled);
         using var _guard = service;
 
         string? error = null;
@@ -435,9 +297,8 @@ public class DictationServiceTests
         service.Cancel();
         engine.Release();
 
-        await Task.Delay(100);
+        Assert.True(await FinishedAsync(service));
         Assert.False(delivered);
-        Assert.Equal(DictationState.Idle, service.State);
     }
 
     /// <summary>
@@ -454,7 +315,7 @@ public class DictationServiceTests
         using var settings = new TempSettings();
         using var models = new FakeModels();
         // Held well past the threshold — long enough to have been meant, which used to be the trigger.
-        var (service, _, engine) = Build(settings, models, deliberateHold: TimeSpan.FromMilliseconds(10));
+        var (service, _, engine) = Build(settings, models, deliberateHold: DeliberateHold);
         using var _guard = service;
         engine.Transcript = "   ";
 
@@ -463,12 +324,12 @@ public class DictationServiceTests
 
         var delivered = false;
         Assert.True(service.Start(new object(), _ => { delivered = true; return true; }));
-        await Task.Delay(30);
+        await Task.Delay(DeliberateHold * 3);
         service.Stop();
 
-        Assert.False(await WaitUntilAsync(() => delivered, timeoutMs: 200));
+        Assert.True(await FinishedAsync(service));
+        Assert.False(delivered);
         Assert.Null(error);
-        Assert.Equal(DictationState.Idle, service.State);
     }
 
     /// <summary>
@@ -494,15 +355,13 @@ public class DictationServiceTests
     /// silently does nothing.
     /// </remarks>
     [Theory]
-    [InlineData(0, false)]
-    [InlineData(30, true)]
-    public async Task A_capture_that_yields_no_audio_is_reported_only_if_the_key_was_held(
-        int heldMilliseconds, bool expectError)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_capture_that_yields_no_audio_is_reported_only_if_the_key_was_held(bool held)
     {
         using var settings = new TempSettings();
         using var models = new FakeModels();
-        var (service, capture, _) = Build(settings, models,
-            deliberateHold: TimeSpan.FromMilliseconds(10));
+        var (service, capture, _) = Build(settings, models, deliberateHold: DeliberateHold);
         using var _guard = service;
         capture.Samples = [];
 
@@ -510,11 +369,12 @@ public class DictationServiceTests
         service.Error += message => error = message;
 
         Assert.True(service.Start(new object(), _ => true));
-        if (heldMilliseconds > 0)
-            await Task.Delay(heldMilliseconds);
+        if (held)
+            await Task.Delay(DeliberateHold * 3);
         service.Stop();
 
-        Assert.Equal(expectError, await WaitUntilAsync(() => error is not null, timeoutMs: 300));
+        Assert.True(await FinishedAsync(service));
+        Assert.Equal(held, error is not null);
     }
 
     /// <summary>

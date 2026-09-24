@@ -85,6 +85,13 @@ public class SpeechEngineHostTests
         public void Dispose() => Disposals++;
     }
 
+    /// <summary>The idle period every timer here is set to. The host's timer is a real one with no seam,
+    /// so the negative tests wait <see cref="PastTheTimer"/> — a dozen periods, several ticks of the
+    /// system clock — rather than a fixed stretch picked by hand.</summary>
+    private static readonly TimeSpan Idle = TimeSpan.FromMilliseconds(5);
+
+    private static Task PastTheTimer() => Task.Delay(Idle * 12);
+
     private static SpeechEngineHost HostFor(ISpeechToTextEngine engine, Func<bool>? mayUnload = null) =>
         new(_ => engine, mayUnload);
 
@@ -164,8 +171,8 @@ public class SpeechEngineHostTests
         using var host = HostFor(engine);
 
         var running = Transcribe(host, "model.bin");
-        host.ScheduleUnload(TimeSpan.FromMilliseconds(10));
-        await Task.Delay(150);                       // the timer has fired by now, and found the engine busy
+        host.ScheduleUnload(Idle);
+        await PastTheTimer();                        // it has fired by now, and found the engine busy
 
         Assert.Equal(0, engine.Unloads);
 
@@ -181,10 +188,10 @@ public class SpeechEngineHostTests
         using var host = HostFor(engine);
         await Transcribe(host, "model.bin");
 
-        host.ScheduleUnload(TimeSpan.FromMilliseconds(20));
+        host.ScheduleUnload(Idle);
 
-        for (var i = 0; i < 100 && engine.Unloads == 0; i++)
-            await Task.Delay(10);
+        for (var i = 0; i < 1000 && engine.Unloads == 0; i++)
+            await Task.Delay(Idle);
 
         Assert.Equal(1, engine.Unloads);
         Assert.Null(host.LoadedPath);
@@ -199,8 +206,8 @@ public class SpeechEngineHostTests
         using var host = HostFor(engine, mayUnload: () => false);
         await Transcribe(host, "model.bin");
 
-        host.ScheduleUnload(TimeSpan.FromMilliseconds(10));
-        await Task.Delay(150);
+        host.ScheduleUnload(Idle);
+        await PastTheTimer();
 
         Assert.Equal(0, engine.Unloads);
         Assert.Equal("model.bin", host.LoadedPath);
@@ -213,9 +220,9 @@ public class SpeechEngineHostTests
         using var host = HostFor(engine);
         await Transcribe(host, "model.bin");
 
-        host.ScheduleUnload(TimeSpan.FromMilliseconds(20));
+        host.ScheduleUnload(Idle);
         host.CancelScheduledUnload();
-        await Task.Delay(150);
+        await PastTheTimer();
 
         Assert.Equal(0, engine.Unloads);
     }
@@ -266,8 +273,8 @@ public class SpeechEngineHostTests
         await Transcribe(host, "model.bin");
 
         host.Dispose();
-        host.ScheduleUnload(TimeSpan.FromMilliseconds(10));
-        await Task.Delay(120);
+        host.ScheduleUnload(Idle);
+        await PastTheTimer();
 
         Assert.Equal(1, engine.Disposals);
         Assert.Equal(0, engine.Unloads);

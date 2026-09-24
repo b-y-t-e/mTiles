@@ -1,7 +1,6 @@
 ﻿using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Headless;
-using Avalonia.Markup.Xaml.Styling;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Material.Icons;
 using Material.Icons.Avalonia;
@@ -27,13 +26,6 @@ namespace mTiles.Tests;
 /// </remarks>
 public class TileActivityGlyphTests
 {
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(TileActivityGlyphTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     private static (Content Tile, MaterialIcon Glyph, Arc Arc) Build()
     {
         var content = new Content();
@@ -41,10 +33,7 @@ public class TileActivityGlyphTests
         var view = new LeafTileView { DataContext = leaf };
         var window = new Window { Content = view, Width = 400, Height = 300 };
 
-        window.Resources.MergedDictionaries.Add(new ResourceInclude(new Uri("avares://mTiles/Styles/"))
-        {
-            Source = new Uri("avares://mTiles/Styles/AppTheme.axaml"),
-        });
+        window.WithAppTokens();
         window.Show();
 
         return (content, view.FindControl<MaterialIcon>("TileTypeGlyph")!,
@@ -53,7 +42,7 @@ public class TileActivityGlyphTests
 
     /// <summary>An idle tile wears its kind, which is the state it is in nearly all the time.</summary>
     [Fact]
-    public void A_tile_with_nothing_to_report_shows_its_kind() => OnUiThread(() =>
+    public void A_tile_with_nothing_to_report_shows_its_kind() => Ui.Run(() =>
     {
         var (tile, glyph, arc) = Build();
 
@@ -70,7 +59,7 @@ public class TileActivityGlyphTests
     /// until somebody answers. Folded into one glyph they would report "something is happening" for
     /// both.</remarks>
     [Fact]
-    public void Working_turns_and_blocked_stands_still() => OnUiThread(() =>
+    public void Working_turns_and_blocked_stands_still() => Ui.Run(() =>
     {
         var (tile, glyph, arc) = Build();
 
@@ -93,7 +82,7 @@ public class TileActivityGlyphTests
     /// while one that never leaves looks like a tile that is still busy — which is exactly the state
     /// nobody goes back to check.</remarks>
     [Fact]
-    public void The_mark_goes_when_the_work_does() => OnUiThread(() =>
+    public void The_mark_goes_when_the_work_does() => Ui.Run(() =>
     {
         var (tile, glyph, arc) = Build();
 

@@ -1,6 +1,5 @@
 using mTiles.Models;
 using mTiles.Services;
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -40,13 +39,13 @@ public class TextScaleTests
     {
         var offenders = new List<string>();
 
-        foreach (var file in SourceFiles())
+        foreach (var file in RepoSources.SrcCSharp)
         {
-            if (MayReadRaw.Contains(Path.GetFileName(file))) continue;
+            if (MayReadRaw.Contains(file.Name)) continue;
 
             var line = 0;
 
-            foreach (var text in File.ReadLines(file))
+            foreach (var text in file.Lines)
             {
                 line++;
 
@@ -61,7 +60,7 @@ public class TextScaleTests
                 // bare "FontSize": the view models have one of their own, which is the scaled value and
                 // exactly what everything downstream should be reading.
                 if (Regex.IsMatch(text, @"\b(s|settings|Settings|_settingsService\.Settings)\.(Terminal)?FontSize\b"))
-                    offenders.Add($"{Path.GetFileName(file)}:{line} {text.Trim()}");
+                    offenders.Add($"{file.Name}:{line} {text.Trim()}");
             }
         }
 
@@ -143,13 +142,4 @@ public class TextScaleTests
             TextScale.Set(1.0);
         }
     }
-
-    private static IEnumerable<string> SourceFiles() =>
-        Directory.EnumerateFiles(Path.Combine(Root(), "src"), "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                        && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"));
-
-    /// <inheritdoc cref="XmlDocPlacementTests"/>
-    private static string Root([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", ".."));
 }

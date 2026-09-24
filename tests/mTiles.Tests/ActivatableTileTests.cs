@@ -35,30 +35,21 @@ public class ActivatableTileTests
     private static LeafTileNodeViewModel Leaf(TileActivationScope scope, ITile content) =>
         new("counting", content, workingDirectory: ".", scope);
 
+    /// <summary>Becoming active tells the content once; activating the tile that is already active says
+    /// nothing more.</summary>
     [Fact]
-    public void Becoming_active_tells_the_content()
+    public void Becoming_active_tells_the_content_once()
     {
         var scope = new TileActivationScope();
         var content = new CountingTile();
         var leaf = Leaf(scope, content);
 
         leaf.Activate();
-
         Assert.True(leaf.IsActive);
         Assert.Equal(1, content.Activations);
-    }
-
-    [Fact]
-    public void Activating_the_tile_that_is_already_active_says_nothing()
-    {
-        var scope = new TileActivationScope();
-        var content = new CountingTile();
-        var leaf = Leaf(scope, content);
 
         leaf.Activate();
         leaf.Activate();
-        leaf.Activate();
-
         Assert.Equal(1, content.Activations);
     }
 
@@ -73,22 +64,13 @@ public class ActivatableTileTests
         first.Activate();
         second.Activate();
 
+        // Content that asked for nothing is asked nothing, and its tile is active all the same.
+        Assert.True(second.IsActive);
         Assert.False(first.IsActive);
         Assert.Equal(1, content.Activations);
 
         first.Activate();
         Assert.Equal(2, content.Activations);
-    }
-
-    [Fact]
-    public void Content_that_asked_for_nothing_is_asked_nothing()
-    {
-        var scope = new TileActivationScope();
-        var leaf = Leaf(scope, new PlainTile());
-
-        leaf.Activate();
-
-        Assert.True(leaf.IsActive);
     }
 
     [Fact]

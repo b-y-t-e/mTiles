@@ -65,36 +65,25 @@ public class GoalTilePolicyTests
         Assert.Equal(2, GoalLoopPolicy.NextAttempt(reloaded.IterationCount, reloaded.MaxIter, finishInterrupted: true));
     }
 
-    [Fact]
-    public void An_empty_tile_is_discarded_without_a_dialog()
+    /// <summary>
+    /// Discarding a transcript asks first only when something of the user's is in it — decided by
+    /// content, not by phase, because a failed Clarify puts the phase back to Goal with the answers still
+    /// on screen.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]   // an empty tile
+    [InlineData(false, true)]    // only the tile's own notes
+    [InlineData(true, true)]     // the user's goal beside a note
+    public void Discarding_asks_only_when_the_transcript_holds_something_of_the_users(
+        bool usersGoal, bool tilesNote)
     {
-        Assert.False(GoalTilePolicy.WorthConfirming([]));
-    }
+        var messages = new List<GoalMessage>();
+        if (usersGoal)
+            messages.Add(new() { Role = GoalMessageRole.User, Text = "make the tile resumable", Phase = GoalPhase.Goal });
+        if (tilesNote)
+            messages.Add(new() { Role = GoalMessageRole.System, Text = "AI returned an empty response. Try again." });
 
-    [Fact]
-    public void Notes_the_tile_wrote_about_itself_are_not_worth_interrupting_anybody_over()
-    {
-        GoalMessage[] onlyNotes =
-        [
-            new() { Role = GoalMessageRole.System, Text = "AI returned an empty response. Try again." }
-        ];
-
-        Assert.False(GoalTilePolicy.WorthConfirming(onlyNotes));
-    }
-
-    [Fact]
-    public void A_transcript_with_anything_of_the_users_in_it_is_asked_about()
-    {
-        // Decided by content, not by phase: a Clarify that failed puts the engine back to Goal while
-        // the goal, the answers and the tool's replies are all still on screen, and asking by phase let
-        // the next thing typed wipe them without a word.
-        GoalMessage[] afterAFailedClarify =
-        [
-            new() { Role = GoalMessageRole.User, Text = "make the tile resumable", Phase = GoalPhase.Goal },
-            new() { Role = GoalMessageRole.System, Text = "AI returned an empty response. Try again." }
-        ];
-
-        Assert.True(GoalTilePolicy.WorthConfirming(afterAFailedClarify));
+        Assert.Equal(usersGoal, GoalTilePolicy.WorthConfirming(messages.ToArray()));
     }
 
     [Theory]
@@ -103,6 +92,8 @@ public class GoalTilePolicyTests
     [InlineData("STREAM CLOSED", true)]
     [InlineData("", false)]
     [InlineData(null, false)]
+    // A refused flag exits with the same status and must not be retried unasked.
+    [InlineData("error: unknown option '--effort'\n\n[stderr] claude: unknown option --effort", false)]
     public void A_dropped_stream_is_named_as_such_and_nothing_else_is(string? text, bool broken)
     {
         // Measured 2026-09-01 on Claude Code 2.1.251 over OpenRouter: the dropped stream exits non-zero
@@ -110,12 +101,5 @@ public class GoalTilePolicyTests
         // words and not on the exit code, and why the negatives matter: a usage message is a decision
         // about the command line, and retrying it unasked would run the same refusal again.
         Assert.Equal(broken, GoalTilePolicy.LooksLikeBrokenStream(text));
-    }
-
-    [Fact]
-    public void A_refused_flag_is_not_a_broken_stream()
-    {
-        const string usage = "error: unknown option '--effort'\n\n[stderr] claude: unknown option --effort";
-        Assert.False(GoalTilePolicy.LooksLikeBrokenStream(usage));
     }
 }

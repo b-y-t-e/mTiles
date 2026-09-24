@@ -101,6 +101,9 @@ public sealed class TranscriptAnchor
     /// than a report of it going away.</remarks>
     private bool IsHeld => _held?.Captured is not null;
 
+    /// <summary>Whether the reader is following the end rather than reading back.</summary>
+    public bool IsAtEnd => _atEnd;
+
     /// <summary>Starts keeping <paramref name="scroll"/>'s reader in place for as long as it lives.</summary>
     public static TranscriptAnchor Attach(ScrollViewer scroll) => new(scroll);
 

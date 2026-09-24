@@ -41,13 +41,6 @@ public sealed class TileLayoutMigrationTests : IDisposable
 
     public void Dispose() => _directory.Dispose();
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(TileLayoutMigrationTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     /// <summary>The id the golden layout's terminal was created from, so the profile is one the settings
     /// actually hold and the value has somewhere to survive to.</summary>
     private const string ProfileId = "0f2a2f4c-2c8b-4a4a-9d2a-7b1f2d3e4f50";
@@ -261,7 +254,7 @@ public sealed class TileLayoutMigrationTests : IDisposable
     /// unasserted.
     /// </remarks>
     [Fact]
-    public void A_layout_written_before_kinds_existed_opens_unchanged() => OnUiThread(() =>
+    public void A_layout_written_before_kinds_existed_opens_unchanged() => Ui.Run(() =>
     {
         using var settings = new TempSettings();
         settings.Service.Settings.ShellProfiles.Add(new UserShellProfile
@@ -335,7 +328,7 @@ public sealed class TileLayoutMigrationTests : IDisposable
     /// at which every one of those files is replaced at once.
     /// </remarks>
     [Fact]
-    public void The_layout_is_copied_aside_before_it_is_migrated() => OnUiThread(() =>
+    public void The_layout_is_copied_aside_before_it_is_migrated() => Ui.Run(() =>
     {
         using var settings = new TempSettings();
         var before = WriteGolden();
@@ -357,7 +350,7 @@ public sealed class TileLayoutMigrationTests : IDisposable
     /// back.
     /// </remarks>
     [Fact]
-    public void A_kind_nothing_is_registered_under_is_never_written_over() => OnUiThread(() =>
+    public void A_kind_nothing_is_registered_under_is_never_written_over() => Ui.Run(() =>
     {
         using var settings = new TempSettings();
         var layouts = new PersistenceService(_layouts);
@@ -399,7 +392,7 @@ public sealed class TileLayoutMigrationTests : IDisposable
     /// The rename here stands in for all of them — they meet at one method.
     /// </remarks>
     [Fact]
-    public void A_kind_nothing_is_registered_under_survives_an_ordinary_save() => OnUiThread(() =>
+    public void A_kind_nothing_is_registered_under_survives_an_ordinary_save() => Ui.Run(() =>
     {
         using var settings = new TempSettings();
         var original = """
@@ -420,10 +413,14 @@ public sealed class TileLayoutMigrationTests : IDisposable
 
         // Its own PersistenceService each, because one holds a single debounce timer and the second
         // workspace's save would cancel the first's — which is the assertion, so it has to be its own.
-        var unknown = OpenRenamed(settings, "unknown", new PersistenceService(_layouts));
-        var known = OpenRenamed(settings, "known", new PersistenceService(_layouts));
+        var unknownLayouts = new PersistenceService(_layouts);
+        var knownLayouts = new PersistenceService(_layouts);
+        var unknown = OpenRenamed(settings, "unknown", unknownLayouts);
+        var known = OpenRenamed(settings, "known", knownLayouts);
 
-        Thread.Sleep(AppDefaults.SaveDebounceMs * 2);
+        // Whatever the rename scheduled is written now rather than after the debounce.
+        unknownLayouts.FlushLayout("unknown");
+        knownLayouts.FlushLayout("known");
 
         // The control: the rename is a real save trigger, so the refusal above is the refusal and not a
         // change that never reached the file.

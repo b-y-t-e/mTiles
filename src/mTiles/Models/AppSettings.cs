@@ -243,11 +243,14 @@ public sealed class AppSettings
     public bool NotifyWhenTileBlocked { get; set; } = true;
 
     /// <summary>
-    /// Whether the agent tiles draw the strip under the conversation that says how full the model's
-    /// context is. One switch for every agent tile at once, applied live, from Settings or from any agent
-    /// tile's <c>…</c> menu.
+    /// Whether the agent tiles draw the context bar along their foot — the Agent tile and the terminal
+    /// agent tile alike.
     /// </summary>
-    public bool ShowContextBar { get; set; } = true;
+    /// <remarks>Off by default: a band across every agent tile for a figure most turns do not need. With it
+    /// off the reading moves rather than going — to a percentage beside the composer's paperclip on the Agent
+    /// tile, where Compact then is too, and to a percentage in the terminal agent tile's header, since that
+    /// tile has no composer. Nothing about what is read changes, only where it is drawn.</remarks>
+    public bool ShowContextBar { get; set; }
 
     /// <summary>
     /// The setting this replaced, read from existing files so an explicit "off" is honoured.

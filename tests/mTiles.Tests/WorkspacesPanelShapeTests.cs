@@ -16,22 +16,9 @@ namespace mTiles.Tests;
 /// before the list could move: nothing is stored, so nothing can disagree with what is on screen.</remarks>
 public class WorkspacesPanelShapeTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _dir = new();
 
-    public WorkspacesPanelShapeTests() => Directory.CreateDirectory(_dir);
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
-        GC.SuppressFinalize(this);
-    }
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WorkspacesPanelShapeTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
+    public void Dispose() => _dir.Dispose();
 
     /// <summary>A table rather than a theory, because the shape is internal to the view layer.</summary>
     [Fact]
@@ -59,16 +46,16 @@ public class WorkspacesPanelShapeTests : IDisposable
 
     /// <summary>One tab per workspace the filter lets through, and only the tabs on screen.</summary>
     [Fact]
-    public void A_short_list_is_a_row_of_tabs_and_a_tall_one_is_rows_again() => OnUiThread(() =>
+    public void A_short_list_is_a_row_of_tabs_and_a_tall_one_is_rows_again() => Ui.Run(() =>
     {
-        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
+        var workspaces = new WorkspaceService(Path.Combine(_dir.Path, "workspaces.json"));
         for (var i = 0; i < 3; i++)
-            workspaces.AddWorkspace(Path.Combine(_dir, $"ws{i}"), $"Workspace {i}");
+            workspaces.AddWorkspace(Path.Combine(_dir.Path, $"ws{i}"), $"Workspace {i}");
 
-        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
+        var settings = new SettingsService(Path.Combine(_dir.Path, "settings.json"));
         using var panel = new WorkspacesPanelViewModel(workspaces, settings);
 
-        EnsureControlThemes();
+        ControlThemes.EnsureFluent();
         var view = new WorkspacesPanelView { DataContext = panel, Width = 900, Height = 40 };
         var window = new Window { Content = view, Width = 900, Height = 40 };
         window.Show();
@@ -96,15 +83,6 @@ public class WorkspacesPanelShapeTests : IDisposable
             window.Close();
         }
     });
-
-    /// <summary>The Fluent control themes, without which an <c>ItemsControl</c> has no template and so
-    /// no panel to put a tab in — the same arrangement <c>WorkspaceRevealTests</c> makes.</summary>
-    private static void EnsureControlThemes()
-    {
-        var app = Avalonia.Application.Current;
-        if (app == null || app.Styles.Any(s => s is Avalonia.Themes.Fluent.FluentTheme)) return;
-        app.Styles.Insert(0, new Avalonia.Themes.Fluent.FluentTheme());
-    }
 
     /// <summary>Lays the window out until it stops changing.</summary>
     /// <remarks>The shape is decided when the panel learns its size, which is itself a layout pass, and the

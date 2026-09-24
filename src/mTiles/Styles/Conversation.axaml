@@ -212,6 +212,36 @@
         <Setter Property="Cursor" Value="Arrow" />
     </Style>
 
+    <!-- The composer's context reading draws the window as a ring: a track in the card's own edge
+         colour and an arc in the button's foreground, which is how it follows the tight, hover and
+         disabled states above without a selector of its own for each. Starts at twelve o'clock. -->
+    <!-- In the composer the reading and the paperclip stand beside Send, so both take Send's height
+         and centre what they hold, or their hover grounds are three boxes of three heights. -->
+    <Style Selector="Button.tile-btn.composer-attach">
+        <Setter Property="Height" Value="26" />
+        <Setter Property="Padding" Value="6,0" />
+    </Style>
+    <Style Selector="Button.context-action.composer-context">
+        <Setter Property="Height" Value="26" />
+        <Setter Property="Padding" Value="7,0" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Panel.context-ring">
+        <Setter Property="Width" Value="12" />
+        <Setter Property="Height" Value="12" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Ellipse.context-ring-track">
+        <Setter Property="Stroke" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="StrokeThickness" Value="2" />
+    </Style>
+    <Style Selector="Arc.context-ring-fill">
+        <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
+        <Setter Property="StrokeThickness" Value="2" />
+        <Setter Property="StrokeLineCap" Value="Round" />
+        <Setter Property="StartAngle" Value="-90" />
+    </Style>
+
     <!-- ======== The way back to the end ========
          Floats over the foot of the transcript while the reader is scrolled away from it (JumpToBottom).
          Elevated and outlined so it reads as something lying on the conversation rather than a line

@@ -23,22 +23,33 @@ namespace mTiles.Tests;
 /// </remarks>
 public class ActiveTileChangedTests : IDisposable
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("mtiles-active-tile").FullName;
+    private readonly TempDirectory _dir = new("mtiles-active-tile");
 
-    public void Dispose()
+    public void Dispose() => _dir.Dispose();
+
+    /// <summary>Until a tile has been worked in, the shortcut aims at none — the first leaf is a tile nobody
+    /// chose, and with auto-Enter a sentence there runs a command — while focus still has to land.</summary>
+    [Fact]
+    public void Before_anything_is_activated_the_shortcut_has_no_tile_but_focus_still_lands()
     {
-        try { Directory.Delete(_dir, recursive: true); } catch { /* not a test failure */ }
-    }
+        using var settings = new TempSettings();
+        using var workspace = TestWorkspace.Open(settings);
 
-    private WorkspaceViewModel BuildWorkspace(TempSettings settings) =>
-        new(new Workspace { Name = "test", DirectoryPath = _dir }, settings.Layouts, settings.Service,
-            TestTiles.Catalog(settings.Service));
+        var root = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
+        var focused = 0;
+        root.FocusRequested += () => focused++;
+
+        Assert.Null(workspace.ActiveTile);
+
+        workspace.FocusActiveTile();
+        Assert.Equal(1, focused);
+    }
 
     [Fact]
     public void Working_in_another_tile_is_a_change()
     {
         using var settings = new TempSettings();
-        using var workspace = BuildWorkspace(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var root = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
 
@@ -68,7 +79,7 @@ public class ActiveTileChangedTests : IDisposable
     public void The_active_tile_changing_its_own_state_is_a_change()
     {
         using var settings = new TempSettings();
-        using var workspace = BuildWorkspace(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var root = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
         var content = new StubActions();
@@ -88,7 +99,7 @@ public class ActiveTileChangedTests : IDisposable
     public void A_tile_that_is_not_the_active_one_changing_is_not()
     {
         using var settings = new TempSettings();
-        using var workspace = BuildWorkspace(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var root = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
         root.SplitHorizontalCommand.Execute(null);
@@ -106,13 +117,13 @@ public class ActiveTileChangedTests : IDisposable
         Assert.Equal(0, changes);
     }
 
-    /// <summary>"Nothing is active" is a state a listener has to be told about: it is the difference
-    /// between a stale set of buttons and none.</summary>
+    /// <summary>"Nothing is active" is a state a listener has to be told about — the difference between a
+    /// stale set of buttons and none — and focus still lands where the shortcut no longer aims.</summary>
     [Fact]
     public void Losing_the_active_tile_altogether_is_a_change()
     {
         using var settings = new TempSettings();
-        using var workspace = BuildWorkspace(settings);
+        using var workspace = TestWorkspace.Open(settings);
 
         var root = Assert.IsType<LeafTileNodeViewModel>(workspace.RootTile);
         root.Activate();
@@ -120,11 +131,19 @@ public class ActiveTileChangedTests : IDisposable
         var changes = 0;
         workspace.ActiveTileChanged += () => changes++;
 
-        workspace.RootTile = new LeafTileNodeViewModel(TileKindIds.None, null, _dir,
+        var replacement = new LeafTileNodeViewModel(TileKindIds.None, null, _dir.Path,
             workspace.ActivationScope);
+        var focused = 0;
+        replacement.FocusRequested += () => focused++;
+        workspace.RootTile = replacement;
 
+        // A remembered tile that has left the tree is not one to dictate into.
         Assert.Null(workspace.ActiveTile);
         Assert.Equal(1, changes);
+
+        // Focus still has somewhere to go: that is the whole difference between the two.
+        workspace.FocusActiveTile();
+        Assert.Equal(1, focused);
     }
 
     /// <summary>The window follows whichever workspace is on screen, and lets go of the one that is
@@ -132,16 +151,9 @@ public class ActiveTileChangedTests : IDisposable
     [Fact]
     public void The_window_follows_the_workspace_on_screen_and_only_that_one()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
-            var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
-            workspaces.AddWorkspace(Path.Combine(_dir, "first"), "First");
-            workspaces.AddWorkspace(Path.Combine(_dir, "second"), "Second");
-
-            var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-            var window = new MainWindowViewModel(workspaces,
-                new PersistenceService(Path.Combine(_dir, "layouts")), settings,
-                TestTiles.Catalog(settings));
+            var window = TestMainWindow.Create(_dir.Path);
 
             var panel = window.WorkspacesPanel;
             panel.SelectedWorkspace = panel.Workspaces[0];
@@ -163,13 +175,6 @@ public class ActiveTileChangedTests : IDisposable
 
             window.DisposeAll();
         });
-    }
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(ActiveTileChangedTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
     }
 
     /// <summary>Tile content whose one action changes what it will allow, and says so the way every

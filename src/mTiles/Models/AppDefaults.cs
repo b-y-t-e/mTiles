@@ -41,8 +41,11 @@ public static class AppDefaults
     public const int LogRetentionDays = 7;
     public const string LogSubdirectory = "logs";
 
-    public const int SaveDebounceMs = 1000;
+    // Settable only so the test suite can shorten them (tests/mTiles.Tests/Kit/TestTimings.cs): a
+    // debounce waited out on a real clock is most of what made the suite slow. Nothing in the
+    // application writes either.
+    public static int SaveDebounceMs { get; internal set; } = 1000;
     public const int SettingsDebounceMs = 500;
-    public const int WatcherDebounceMs = 500;
+    public static int WatcherDebounceMs { get; internal set; } = 500;
     public const int FileRetryDelayMs = 500;
 }

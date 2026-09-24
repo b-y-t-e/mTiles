@@ -20,20 +20,9 @@ namespace mTiles.Tests;
 /// that nothing about an ordinary split has moved — its file, its lengths, where its splitter comes to
 /// rest — and only then what a fixed side does.</para>
 /// </remarks>
-public class SplitFixedSideTests : IDisposable
+public class SplitFixedSideTests
 {
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
-
     private readonly TileActivationScope _scope = new();
-
-    public SplitFixedSideTests() => Directory.CreateDirectory(_directory);
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_directory, recursive: true); } catch { }
-        GC.SuppressFinalize(this);
-    }
 
     // ---- persistence -------------------------------------------------------------------------------
 
@@ -185,49 +174,41 @@ public class SplitFixedSideTests : IDisposable
 
     // ---- the edits ----------------------------------------------------------------------------------
 
-    /// <summary>A gutter drop beside a fixed side takes its room from the other side alone.</summary>
+    /// <summary>A gutter drop beside a fixed side takes its room from the other side alone, and still takes
+    /// a third of it.</summary>
     /// <remarks>Wrapped in with the fixed tile instead, the newcomer and that tile would be held at the
     /// one tile's pixels between them — a list 240 wide with a note squeezed into it.</remarks>
-    [Fact]
-    public void A_gutter_drop_beside_a_fixed_first_side_goes_into_the_second()
+    [Theory]
+    [InlineData(SplitFixedSide.First)]
+    [InlineData(SplitFixedSide.Second)]
+    public void A_gutter_drop_beside_a_fixed_side_goes_into_the_other_side(SplitFixedSide fixedSide)
     {
         var (list, rest, newcomer) = (Leaf(), Leaf(), Leaf());
         var holder = Split(Leaf(), newcomer);
-        var split = Split(list, rest);
-        split.Fix(SplitFixedSide.First, 240);
+        var split = fixedSide == SplitFixedSide.First ? Split(list, rest) : Split(rest, list);
+        split.Fix(fixedSide, 240);
         _ = Split(split, holder);
 
         TileTreeEdits.ExecuteGutter(newcomer, split);
 
-        Assert.Same(list, split.First);
-        Assert.Equal(SplitFixedSide.First, split.FixedSide);
+        Assert.Same(list, fixedSide == SplitFixedSide.First ? split.First : split.Second);
+        Assert.Equal(fixedSide, split.FixedSide);
         Assert.Equal(240, split.FixedExtent);
 
-        var inner = Assert.IsType<SplitTileNodeViewModel>(split.Second);
-        Assert.Same(newcomer, inner.First);
-        Assert.Same(rest, inner.Second);
-        Assert.Equal(TileDropRatio.NewcomerShare, inner.SplitRatio, precision: 9);
-    }
-
-    [Fact]
-    public void A_gutter_drop_beside_a_fixed_second_side_goes_into_the_first()
-    {
-        var (rest, list, newcomer) = (Leaf(), Leaf(), Leaf());
-        var holder = Split(Leaf(), newcomer);
-        var split = Split(rest, list);
-        split.Fix(SplitFixedSide.Second, 240);
-        _ = Split(split, holder);
-
-        TileTreeEdits.ExecuteGutter(newcomer, split);
-
-        Assert.Same(list, split.Second);
-        Assert.Equal(SplitFixedSide.Second, split.FixedSide);
-
-        var inner = Assert.IsType<SplitTileNodeViewModel>(split.First);
-        Assert.Same(rest, inner.First);
-        Assert.Same(newcomer, inner.Second);
-        // The newcomer, next to the gutter, still takes a third of the side it went into.
-        Assert.Equal(1 - TileDropRatio.NewcomerShare, inner.SplitRatio, precision: 9);
+        // The newcomer goes next to the gutter, inside the side that is not fixed.
+        var inner = Assert.IsType<SplitTileNodeViewModel>(fixedSide == SplitFixedSide.First ? split.Second : split.First);
+        if (fixedSide == SplitFixedSide.First)
+        {
+            Assert.Same(newcomer, inner.First);
+            Assert.Same(rest, inner.Second);
+            Assert.Equal(TileDropRatio.NewcomerShare, inner.SplitRatio, precision: 9);
+        }
+        else
+        {
+            Assert.Same(rest, inner.First);
+            Assert.Same(newcomer, inner.Second);
+            Assert.Equal(1 - TileDropRatio.NewcomerShare, inner.SplitRatio, precision: 9);
+        }
     }
 
     [Fact]
@@ -357,25 +338,22 @@ public class SplitFixedSideTests : IDisposable
 
     // ---- the hints ----------------------------------------------------------------------------------
 
-    [Fact]
-    public void The_edge_hint_is_the_fixed_size_when_there_is_one()
+    /// <summary>An edge hint is the fixed size when there is one, and a fixed size wider than the room
+    /// leaves is drawn at the cap the layout puts on it.</summary>
+    [Theory]
+    [InlineData(900, 600, "Left", null, 0, 0, 300, 600)]
+    [InlineData(900, 600, "Left", 240.0, 0, 0, 240, 600)]
+    [InlineData(900, 600, "Right", 240.0, 660, 0, 240, 600)]
+    [InlineData(900, 600, "Bottom", 40.0, 0, 560, 900, 40)]
+    [InlineData(300, 200, "Left", 280.0, 0, 0, 242, 200)]
+    [InlineData(300, 200, "Right", 280.0, 58, 0, 242, 200)]
+    public void The_edge_hint_is_the_fixed_size_capped_as_the_layout_caps_it(double width, double height,
+        string zone, double? pixels, double x, double y, double hintWidth, double hintHeight)
     {
-        var tree = new Size(900, 600);
+        TileDropSize? size = pixels is { } p ? TileDropSize.InPixels(p) : null;
 
-        AssertClose(new Rect(0, 0, 300, 600), TileDropGeometry.EdgeBand(tree, DropZone.Left, null, 8, 50));
-        AssertClose(new Rect(0, 0, 240, 600), TileDropGeometry.EdgeBand(tree, DropZone.Left, TileDropSize.InPixels(240), 8, 50));
-        AssertClose(new Rect(660, 0, 240, 600), TileDropGeometry.EdgeBand(tree, DropZone.Right, TileDropSize.InPixels(240), 8, 50));
-        AssertClose(new Rect(0, 560, 900, 40), TileDropGeometry.EdgeBand(tree, DropZone.Bottom, TileDropSize.InPixels(40), 8, 50));
-    }
-
-    /// <summary>A fixed size wider than the room leaves is drawn at the cap the layout puts on it.</summary>
-    [Fact]
-    public void The_edge_hint_is_capped_as_the_layout_caps_the_fixed_side()
-    {
-        var tile = new Size(300, 200);
-
-        AssertClose(new Rect(0, 0, 242, 200), TileDropGeometry.EdgeBand(tile, DropZone.Left, TileDropSize.InPixels(280), 8, 50));
-        AssertClose(new Rect(58, 0, 242, 200), TileDropGeometry.EdgeBand(tile, DropZone.Right, TileDropSize.InPixels(280), 8, 50));
+        RectAssert.Close(new Rect(x, y, hintWidth, hintHeight),
+            TileDropGeometry.EdgeBand(new Size(width, height), Enum.Parse<DropZone>(zone), size, 8, 50));
     }
 
     /// <summary>A gutter hint beside a fixed side covers a third of the other side, after the gutter.</summary>
@@ -386,10 +364,10 @@ public class SplitFixedSideTests : IDisposable
         var split = Split(Leaf(), Leaf());
 
         split.Fix(SplitFixedSide.First, 240);
-        AssertClose(new Rect(248, 0, 220, 600), TileDropGeometry.GutterBand(room, split, gap: 8));
+        RectAssert.Close(new Rect(248, 0, 220, 600), TileDropGeometry.GutterBand(room, split, gap: 8));
 
         split.Fix(SplitFixedSide.Second, 240);
-        AssertClose(new Rect(440, 0, 220, 600), TileDropGeometry.GutterBand(room, split, gap: 8));
+        RectAssert.Close(new Rect(440, 0, 220, 600), TileDropGeometry.GutterBand(room, split, gap: 8));
     }
 
     /// <summary>A fixed size wider than the split is drawn at the cap the grid lays it out at.</summary>
@@ -401,7 +379,7 @@ public class SplitFixedSideTests : IDisposable
         split.Fix(SplitFixedSide.First, 400);
 
         // 292 to share, the flexible side needs 50 + 8 + 50 once the newcomer is in: the fixed side gets 184.
-        AssertClose(new Rect(192, 0, 36, 600), TileDropGeometry.GutterBand(room, split, gap: 8));
+        RectAssert.Close(new Rect(192, 0, 36, 600), TileDropGeometry.GutterBand(room, split, gap: 8));
     }
 
     /// <summary>Two fixed panes nested along one axis: the drop and its hint both go to the outer one.</summary>
@@ -425,21 +403,13 @@ public class SplitFixedSideTests : IDisposable
         var room = new Rect(0, 0, 900, 600);
         var split = Split(Leaf(), Leaf());
 
-        AssertClose(new Rect(300, 0, 300, 600), TileDropGeometry.GutterBand(room, split, gap: 8));
+        RectAssert.Close(new Rect(300, 0, 300, 600), TileDropGeometry.GutterBand(room, split, gap: 8));
     }
 
     // ---- building blocks ----------------------------------------------------------------------------
 
     /// <summary>Bands are thirds of a size, and a third is not exact in floating point.</summary>
-    private static void AssertClose(Rect expected, Rect actual)
-    {
-        Assert.Equal(expected.X, actual.X, precision: 6);
-        Assert.Equal(expected.Y, actual.Y, precision: 6);
-        Assert.Equal(expected.Width, actual.Width, precision: 6);
-        Assert.Equal(expected.Height, actual.Height, precision: 6);
-    }
-
-    private LeafTileNodeViewModel Leaf() => new(TileKindIds.None, null, _directory, _scope);
+    private LeafTileNodeViewModel Leaf() => new(TileKindIds.None, null, "", _scope);
 
     private static SplitTileNodeViewModel Split(TileNodeViewModel first, TileNodeViewModel second)
     {
@@ -450,6 +420,6 @@ public class SplitFixedSideTests : IDisposable
     }
 
     private TileTreeSerializer Serializer(TempSettings settings) =>
-        new(TestTiles.Catalog(settings.Service), new TileContext(_directory, settings.Service),
+        new(TestTiles.Catalog(settings.Service), new TileContext(settings.Directory, settings.Service),
             _ => "name", _ => { }, _scope);
 }

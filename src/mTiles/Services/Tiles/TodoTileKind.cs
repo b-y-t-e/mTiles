@@ -13,7 +13,7 @@ public sealed class TodoTileKind : TileKind<TodoTileViewModel>
     public override string AccentKey => "TileAccentTodo";
 
     protected override TodoTileViewModel Create(TileContext context, JsonObject? state) =>
-        new(state.String(MarkdownTileKind.FilePathKey)
+        new(MarkdownTileKind.StoredPath(state, context.WorkingDirectory)
             ?? TodoTileViewModel.NewFilePath(context.WorkingDirectory), context.Settings);
 
     protected override JsonObject? Save(TodoTileViewModel tile) =>

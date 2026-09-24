@@ -22,7 +22,7 @@ namespace mTiles.Tests;
 public class InterfaceScaleWiringTests
 {
     [Fact]
-    public void The_whole_window_is_drawn_through_one_scale() => OnUiThread(() =>
+    public void The_whole_window_is_drawn_through_one_scale() => Ui.Run(() =>
     {
         var window = new MainWindow { Width = 800, Height = 600 };
         window.Show();
@@ -50,9 +50,12 @@ public class InterfaceScaleWiringTests
         Assert.InRange(grid.Bounds.Width, unscaled / 2 - 1, unscaled / 2 + 1);
     });
 
-    /// <summary>The stored scale is applied when the window is bound, without anything else happening.</summary>
+    /// <summary>The stored scale is applied when the window is bound, and turning the spinner in Settings
+    /// changes the window while it is open — through <c>SettingsChanged</c>, the subscription that would be
+    /// silently missing if the value were only read once — normalised on the way, so a scale of zero still
+    /// leaves a window somebody can undo it in.</summary>
     [Fact]
-    public void A_stored_scale_is_applied_on_startup() => OnUiThread(() =>
+    public void The_stored_scale_is_applied_on_startup_and_follows_settings() => Ui.Run(() =>
     {
         using var settings = new TempSettings();
         settings.Service.Settings.UiScale = 1.5;
@@ -66,49 +69,15 @@ public class InterfaceScaleWiringTests
         var scale = Assert.IsType<ScaleTransform>(host.LayoutTransform);
         Assert.Equal(1.5, scale.ScaleX);
         Assert.Equal(1.5, scale.ScaleY);
-    });
-
-    /// <summary>Turning the spinner in Settings changes the window while it is open.</summary>
-    /// <remarks>Through <c>SettingsChanged</c>, which is what makes the scale visible as it is turned
-    /// rather than at the next launch — and it is also the subscription that would be silently missing
-    /// if the value were only read once at startup.</remarks>
-    [Fact]
-    public void Changing_it_in_settings_changes_the_window() => OnUiThread(() =>
-    {
-        using var settings = new TempSettings();
-
-        var window = new MainWindow { Width = 800, Height = 600 };
-        window.Show();
-        window.BindWindowState(settings.Service);
 
         settings.Service.Settings.UiScale = 0.75;
         settings.Service.NotifyChanged();
         window.UpdateLayout();
-
-        var host = window.GetVisualDescendants().OfType<LayoutTransformControl>().Single();
         Assert.Equal(0.75, Assert.IsType<ScaleTransform>(host.LayoutTransform).ScaleX);
-    });
 
-    /// <summary>A scale no settings file should hold still leaves a window somebody can undo it in.</summary>
-    [Fact]
-    public void A_scale_of_zero_does_not_empty_the_window() => OnUiThread(() =>
-    {
-        using var settings = new TempSettings();
         settings.Service.Settings.UiScale = 0;
-
-        var window = new MainWindow { Width = 800, Height = 600 };
-        window.Show();
-        window.BindWindowState(settings.Service);
+        settings.Service.NotifyChanged();
         window.UpdateLayout();
-
-        var host = window.GetVisualDescendants().OfType<LayoutTransformControl>().Single();
         Assert.Equal(InterfaceScale.Default, Assert.IsType<ScaleTransform>(host.LayoutTransform).ScaleX);
     });
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(InterfaceScaleWiringTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
 }

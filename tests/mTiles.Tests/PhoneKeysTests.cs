@@ -40,21 +40,17 @@ public class PhoneKeysTests : IDisposable
         _settings.Dispose();
     }
 
-    private void OnUiThread(Func<Task> body)
+    /// <summary><see cref="Ui.Run(Func{Task})"/>, disposing the terminals the test made on its way out.</summary>
+    private void OnUiThread(Func<Task> body) => Ui.Run(async () =>
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(PhoneKeysTests).Assembly);
-        session.Dispatch(async () =>
+        try { await body(); }
+        finally
         {
-            try { await body(); }
-            finally
-            {
-                foreach (var control in _controls)
-                    control.Dispose();
-                _controls.Clear();
-            }
-            return true;
-        }, CancellationToken.None).GetAwaiter().GetResult();
-    }
+            foreach (var control in _controls)
+                control.Dispose();
+            _controls.Clear();
+        }
+    });
 
     private static async Task WaitUntil(Func<bool> condition, string what, int timeoutMs = 5000)
     {
@@ -302,73 +298,37 @@ public class PhoneKeysTests : IDisposable
         var holder = new ActiveTile();
         active = holder;
 
-        var router = new RoutedAudioCapture(new NothingCapture(), new PhoneAudioCapture());
+        var router = new RoutedAudioCapture(new IdleMicrophone(), new PhoneAudioCapture());
         var manager = new PhoneBridgeManager(
             _settings.Service,
             new DictationService(_settings.Service, router),
             router,
             activeTile: () => holder.Tile,
-            dispatcher: new InlineDispatcher(),
-            sessionStore: new NowhereStore());
+            dispatcher: new InlineUiDispatcher(),
+            sessionStore: new NowherePhoneSessionStore());
 
         _managers.Add(manager);
         return manager;
     }
 
-    private sealed class InlineDispatcher : IUiDispatcher
-    {
-        public void Post(Action action) => action();
-
-        public Task<T> InvokeAsync<T>(Func<T> work) => Task.FromResult(work());
-    }
-
-    private sealed class NowhereStore : IPhoneSessionStore
-    {
-        public IReadOnlyList<PhoneSession> Load() => [];
-
-        public void Save(IReadOnlyList<PhoneSession> sessions) { }
-    }
-
-    private sealed class NothingCapture : IAudioCapture
-    {
-        public bool IsAvailable => true;
-        public bool IsRecording => false;
-
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["silent"];
-
-        public void Start(string deviceName) { }
-
-        public IRecordingHandle? Detach() => null;
-
-        public float[] Finish(IRecordingHandle? recording) => [];
-
-        public void Dispose() { }
-    }
-
     // ── the wire names ──────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The names are exactly the page's six, matched exactly.
+    /// Nothing but the page's names is a key: they are matched exactly, case and all.
     /// </summary>
     /// <remarks>
     /// What arrives is a string from a paired device across a network, and what it selects is a keystroke
-    /// into a shell. A closed list, matched case-sensitively, is the whole of the parsing — anything else
-    /// is nonsense, which the server answers with silence.
+    /// into a shell, so anything outside the closed list is nonsense, answered with silence. That every
+    /// page name <em>is</em> a key is the walk below.
     /// </remarks>
     [Theory]
-    [InlineData("enter", true)]
-    [InlineData("up", true)]
-    [InlineData("down", true)]
-    [InlineData("left", true)]
-    [InlineData("right", true)]
-    [InlineData("escape", true)]
-    [InlineData("Enter", false)]
-    [InlineData("Escape", false)]
-    [InlineData("esc", false)]
-    [InlineData("", false)]
-    [InlineData(null, false)]
-    public void Only_the_page_names_are_keys(string? name, bool known)
-        => Assert.Equal(known, PhoneKeys.TryParse(name, out _));
+    [InlineData("Enter")]
+    [InlineData("Escape")]
+    [InlineData("esc")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Anything_but_the_page_names_is_not_a_key(string? name)
+        => Assert.False(PhoneKeys.TryParse(name, out _));
 
     /// <summary>
     /// Every key in the enum has a wire name and a keystroke, and no two share either.

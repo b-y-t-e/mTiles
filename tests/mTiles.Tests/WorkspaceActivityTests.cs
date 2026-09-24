@@ -40,67 +40,24 @@ public class WorkspaceActivityTests
         unwired.IsFavorite = true;
         Assert.True(unwired.IsFavorite);
 
-        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "workspaces.json");
-        try
+        using var directory = new TempDirectory();
+        var path = directory["workspaces.json"];
+        var service = new WorkspaceService(path);
+        var workspace = service.AddWorkspace(Path.GetTempPath(), "Beta");
+        var row = new WorkspaceItemViewModel(workspace)
         {
-            var service = new WorkspaceService(path);
-            var workspace = service.AddWorkspace(Path.GetTempPath(), "Beta");
-            var row = new WorkspaceItemViewModel(workspace)
-            {
-                FavoriteChanged = (item, value) => service.SetFavorite(item.Id, value)
-            };
-
-            row.IsFavorite = true;
-
-            Assert.True(new WorkspaceService(path).Workspaces.Single(w => w.Id == workspace.Id).IsFavorite);
-        }
-        finally
-        {
-            var directory = Path.GetDirectoryName(path)!;
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    /// <summary>A pin is worth nothing if it does not survive the application closing, so it is stored
-    /// where the rest of the list is and read back with it.</summary>
-    [Fact]
-    public void A_favourite_survives_a_reload()
-    {
-        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "workspaces.json");
-        try
-        {
-            var service = new WorkspaceService(path);
-            var workspace = service.AddWorkspace(Path.GetTempPath(), "Alpha");
-
-            service.SetFavorite(workspace.Id, true);
-
-            var reloaded = new WorkspaceService(path);
-            Assert.True(reloaded.Workspaces.Single(w => w.Id == workspace.Id).IsFavorite);
-        }
-        finally
-        {
-            var directory = Path.GetDirectoryName(path)!;
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    /// <summary>Pinning is only half of it: the list has to move the row, or the star claims an order
-    /// the panel does not show.</summary>
-    [Fact]
-    public void A_pinned_workspace_moves_to_the_top()
-    {
-        var rows = new List<WorkspaceItemViewModel>
-        {
-            Row("Alpha"), Row("Bravo"), Row("Charlie", isFavorite: true)
+            FavoriteChanged = (item, value) => service.SetFavorite(item.Id, value)
         };
 
-        rows.Sort(WorkspaceDisplayOrder.Compare);
+        row.IsFavorite = true;
 
-        Assert.Equal(["Charlie", "Alpha", "Bravo"], rows.Select(r => r.Name));
+        // Stored where the rest of the list is, and read back with it: a pin that did not survive the
+        // application closing would be worth nothing.
+        Assert.True(new WorkspaceService(path).Workspaces.Single(w => w.Id == workspace.Id).IsFavorite);
     }
 
-    /// <summary>Pinned rows are still a list, and a list read by name is the only one nobody has to
-    /// learn.</summary>
+    /// <summary>Pinned rows go to the top — the rest of the rule, pinning outranking the name, is in
+    /// <c>DefaultWorkspaceTests</c> — and are still a list, read by name among themselves.</summary>
     [Fact]
     public void Favourites_are_ordered_among_themselves_by_name()
     {

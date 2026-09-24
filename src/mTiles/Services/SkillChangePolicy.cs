@@ -86,6 +86,7 @@ public static class SkillChangePolicy
     /// enough that a single change is acted on while the user is still looking at the tile they made it
     /// in. It bounds only how long the tile waits before starting; a change arriving while a restart is
     /// already running is coalesced by the restart itself, however long that takes.</para>
+    /// <para>Settable only by the test suite, which shortens it rather than waiting it out.</para>
     /// </remarks>
-    public static readonly TimeSpan QuietWindow = TimeSpan.FromSeconds(2);
+    public static TimeSpan QuietWindow { get; internal set; } = TimeSpan.FromSeconds(2);
 }

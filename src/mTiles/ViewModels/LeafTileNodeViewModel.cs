@@ -39,7 +39,10 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// and claim to have done something else. The one place left where this class knows what its content
     /// is, and it is about the tile's own identity rather than about anything the content can do.
     /// </remarks>
-    public bool HasSession => Content is TerminalAgentTileViewModel;
+    public bool HasSession => Content is TerminalAgentTileViewModel or INewConversationTile;
+
+    /// <summary>What the header's "start another" button and menu entry are called here.</summary>
+    public string NewSessionLabel => Content is INewConversationTile tile ? tile.NewConversationLabel : "New session";
 
     /// <summary>The tile's content when it is an agent, for the two questions only an agent answers.
     /// </summary>
@@ -74,13 +77,25 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
             [
                 .. agent.SwitchTargets.Select(instance => new AgentInstanceChoice(
                     instance.Name, instance.Id == agent.InstanceId,
-                    () => SwitchAgentInstanceAsync(instance.Id)))
+                    () => SwitchAgentInstanceAsync(instance.Id))),
+                // Every other CLI this machine can run, after the tile's own: the same cards Change type
+                // offers, so picking one here is that conversion, question and all.
+                .. OtherAgentsThan(agent).Select(option => new AgentInstanceChoice(
+                    option.Label, false,
+                    () => ConvertToAsync(TileKindIds.TerminalAgent, option.State))),
             ]
             : [];
 
         OnPropertyChanged(nameof(AgentInstances));
         OnPropertyChanged(nameof(CanSwitchAgentInstance));
     }
+
+    /// <summary>The terminal agent setup cards for every agent but this tile's own.</summary>
+    private IEnumerable<TileSetupOption> OtherAgentsThan(TerminalAgentTileViewModel agent) =>
+        _catalog?.Kind(TileKindIds.TerminalAgent) is { } kind && _context is { } context
+            ? kind.SetupOptions(context).Where(option =>
+                option.State?[AgentStateKeys.AgentIdKey]?.GetValue<string>() is { } id && id != agent.AgentId)
+            : [];
 
     /// <summary>The kinds this tile could become - every registered one, and its own kind too where
     /// that kind has a setup step to ask (another shell, another agent CLI).</summary>
@@ -189,9 +204,19 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     {
         if (Agent is not { } agent) return;
         if (agent.ConfirmationForSwitchTo(instanceId) is not { } question) return;
-        if (ConfirmAction is null || !await ConfirmAction(question)) return;
+        // Run as on its own asks no question when nothing is wired, which is this class's convention; the
+        // handover question keeps its own rule, since both of its ways forward end the running session.
+        if (ConfirmAction is null
+            && !(agent.CanHandOverContext && agent.LeavesConversationFor(instanceId, agent.AgentId)))
+            return;
+        var (go, withContext) = await AskAboutSwitchingAsync(question, instanceId, agent.AgentId);
+        if (!go || !ReferenceEquals(Agent, agent)) return;
 
+        // Written only once the switch is certain, so a tile closed under the question leaves no brief behind.
+        var brief = withContext ? await agent.WriteHandoverBriefAsync() : null;
+        if (!ReferenceEquals(Agent, agent)) return;
         agent.SwitchTo(instanceId);
+        ArmHandover(agent, withContext, brief);
         await InvokeActionAsync(TileActionIds.Restart);
     }
 
@@ -245,8 +270,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     public bool RestartIsUrgent => RestartAction?.Urgency is { Length: > 0 };
 
     /// <summary>The content's actions the overflow menu lists under its own entries.</summary>
-    /// <remarks>Every action but the two the header already draws a control of its own for (Restart and
-    /// Add), so a kind offering a new action gets a menu entry by offering it. Built when the menu opens,
+    /// <remarks>Every action but the three the header already draws a control of its own for (Restart, Add
+    /// and New conversation), so a kind offering a new action gets a menu entry by offering it. Built when the menu opens,
     /// for the reason <see cref="RefreshChangeKindOptions"/> is: whether an action is enabled moves with
     /// the content's state, and opening the menu is the moment the answer is read.</remarks>
     public IReadOnlyList<TileActionChoice> ContentActions { get; private set; } = [];
@@ -259,36 +284,13 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     {
         ContentActions =
         [
-            .. Actions.Where(action => action.Id is not (TileActionIds.Restart or TileActionIds.Add))
+            .. Actions.Where(action => action.Id is not (TileActionIds.Restart or TileActionIds.Add
+                    or TileActionIds.NewConversation))
                 .Select(action => new TileActionChoice(action, () => InvokeActionAsync(action.Id)))
         ];
 
         OnPropertyChanged(nameof(ContentActions));
         OnPropertyChanged(nameof(HasContentActions));
-        OnPropertyChanged(nameof(CanToggleContextBar));
-        OnPropertyChanged(nameof(ShowContextBar));
-    }
-
-    /// <summary>Whether the overflow menu offers the context bar switch — an agent tile of either kind,
-    /// the two that draw one.</summary>
-    public bool CanToggleContextBar => !_disposed && Content is IAgentTile && _context is not null;
-
-    /// <summary>Whether the agent tiles draw their context bar (<c>AppSettings.ShowContextBar</c>).</summary>
-    /// <remarks>Read when the menu opens, like the rest of it: the switch is one for every tile, so the
-    /// tick has to say what another tile's menu set a minute ago.</remarks>
-    public bool ShowContextBar => _context?.Settings.Settings.ShowContextBar ?? true;
-
-    /// <summary>Flips the context bar in every agent tile at once.</summary>
-    /// <remarks>A setting rather than this tile's state, because the user asked for one switch: every
-    /// open agent tile follows it through the resource <c>App</c> writes on <c>SettingsChanged</c>.</remarks>
-    [RelayCommand]
-    private void ToggleContextBar()
-    {
-        if (_context?.Settings is not { } settings) return;
-
-        settings.Settings.ShowContextBar = !settings.Settings.ShowContextBar;
-        settings.NotifyChanged();
-        OnPropertyChanged(nameof(ShowContextBar));
     }
 
     /// <summary>The header's <c>+</c>, when the content is a list something can be added to.</summary>
@@ -396,6 +398,7 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // or it would believe itself inactive until the next time the focus moved away and back.
         if (IsActive && newValue is IActiveStateTile activeState) activeState.OnActiveChanged(true);
         OnPropertyChanged(nameof(HasSession));
+        OnPropertyChanged(nameof(NewSessionLabel));
         OnPropertyChanged(nameof(CanMaximize));
         RefreshAgentInstances();
         OnPropertyChanged(nameof(Activity));
@@ -502,6 +505,38 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     /// </remarks>
     public Action<LeafTileNodeViewModel>? ConfigureNewLeaf { get; set; }
     public Func<string, Task<bool>>? ConfirmAction { get; set; }
+
+    /// <summary>Asked when a terminal agent tile moves to an agent or login that cannot resume its
+    /// conversation: carry it over as a brief, switch without it, or stay. <b>Unwired answers
+    /// <see cref="HandoverAnswer.Cancel"/></b> — the switch ends whatever the tile is running.</summary>
+    public Func<string, Task<HandoverAnswer>>? ChooseHandover { get; set; }
+
+    /// <summary>
+    /// Asks the question a switch away from a terminal agent's conversation needs: the handover one where
+    /// the conversation would be left behind and can be carried, the plain confirmation otherwise.
+    /// </summary>
+    /// <returns>Whether to go ahead, and whether the context is to travel. The brief itself is written by the
+    /// caller once nothing can stop the switch any more.</returns>
+    private async Task<(bool Go, bool WithContext)> AskAboutSwitchingAsync(string question,
+        string instanceId, string agentId)
+    {
+        if (Agent is { CanHandOverContext: true } agent && agent.LeavesConversationFor(instanceId, agentId))
+        {
+            var answer = ChooseHandover is null
+                ? HandoverAnswer.Cancel
+                : await ChooseHandover($"{question} {Services.TerminalHandover.Question}");
+            return (answer != HandoverAnswer.Cancel, answer == HandoverAnswer.WithContext);
+        }
+
+        return (ConfirmAction is null || await ConfirmAction(question), false);
+    }
+
+    /// <summary>Has the arriving agent pointed at the brief, or says none could be carried.</summary>
+    private static void ArmHandover(TerminalAgentTileViewModel arriving, bool withContext, string? brief)
+    {
+        if (brief is not null) arriving.HandOverOnNextLaunch(brief);
+        else if (withContext) arriving.SayNothingWasCarried();
+    }
 
     /// <param name="catalog">Every kind this tile could be given. Null in a test that only ever builds
     /// tiles by hand.</param>
@@ -724,6 +759,14 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
     [RelayCommand]
     private async Task ResetTileIdAsync()
     {
+        // The Agent and Goal tiles start over by themselves and ask their own question; only the terminal
+        // agent tile's new session is a new tile id.
+        if (Content is INewConversationTile tile)
+        {
+            await tile.StartNewConversationAsync();
+            return;
+        }
+
         if (ConfirmAction != null && !await ConfirmAction("Generate new Tile ID and restart shell?"))
             return;
 
@@ -854,16 +897,36 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         // answer - another shell, another agent - so the question says that, and the tile keeps the name
         // it is known by rather than being renumbered for standing still.
         var samekind = IsCurrentKind(kindId);
-        if (ConfirmAction is { } confirm
-            && !await confirm(samekind
-                ? TileConversion.ReconfigureWarning(KindId, kind.DisplayName)
-                : TileConversion.Warning(KindId, kind.DisplayName)))
+        var question = samekind
+            ? TileConversion.ReconfigureWarning(KindId, kind.DisplayName)
+            : TileConversion.Warning(KindId, kind.DisplayName);
+        TerminalAgentTileViewModel? leaving = null;
+        var withContext = false;
+        // A terminal agent moved onto another CLI, or another login of its own, leaves its conversation
+        // behind — so it is asked whether that conversation goes with it.
+        if (samekind && Agent is { } agent
+            && state?[AgentStateKeys.InstanceIdKey]?.GetValue<string>() is { } targetInstance
+            && state[AgentStateKeys.AgentIdKey]?.GetValue<string>() is { } targetAgent
+            && agent.LeavesConversationFor(targetInstance, targetAgent))
+        {
+            bool go;
+            (go, withContext) = await AskAboutSwitchingAsync(question, targetInstance, targetAgent);
+            if (!go) return;
+            leaving = agent;
+        }
+        else if (ConfirmAction is { } confirm && !await confirm(question))
             return;
 
         // The question is the one point here where the tile can be closed underneath us: Dispose has
         // already run, so content built now is content nobody will ever take apart - a terminal would
         // leave its shell behind as an orphan. The same claim TileLauncher makes with IsCurrentLaunch,
         // for the same reason.
+        if (_disposed) return;
+
+        // Written from the outgoing content, and only now that the tile is certain to change.
+        var brief = withContext && leaving is not null && ReferenceEquals(Agent, leaving)
+            ? await leaving.WriteHandoverBriefAsync()
+            : null;
         if (_disposed) return;
 
         // A recording this tile owns would deliver its transcript into content that is about to go.
@@ -883,6 +946,8 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
         var previous = Content;
         Adopt(kindId, state, keepName: samekind);
         previous?.Dispose();
+        // Armed before the new tile's first launch, which waits for its view to be attached.
+        if (Content is TerminalAgentTileViewModel arriving) ArmHandover(arriving, withContext, brief);
 
         // Asked after the swap, because it is a question about the content there is now: a kind that
         // cannot be maximized would otherwise leave the splits above it soloed on a tile with no way of

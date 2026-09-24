@@ -17,25 +17,8 @@ namespace mTiles.Tests;
 /// <remarks>These tiles sit beside the workspaces rather than in place of them, and half of whatever they
 /// were dropped on — the share a tile inside a workspace gets — took half the window away from the thing
 /// the window is for.</remarks>
-public class WindowTileSizeTests : IDisposable
+public class WindowTileSizeTests
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
-
-    public WindowTileSizeTests() => Directory.CreateDirectory(_dir);
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
-        GC.SuppressFinalize(this);
-    }
-
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WindowTileSizeTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     // ---- the rule ------------------------------------------------------------------------------------
 
     [Fact]
@@ -67,9 +50,9 @@ public class WindowTileSizeTests : IDisposable
     // ---- drops and splits in the window --------------------------------------------------------------
 
     [Fact]
-    public void A_note_dropped_beside_everything_on_a_wide_window_is_a_fixed_column() => OnUiThread(() =>
+    public void A_note_dropped_beside_everything_on_a_wide_window_is_a_fixed_column() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir);
+        using var fixture = new Fixture();
         using var layout = fixture.Layout();
         layout.Size = new Size(1600, 900);
         var note = Assert.IsType<LeafTileNodeViewModel>(layout.AddTile(TileKindIds.Note));
@@ -84,9 +67,9 @@ public class WindowTileSizeTests : IDisposable
     });
 
     [Fact]
-    public void A_note_dropped_on_a_small_window_takes_a_share_and_scales_with_it() => OnUiThread(() =>
+    public void A_note_dropped_on_a_small_window_takes_a_share_and_scales_with_it() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir);
+        using var fixture = new Fixture();
         using var layout = fixture.Layout();
         layout.Size = new Size(500, 700);
         var note = Assert.IsType<LeafTileNodeViewModel>(layout.AddTile(TileKindIds.Note));
@@ -103,9 +86,9 @@ public class WindowTileSizeTests : IDisposable
 
     /// <summary>Splitting a window tile gives the new empty tile the same narrow room a drop would.</summary>
     [Fact]
-    public void A_tile_split_off_a_window_tile_is_narrow_too() => OnUiThread(() =>
+    public void A_tile_split_off_a_window_tile_is_narrow_too() => Ui.Run(() =>
     {
-        using var fixture = new Fixture(_dir);
+        using var fixture = new Fixture();
         using var layout = fixture.Layout();
         var note = Assert.IsType<LeafTileNodeViewModel>(layout.AddTile(TileKindIds.Note));
 
@@ -123,40 +106,6 @@ public class WindowTileSizeTests : IDisposable
         Assert.Equal(1 - WindowTileSize.Share, short_.SplitRatio, precision: 9);
     });
 
-    /// <summary>Split sideways off the list, the new tile stands beside its column, at the narrow width.</summary>
-    [Fact]
-    public void A_tile_split_off_the_list_is_a_narrow_column_beside_it() => OnUiThread(() =>
-    {
-        using var fixture = new Fixture(_dir);
-        using var layout = fixture.Layout();
-        layout.Size = new Size(1600, 900);
-        var root = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
-        var list = Assert.IsType<LeafTileNodeViewModel>(root.First);
-
-        list.SplitVerticalCommand.Execute(null);
-
-        var beside = Assert.IsType<SplitTileNodeViewModel>(root.Second);
-        var newcomer = Assert.IsType<LeafTileNodeViewModel>(beside.First);
-        Assert.True(beside.IsFixed(newcomer));
-        Assert.Equal(WindowTileSize.Width, beside.FixedExtent);
-        // The list keeps its own column untouched.
-        Assert.Equal(WorkspacesTileKind.DefaultWidth, root.FixedExtent);
-    });
-
-    [Fact]
-    public void The_list_keeps_its_own_size_and_the_workspace_gives_none() => OnUiThread(() =>
-    {
-        using var fixture = new Fixture(_dir);
-        using var layout = fixture.Layout();
-        layout.Size = new Size(500, 700);
-        var root = Assert.IsType<SplitTileNodeViewModel>(layout.RootTile);
-
-        var list = Assert.IsType<LeafTileNodeViewModel>(root.First);
-        Assert.Equal(WorkspacesTileKind.StripHeight, layout.DropSizeFor(list, Orientation.Horizontal)?.Pixels);
-
-        Assert.Null(layout.DropSizeFor(Assert.IsType<LeafTileNodeViewModel>(root.Second), Orientation.Vertical));
-    });
-
     // ---- the hints -----------------------------------------------------------------------------------
 
     [Fact]
@@ -164,9 +113,9 @@ public class WindowTileSizeTests : IDisposable
     {
         var area = new Size(1000, 600);
 
-        AssertClose(new Rect(0, 0, 300, 600),
+        RectAssert.Close(new Rect(0, 0, 300, 600),
             TileDropGeometry.EdgeBand(area, DropZone.Left, TileDropSize.AsShare(0.3), 8, 50));
-        AssertClose(new Rect(700, 0, 300, 600),
+        RectAssert.Close(new Rect(700, 0, 300, 600),
             TileDropGeometry.EdgeBand(area, DropZone.Right, TileDropSize.AsShare(0.3), 8, 50));
     }
 
@@ -176,18 +125,18 @@ public class WindowTileSizeTests : IDisposable
     {
         var room = new Rect(0, 0, 1008, 600);
         var split = new SplitTileNodeViewModel(Orientation.Vertical,
-            new LeafTileNodeViewModel(TileKindIds.None, null, _dir, new TileActivationScope()),
-            new LeafTileNodeViewModel(TileKindIds.None, null, _dir, new TileActivationScope()));
+            new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope()),
+            new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope()));
 
         // An ordinary split at a half: the second side starts after the gutter.
-        AssertClose(new Rect(512, 0, 320, 600),
+        RectAssert.Close(new Rect(512, 0, 320, 600),
             TileDropGeometry.GutterBand(room, split, 8, TileDropSize.InPixels(320)));
 
         // Beside a fixed list of 240: the newcomer starts after the list and the gutter.
         split.Fix(SplitFixedSide.First, 240);
-        AssertClose(new Rect(248, 0, 320, 600),
+        RectAssert.Close(new Rect(248, 0, 320, 600),
             TileDropGeometry.GutterBand(room, split, 8, TileDropSize.InPixels(320)));
-        AssertClose(new Rect(248, 0, 0.3 * 760, 600),
+        RectAssert.Close(new Rect(248, 0, 0.3 * 760, 600),
             TileDropGeometry.GutterBand(room, split, 8, TileDropSize.AsShare(0.3)));
     }
 
@@ -197,31 +146,24 @@ public class WindowTileSizeTests : IDisposable
     {
         var room = new Rect(0, 0, 758, 600);
         var split = new SplitTileNodeViewModel(Orientation.Vertical,
-            new LeafTileNodeViewModel(TileKindIds.None, null, _dir, new TileActivationScope()),
-            new LeafTileNodeViewModel(TileKindIds.None, null, _dir, new TileActivationScope()));
+            new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope()),
+            new LeafTileNodeViewModel(TileKindIds.None, null, "", new TileActivationScope()));
         split.Fix(SplitFixedSide.First, 400);
 
         // A side of 350: the newcomer keeps a gutter and the neighbour's 50 px out of it.
-        AssertClose(new Rect(408, 0, 292, 600),
+        RectAssert.Close(new Rect(408, 0, 292, 600),
             TileDropGeometry.GutterBand(room, split, 8, TileDropSize.InPixels(320)));
-    }
-
-    private static void AssertClose(Rect expected, Rect actual)
-    {
-        Assert.Equal(expected.X, actual.X, precision: 6);
-        Assert.Equal(expected.Y, actual.Y, precision: 6);
-        Assert.Equal(expected.Width, actual.Width, precision: 6);
-        Assert.Equal(expected.Height, actual.Height, precision: 6);
     }
 
     private sealed class Fixture : IDisposable
     {
+        private readonly TempDirectory _dir = new();
         private readonly string _windowDir;
 
-        public Fixture(string dir)
+        public Fixture()
         {
-            _windowDir = Path.Combine(dir, "window");
-            Settings = new TempSettings(Path.Combine(dir, "settings"));
+            _windowDir = _dir["window"];
+            Settings = new TempSettings(_dir["settings"]);
             Panel = new WorkspacesPanelViewModel(Settings.Workspaces, Settings.Service);
             Persistence = new PersistenceService(_windowDir);
         }
@@ -237,6 +179,7 @@ public class WindowTileSizeTests : IDisposable
         {
             Panel.Dispose();
             Settings.Dispose();
+            _dir.Dispose();
         }
     }
 }

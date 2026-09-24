@@ -12,6 +12,8 @@ namespace mTiles.Tests;
 /// <para>The seams are static on purpose — a constructor argument every call site has to pass null for
 /// is one that gets the wrong thing eventually — so this is the price of that decision, paid where it
 /// is visible rather than by making the seams instance state nothing in the application would set.</para>
+/// <para>A class that drives the tile derives from <see cref="GoalTileFixture"/>, which sets the seams to
+/// their test defaults and resets every one of them.</para>
 /// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class GoalSeamCollection

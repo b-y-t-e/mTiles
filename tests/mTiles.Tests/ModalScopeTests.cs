@@ -15,42 +15,14 @@ namespace mTiles.Tests;
 /// </remarks>
 public class ModalScopeTests
 {
+    /// <summary>Dialogs stack — Settings is one of them and asks questions of its own — and a handle
+    /// disposed twice must not take the count below what is open, or a dialog is modal to nothing.</summary>
     [Fact]
-    public void Nothing_is_open_to_begin_with()
-        => Assert.False(ModalScope.IsAnyOpen);
-
-    [Fact]
-    public void A_dialog_is_open_until_its_handle_goes()
-    {
-        var open = ModalScope.Enter();
-        Assert.True(ModalScope.IsAnyOpen);
-
-        open.Dispose();
-        Assert.False(ModalScope.IsAnyOpen);
-    }
-
-    /// <summary>Dialogs stack — Settings is one of them and asks questions of its own.</summary>
-    [Fact]
-    public void The_outer_dialog_is_still_open_when_the_inner_one_closes()
+    public void Nested_dialogs_are_open_until_the_outer_one_closes_and_a_second_close_costs_nothing()
     {
         var outer = ModalScope.Enter();
         var inner = ModalScope.Enter();
-
-        inner.Dispose();
         Assert.True(ModalScope.IsAnyOpen);
-
-        outer.Dispose();
-        Assert.False(ModalScope.IsAnyOpen);
-    }
-
-    /// <summary>A handle disposed twice must not take the count below what is open.</summary>
-    /// <remarks>The first symptom of that would be a dialog modal to nothing, which is the bug this
-    /// whole class exists to prevent — arriving by the back door.</remarks>
-    [Fact]
-    public void Closing_the_same_dialog_twice_costs_nothing()
-    {
-        var outer = ModalScope.Enter();
-        var inner = ModalScope.Enter();
 
         inner.Dispose();
         inner.Dispose();

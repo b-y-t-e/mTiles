@@ -25,62 +25,35 @@ namespace mTiles.Tests;
 /// </remarks>
 public class SpeechSetupWizardKeyTests : IDisposable
 {
-    private sealed class FakeCapture : IAudioCapture
-    {
-        public bool IsAvailable => true;
-        public bool IsRecording { get; private set; }
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => ["Yeti"];
-        public void Start(string deviceName) => IsRecording = true;
-
-        private sealed record Handle : IRecordingHandle;
-
-        public IRecordingHandle? Detach()
-        {
-            if (!IsRecording)
-                return null;
-            IsRecording = false;
-            return new Handle();
-        }
-
-        public float[] Finish(IRecordingHandle? detached) => new float[16_000];
-        public void Dispose() { }
-    }
-
-    private sealed class SilentEngine : ISpeechToTextEngine
-    {
-        public bool IsLoaded => false;
-        public Task LoadAsync(string modelPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public void Unload() { }
-        public Task<string> TranscribeAsync(float[] samples, TranscriptionOptions options,
-            CancellationToken cancellationToken = default) => Task.FromResult("said something");
-        public void Dispose() { }
-    }
-
-    private readonly string _directory =
-        Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _directory = new("mtiles-wizard-keys");
 
     public SpeechSetupWizardKeyTests()
     {
-        Directory.CreateDirectory(_directory);
-
         // A model on disk, so a held shortcut has something to start. Without it the recording is
         // refused and the test could pass by the gesture doing nothing at all.
-        var model = SpeechModelCatalog.Find("base")!;
-        using var file = File.Create(Path.Combine(_directory, model.FileName));
-        file.SetLength(model.DownloadBytes);
+        SpeechModelFiles.PlaceOnDisk(_directory.Path);
     }
 
     public void Dispose()
     {
-        try { Directory.Delete(_directory, recursive: true); } catch { }
+        _directory.Dispose();
         GC.SuppressFinalize(this);
     }
 
-    private static void OnUiThread(Action body)
+    /// <summary>Everything one test opened, closed in the order it was opened — the window first.</summary>
+    private sealed class LastStep(Window window, SpeechSetupViewModel model, DictationService dictation,
+        TempSettings settings, Func<int> closes) : IDisposable
     {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(SpeechSetupWizardKeyTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
+        public void Deconstruct(out Window w, out SpeechSetupViewModel m, out DictationService d,
+            out TempSettings s, out Func<int> c) => (w, m, d, s, c) = (window, model, dictation, settings, closes);
+
+        public void Dispose()
+        {
+            window.Close();
+            model.Dispose();
+            dictation.Dispose();
+            settings.Dispose();
+        }
     }
 
     /// <summary>The wizard as the user meets it on the last step: shown, and with the focus still on the
@@ -89,14 +62,13 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// drawn inside the main window now, see <c>OverlayHost</c> — so the test supplies the window it
     /// would be drawn in. The keystrokes still have to enter through a top level, which is the whole
     /// point of these tests: the tunnelling handlers are what route them.</remarks>
-    private (Window Window, SpeechSetupViewModel Model, DictationService Dictation,
-        TempSettings Settings, Func<int> Closes) OnTheLastStep()
+    private LastStep OnTheLastStep()
     {
         var settings = new TempSettings();
         settings.Service.Settings.Speech.ModelId = "base";
 
-        var dictation = new DictationService(settings.Service, new FakeCapture(), new SilentEngine(),
-            new SpeechModelStore(_directory), action => action());
+        var dictation = new DictationService(settings.Service, new FakeMicrophone(), new FakeSpeechEngine(),
+            new SpeechModelStore(_directory.Path), action => action());
         var model = new SpeechSetupViewModel(dictation, settings.Service);
 
         var closes = 0;
@@ -115,7 +87,7 @@ public class SpeechSetupWizardKeyTests : IDisposable
         Assert.NotNull(next);
         next.Focus();
 
-        return (window, model, dictation, settings, () => closes);
+        return new LastStep(window, model, dictation, settings, () => closes);
     }
 
     /// <summary>
@@ -123,11 +95,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// </summary>
     [Fact]
     public void Letting_go_of_the_shortcut_does_not_close_the_wizard()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, closes) = OnTheLastStep();
-            using var _ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, closes) = step;
 
             window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.Alt);
             Assert.True(model.IsRecordingHere);          // the gesture really did reach the machine
@@ -147,11 +118,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// </remarks>
     [Fact]
     public void Binding_a_shortcut_that_uses_space_does_not_close_the_wizard()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, closes) = OnTheLastStep();
-            using var _ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, closes) = step;
 
             model.BeginCaptureHotkeyCommand.Execute(null);
 
@@ -177,11 +147,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// </remarks>
     [Fact]
     public void A_bare_space_still_presses_the_button_while_the_shortcut_uses_space()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, closes) = OnTheLastStep();
-            using var _ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, closes) = step;
 
             Assert.Equal("Alt+Space", settings.Service.Settings.Speech.Hotkey);
 
@@ -197,11 +166,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// </summary>
     [Fact]
     public void Space_still_presses_the_button_when_there_is_no_shortcut()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, closes) = OnTheLastStep();
-            using var _ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, closes) = step;
 
             model.ClearHotkeyCommand.Execute(null);
             Assert.False(model.HasHotkey);
@@ -227,11 +195,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// </remarks>
     [Fact]
     public void Leaving_the_step_while_holding_the_shortcut_gives_the_microphone_back()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, _) = OnTheLastStep();
-            using var __ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, _) = step;
 
             window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.Alt);
             Assert.True(model.IsRecordingHere);
@@ -250,7 +217,7 @@ public class SpeechSetupWizardKeyTests : IDisposable
             // what makes the press below tell the two apart. Unheard, the release leaves the key believed
             // down and the press is dropped as auto-repeat; heard, it starts a recording. Without the
             // wait the debounce swallows it either way and the assertion proves nothing.
-            Thread.Sleep(60);
+            Thread.Sleep(DictationHotkeyMachine.DebounceMs * 2);
 
             model.Step = SpeechSetupStep.Test;
             window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.Alt);
@@ -269,11 +236,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// </remarks>
     [Fact]
     public void Escaping_a_recording_does_not_hand_the_release_to_the_button()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, closes) = OnTheLastStep();
-            using var _ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, closes) = step;
 
             window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.Alt);
             Assert.True(model.IsRecordingHere);
@@ -294,11 +260,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// slot it displaced the claim on the key still physically down.</remarks>
     [Fact]
     public void Binding_while_the_old_shortcut_is_held_does_not_close_the_wizard()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, closes) = OnTheLastStep();
-            using var _ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, closes) = step;
 
             window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.Alt);
             Assert.True(model.IsRecordingHere);
@@ -327,11 +292,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// </remarks>
     [Fact]
     public void A_settings_listener_that_throws_does_not_escape_the_key_handler()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, _) = OnTheLastStep();
-            using var __ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, _) = step;
 
             settings.Service.SettingsChanged += () => throw new InvalidOperationException("a listener");
 
@@ -352,11 +316,10 @@ public class SpeechSetupWizardKeyTests : IDisposable
     /// </remarks>
     [Fact]
     public void A_release_that_never_arrived_does_not_swallow_the_key_for_ever()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
-            var (window, model, dictation, settings, closes) = OnTheLastStep();
-            using var _ = settings;
-            using var _d = dictation;
+            using var step = OnTheLastStep();
+            var (window, model, dictation, settings, closes) = step;
 
             window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.Alt);   // held, and never released here
             Assert.True(model.IsRecordingHere);

@@ -18,7 +18,7 @@ namespace mTiles.Tests;
 /// </remarks>
 public class WorkspaceMemoryReadingTests : IDisposable
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("mtiles-memory").FullName;
+    private readonly TempDirectory _dir = new("mtiles-memory");
 
     /// <summary>A probe that measures nothing and remembers everything it was asked.</summary>
     private sealed class FakeProbe : IProcessMemoryProbe
@@ -45,27 +45,7 @@ public class WorkspaceMemoryReadingTests : IDisposable
         public void Dispose() { }
     }
 
-    private static void OnUiThread(Func<Task> body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WorkspaceMemoryReadingTests).Assembly);
-        session.Dispatch(async () => { await body(); return true; }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
-    private MainWindowViewModel NewWindow(IProcessMemoryProbe probe)
-    {
-        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
-        workspaces.AddWorkspace(Path.Combine(_dir, "first"), "First");
-        workspaces.AddWorkspace(Path.Combine(_dir, "second"), "Second");
-
-        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-        return new MainWindowViewModel(
-            workspaces,
-            new PersistenceService(Path.Combine(_dir, "layouts")),
-            settings,
-            TestTiles.Catalog(settings),
-            memoryProbe: probe);
-    }
+    private MainWindowViewModel NewWindow(IProcessMemoryProbe probe) => TestMainWindow.Create(_dir.Path, memoryProbe: probe);
 
     private static void PutProcessInTile(WorkspaceViewModel workspace, int? processId) =>
         ((LeafTileNodeViewModel)workspace.RootTile!).Content = new ProcessTileStub(processId);
@@ -77,7 +57,7 @@ public class WorkspaceMemoryReadingTests : IDisposable
     [Fact]
     public void A_tile_s_process_is_asked_about_under_its_own_workspace_and_lands_on_that_row()
     {
-        OnUiThread(async () =>
+        Ui.Run(async () =>
         {
             var probe = new FakeProbe { Reading = roots => roots.Contains(4242) ? ThreeHundredMegabytes : 0 };
             var vm = NewWindow(probe);
@@ -107,7 +87,7 @@ public class WorkspaceMemoryReadingTests : IDisposable
     [Fact]
     public void An_unopened_workspace_is_not_asked_about()
     {
-        OnUiThread(async () =>
+        Ui.Run(async () =>
         {
             var probe = new FakeProbe { Reading = _ => ThreeHundredMegabytes };
             var vm = NewWindow(probe);
@@ -126,7 +106,7 @@ public class WorkspaceMemoryReadingTests : IDisposable
     [Fact]
     public void A_reading_for_a_workspace_unloaded_meanwhile_is_dropped()
     {
-        OnUiThread(async () =>
+        Ui.Run(async () =>
         {
             var probe = new FakeProbe { Reading = _ => ThreeHundredMegabytes };
             var vm = NewWindow(probe);
@@ -143,8 +123,5 @@ public class WorkspaceMemoryReadingTests : IDisposable
         });
     }
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
-    }
+    public void Dispose() => _dir.Dispose();
 }

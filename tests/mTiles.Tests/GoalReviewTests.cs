@@ -33,55 +33,41 @@ internal static class Rendered
 /// </summary>
 public class GoalReviewParsingTests
 {
-    [Fact]
-    public void A_review_that_says_it_cannot_pass_yet_does_not_pass()
+    /// <summary>
+    /// Which block of an answer is the review, and what it says: the last one that carries a review's
+    /// keys, fenced or bare, with the prose verdict as the fallback when there is none.
+    /// </summary>
+    [Theory]
+    // A block says the goal is not met, whatever the prose before it seems to say.
+    [InlineData("I cannot say VERDICT: PASS until the null check is fixed.\n\n```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"Null check\"}]}\n```", true, false, 1)]
+    // The last block is the verdict, not an example shown first.
+    [InlineData("Here is the file I changed:\n```json\n{\"goalMet\":false}\n```\n\nAnd my verdict:\n```json\n{\"goalMet\":true,\"findings\":[]}\n```", true, true, 0)]
+    // Four backticks, which is what a block containing three is fenced with.
+    [InlineData("````json\n{\"goalMet\":true,\"findings\":[]}\n````", true, true, 0)]
+    // No block at all: the prose rule this tile had before.
+    [InlineData("Everything checks out. VERDICT: PASS", false, true, 0)]
+    [InlineData("Two things are broken. VERDICT: FAIL", false, false, 0)]
+    // A block without a review's keys (a config file the tool edited) is not the verdict, fenced or bare.
+    [InlineData("All good. VERDICT: PASS\n\n```json\n{\"port\":8080}\n```", false, true, 0)]
+    [InlineData("All good. VERDICT: PASS\n\n{\"port\":8080}", false, true, 0)]
+    // Windows line endings and a word after the closing fence.
+    [InlineData("Here is my verdict.\r\n```json\r\n{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"Broken\"}]}\r\n```\r\nHope that helps.\r\n", true, false, 1)]
+    // Bare JSON with brace-carrying prose after it, then before it (measured on glm-5.3-flash).
+    [InlineData("{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"Swallowed exception\"}]}\n\nProponowana poprawka:\ntry { File.WriteAllText(path, data); }\ncatch (IOException ex) { throw new ExportException($\"Nie udało się zapisać pliku: {path}\", ex); }", true, false, 1)]
+    [InlineData("Analizowałem kontroler {\"name\":\"Export\"} i zmiany poniżej.\n{\"goalMet\":true,\"findings\":[]}", true, true, 0)]
+    // Emitted twice without fences: the last copy.
+    [InlineData("{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"stale\"}]}\nCorrecting myself:\n{\"goalMet\":true,\"findings\":[]}", true, true, 0)]
+    // A fenced review followed by a fenced C# fix: the walk goes past the fence that does not parse.
+    [InlineData("```json\n{\"goalMet\":true,\"findings\":[]}\n```\n\nProponowana poprawka:\n```csharp\ntry\n{\n    File.WriteAllText(path, data);\n}\ncatch (IOException ex)\n{\n    throw new ExportException($\"Nie udało się zapisać pliku: {path}\", ex);\n}\n```\n\nUwagi: wymagany jest konstruktor z innerException.", true, true, 0)]
+    public void The_review_is_read_from_the_last_block_that_is_one(
+        string reply, bool structured, bool goalMet, int errors)
     {
-        // The substring rule read this as a pass, which is how an unfinished implementation reached the
-        // summary and told the user the goal was done.
-        var review = GoalResponseParser.ParseReview(
-            "I cannot say VERDICT: PASS until the null check is fixed.\n\n" +
-            "```json\n{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"Null check\"}]}\n```");
+        var review = GoalResponseParser.ParseReview(reply);
 
-        Assert.False(review.GoalMet);
-        Assert.Equal(1, review.Count(GoalSeverity.Error));
-    }
-
-    [Fact]
-    public void The_last_json_block_is_the_verdict_not_the_first()
-    {
-        // A tool asked for JSON at the end routinely shows an example, or the config it is discussing,
-        // first. Taking the first block read one of those as the review.
-        var review = GoalResponseParser.ParseReview(
-            "Here is the file I changed:\n```json\n{\"goalMet\":false}\n```\n\n" +
-            "And my verdict:\n```json\n{\"goalMet\":true,\"findings\":[]}\n```");
-
-        Assert.True(review.GoalMet);
-    }
-
-    [Fact]
-    public void A_block_fenced_with_four_backticks_is_still_read()
-    {
-        // Which is what a tool does when the block itself contains three — and what this app's own
-        // prompt builder does on the way in, so it is not a hypothetical dialect.
-        var review = GoalResponseParser.ParseReview(
-            "````json\n{\"goalMet\":true,\"findings\":[]}\n````");
-
-        Assert.True(review.WasStructured);
-        Assert.True(review.GoalMet);
-    }
-
-    [Fact]
-    public void Prose_with_no_json_falls_back_to_the_rule_this_tile_had_before()
-    {
-        // A schema is a request, not a protocol. A tool that ignores it must still be able to finish a
-        // goal, so an unstructured answer behaves exactly as it did before any of this existed.
-        var passed = GoalResponseParser.ParseReview("Everything checks out. VERDICT: PASS");
-        var failed = GoalResponseParser.ParseReview("Two things are broken. VERDICT: FAIL");
-
-        Assert.False(passed.WasStructured);
-        Assert.True(passed.GoalMet);
-        Assert.False(failed.GoalMet);
-        Assert.Empty(failed.Findings);
+        Assert.Equal(structured, review.WasStructured);
+        Assert.Equal(goalMet, review.GoalMet);
+        Assert.Equal(errors, review.Count(GoalSeverity.Error));
+        if (!structured) Assert.Empty(review.Findings);
     }
 
     [Fact]
@@ -205,107 +191,6 @@ public class GoalReviewParsingTests
     }
 
     [Fact]
-    public void A_json_block_that_is_not_a_review_is_not_read_as_one()
-    {
-        // A tool that ends its answer with the settings file it edited has not passed the goal by
-        // accident. Neither key present means this is not the verdict, and the prose is.
-        var review = GoalResponseParser.ParseReview(
-            "All good. VERDICT: PASS\n\n```json\n{\"port\":8080}\n```");
-
-        Assert.False(review.WasStructured);
-        Assert.True(review.GoalMet);
-    }
-
-    [Fact]
-    public void A_block_written_with_windows_line_endings_and_a_word_after_it_is_still_read()
-    {
-        // $ in multiline mode matches before the \n of a line break but after its \r, so the closing
-        // fence of a CRLF answer matched nothing — and the review fell back to the substring rule this
-        // class exists to replace, silently, on the only platform most of this app runs on.
-        var review = GoalResponseParser.ParseReview(
-            "Here is my verdict.\r\n```json\r\n{\"goalMet\":false,\"findings\":[" +
-            "{\"severity\":\"error\",\"title\":\"Broken\"}]}\r\n```\r\nHope that helps.\r\n");
-
-        Assert.True(review.WasStructured);
-        Assert.Equal(1, review.Count(GoalSeverity.Error));
-    }
-
-    [Fact]
-    public void A_bare_json_answer_survives_braces_in_the_prose_after_it()
-    {
-        // Measured against z-ai/glm-5.3-flash through OpenRouter: the review comes back as bare JSON
-        // with no fence, and the model routinely adds a "proposed fix" section after it — prose and a
-        // code snippet carrying braces of their own. The outermost first-{-to-last-} span then covers
-        // both and parses as nothing, so the whole structured review was dumped into the transcript as
-        // raw JSON text and the verdict fell out of the VERDICT fallback.
-        var review = GoalResponseParser.ParseReview(
-            "{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"Swallowed exception\"}]}\n\n" +
-            "Proponowana poprawka:\n" +
-            "try { File.WriteAllText(path, data); }\n" +
-            "catch (IOException ex) { throw new ExportException($\"Nie udało się zapisać pliku: {path}\", ex); }");
-
-        Assert.True(review.WasStructured);
-        Assert.False(review.GoalMet);
-        Assert.Equal(1, review.Count(GoalSeverity.Error));
-    }
-
-    [Fact]
-    public void A_bare_json_answer_survives_braces_in_the_prose_before_it()
-    {
-        // The same shape at the other end: a sentence of analysis that happens to carry a brace
-        // destroyed the span from the other side.
-        var review = GoalResponseParser.ParseReview(
-            "Analizowałem kontroler {\"name\":\"Export\"} i zmiany poniżej.\n" +
-            "{\"goalMet\":true,\"findings\":[]}");
-
-        Assert.True(review.WasStructured);
-        Assert.True(review.GoalMet);
-    }
-
-    [Fact]
-    public void A_review_emitted_twice_without_fences_reads_the_last_one()
-    {
-        // A tool may emit the block twice — the fenced reader already takes the last one, and a tool
-        // that omits the fences deserves the same rule rather than a span that covers both copies and
-        // the sentence between them.
-        var review = GoalResponseParser.ParseReview(
-            "{\"goalMet\":false,\"findings\":[{\"severity\":\"error\",\"title\":\"stale\"}]}\n" +
-            "Correcting myself:\n" +
-            "{\"goalMet\":true,\"findings\":[]}");
-
-        Assert.True(review.WasStructured);
-        Assert.True(review.GoalMet);
-    }
-
-    [Fact]
-    public void A_bare_config_snippet_is_still_not_read_as_the_verdict()
-    {
-        // The bare-JSON twin of the fenced case above it: no marker keys means this is not the
-        // review, and the prose verdict rule still answers.
-        var review = GoalResponseParser.ParseReview("All good. VERDICT: PASS\n\n{\"port\":8080}");
-
-        Assert.False(review.WasStructured);
-        Assert.True(review.GoalMet);
-    }
-
-    [Fact]
-    public void The_fenced_review_then_a_fenced_fix_snippet_still_parses()
-    {
-        // Measured against z-ai/glm-5.3-flash through OpenRouter, 2026-09-01: the review arrives in a
-        // ```json fence and the proposed fix in a second fence whose body is C# — the last fence is
-        // not the verdict, and the reverse walk has to keep going past the one that does not parse.
-        var review = GoalResponseParser.ParseReview(
-            "```json\n{\"goalMet\":true,\"findings\":[]}\n```\n\n" +
-            "Proponowana poprawka:\n" +
-            "```csharp\ntry\n{\n    File.WriteAllText(path, data);\n}\ncatch (IOException ex)\n{\n" +
-            "    throw new ExportException($\"Nie udało się zapisać pliku: {path}\", ex);\n}\n```\n\n" +
-            "Uwagi: wymagany jest konstruktor z innerException.");
-
-        Assert.True(review.WasStructured);
-        Assert.True(review.GoalMet);
-    }
-
-    [Fact]
     public void A_bare_clarify_answer_survives_braces_in_the_prose_around_it()
     {
         // The marker rule is asked for by every reader of this parser, not only the review's: a
@@ -425,7 +310,6 @@ public class GoalReviewParsingTests
     [InlineData("I am unable to say VERDICT: PASS", false)]
     [InlineData("I don't think I can give a VERDICT: PASS", false)]
     [InlineData("Everything looks fine, but I won't say VERDICT: PASS", false)]
-    [InlineData("I cannot say VERDICT: PASS until the null check is fixed", false)]
     [InlineData("Two things are broken. VERDICT: FAIL", false)]
     [InlineData("Nothing here mentions one at all", false)]
     public void A_prose_verdict_is_read_from_a_verdict_that_was_actually_given(string reply, bool passes)
@@ -618,29 +502,14 @@ public class GoalReviewParsingTests
         Assert.DoesNotContain("`Nothing", text);
     }
 
-    [Fact]
-    public void A_review_with_no_findings_keeps_the_reason_it_gave()
+    /// <summary>A review with no findings keeps the reason it gave, written above the block or after it.
+    /// </summary>
+    [Theory]
+    [InlineData("The change never runs: nothing calls the new method.\n\n```json\n{\"goalMet\":false,\"findings\":[]}\n```")]
+    [InlineData("```json\n{\"goalMet\":false,\"findings\":[]}\n```\n\nThe change never runs: nothing calls the new method.")]
+    public void A_review_with_no_findings_keeps_the_reason_it_gave(string reply)
     {
-        // "Goal not met · nothing found" was the entire account of a failed attempt. The argument
-        // against reprinting the prose only holds where there is a finding list to duplicate.
-        var review = GoalResponseParser.ParseReview(
-            "The change never runs: nothing calls the new method.\n\n" +
-            "```json\n{\"goalMet\":false,\"findings\":[]}\n```");
-
-        Assert.Contains("nothing calls the new method", Rendered.Review(review));
-    }
-
-    [Fact]
-    public void A_reason_written_after_the_json_block_is_kept_too()
-    {
-        // The prompt asks for the block last, so prose above it is the ordinary case — but a tool that
-        // explains itself afterwards would otherwise have the explanation dropped, in exactly the case
-        // where it is the only account there is.
-        var review = GoalResponseParser.ParseReview(
-            "```json\n{\"goalMet\":false,\"findings\":[]}\n```\n\n" +
-            "The change never runs: nothing calls the new method.");
-
-        Assert.Contains("nothing calls the new method", Rendered.Review(review));
+        Assert.Contains("nothing calls the new method", Rendered.Review(GoalResponseParser.ParseReview(reply)));
     }
 
     [Fact]
@@ -998,6 +867,27 @@ public class GoalClarifyParsingTests
     }
 
     [Fact]
+    public void An_offered_answer_fills_the_box_without_deleting_what_was_typed_in_it()
+    {
+        var q = new GoalQuestionAnswer(1, new GoalQuestion
+        {
+            Question = "Which file?",
+            Options = ["appsettings.json", "launchSettings.json"],
+        });
+
+        // Empty: it is the answer. Already an option: replaced. Typed: appended.
+        q.Options[0].Use.Execute(null);
+        Assert.Equal("appsettings.json", q.Answer);
+
+        q.Options[1].Use.Execute(null);
+        Assert.Equal("launchSettings.json", q.Answer);
+
+        q.Answer = "neither, use the environment";
+        q.Options[0].Use.Execute(null);
+        Assert.Equal("neither, use the environment appsettings.json", q.Answer);
+    }
+
+    [Fact]
     public void A_detected_goal_arrives_without_its_wrapping()
     {
         Assert.Equal("Make pairings survive a restart.",
@@ -1087,22 +977,18 @@ public class GoalCompletionPolicyTests
         Assert.False(GoalCompletionPolicy.RepeatsPrevious(prose, prose.Fingerprint()));
     }
 
-    [Fact]
-    public void A_run_that_was_never_allowed_to_edit_says_so_rather_than_calling_it_a_dead_end()
+    /// <summary>A run that was never allowed to edit says so, counted in the right number, rather than
+    /// calling it a dead end.</summary>
+    [Theory]
+    [InlineData(3, "3 tool calls were refused permission")]
+    [InlineData(1, "1 tool call was refused")]
+    public void A_run_that_was_never_allowed_to_edit_says_so_rather_than_calling_it_a_dead_end(
+        int denials, string expected)
     {
-        // The worktree looks the same either way — no files changed — and the reader's next move does
-        // not: one is a goal that has run out of road, the other is a permission mode two clicks away.
-        var text = GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 1, null, permissionDenials: 3);
+        var text = GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 1, null, permissionDenials: denials);
 
-        Assert.Contains("3 tool calls were refused permission", text);
+        Assert.Contains(expected, text);
         Assert.Contains("permission mode", text);
-    }
-
-    [Fact]
-    public void One_refusal_reads_as_one()
-    {
-        Assert.Contains("1 tool call was refused", 
-            GoalCompletionPolicy.Summarise(GoalStopReason.NoChange, 2, null, permissionDenials: 1));
     }
 
     /// <summary>
@@ -1138,21 +1024,18 @@ public class GoalCompletionPolicyTests
                 GoalStopReason.NoChange, 4, "the review says the goal is not met"));
     }
 
-    [Fact]
-    public void The_budget_summary_does_not_claim_the_goal_was_completed()
+    /// <summary>The budget summary does not claim the goal was completed, and counts the attempts that
+    /// happened rather than the budget (the two part when the budget is lowered mid-run).</summary>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(4)]
+    public void The_budget_summary_counts_the_attempts_and_does_not_claim_completion(int attempts)
     {
-        var text = GoalCompletionPolicy.Summarise(GoalStopReason.BudgetSpent, 5);
+        var text = GoalCompletionPolicy.Summarise(GoalStopReason.BudgetSpent, attempts);
 
         Assert.DoesNotContain("completed", text);
         Assert.Contains("without meeting", text);
-    }
-
-    [Fact]
-    public void The_budget_summary_counts_the_attempts_that_happened_not_the_budget()
-    {
-        // The two are the same number until the budget moves. Lowering it from five to two after four
-        // attempts had run reported "stopped after 2 attempts" over a transcript containing four.
-        Assert.Contains("4 attempts", GoalCompletionPolicy.Summarise(GoalStopReason.BudgetSpent, 4));
+        Assert.Contains($"{attempts} attempts", text);
     }
 
     [Fact]

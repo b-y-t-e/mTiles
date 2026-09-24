@@ -17,30 +17,9 @@ namespace mTiles.Tests;
 /// </remarks>
 public class LeafTileDisposalTests
 {
-    private sealed class SilentCapture : IAudioCapture
-    {
-        public bool IsAvailable => true;
-        public bool IsRecording => false;
-        public IReadOnlyList<string> GetInputDevices(bool rescan = false) => [];
-        public void Start(string deviceName) { }
-        public IRecordingHandle? Detach() => null;
-        public float[] Finish(IRecordingHandle? detached) => [];
-        public void Dispose() { }
-    }
-
-    private sealed class SilentEngine : ISpeechToTextEngine
-    {
-        public bool IsLoaded => false;
-        public Task LoadAsync(string modelPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public void Unload() { }
-        public Task<string> TranscribeAsync(float[] samples, TranscriptionOptions options,
-            CancellationToken cancellationToken = default) => Task.FromResult("");
-        public void Dispose() { }
-    }
-
     private static (DictationService Service, LeafTileNodeViewModel Tile) Build(TempSettings settings)
     {
-        var service = new DictationService(settings.Service, new SilentCapture(), new SilentEngine(),
+        var service = new DictationService(settings.Service, new SilentAudioCapture(), new SilentSpeechEngine(),
             new SpeechModelStore(Path.Combine(Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"))),
             action => action());
 

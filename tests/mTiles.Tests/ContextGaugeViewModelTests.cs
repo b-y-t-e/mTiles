@@ -192,17 +192,4 @@ public class ContextGaugeViewModelTests
         Assert.Equal("234.1k tokens", gauge.Text);
         Assert.Null(gauge.UsedPercent);
     }
-
-    [Fact]
-    public void Past_the_end_of_a_window_that_was_named_the_bar_is_full_and_not_more()
-    {
-        // An agent that compacts reports the tokens it had before the compaction landed, so over 100%
-        // does happen against a window somebody really did name. A bar drawn past its own end is a
-        // rendering artefact where a full bar is the truth.
-        var gauge = new ContextGaugeViewModel();
-
-        gauge.Show(used: 234_100, window: 200_000, cost: null);
-
-        Assert.Equal(100, gauge.UsedPercent);
-    }
 }

@@ -68,11 +68,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfuse2
 
-      # Kept here as well as in tests.yml, because a tag must not produce a release the suite has
-      # not passed against on this platform. No filter any more: the eight tests that encoded
-      # Windows behaviour now assert what is true wherever they run.
-      - name: Test
-        run: dotnet test -c Release
+      # No test step: tests.yml runs the whole suite on Windows and Linux for the same commit, and
+      # the tests-passed job below holds create-release until that run has succeeded. Running the
+      # suite a second time here only gave a flaky test a second chance to hold a release back (0.4.130).
 
       - name: Publish
         run: dotnet publish src/mTiles/mTiles.csproj -c Release --self-contained -r linux-x64 -o ./publish
@@ -147,8 +145,29 @@ jobs:
             mTiles-linux-x86_64.AppImage
             mTiles-linux-x64.tar.gz
 
+  # deploy2.py pushes the commit and the tag together, so tests.yml runs beside this workflow rather
+  # than before it. Nothing is published — no release, no Velopack feed, no Arch package — until the
+  # Tests run for this very commit has finished green.
+  tests-passed:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Wait for the Tests run of this commit
+        shell: bash
+        run: |
+          for attempt in $(seq 1 60); do
+            run_id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow tests.yml --commit "$GITHUB_SHA"               --event push --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$run_id" ] && break
+            sleep 10
+          done
+          [ -n "$run_id" ] || { echo "No Tests run found for $GITHUB_SHA"; exit 1; }
+          gh run watch "$run_id" -R "$GITHUB_REPOSITORY" --exit-status --interval 30
+
   create-release:
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, tests-passed]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

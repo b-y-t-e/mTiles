@@ -227,6 +227,16 @@
                                            TextWrapping="Wrap"
                                            FontSize="{DynamicResource FontXs}"
                                            Foreground="{DynamicResource WarnText}" />
+                                <!-- The third state, and the only one the user could not otherwise
+                                     find out: on and working. Its own block rather than a colour
+                                     chosen by a converter, because what it says is different in kind
+                                     from a warning - it pre-empts `rtk gain`, whose advice here is
+                                     actively wrong. -->
+                                <TextBlock Text="{Binding OutputProxyActiveNote}"
+                                           IsVisible="{Binding IsOutputProxyActive}"
+                                           TextWrapping="Wrap"
+                                           FontSize="{DynamicResource FontXs}"
+                                           Foreground="{DynamicResource TextSecondary}" />
                             </StackPanel>
                         </DockPanel>
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">

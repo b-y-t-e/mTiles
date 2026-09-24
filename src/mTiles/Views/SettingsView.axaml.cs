@@ -13,6 +13,9 @@ public partial class SettingsView : UserControl,
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        ListReorder.Attach(AgentInstanceList,
+            (from, to) => (DataContext as SettingsViewModel)?.MoveAgentInstance(from, to),
+            () => (DataContext as SettingsViewModel)?.CommitAgentOrder());
 
     }
 

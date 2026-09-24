@@ -18,48 +18,21 @@ public class ComposerPickerLayoutTests
     private static readonly RowItemWidths Effort = new(90, 28);
     private static readonly RowItemWidths Mode = new(85, 28);
 
-    private static RowShape Fit(double width, RowItemWidths effort, RowItemWidths mode) =>
-        RowRetreat.For(width, [Model, effort, mode], ComposerPickerLayout.Steps);
-
-    private static RowShape Fit(double width) => Fit(width, Effort, Mode);
-
-    [Fact]
-    public void A_row_not_yet_measured_is_drawn_in_full()
+    [Theory]
+    [InlineData(0, false, "---", null)]    // a row not yet measured is drawn in full
+    [InlineData(375, false, "---", null)]  // room for all three
+    [InlineData(300, false, "-cc", null)]  // effort and permission go to their icons first, together
+    [InlineData(200, false, "-cc", 144.0)] // then the model trims into what is left
+    [InlineData(140, false, "ccc", null)]  // below a stub of its name the model goes to its icon too
+    [InlineData(200, true, "---", null)]   // a hidden picker costs nothing
+    public void The_pickers_give_up_their_words_in_order(
+        double width, bool othersHidden, string compact, double? modelMax)
     {
-        var shape = Fit(0);
-        Assert.Equal([false, false, false], shape.Compact);
-        Assert.Equal([null, null, null], shape.MaxWidth);
+        var shape = othersHidden
+            ? RowRetreat.For(width, [Model, RowItemWidths.Hidden, RowItemWidths.Hidden], ComposerPickerLayout.Steps)
+            : RowRetreat.For(width, [Model, Effort, Mode], ComposerPickerLayout.Steps);
+
+        Assert.Equal(compact.Select(c => c == 'c').ToArray(), shape.Compact);
+        Assert.Equal([modelMax, null, null], shape.MaxWidth);
     }
-
-    [Fact]
-    public void Room_for_all_three_changes_nothing() =>
-        Assert.Equal([false, false, false], Fit(375).Compact);
-
-    [Fact]
-    public void Effort_and_permission_go_to_their_icons_first_and_together()
-    {
-        var shape = Fit(300);
-        Assert.Equal([false, true, true], shape.Compact);
-        Assert.Null(shape.MaxWidth[ComposerPickerLayout.Model]);
-    }
-
-    [Fact]
-    public void Then_the_model_trims_into_what_is_left()
-    {
-        var shape = Fit(200);
-        Assert.Equal([false, true, true], shape.Compact);
-        Assert.Equal(144, shape.MaxWidth[ComposerPickerLayout.Model]);
-    }
-
-    [Fact]
-    public void Below_a_stub_of_its_name_the_model_goes_to_its_icon_too()
-    {
-        var shape = Fit(140);
-        Assert.Equal([true, true, true], shape.Compact);
-        Assert.Null(shape.MaxWidth[ComposerPickerLayout.Model]);
-    }
-
-    [Fact]
-    public void A_hidden_picker_costs_nothing() =>
-        Assert.Equal([false, false, false], Fit(200, RowItemWidths.Hidden, RowItemWidths.Hidden).Compact);
 }

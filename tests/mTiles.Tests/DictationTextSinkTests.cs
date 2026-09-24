@@ -26,13 +26,6 @@ public class DictationTextSinkTests
     /// </summary>
     private static readonly SpeechSettings Spaced = new() { AppendTrailingSpace = true };
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(DictationTextSinkTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
     /// <summary>A window is what makes a control "on screen" as far as the sink is concerned.</summary>
     private static Window ShowingWindow(Control content)
     {
@@ -43,7 +36,7 @@ public class DictationTextSinkTests
 
     [Fact]
     public void Text_goes_in_at_the_caret()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var box = new TextBox { Text = "before after" };
             var window = ShowingWindow(box);
@@ -57,7 +50,7 @@ public class DictationTextSinkTests
 
     [Fact]
     public void A_selection_is_replaced_rather_than_written_around()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var box = new TextBox { Text = "keep this drop that keep this too" };
             var window = ShowingWindow(box);
@@ -81,7 +74,7 @@ public class DictationTextSinkTests
     /// </remarks>
     [Fact]
     public void What_was_dictated_can_be_undone()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var box = new TextBox { Text = "typed by hand" };
             var window = ShowingWindow(box);
@@ -99,7 +92,7 @@ public class DictationTextSinkTests
     /// <summary>Backwards is the same selection: dragging right to left is how half of it is made.</summary>
     [Fact]
     public void A_selection_made_backwards_is_replaced_too()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var box = new TextBox { Text = "alpha beta gamma" };
             var window = ShowingWindow(box);
@@ -113,7 +106,7 @@ public class DictationTextSinkTests
 
     [Fact]
     public void An_editor_replaces_its_selection_as_well()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var editor = new TextEditor { Text = "one two three" };
             var window = ShowingWindow(editor);
@@ -132,7 +125,7 @@ public class DictationTextSinkTests
     /// </summary>
     [Fact]
     public void A_control_that_has_left_the_tree_is_refused_rather_than_written_to()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var box = new TextBox { Text = "" };
             var window = ShowingWindow(box);
@@ -195,7 +188,7 @@ public class DictationTextSinkTests
     /// <summary>No tile and no focused control: nowhere to put it, and that is not a silent success.</summary>
     [Fact]
     public void With_nowhere_to_put_it_the_transcript_is_refused()
-        => OnUiThread(() => Assert.False(DictationTextSink.Insert(null, "spoken", Plain, null)));
+        => Ui.Run(() => Assert.False(DictationTextSink.Insert(null, "spoken", Plain, null)));
 
     /// <summary>
     /// A transcript that sanitises down to nothing is not "nowhere to put it".
@@ -214,7 +207,7 @@ public class DictationTextSinkTests
     /// </remarks>
     [Fact]
     public void A_transcript_that_sanitises_to_nothing_is_not_reported_as_undeliverable()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var box = new TextBox { Text = "untouched" };
             var window = ShowingWindow(box);
@@ -234,7 +227,7 @@ public class DictationTextSinkTests
 
     [Fact]
     public void A_read_only_control_is_not_written_to()
-        => OnUiThread(() =>
+        => Ui.Run(() =>
         {
             var box = new TextBox { Text = "fixed", IsReadOnly = true };
             var window = ShowingWindow(box);

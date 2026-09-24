@@ -15,25 +15,20 @@ namespace mTiles.Tests;
 /// </remarks>
 public sealed class WorkspaceAgentFilesTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "mtiles-agentfiles-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _dir = new();
 
-    public WorkspaceAgentFilesTests() => Directory.CreateDirectory(_dir);
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { /* a temp directory */ }
-    }
+    public void Dispose() => _dir.Dispose();
 
     private static IAiAgent Agent(string id) => AiAgentCatalog.Find(id)!;
 
-    private string Path_(params string[] parts) => Path.Combine([_dir, .. parts]);
+    private string Path_(params string[] parts) => Path.Combine([_dir.Path, .. parts]);
 
     private const string Skill = DatabaseSkillWriter.SkillName;
 
     [Fact]
     public void A_skill_reaches_only_the_agents_this_workspace_holds()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.WriteSkill(Skill, "body");
         files.Follow([Agent("claude")]);
 
@@ -46,7 +41,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void Closing_one_of_the_three_agents_that_share_a_directory_leaves_it_alone()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.Follow([Agent("pi"), Agent("codex")]);
         files.WriteSkill(Skill, "body");
 
@@ -58,7 +53,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void The_last_agent_of_a_directory_leaving_takes_the_skill_with_it()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.Follow([Agent("pi"), Agent("claude")]);
         files.WriteSkill(Skill, "body");
 
@@ -73,7 +68,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void An_agent_added_after_the_skill_was_written_still_gets_it()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.Follow([Agent("claude")]);
         files.WriteSkill(Skill, "body");
 
@@ -87,18 +82,18 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void Withdrawing_a_skill_clears_every_directory_any_agent_reads()
     {
-        var readers = AiAgentCatalog.All.Where(agent => agent.SkillsDirectory(_dir) is not null).ToList();
+        var readers = AiAgentCatalog.All.Where(agent => agent.SkillsDirectory(_dir.Path) is not null).ToList();
         foreach (var agent in readers)
         {
-            var directory = Path.Combine(agent.SkillsDirectory(_dir)!, Skill);
+            var directory = Path.Combine(agent.SkillsDirectory(_dir.Path)!, Skill);
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "SKILL.md"), "a live database address");
         }
 
-        new WorkspaceAgentFiles(_dir).RemoveSkill(Skill);
+        new WorkspaceAgentFiles(_dir.Path).RemoveSkill(Skill);
 
         foreach (var agent in readers)
-            Assert.False(Directory.Exists(Path.Combine(agent.SkillsDirectory(_dir)!, Skill)));
+            Assert.False(Directory.Exists(Path.Combine(agent.SkillsDirectory(_dir.Path)!, Skill)));
     }
 
     [Fact]
@@ -108,7 +103,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         Directory.CreateDirectory(mine);
         File.WriteAllText(Path.Combine(mine, "SKILL.md"), "mine");
 
-        WorkspaceAgentFiles.RemoveSkillEverywhere(_dir, Skill);
+        WorkspaceAgentFiles.RemoveSkillEverywhere(_dir.Path, Skill);
 
         Assert.True(File.Exists(Path.Combine(mine, "SKILL.md")));
     }
@@ -118,7 +113,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void An_unchanged_layout_rewrites_nothing()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.WriteSkill(Skill, "body");
         files.Follow([Agent("claude")]);
 
@@ -137,7 +132,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void No_agent_ever_gets_an_instruction_file_written_for_it_here()
     {
-        new WorkspaceAgentFiles(_dir).Follow([Agent("claude"), Agent("codex"), Agent("opencode")]);
+        new WorkspaceAgentFiles(_dir.Path).Follow([Agent("claude"), Agent("codex"), Agent("opencode")]);
 
         Assert.False(File.Exists(Path_("CLAUDE.md")));
         Assert.False(File.Exists(Path_("AGENTS.md")));
@@ -149,7 +144,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         var claudeMd = Path_("CLAUDE.md");
         File.WriteAllText(claudeMd, "# My project\n\nRules a person wrote.\n");
 
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.Follow([Agent("claude")]);
         Assert.Contains("Rules a person wrote", File.ReadAllText(claudeMd));
 
@@ -159,33 +154,44 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
 
     // ── The one-time clear-up of what the old writer left behind ──
 
-    /// <summary>Emptied rather than deleted: the old writer created these files where there were none,
-    /// so one the user has since committed would otherwise be deleted out of their working tree — the
-    /// rule <see cref="GitIgnoreFile"/> already follows for a <c>.gitignore</c> we emptied.</summary>
-    [Fact]
-    public void The_old_section_is_cut_out_and_the_file_it_emptied_is_left_in_place()
+    /// <summary>The old section goes and the file stays, even when nothing is left in it: on Windows
+    /// <c>claude.local.md</c> is <c>CLAUDE.local.md</c>, somebody's own local instructions, and a file the
+    /// old writer created may since have been committed — the rule <see cref="GitIgnoreFile"/> follows
+    /// for a <c>.gitignore</c> we emptied.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("# My notes\n\nThe staging box is flaky.\n\n")]
+    public void The_old_section_is_cut_out_of_claude_local_md_and_the_file_is_left_in_place(string mine)
     {
         var stale = Path_("claude.local.md");
-        File.WriteAllText(stale, "# Database access\n\nSQL queries via local HTTP bridge. …\n");
+        File.WriteAllText(stale, mine + "# Database access\n\nSQL queries via local HTTP bridge. …\n");
 
-        LegacyDatabaseSectionCleanup.Run(_dir);
+        LegacyDatabaseSectionCleanup.Run(_dir.Path);
 
         Assert.True(File.Exists(stale));
-        Assert.DoesNotContain("Database access", File.ReadAllText(stale));
+        var content = File.ReadAllText(stale);
+        Assert.DoesNotContain("Database access", content);
+        Assert.Contains(mine.Trim(), content);
     }
 
-    [Fact]
-    public void The_old_database_section_is_cut_out_of_the_canon_and_the_rest_is_kept()
+    /// <summary>The old section is cut out of the canon under each heading it was ever written under, and
+    /// what stands before and after it is kept — an older spelling left in place keeps a live bridge address
+    /// in a committed file after database access has been switched off.</summary>
+    [Theory]
+    [InlineData("# Database access", "SQL queries via local HTTP bridge. …")]
+    [InlineData("# Database Service", "- **Sales** (SqlServer, read-only): `GET http://localhost:18090/query/BOX/Sales?sql=SELECT+1`")]
+    [InlineData("# List databases", "- **Sales** (SqlServer, read-only): `GET http://localhost:18090/query/BOX/Sales?sql=SELECT+1`")]
+    public void The_old_section_is_cut_out_of_the_canon_and_the_rest_is_kept(string heading, string body)
     {
         var canon = Path_("AGENTS.md");
         File.WriteAllText(canon,
-            "# Project\n\nHow to build.\n\n# Database access\n\nSQL queries via local HTTP bridge. …\n\n"
-            + "# Conventions\n\nNaming.\n");
+            $"# Project\n\nHow to build.\n\n{heading}\n\n{body}\n\n# Conventions\n\nNaming.\n");
 
-        LegacyDatabaseSectionCleanup.Run(_dir);
+        LegacyDatabaseSectionCleanup.Run(_dir.Path);
 
         var content = File.ReadAllText(canon);
-        Assert.DoesNotContain("Database access", content);
+        Assert.DoesNotContain(heading, content);
+        Assert.DoesNotContain(body, content);
         Assert.Contains("How to build", content);
         Assert.Contains("Naming", content);
     }
@@ -199,45 +205,9 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         const string mine = "# Database access\n\nAsk Ola for the credentials.\n";
         File.WriteAllText(canon, mine);
 
-        LegacyDatabaseSectionCleanup.Run(_dir);
+        LegacyDatabaseSectionCleanup.Run(_dir.Path);
 
         Assert.Equal(mine, File.ReadAllText(canon));
-    }
-
-    /// <summary>On Windows <c>claude.local.md</c> is <c>CLAUDE.local.md</c> — somebody's own local
-    /// instructions, which the old writer appended to rather than owned.</summary>
-    [Fact]
-    public void The_old_claude_local_md_keeps_what_a_person_wrote_in_it()
-    {
-        var stale = Path_("claude.local.md");
-        File.WriteAllText(stale,
-            "# My notes\n\nThe staging box is flaky.\n\n# Database access\n\n"
-            + "SQL queries via local HTTP bridge. …\n");
-
-        LegacyDatabaseSectionCleanup.Run(_dir);
-
-        var content = File.ReadAllText(stale);
-        Assert.Contains("The staging box is flaky", content);
-        Assert.DoesNotContain("Database access", content);
-    }
-
-    /// <summary>The section was renamed twice, and an older spelling left in place keeps a live bridge
-    /// address in a committed file after database access has been switched off.</summary>
-    [Theory]
-    [InlineData("# Database Service")]
-    [InlineData("# List databases")]
-    public void An_older_spelling_of_the_old_section_is_cut_out_too(string heading)
-    {
-        var canon = Path_("AGENTS.md");
-        File.WriteAllText(canon,
-            $"# Project\n\nHow to build.\n\n{heading}\n\n"
-            + "- **Sales** (SqlServer, read-only): `GET http://localhost:18090/query/BOX/Sales?sql=SELECT+1`\n");
-
-        LegacyDatabaseSectionCleanup.Run(_dir);
-
-        var content = File.ReadAllText(canon);
-        Assert.DoesNotContain("localhost:18090", content);
-        Assert.Contains("How to build", content);
     }
 
     /// <summary>A subsection of the user's own, whose text happens to mention <c>/query/</c> — the
@@ -251,7 +221,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
             "# API\n\nRoutes.\n\n## Database access\n\nThe reporting service exposes /query/ for us.\n";
         File.WriteAllText(canon, mine);
 
-        LegacyDatabaseSectionCleanup.Run(_dir);
+        LegacyDatabaseSectionCleanup.Run(_dir.Path);
 
         Assert.Equal(mine, File.ReadAllText(canon));
     }
@@ -273,7 +243,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         byte[] ours = "\n\n# Database access\n\nSQL queries via local HTTP bridge.\n"u8.ToArray();
         File.WriteAllBytes(canon, [.. mine, .. ours]);
 
-        LegacyDatabaseSectionCleanup.Run(_dir);
+        LegacyDatabaseSectionCleanup.Run(_dir.Path);
 
         Assert.Equal(mine, File.ReadAllBytes(canon));
     }
@@ -287,7 +257,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     public async Task The_skill_directory_is_listed_in_the_gitignore()
     {
         Directory.CreateDirectory(Path_(".git"));
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
 
         files.WriteSkill(Skill, "body");
         files.Follow([Agent("claude"), Agent("codex")]);
@@ -304,7 +274,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     public async Task Withdrawing_the_skill_takes_its_gitignore_line_with_it()
     {
         Directory.CreateDirectory(Path_(".git"));
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.Follow([Agent("claude")]);
         files.WriteSkill(Skill, "body");
 
@@ -314,37 +284,22 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         Assert.DoesNotContain(Skill, File.ReadAllText(Path_(".gitignore")));
     }
 
-    /// <summary>A closing tile is not a withdrawal: the application disposes every tile on its way out,
-    /// so unlisting the entry there would edit a tracked <c>.gitignore</c> on every exit and put the
-    /// block back on every launch.</summary>
-    [Fact]
-    public async Task A_closing_tile_takes_the_skill_and_leaves_its_gitignore_line()
+    /// <summary>A closing tile, or an agent tile leaving the workspace, is not the user withdrawing
+    /// database access: the application disposes every tile on its way out, so unlisting the entry there
+    /// would edit a tracked <c>.gitignore</c> on every exit and put the block back on every launch.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_skill_taken_away_without_a_withdrawal_leaves_its_gitignore_line(bool tileCloses)
     {
         Directory.CreateDirectory(Path_(".git"));
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.Follow([Agent("claude")]);
         files.WriteSkill(Skill, "body");
         await GitIgnoreEditQueue.Pending;
 
-        files.ForgetSkill(Skill);
-        await GitIgnoreEditQueue.Pending;
-
-        Assert.False(Directory.Exists(Path_(".claude", "skills", Skill)));
-        Assert.Contains($".claude/skills/{Skill}/", File.ReadAllText(Path_(".gitignore")));
-    }
-
-    /// <summary>The same rule one level down: an agent tile leaving is not the user withdrawing
-    /// database access.</summary>
-    [Fact]
-    public async Task An_agent_leaving_the_workspace_leaves_the_gitignore_line()
-    {
-        Directory.CreateDirectory(Path_(".git"));
-        var files = new WorkspaceAgentFiles(_dir);
-        files.Follow([Agent("claude")]);
-        files.WriteSkill(Skill, "body");
-        await GitIgnoreEditQueue.Pending;
-
-        files.Follow([]);
+        if (tileCloses) files.ForgetSkill(Skill);
+        else files.Follow([]);
         await GitIgnoreEditQueue.Pending;
 
         Assert.False(Directory.Exists(Path_(".claude", "skills", Skill)));
@@ -358,7 +313,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     public void Waiting_for_the_ignore_edits_finishes_them()
     {
         Directory.CreateDirectory(Path_(".git"));
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.WriteSkill(Skill, "body");
         files.Follow([Agent("claude")]);
 
@@ -373,7 +328,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public async Task A_workspace_that_is_not_a_repository_gets_no_gitignore()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.WriteSkill(Skill, "body");
         files.Follow([Agent("claude")]);
         await GitIgnoreEditQueue.Pending;
@@ -392,7 +347,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         Directory.CreateDirectory(orphan);
         File.WriteAllText(Path.Combine(orphan, "SKILL.md"), "http://localhost:18090/query/");
 
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.WriteSkill(Skill, "body");
         files.Follow([Agent("claude")]);
 
@@ -405,7 +360,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void The_sweep_does_not_repeat_and_a_rewritten_skill_stays_where_a_tile_wants_it()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         files.WriteSkill(Skill, "body");
         files.Follow([Agent("claude"), Agent("codex")]);
 
@@ -425,7 +380,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
             "# Project" + new string(Lf, 20)
             + "# Database access" + Lf + Lf + "SQL queries via local HTTP bridge. …" + Lf);
 
-        LegacyDatabaseSectionCleanup.Run(_dir);
+        LegacyDatabaseSectionCleanup.Run(_dir.Path);
 
         var content = File.ReadAllText(canon);
         Assert.DoesNotContain("Database access", content);
@@ -443,7 +398,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         File.WriteAllText(Path_("AGENTS.md"), "# Project" + Lf + Lf + "How to build." + Lf);
         File.WriteAllText(Path_("CLAUDE.md"), "@AGENTS.md" + Lf);
 
-        LegacyInstructionShimCleanup.Run(_dir);
+        LegacyInstructionShimCleanup.Run(_dir.Path);
 
         Assert.False(File.Exists(Path_("CLAUDE.md")));
         Assert.Contains("How to build", File.ReadAllText(Path_("AGENTS.md")));
@@ -458,7 +413,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
         var mine = "@AGENTS.md" + Lf + Lf + "And one thing only Claude Code needs." + Lf;
         File.WriteAllText(Path_("CLAUDE.md"), mine);
 
-        LegacyInstructionShimCleanup.Run(_dir);
+        LegacyInstructionShimCleanup.Run(_dir.Path);
 
         Assert.Equal(mine, File.ReadAllText(Path_("CLAUDE.md")));
     }
@@ -472,9 +427,9 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     {
         File.WriteAllText(Path_("CLAUDE.md"), "@AGENTS.md" + Lf);
 
-        Assert.True(LegacyInstructionShimCleanup.IsPresentIn(_dir));
+        Assert.True(LegacyInstructionShimCleanup.IsPresentIn(_dir.Path));
 
-        LegacyInstructionShimCleanup.Run(_dir);
+        LegacyInstructionShimCleanup.Run(_dir.Path);
 
         Assert.False(File.Exists(Path_("CLAUDE.md")));
         Assert.False(File.Exists(Path_("AGENTS.md")));
@@ -490,7 +445,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void An_agent_that_does_not_watch_gets_no_directory_until_there_is_a_skill()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
 
         files.Follow([Agent("claude"), Agent("opencode"), Agent("codex"), Agent("pi"), Agent("agy")]);
 
@@ -508,9 +463,9 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void A_workspace_with_no_agents_is_untouched()
     {
-        new WorkspaceAgentFiles(_dir).Follow([]);
+        new WorkspaceAgentFiles(_dir.Path).Follow([]);
 
-        Assert.Empty(Directory.GetFileSystemEntries(_dir));
+        Assert.Empty(Directory.GetFileSystemEntries(_dir.Path));
     }
 
     /// <summary>No agent is trusted to follow a skill written while it runs.</summary>
@@ -527,7 +482,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void Only_a_change_from_what_was_offered_is_announced()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         var announced = 0;
         files.SkillsChanged += _ => announced++;
 
@@ -558,7 +513,7 @@ public sealed class WorkspaceAgentFilesTests : IDisposable
     [Fact]
     public void A_skill_that_went_away_and_came_back_is_announced()
     {
-        var files = new WorkspaceAgentFiles(_dir);
+        var files = new WorkspaceAgentFiles(_dir.Path);
         var announced = 0;
         files.WriteSkill(Skill, "body");
         files.SkillsChanged += _ => announced++;

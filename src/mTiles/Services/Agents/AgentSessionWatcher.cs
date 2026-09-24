@@ -31,14 +31,14 @@ public sealed class AgentSessionWatcher : IDisposable
     /// <remarks>Shorter than <c>SkillChangePolicy.QuietWindow</c> and for the opposite reason: that one
     /// swallows a run of <em>user</em> clicks, where two seconds is imperceptible, while this follows a
     /// figure somebody is watching change.</remarks>
-    public static readonly TimeSpan QuietWindow = TimeSpan.FromMilliseconds(400);
+    public static TimeSpan QuietWindow { get; internal set; } = TimeSpan.FromMilliseconds(400);
 
     /// <summary>How often a store that does not exist yet is looked for again.</summary>
     /// <remarks>A <c>Directory.Exists</c> and, for opencode, one listing of a small index — which only
     /// walks that index when it has changed, so asking for the life of a tile costs the same whether the
     /// user has one opencode project or fifty. Short enough that the first turn in a new workspace moves
     /// the bar within a few seconds.</remarks>
-    public static readonly TimeSpan AttachRetryInterval = TimeSpan.FromSeconds(5);
+    public static TimeSpan AttachRetryInterval { get; internal set; } = TimeSpan.FromSeconds(5);
 
     private readonly IAgentSessionLog? _log;
     private readonly AiSignIn? _signIn;

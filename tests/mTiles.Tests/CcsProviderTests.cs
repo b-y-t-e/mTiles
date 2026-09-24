@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http;
 using System.Text;
 using mTiles.Models;
@@ -26,7 +26,6 @@ public class CcsProviderTests : IDisposable
 
     public void Dispose()
     {
-        AiProvider.HandlerFactory = null;
         CcsProvider.StartOverride = null;
         CcsProvider.InstalledOverride = null;
         CcsProvider.AuthDirectoryOverride = null;
@@ -69,9 +68,7 @@ public class CcsProviderTests : IDisposable
     [Fact]
     public async Task The_model_list_is_read_and_its_window_carried()
     {
-        var windows = new List<HttpRequestMessage>();
-        AiProvider.HandlerFactory = () => new RecordingHandler(
-            """{"data":[{"id":"gpt-5.4","context_length":400000}]}""", windows);
+        using var http = new HttpStub("""{"data":[{"id":"gpt-5.4","context_length":400000}]}""");
 
         var models = await Ccs.ModelsAsync(new AiProviderInstance { ProviderId = "ccs" });
         var window = await Ccs.ContextWindowAsync(new AiProviderInstance { ProviderId = "ccs" }, "gpt-5.4");
@@ -79,7 +76,7 @@ public class CcsProviderTests : IDisposable
         Assert.Single(models);
         Assert.Equal("gpt-5.4", models[0].Id);
         Assert.Equal(400000, window);
-        Assert.Contains(windows, w => w.RequestUri!.PathAndQuery.Contains("v1/models"));
+        Assert.Contains(http.Requests, w => w.RequestUri!.PathAndQuery.Contains("v1/models"));
     }
 
     // ── EnsureRunning ─────────────────────────────────────────────────────────────────────────────
@@ -95,7 +92,7 @@ public class CcsProviderTests : IDisposable
             Interlocked.Increment(ref starts);
             return Task.FromResult(new CcsProvider.CcsStartResult(0, ""));
         };
-        AiProvider.HandlerFactory = () => new CannedHandler("""{"data":[]}""");
+        using var http = new HttpStub("""{"data":[]}""");
 
         var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
 
@@ -115,9 +112,9 @@ public class CcsProviderTests : IDisposable
             answer = true;
             return Task.FromResult(new CcsProvider.CcsStartResult(0, ""));
         };
-        AiProvider.HandlerFactory = () => answer
-            ? new CannedHandler("""{"data":[]}""")
-            : new CannedHandler("", HttpStatusCode.ServiceUnavailable);
+        using var http = new HttpStub((_, _) => Task.FromResult(answer
+            ? FakeHttpHandler.Json("""{"data":[]}""")
+            : FakeHttpHandler.Json("", HttpStatusCode.ServiceUnavailable)));
 
         var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
 
@@ -137,7 +134,7 @@ public class CcsProviderTests : IDisposable
         CcsProvider.InstalledOverride = () => true;
         CcsProvider.StartOverride = (_, _, _) =>
             Task.FromResult(new CcsProvider.CcsStartResult(3, "port 8317 in use"));
-        AiProvider.HandlerFactory = () => new CannedHandler("", HttpStatusCode.ServiceUnavailable);
+        using var http = new HttpStub("", HttpStatusCode.ServiceUnavailable);
 
         var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
 
@@ -151,11 +148,12 @@ public class CcsProviderTests : IDisposable
     [Fact]
     public async Task A_proxy_that_never_answers_gives_up()
     {
-        CcsProvider.ProxyStartTimeout = TimeSpan.FromMilliseconds(400);
+        // No time to come up at all: the give-up is what is under test, not the 500 ms poll.
+        CcsProvider.ProxyStartTimeout = TimeSpan.Zero;
         CcsProvider.InstalledOverride = () => true;
         CcsProvider.StartOverride = (_, _, _) =>
             Task.FromResult(new CcsProvider.CcsStartResult(0, ""));
-        AiProvider.HandlerFactory = () => new CannedHandler("", HttpStatusCode.ServiceUnavailable);
+        using var http = new HttpStub("", HttpStatusCode.ServiceUnavailable);
 
         var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
 
@@ -214,14 +212,13 @@ public class CcsProviderTests : IDisposable
     [Fact]
     public async Task The_probe_authenticates_with_the_daemons_own_key()
     {
-        var requests = new List<HttpRequestMessage>();
-        AiProvider.HandlerFactory = () => new RecordingHandler("""{"data":[]}""", requests);
+        using var http = new HttpStub("""{"data":[]}""");
         CcsProvider.ConfigReader = () => "api-keys:\n  - \"ccs-internal-managed\"\n";
 
         var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
 
         Assert.True(check.Ok);
-        Assert.All(requests, request =>
+        Assert.All(http.Requests, request =>
             Assert.Equal("Bearer ccs-internal-managed",
                 request.Headers.Authorization?.ToString()));
     }
@@ -241,7 +238,7 @@ public class CcsProviderTests : IDisposable
             Interlocked.Increment(ref starts);
             return Task.FromResult(new CcsProvider.CcsStartResult(0, ""));
         };
-        AiProvider.HandlerFactory = () => new CannedHandler("", HttpStatusCode.Unauthorized);
+        using var http = new HttpStub("", HttpStatusCode.Unauthorized);
 
         var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
 
@@ -266,9 +263,9 @@ public class CcsProviderTests : IDisposable
             started = true;
             return Task.FromResult(new CcsProvider.CcsStartResult(0, ""));
         };
-        AiProvider.HandlerFactory = () => started
-            ? new CannedHandler("", HttpStatusCode.Unauthorized)
-            : new CannedHandler("", HttpStatusCode.ServiceUnavailable);
+        using var http = new HttpStub((_, _) => Task.FromResult(started
+            ? FakeHttpHandler.Json("", HttpStatusCode.Unauthorized)
+            : FakeHttpHandler.Json("", HttpStatusCode.ServiceUnavailable)));
 
         var watch = DateTimeOffset.UtcNow;
         var check = await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs" });
@@ -287,13 +284,12 @@ public class CcsProviderTests : IDisposable
     [Fact]
     public async Task The_probe_presents_a_typed_key_over_the_daemons_own()
     {
-        var requests = new List<HttpRequestMessage>();
-        AiProvider.HandlerFactory = () => new RecordingHandler("""{"data":[]}""", requests);
+        using var http = new HttpStub("""{"data":[]}""");
         CcsProvider.ConfigReader = () => "api-keys:\n  - \"ccs-internal-managed\"\n";
 
         await Ccs.EnsureRunningAsync(new AiProviderInstance { ProviderId = "ccs", ApiKey = "typed" });
 
-        Assert.All(requests, request =>
+        Assert.All(http.Requests, request =>
             Assert.Equal("Bearer typed", request.Headers.Authorization?.ToString()));
     }
 
@@ -376,11 +372,12 @@ public class CcsProviderTests : IDisposable
     [Fact]
     public async Task A_launch_on_a_dead_proxy_is_refused_by_the_resolver()
     {
-        CcsProvider.ProxyStartTimeout = TimeSpan.FromMilliseconds(400);
+        // No time to come up at all: the give-up is what is under test, not the 500 ms poll.
+        CcsProvider.ProxyStartTimeout = TimeSpan.Zero;
         CcsProvider.InstalledOverride = () => true;
         CcsProvider.StartOverride = (_, _, _) =>
             Task.FromResult(new CcsProvider.CcsStartResult(0, ""));
-        AiProvider.HandlerFactory = () => new CannedHandler("", HttpStatusCode.ServiceUnavailable);
+        using var http = new HttpStub("", HttpStatusCode.ServiceUnavailable);
 
         var settings = new AppSettings();
         var provider = new AiProviderInstance { ProviderId = "ccs" };
@@ -437,7 +434,8 @@ public class CcsProviderTests : IDisposable
     {
         if (!OperatingSystem.IsWindows()) return;
 
-        CcsProvider.DrainTimeout = TimeSpan.FromSeconds(2);
+        // Short, because the test waits it out; the child lives thirty seconds either way.
+        CcsProvider.DrainTimeout = TimeSpan.FromMilliseconds(200);
         using var temp = new TempDirectory();
         var shim = Path.Combine(temp.Path, "ccs.cmd");
         File.WriteAllText(shim,
@@ -458,35 +456,4 @@ public class CcsProviderTests : IDisposable
 
     private static IAiAgent Agent(string id) => AiAgentCatalog.Find(id)
         ?? throw new InvalidOperationException($"No agent {id} in the catalog.");
-
-    /// <summary>One answer for every call, with nothing recorded.</summary>
-    private sealed class CannedHandler(string body, HttpStatusCode status = HttpStatusCode.OK)
-        : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            var response = new HttpResponseMessage(status)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            };
-            return Task.FromResult(response);
-        }
-    }
-
-    /// <summary>The canned answer, plus the requests that were asked for.</summary>
-    private sealed class RecordingHandler(string body, List<HttpRequestMessage> seen)
-        : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            seen.Add(request);
-            var response = new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            };
-            return Task.FromResult(response);
-        }
-    }
 }

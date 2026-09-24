@@ -284,18 +284,4 @@ public sealed class OpenCodeSessionTests
 
         Assert.True(File.Exists(OpenCodeSession.DocumentPath(TileId, temp.Path)));
     }
-
-    /// <summary>A directory of its own per test, because these write real files — and never the one the
-    /// application uses, which holds the sessions of whoever is running the tests.</summary>
-    private sealed class TempDirectory : IDisposable
-    {
-        public string Path { get; } = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(), "mtiles-tests", Guid.NewGuid().ToString("N"));
-
-        public void Dispose()
-        {
-            try { if (Directory.Exists(Path)) Directory.Delete(Path, recursive: true); }
-            catch { /* a temp directory nobody will look at again */ }
-        }
-    }
 }

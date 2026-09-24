@@ -19,37 +19,14 @@ namespace mTiles.Tests;
 /// </remarks>
 public class WorkspaceRemovalTests : IDisposable
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("mtiles-removal").FullName;
+    private readonly TempDirectory _dir = new("mtiles-removal");
 
-    private static void OnUiThread(Action body)
-    {
-        var session = HeadlessUnitTestSession.GetOrStartForAssembly(typeof(WorkspaceRemovalTests).Assembly);
-        session.Dispatch(() => { body(); return Task.FromResult(true); }, CancellationToken.None)
-            .GetAwaiter().GetResult();
-    }
-
-    /// <summary>
-    /// A window over two workspaces that already exist — the panel reads the service when it is built,
-    /// so adding them afterwards would leave it looking at an empty list.
-    /// </summary>
-    private MainWindowViewModel NewWindow()
-    {
-        var workspaces = new WorkspaceService(Path.Combine(_dir, "workspaces.json"));
-        workspaces.AddWorkspace(Path.Combine(_dir, "first"), "First");
-        workspaces.AddWorkspace(Path.Combine(_dir, "second"), "Second");
-
-        var settings = new SettingsService(Path.Combine(_dir, "settings.json"));
-        return new MainWindowViewModel(
-            workspaces,
-            new PersistenceService(Path.Combine(_dir, "layouts")),
-            settings,
-            TestTiles.Catalog(settings));
-    }
+    private MainWindowViewModel NewWindow() => TestMainWindow.Create(_dir.Path);
 
     [Fact]
     public void A_removed_workspace_is_let_go_of_and_a_reordered_one_is_not()
     {
-        OnUiThread(() =>
+        Ui.Run(() =>
         {
             var vm = NewWindow();
             var vmPanel = vm.WorkspacesPanel;
@@ -76,8 +53,5 @@ public class WorkspaceRemovalTests : IDisposable
         });
     }
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_dir, recursive: true); } catch { /* not a test failure */ }
-    }
+    public void Dispose() => _dir.Dispose();
 }

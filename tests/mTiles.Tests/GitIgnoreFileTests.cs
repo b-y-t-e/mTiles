@@ -101,26 +101,17 @@ public sealed class GitIgnoreFileTests : IDisposable
     // ---- line endings ----------------------------------------------------------
 
     /// <summary>A repository using CRLF must not come back as one modified line per line — and the lines
-    /// we add have to match, not just the ones already there. Asserting only on the start of the file
-    /// let LF endings be appended to a CRLF file, a whitespace change in a diff for no reason.</summary>
-    [Fact]
-    public async Task A_file_with_windows_line_endings_gets_windows_line_endings_added()
+    /// we add have to match the file's, not just the ones already there.</summary>
+    [Theory]
+    [InlineData("\r\n")]
+    [InlineData("\n")]
+    public async Task The_lines_added_use_the_files_own_line_endings(string eol)
     {
-        Given("bin/\r\nobj/\r\n");
+        Given($"bin/{eol}obj/{eol}");
 
         await GitIgnoreFile.EnsureAsync(_repo, Entry);
 
-        Assert.Equal($"bin/\r\nobj/\r\n\r\n{Marker}\r\n{Entry}\r\n", Content);
-    }
-
-    [Fact]
-    public async Task A_file_with_unix_line_endings_gets_unix_line_endings_added()
-    {
-        Given("bin/\nobj/\n");
-
-        await GitIgnoreFile.EnsureAsync(_repo, Entry);
-
-        Assert.Equal($"bin/\nobj/\n\n{Marker}\n{Entry}\n", Content);
+        Assert.Equal($"bin/{eol}obj/{eol}{eol}{Marker}{eol}{Entry}{eol}", Content);
     }
 
     /// <summary>The terminator added to a file that ended without one is the file's, not always LF.

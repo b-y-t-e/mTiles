@@ -15,18 +15,12 @@ namespace mTiles.Tests;
 /// </remarks>
 public class AppPathsTests : IDisposable
 {
-    private readonly string _parent = Path.Combine(Path.GetTempPath(), "mtiles-app-" + Guid.NewGuid().ToString("N"));
+    private readonly TempDirectory _parent = new();
 
-    public AppPathsTests() => Directory.CreateDirectory(_parent);
+    public void Dispose() => _parent.Dispose();
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_parent, recursive: true); } catch { /* a locked temp dir is not a failure */ }
-        GC.SuppressFinalize(this);
-    }
-
-    private string Legacy => Path.Combine(_parent, "MTerminal");
-    private string Current => Path.Combine(_parent, "mTiles");
+    private string Legacy => Path.Combine(_parent.Path, "MTerminal");
+    private string Current => Path.Combine(_parent.Path, "mTiles");
 
     [Fact]
     public void An_old_installation_is_moved_rather_than_replaced_by_a_first_run()
@@ -34,7 +28,7 @@ public class AppPathsTests : IDisposable
         Directory.CreateDirectory(Legacy);
         File.WriteAllText(Path.Combine(Legacy, "settings.json"), """{ "GitPath": "kept" }""");
 
-        var resolved = AppPaths.Resolve(_parent);
+        var resolved = AppPaths.Resolve(_parent.Path);
 
         Assert.Equal(Current, resolved);
         Assert.False(Directory.Exists(Legacy));
@@ -51,7 +45,7 @@ public class AppPathsTests : IDisposable
         File.WriteAllText(Path.Combine(Legacy, "settings.json"), "old");
         File.WriteAllText(Path.Combine(Current, "settings.json"), "new");
 
-        Assert.Equal(Current, AppPaths.Resolve(_parent));
+        Assert.Equal(Current, AppPaths.Resolve(_parent.Path));
         Assert.Equal("old", File.ReadAllText(Path.Combine(Legacy, "settings.json")));
         Assert.Equal("new", File.ReadAllText(Path.Combine(Current, "settings.json")));
     }
@@ -61,7 +55,7 @@ public class AppPathsTests : IDisposable
     {
         // Making it here would be harmless but untrue to what this method is: an answer, not a setup.
         // The callers that write create what they need.
-        Assert.Equal(Current, AppPaths.Resolve(_parent));
+        Assert.Equal(Current, AppPaths.Resolve(_parent.Path));
         Assert.False(Directory.Exists(Current));
     }
 
@@ -76,7 +70,7 @@ public class AppPathsTests : IDisposable
         File.WriteAllText(Path.Combine(Legacy, "settings.json"), "kept");
         File.WriteAllText(Current, "not a directory");
 
-        Assert.Equal(Legacy, AppPaths.Resolve(_parent));
+        Assert.Equal(Legacy, AppPaths.Resolve(_parent.Path));
         Assert.Equal("kept", File.ReadAllText(Path.Combine(Legacy, "settings.json")));
 
         // And it says so somewhere a person can read it. The note is held rather than traced because at
