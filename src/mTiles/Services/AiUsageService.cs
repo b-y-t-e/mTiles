@@ -62,9 +62,12 @@ public sealed class AiUsageService : IDisposable
     /// <remarks><see cref="LastGood"/> is only ever replaced by another <c>Answered</c> report — never by
     /// a failure and never by nothing — which is what keeps a card from going blank the moment its
     /// account has one bad round; <see cref="LastGoodAt"/> is what stops that courtesy becoming a lie,
-    /// through <see cref="MaskLimit"/>.</remarks>
+    /// through <see cref="MaskLimit"/>. <see cref="NotBefore"/> is a rate limit's own wait: until then
+    /// the source is not asked at all, and its last good reading stands in whatever its age, because a
+    /// rate limit says nothing about the account being broken — and a card that vanishes for the half
+    /// hour the service asked to be left alone is the account missing from the screen.</remarks>
     private sealed record Entry(AiUsageReport? LastGood, DateTimeOffset LastGoodAt,
-        DateTimeOffset LastAttemptAt);
+        DateTimeOffset LastAttemptAt, DateTimeOffset? NotBefore = null);
 
     private readonly SettingsService _settings;
     private readonly UsageHistory _history;
@@ -72,6 +75,7 @@ public sealed class AiUsageService : IDisposable
     private readonly Func<DateTimeOffset> _now;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _cache = new(StringComparer.Ordinal);
+    private readonly UsageLastReadings? _lastReadings;
 
     private IReadOnlyList<AiUsageReport> _reports = [];
     private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
@@ -83,12 +87,21 @@ public sealed class AiUsageService : IDisposable
 
     public AiUsageService(SettingsService settings, UsageHistory? history = null,
         Func<AppSettings, IReadOnlyList<IUsageSource>>? sources = null,
-        Func<DateTimeOffset>? now = null)
+        Func<DateTimeOffset>? now = null, UsageLastReadings? lastReadings = null)
     {
         _settings = settings;
         _history = history ?? new UsageHistory();
         _sources = sources ?? UsageSources.From;
         _now = now ?? (() => DateTimeOffset.Now);
+        _lastReadings = lastReadings;
+
+        // Held over from the last session as last good readings that have never been asked about, so
+        // the first round asks every source and one that cannot answer still has a card to show.
+        // MaskLimit still applies to them, so a reading from yesterday is not brought back as today's.
+        if (lastReadings is not null)
+            foreach (var (id, reading) in lastReadings.Load())
+                if (reading.Report is { Answered: true })
+                    _cache[id] = new Entry(reading.Report, reading.TakenAt, DateTimeOffset.MinValue);
     }
 
     /// <summary>Raised when the reports have been replaced. Never on the UI thread.</summary>
@@ -217,6 +230,7 @@ public sealed class AiUsageService : IDisposable
             var outcomes = await Task.WhenAll(sources.Select(source => AskIfDue(source, now, ct, deadline.Token)));
             var reports = outcomes.Select(outcome => outcome.Report).OfType<AiUsageReport>().ToArray();
 
+            Dictionary<string, UsageLastReading>? toSave = null;
             lock (_gate)
             {
                 PruneCache(sources);
@@ -228,8 +242,18 @@ public sealed class AiUsageService : IDisposable
                 // "refreshed just now" line that the figures are fresh when they are, at best, the same
                 // ones it already had.
                 if (outcomes.Any(outcome => outcome.WasAsked))
+                {
                     _lastRefresh = now;
+                    if (_lastReadings is not null)
+                        toSave = _cache
+                            .Where(pair => pair.Value.LastGood is not null)
+                            .ToDictionary(pair => pair.Key,
+                                pair => new UsageLastReading(pair.Value.LastGood!, pair.Value.LastGoodAt));
+                }
             }
+
+            // Outside the lock: a file write must not hold up the readers of Reports.
+            if (toSave is not null) _lastReadings!.Save(toSave);
         }
         catch (Exception ex)
         {
@@ -280,6 +304,13 @@ public sealed class AiUsageService : IDisposable
             return new Outcome(StillWorthShowing(entry, now), WasAsked: false);
         }
 
+        if (entry?.NotBefore is { } notBefore && now < notBefore)
+        {
+            Trace.TraceInformation(
+                "Usage of '{0}' is rate-limited until {1}; not asked again before then.", source.Id, notBefore);
+            return new Outcome(StillWorthShowing(entry, now), WasAsked: false);
+        }
+
         var fresh = await Ask(source, ct, deadline);
         var updated = Keep(entry, fresh, now);
 
@@ -306,15 +337,18 @@ public sealed class AiUsageService : IDisposable
     {
         if (fresh is { Answered: true }) return new Entry(fresh, now, now);
 
-        var masked = entry is null ? null : StillWorthShowing(entry, now);
+        var notBefore = fresh?.RetryAt;
+        var masked = entry is null ? null : StillWorthShowing(entry with { NotBefore = notBefore }, now);
 
-        return new Entry(masked, masked is null ? now : entry!.LastGoodAt, now);
+        return new Entry(masked, masked is null ? now : entry!.LastGoodAt, now, notBefore);
     }
 
-    /// <summary>The entry's last good reading while it is young enough to stand in for a fresh one, and
-    /// null once it is not.</summary>
+    /// <summary>The entry's last good reading while it is young enough to stand in for a fresh one —
+    /// or, whatever its age, while the source is rate-limited — and null otherwise.</summary>
     private static AiUsageReport? StillWorthShowing(Entry entry, DateTimeOffset now) =>
-        entry.LastGood is not null && now - entry.LastGoodAt < MaskLimit ? entry.LastGood : null;
+        entry.LastGood is not null && (now - entry.LastGoodAt < MaskLimit || now < entry.NotBefore)
+            ? entry.LastGood
+            : null;
 
     /// <summary>Says in the log which of the two things just happened to a failing account: its figures
     /// are being held over, or they have been given up on and its own sentence is what the round
@@ -350,7 +384,10 @@ public sealed class AiUsageService : IDisposable
     private DateTimeOffset EarliestDueAt(DateTimeOffset now) =>
         _cache.Count == 0
             ? now
-            : _cache.Values.Min(entry => entry.LastAttemptAt) + RefreshInterval;
+            : _cache.Values.Min(entry =>
+                entry.NotBefore is { } notBefore && notBefore > entry.LastAttemptAt + RefreshInterval
+                    ? notBefore
+                    : entry.LastAttemptAt + RefreshInterval);
 
     /// <summary>
     /// Puts the reason an account could not be asked somewhere a person can find it.

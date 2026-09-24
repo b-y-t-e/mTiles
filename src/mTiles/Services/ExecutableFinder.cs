@@ -55,21 +55,106 @@ internal static class ExecutableFinder
     }
 
     /// <summary>What a shell would run for <paramref name="name"/> typed bare: <c>PATH</c> alone, with
-    /// the extensions Windows resolves a bare name through (<c>.exe</c>, <c>.cmd</c>, <c>.bat</c>).</summary>
+    /// the extensions Windows resolves a bare name through (<c>.exe</c>, <c>.cmd</c>, <c>.bat</c>) —
+    /// directory first, extension second, as the shell itself does.</summary>
     public static string? OnPathRunnable(string name) =>
         OperatingSystem.IsWindows()
-            ? OnPath(name + ".exe") ?? OnPath(name + ".cmd") ?? OnPath(name + ".bat") ?? OnPath(name)
+            ? OnPath(name, ".exe", ".cmd", ".bat") ?? OnPath(name)
             : OnPath(name);
+
+    /// <summary>
+    /// Every installation of <paramref name="name"/> <see cref="Anywhere"/> could have answered with,
+    /// in the order it ranks them — so the first entry is always its answer.
+    /// </summary>
+    /// <remarks>
+    /// One per directory: npm writes <c>claude</c>, <c>claude.cmd</c> and <c>claude.ps1</c> side by side,
+    /// and those are one installation, not three. A bare name on <c>PATH</c> counts on Windows only where
+    /// nothing with an extension was found there, the same fallback <see cref="Anywhere"/> takes.
+    /// </remarks>
+    public static IReadOnlyList<string> Everywhere(string name)
+    {
+        string[] extensions = OperatingSystem.IsWindows() ? [".exe", ".cmd", ".bat"] : [""];
+        var found = new List<string>();
+
+        foreach (var dir in PathDirectories())
+            if (InDirectory(dir, name, extensions) is { } path) found.Add(path);
+
+        if (found.Count == 0 && OperatingSystem.IsWindows())
+            foreach (var dir in PathDirectories())
+                if (InDirectory(dir, name, "") is { } path) found.Add(path);
+
+        string[] homeExtensions = OperatingSystem.IsWindows() ? [".exe", ".cmd", ""] : [""];
+        foreach (var dir in HomeDirectories(name))
+            if (InDirectory(dir, name, homeExtensions) is { } path) found.Add(path);
+
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        return found.Distinct(comparer).ToList();
+    }
+
+    private static IEnumerable<string> PathDirectories() =>
+        (Environment.GetEnvironmentVariable("PATH") ?? "")
+        .Split(Path.PathSeparator)
+        .Where(dir => dir.Length > 0);
+
+    /// <summary>The first of <paramref name="name"/> with one of <paramref name="extensions"/> in
+    /// <paramref name="directory"/>, or null — including for a <c>PATH</c> entry that is not a legal
+    /// path at all.</summary>
+    private static string? InDirectory(string directory, string name, params string[] extensions)
+    {
+        foreach (var extension in extensions)
+        {
+            string full;
+            try { full = Path.Combine(directory, name + extension); }
+            catch (ArgumentException) { return null; }
+
+            if (File.Exists(full)) return full;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The first directory on <c>PATH</c> holding <paramref name="name"/> with any of
+    /// <paramref name="extensions"/> — directory first, extension second, which is how Windows itself
+    /// resolves a command.
+    /// </summary>
+    /// <remarks>
+    /// The other way round an <c>.exe</c> anywhere on <c>PATH</c> beat a <c>.cmd</c> in an earlier
+    /// directory, so this application ran a different binary than the user's own shell did. Measured
+    /// 2026-09-23: npm's <c>claude.cmd</c> (2.1.280) first on <c>PATH</c>, a forgotten winget
+    /// <c>claude.exe</c> (2.1.140) after it — every agent tile launched the old one, and the model it
+    /// was configured with answered "version 2.1.280 or newer is required".
+    /// </remarks>
+    private static string? OnPath(string name, params string[] extensions) =>
+        PathDirectories().Select(dir => InDirectory(dir, name, extensions)).FirstOrDefault(path => path is not null);
 
     /// <summary>The places an install puts a binary without asking <c>PATH</c> about it.</summary>
     /// <param name="extensions">Tried in turn before the bare name, so a <c>.cmd</c> shim is preferred
     /// to an extensionless script Windows cannot launch on its own.</param>
     private static string? InHomeDirectories(string name, params string[] extensions)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrEmpty(home)) return null;
+        foreach (var directory in HomeDirectories(name))
+        {
+            if (!Directory.Exists(directory)) continue;
 
-        string[] directories =
+            foreach (var extension in extensions)
+            {
+                var candidate = Path.Combine(directory, name + extension);
+                if (File.Exists(candidate)) return candidate;
+            }
+
+            var bare = Path.Combine(directory, name);
+            if (File.Exists(bare)) return bare;
+        }
+
+        return null;
+    }
+
+    private static string[] HomeDirectories(string name)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home)) return [];
+
+        return
         [
             Path.Combine(home, ".local", "bin"),
             Path.Combine(home, "go", "bin"),
@@ -90,21 +175,5 @@ internal static class ExecutableFinder
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Microsoft", "WinGet", "Links"),
         ];
-
-        foreach (var directory in directories)
-        {
-            if (!Directory.Exists(directory)) continue;
-
-            foreach (var extension in extensions)
-            {
-                var candidate = Path.Combine(directory, name + extension);
-                if (File.Exists(candidate)) return candidate;
-            }
-
-            var bare = Path.Combine(directory, name);
-            if (File.Exists(bare)) return bare;
-        }
-
-        return null;
     }
 }
