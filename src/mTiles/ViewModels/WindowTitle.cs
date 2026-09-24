@@ -26,8 +26,10 @@ public static class WindowTitle
     /// <summary>The application's name, spelled once for every surface that shows it.</summary>
     public const string AppName = "mTiles";
 
-    /// <summary>An em dash with a space either side — the separator every window title uses.</summary>
-    private const string Separator = " — ";
+    /// <summary>A hyphen with a space either side, which is what Windows' own window titles use
+    /// ("Untitled - Notepad") and the one separator every title bar, taskbar and <c>ps</c> listing
+    /// renders the same way — an em dash is a character a font or a terminal can substitute.</summary>
+    private const string Separator = " - ";
 
     /// <param name="workspaceName">What the open workspace is called, or null/blank when none is.</param>
     /// <param name="version">The build's own version, or null/blank to leave it off.</param>
