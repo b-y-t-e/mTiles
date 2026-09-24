@@ -48,7 +48,30 @@ public partial class LeafTileView : UserControl, ITileDropTarget
         // Not a Tab stop, though: Tab past a tile's controls must not land on an invisible card.
         Focusable = true;
         IsTabStop = false;
-        TileToolbar.SizeChanged += (_, e) => ApplyHeaderWidth(e.NewSize.Width);
+        TileToolbar.SizeChanged += (_, _) => ScheduleHeaderWidth();
+    }
+
+    private bool _headerWidthScheduled;
+
+    /// <summary>Applies the header's width rule once the layout pass that resized it has finished.
+    /// </summary>
+    /// <remarks>Not from inside <c>SizeChanged</c>, which is raised in the middle of an arrange: the
+    /// visibility written there invalidates the button strip's measure while its parent has already been
+    /// arranged, and on a window going between normal and maximized — a burst of passes — the layout
+    /// manager could give up on the re-measure, leaving the strip arranged in the rectangle of the buttons
+    /// it had before. The header then showed the splits and lost the overflow and the close button, or the
+    /// other way round, until something else resized it. Posted, it is an ordinary change the next pass
+    /// measures from scratch; coalesced, a drag that resizes the tile every frame applies it once a frame,
+    /// and it reads the width it is applied at rather than one a burst has already overtaken.</remarks>
+    private void ScheduleHeaderWidth()
+    {
+        if (_headerWidthScheduled) return;
+        _headerWidthScheduled = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _headerWidthScheduled = false;
+            ApplyHeaderWidth(TileToolbar.Bounds.Width);
+        }, DispatcherPriority.Loaded);
     }
 
     /// <summary>Builds the "Run as" list at the moment the overflow menu is drawn.</summary>
