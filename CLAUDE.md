@@ -994,7 +994,11 @@ round of questions, the plan box, the finished-run actions — each as a block w
 conversation goes. The composer, with the detect buttons and its pickers under it, sits **outside** that
 scroller, docked to the foot of the tile: it is not something the conversation said but the one place you
 act from, and scrolling back two attempts to re-read a review must not take it off the bottom of the tile
-(`GoalAskPanelTests.What_the_tile_asks_scrolls_and_what_you_type_in_does_not` pins both halves). A round is *replaced by the record of itself* when it is answered, in place,
+(`GoalAskPanelTests.What_the_tile_asks_scrolls_and_what_you_type_in_does_not` pins both halves). **Both
+transcripts — this one and the Agent tile's — draw only the tail of the conversation** (`TranscriptWindow`,
+`TranscriptPaging`): the last 40 entries, a page of 30 more whenever the reader comes within a screen of the
+top, and the top given back while they follow the end; `TranscriptAnchor` is what keeps the reader in place
+as a page appears above them. The list's `ItemsSource` is set there and bound nowhere. A round is *replaced by the record of itself* when it is answered, in place,
 rather than being asked in a docked panel and recorded as a numbered paragraph several screens above
 it. Anything in the conversation can be copied on its own — a message, one finding, one question with
 its answer — through one handler and one builder, so a finding copied alone reads exactly as it does

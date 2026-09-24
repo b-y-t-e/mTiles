@@ -578,7 +578,8 @@
                            IsVisible="{Binding IsEmpty}"
                            Text="{Binding HeaderNote, StringFormat='Talk to {0}. Its tool calls, approvals and file changes appear here.'}" />
 
-                <ItemsControl ItemsSource="{Binding Timeline}">
+                <!-- ItemsSource is TranscriptPaging's: the tail of Timeline, drawn upward as the reader scrolls. -->
+                <ItemsControl x:Name="TimelineList">
                     <!-- The seam where the work moved to another agent or another login. Once, around every
                          item, rather than in each of the six templates below: TimelineSync matches view models
                          to records by position — the reducer only appends — so a separator inserted between

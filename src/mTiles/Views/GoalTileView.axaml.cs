@@ -36,6 +36,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         InitializeComponent();
         _anchor = TranscriptAnchor.Attach(ChatScroll);
         JumpToBottom.Attach(ChatScroll, _anchor, this);
+        TranscriptPaging.Attach(Transcript, ChatScroll, _anchor, dc => (dc as GoalTileViewModel)?.Messages);
         TeachThePickers();
 
         // One line for the strip, giving up words before width in the order GoalStripLayout writes

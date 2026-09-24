@@ -23,12 +23,15 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
 
     /// <summary>What keeps the reader in place — and what a send asks for the end of.</summary>
     private readonly TranscriptAnchor _anchor;
+    private readonly TranscriptPaging _paging;
 
     public AgentConversationTileView()
     {
         InitializeComponent();
         _anchor = TranscriptAnchor.Attach(ChatScroll);
         JumpToBottom.Attach(ChatScroll, _anchor, this);
+        _paging = TranscriptPaging.Attach(TimelineList, ChatScroll, _anchor,
+            dc => (dc as AgentConversationTileViewModel)?.Timeline);
         TeachThePickers();
         FitTheRows();
         // Anywhere on the tile, not only on the composer: the transcript is most of the card, and a
@@ -185,7 +188,8 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         if (_subscribed is not null)
         {
             _subscribed.SentByUser -= GoToEnd;
-            _subscribed.TranscriptOpened -= GoToEnd;
+            _subscribed.TranscriptOpened -= OpenAtTheEnd;
+            _subscribed.TranscriptOpening -= _paging.Window.BeginOpening;
             _subscribed.ConfirmAction = null;
             _subscribed.ConfirmExpectingYes = null;
             _subscribed.ChooseHandover = null;
@@ -195,7 +199,8 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
         if (DataContext is not AgentConversationTileViewModel vm) return;
         _subscribed = vm;
         vm.SentByUser += GoToEnd;
-        vm.TranscriptOpened += GoToEnd;
+        vm.TranscriptOpened += OpenAtTheEnd;
+        vm.TranscriptOpening += _paging.Window.BeginOpening;
 
         // And once for the transcript that is already there. A view model drawn before this view was
         // bound to it has raised TranscriptOpened into nothing — which is the ordinary case after a
@@ -220,6 +225,13 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
     /// <summary>Takes the reader to the end — because they have just sent something, or because the
     /// transcript they are looking at has only now arrived.</summary>
     private void GoToEnd() => _anchor.GoToEnd();
+
+    /// <summary>A conversation just opened is drawn from its tail, whatever the one before had paged in.</summary>
+    private void OpenAtTheEnd()
+    {
+        _paging.Window.ShowTail();
+        GoToEnd();
+    }
 
     private void Send()
     {

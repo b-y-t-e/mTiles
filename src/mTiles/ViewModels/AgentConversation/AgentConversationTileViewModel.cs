@@ -628,6 +628,10 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// </remarks>
     public event Action? TranscriptOpened;
 
+    /// <summary>Raised before another conversation's timeline is drawn over this one, so a view that draws
+    /// only part of it can hold back from building the whole of it first.</summary>
+    public event Action? TranscriptOpening;
+
     /// <summary>Raised when the reader hands a message over, however they asked for it.</summary>
     /// <remarks>On the view model and not on each of the controls that can send: Enter, the button, a
     /// paired phone and a dictated sentence all arrive at <see cref="SendAsync"/>, and only there is it
@@ -1911,28 +1915,36 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         var opened = _drawnConversation != conversationId;
         _drawnConversation = conversationId;
 
-        TimelineSync.Sync(Timeline, state.Timeline, CreateItem);
-        FollowTurn(state);
-        MarkSeams(state);
-        _binding.Drawn(state);
-        SyncApprovals(state);
-
-        if (PendingQuestions?.Round != state.PendingQuestions.FirstOrDefault())
-            PendingQuestions = state.PendingQuestions.FirstOrDefault() is { } round
-                ? new QuestionRoundViewModel(round, AnswerQuestionsAsync)
-                : null;
-
-        if (!ReferenceEquals(_drawnPlan, state.Plan))
+        if (opened) TranscriptOpening?.Invoke();
+        try
         {
-            _drawnPlan = state.Plan;
-            PlanSteps.Clear();
-            foreach (var step in state.Plan?.Steps ?? []) PlanSteps.Add(step);
-            OnPropertyChanged(nameof(HasPlan));
-        }
+            TimelineSync.Sync(Timeline, state.Timeline, CreateItem);
+            FollowTurn(state);
+            MarkSeams(state);
+            _binding.Drawn(state);
+            SyncApprovals(state);
 
-        // After the timeline, so what the view is taken to the end of is this conversation and not the
-        // last one still on screen.
-        if (opened) TranscriptOpened?.Invoke();
+            if (PendingQuestions?.Round != state.PendingQuestions.FirstOrDefault())
+                PendingQuestions = state.PendingQuestions.FirstOrDefault() is { } round
+                    ? new QuestionRoundViewModel(round, AnswerQuestionsAsync)
+                    : null;
+
+            if (!ReferenceEquals(_drawnPlan, state.Plan))
+            {
+                _drawnPlan = state.Plan;
+                PlanSteps.Clear();
+                foreach (var step in state.Plan?.Steps ?? []) PlanSteps.Add(step);
+                OnPropertyChanged(nameof(HasPlan));
+            }
+        }
+        finally
+        {
+            // After the timeline, so what the view is taken to the end of is this conversation and not the
+            // last one still on screen. In a finally because Opening holds the view's window at its tail
+            // until this arrives: a draw that threw between the two would leave it cutting a reader's
+            // pages away on every append.
+            if (opened) TranscriptOpened?.Invoke();
+        }
 
         IsWorking = state.IsWorking;
         Model = state.Model ?? "";

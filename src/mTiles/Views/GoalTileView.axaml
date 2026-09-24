@@ -912,7 +912,8 @@
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="0,4,0,10">
-            <ItemsControl x:Name="Transcript" ItemsSource="{Binding Messages}">
+            <!-- ItemsSource is TranscriptPaging's: the tail of Messages, drawn upward as the reader scrolls. -->
+            <ItemsControl x:Name="Transcript">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="m:GoalMessage">
                         <!-- Yours to the right, at most three quarters of the width; everything else from
