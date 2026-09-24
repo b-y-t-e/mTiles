@@ -61,12 +61,27 @@
                              show, and a light behind a menu is not a light. Close is neither: it is the
                              one action that must never be hunted for. -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1">
-                            <Button Classes="tile-btn"
-                                    Classes.tile-btn-recording="{Binding IsDictating}"
-                                    Command="{Binding ToggleDictationCommand}"
-                                    ToolTip.Tip="Dictate into this tile"
-                                    IsVisible="{Binding CanDictate}">
-                                <mi:MaterialIcon Kind="Microphone" Width="14" Height="14" />
+                            <Button x:Name="SplitRightButton"
+                                    Classes="tile-btn"
+                                    Command="{Binding SplitVerticalCommand}"
+                                    ToolTip.Tip="Split Right">
+                                <mi:MaterialIcon Kind="DockRight" Width="14" Height="14" />
+                            </Button>
+                            <Button x:Name="SplitDownButton"
+                                    Classes="tile-btn"
+                                    Command="{Binding SplitHorizontalCommand}"
+                                    ToolTip.Tip="Split Down">
+                                <mi:MaterialIcon Kind="DockBottom" Width="14" Height="14" />
+                            </Button>
+                            <!-- Full screen, and the way back out of it. Never stood down by
+                                 ApplyHeaderWidth, unlike the splits beside it: the tile most worth
+                                 filling the workspace with is the narrow one, which is exactly the
+                                 width at which a button that gives way would not be there. It is in
+                                 the overflow as well, for the tile that is narrower still. -->
+                            <Button x:Name="MaximizeButton"
+                                    Classes="tile-btn"
+                                    Command="{Binding ToggleMaximizeCommand}">
+                                <mi:MaterialIcon x:Name="MaximizeGlyph" Width="14" Height="14" />
                             </Button>
                             <!-- No IsVisible binding on these two: ApplyHeaderWidth is the only writer,
                                  and it reads the same view-model properties a binding would. Both write
@@ -97,6 +112,13 @@
                                 <!-- The Agent and Goal tiles' "start another" glyph and colour: one gesture,
                                      one picture, whichever kind of tile it is pressed in. -->
                                 <mi:MaterialIcon Kind="MessagePlusOutline" Width="14" Height="14" />
+                            </Button>
+                            <Button Classes="tile-btn"
+                                    Classes.tile-btn-recording="{Binding IsDictating}"
+                                    Command="{Binding ToggleDictationCommand}"
+                                    ToolTip.Tip="Dictate into this tile"
+                                    IsVisible="{Binding CanDictate}">
+                                <mi:MaterialIcon Kind="Microphone" Width="14" Height="14" />
                             </Button>
                             <Button x:Name="TileOverflow"
                                     Classes="tile-btn"
@@ -235,28 +257,6 @@
                                         </MenuItem>
                                     </MenuFlyout>
                                 </Button.Flyout>
-                            </Button>
-                            <Button x:Name="SplitRightButton"
-                                    Classes="tile-btn"
-                                    Command="{Binding SplitVerticalCommand}"
-                                    ToolTip.Tip="Split Right">
-                                <mi:MaterialIcon Kind="DockRight" Width="14" Height="14" />
-                            </Button>
-                            <Button x:Name="SplitDownButton"
-                                    Classes="tile-btn"
-                                    Command="{Binding SplitHorizontalCommand}"
-                                    ToolTip.Tip="Split Down">
-                                <mi:MaterialIcon Kind="DockBottom" Width="14" Height="14" />
-                            </Button>
-                            <!-- Full screen, and the way back out of it. Never stood down by
-                                 ApplyHeaderWidth, unlike the splits beside it: the tile most worth
-                                 filling the workspace with is the narrow one, which is exactly the
-                                 width at which a button that gives way would not be there. It is in
-                                 the overflow as well, for the tile that is narrower still. -->
-                            <Button x:Name="MaximizeButton"
-                                    Classes="tile-btn"
-                                    Command="{Binding ToggleMaximizeCommand}">
-                                <mi:MaterialIcon x:Name="MaximizeGlyph" Width="14" Height="14" />
                             </Button>
                             <Button Classes="tile-btn-close"
                                     Command="{Binding CloseCommand}"
