@@ -33,6 +33,8 @@ jobs:
 
       # Fails on a test slower than the budget that does not say why it may be (README, rule 1). After
       # the suite, and on its result file, so a red test and a slow one are two different messages.
+      # A test over the budget is run once more on its own and fails only if it is slow again: a hosted
+      # runner can be several times slower for minutes at a time (see the script).
       # Pinned rather than assumed: the Windows runner has no `python3`, only `python`.
       - uses: actions/setup-python@v5
         if: success() || failure()
@@ -45,4 +47,4 @@ jobs:
         run: |
           # The TRX file carries no traits, so the Slow ones are named by a run filtered to them.
           dotnet test -c Release --no-build --filter "Category=Slow" --logger "trx;LogFileName=slow.trx" --results-directory TestResults || true
-          python scripts/test-budget.py TestResults/r.trx --slow TestResults/slow.trx
+          python scripts/test-budget.py TestResults/r.trx --slow TestResults/slow.trx --rerun

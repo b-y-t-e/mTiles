@@ -47,15 +47,15 @@ public class MessageBubbleTests
         try
         {
             window.Show();
-            Dispatcher.UIThread.RunJobs();
+            Settle(window);
             tile.Draw(ConversationReducer.Replay([new UserMessageAdded("m1", said, [])]));
-            Dispatcher.UIThread.RunJobs();
+            Settle(window);
             var wide = Bubble(view).Bounds;
 
             // Narrowed until the message cannot be one line: the row has to grow with it. What it must not
             // do is keep the height of the line it worked out and let the rest fall under the tile's clip.
             window.Width = 520;
-            Dispatcher.UIThread.RunJobs();
+            Settle(window);
             var narrow = Bubble(view).Bounds;
 
             Assert.True(narrow.Height > wide.Height,
@@ -68,6 +68,19 @@ public class MessageBubbleTests
             window.Close();
         }
     });
+
+    /// <summary>Runs the queued work and then the layout pass it asked for, and the work that pass
+    /// queued in turn.</summary>
+    /// <remarks>The pass is forced rather than waited for: headless, a layout is carried out on the render
+    /// timer's tick, which runs on the wall clock — so on a loaded CI runner <c>RunJobs</c> alone could
+    /// return before the list had made a container for the message, and the bubble was not there to be
+    /// found.</remarks>
+    private static void Settle(Window window)
+    {
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+    }
 
     /// <summary>The block a message of the user's is drawn in.</summary>
     /// <remarks>Asked for by its class rather than by the control inside it: what draws the text is the
