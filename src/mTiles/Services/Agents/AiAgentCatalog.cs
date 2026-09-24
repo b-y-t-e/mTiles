@@ -42,8 +42,9 @@ public static class AiAgentCatalog
     /// <remarks>
     /// <para>Walks <c>PATH</c> and the handful of places a global npm, go, cargo or per-tool install
     /// puts a binary, because a windowed process does not inherit the <c>PATH</c> a login shell builds
-    /// — see <see cref="ExecutableFinder.Anywhere"/>. Four passes over the whole of <c>PATH</c> for a
-    /// Windows binary, so it is emphatically not free.</para>
+    /// — see <see cref="ExecutableFinder.Anywhere"/>. Where it finds more than one installation it
+    /// answers with the newest (<see cref="NewestInstallation"/>), which costs a <c>--version</c> each
+    /// the first time, so it is emphatically not free.</para>
     /// <para><b>The answer is held for <see cref="LocationValidFor"/>.</b> The callers that ask are the
     /// tile chooser and the layout being restored, both on the UI thread and both asking once per
     /// agent — which without this is hundreds of <c>File.Exists</c> calls every time a tile is offered
@@ -61,7 +62,7 @@ public static class AiAgentCatalog
             && now - known.Asked < LocationValidFor)
             return known.Path;
 
-        var path = ExecutableFinder.Anywhere(agent.BinaryName);
+        var path = NewestInstallation.Find(agent.BinaryName);
         Located[agent.BinaryName] = (now, path);
         return path;
     }

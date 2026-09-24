@@ -376,7 +376,8 @@
              two bars anywhere in this application are compared by counting rather than by measuring,
              and any spending at all lights the first cell. No tick on it - that mark is where the
              *clock* is, and a context window does not refill with time. -->
-        <Border DockPanel.Dock="Bottom" Classes="context-bar">
+        <Border DockPanel.Dock="Bottom" Classes="context-bar"
+                IsVisible="{DynamicResource ShowContextBar}">
             <DockPanel>
                 <!-- Compacting is the one act there is about this figure, so it stands at the end of the
                      line the figure is on rather than among the pickers above, which say what the *next

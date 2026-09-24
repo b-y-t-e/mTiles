@@ -308,6 +308,15 @@ public sealed class ClaudeAgent : AiAgent, Sessions.IConversationalAgent
               ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude")
             : AiSignInStore.DirectoryFor(signIn));
 
+    /// <inheritdoc />
+    /// <remarks>The diff panel starts closed in every session — see <see cref="ClaudeDiffPanel"/>. In the
+    /// account's own <c>.claude.json</c>, by the <see cref="FilesFor"/> rule every other read here uses.</remarks>
+    protected override void Prepare(AgentRuntime runtime)
+    {
+        var (settingsFile, _) = FilesFor(runtime.SignIn is { } signIn ? AiSignInStore.DirectoryFor(signIn) : null);
+        ClaudeDiffPanel.KeepClosed(settingsFile);
+    }
+
     /// <summary>The directory the default account lives in when this machine exports
     /// <c>CLAUDE_CONFIG_DIR</c>, else null.</summary>
     private static string? ExportedConfigDirectory() =>

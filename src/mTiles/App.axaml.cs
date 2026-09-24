@@ -68,7 +68,7 @@ public partial class App : Application
         // One asker for the whole application, so two usage tiles in two workspaces are one set of calls.
         // It reaches nothing until a tile attaches to it: nothing here polls a service the user is not
         // looking at, the rule discovery already follows.
-        _usage = new AiUsageService(_settingsService);
+        _usage = new AiUsageService(_settingsService, lastReadings: new UsageLastReadings());
 
         // One per application, like the database manager beside it: it holds the live watcher for every
         // workspace currently loaded and reacts to the global switch in Settings.
@@ -111,12 +111,14 @@ public partial class App : Application
             RequestedThemeVariant = colorTheme.IsDark ? ThemeVariant.Dark : ThemeVariant.Light;
             ThemeBridge.Apply(colorTheme);
             ApplyFontResources();
+            ApplyContextBarResource();
         };
 
         var initialColorTheme = TerminalTheme.GetByName(_settingsService.Settings.ColorThemeName);
         RequestedThemeVariant = initialColorTheme.IsDark ? ThemeVariant.Dark : ThemeVariant.Light;
         ThemeBridge.Apply(initialColorTheme);
         ApplyFontResources();
+        ApplyContextBarResource();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -278,6 +280,16 @@ public partial class App : Application
         Shutdown("text scale watcher", () => _textScale?.Dispose());
         Shutdown("browser relay", () => _browserRelay?.Dispose());
     }
+
+    /// <summary>Whether the agent tiles draw their context bar, as a resource both views read.</summary>
+    /// <remarks>A resource rather than a property on each tile's view model, for the reason the font
+    /// sizes are one: every open tile follows it the moment it changes, and no tile has to subscribe to
+    /// the settings or remember to unsubscribe.</remarks>
+    private void ApplyContextBarResource() =>
+        Resources[ContextBarResourceKey] = _settingsService.Settings.ShowContextBar;
+
+    /// <summary>The resource <see cref="ApplyContextBarResource"/> writes.</summary>
+    public const string ContextBarResourceKey = "ShowContextBar";
 
     private void ApplyFontResources()
     {

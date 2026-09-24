@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace mTiles.Models;
 
 /// <summary>
@@ -34,6 +36,10 @@ namespace mTiles.Models;
 /// means it cannot say</b>, and a report with no key is never treated as a duplicate of anything: two
 /// accounts wrongly merged is a subscription missing from the screen, which is worse than the repetition
 /// this exists to remove.</param>
+/// <param name="RetryAt">For a failed report, the instant the service said it may be asked again (a
+/// 429's <c>Retry-After</c>), or null where it named none. Asking before then is what keeps a rate limit
+/// in place: measured 2026-09-23, Anthropic's usage endpoint answered <c>Retry-After: 1601</c> to an
+/// account asked every three minutes.</param>
 public sealed record AiUsageReport(
     string SourceId,
     string SourceName,
@@ -43,16 +49,23 @@ public sealed record AiUsageReport(
     string? Currency,
     DateTimeOffset MeasuredAt,
     string? Problem,
-    string? AccountKey = null)
+    string? AccountKey = null,
+    DateTimeOffset? RetryAt = null)
 {
     /// <summary>An account that is there and could not be asked.</summary>
     /// <remarks>A report rather than a null, and the difference is what the caller can then do about
     /// it: null is an account this machine does not have and nothing is recorded, while this is one it
     /// has and could not ask, which is worth a line in the log even where it is worth no card.</remarks>
     public static AiUsageReport Failed(string sourceId, string sourceName, string problem,
-        DateTimeOffset measuredAt) =>
-        new(sourceId, sourceName, null, [], null, null, measuredAt, problem);
+        DateTimeOffset measuredAt, DateTimeOffset? retryAt = null) =>
+        new(sourceId, sourceName, null, [], null, null, measuredAt, problem, RetryAt: retryAt);
 
     /// <summary>Whether anything on this card can be drawn as a figure.</summary>
+    [JsonIgnore]
     public bool Answered => Problem is null;
+
+    /// <summary>Whether the service said it will not answer again before <see cref="RetryAt"/> — a
+    /// rate limit, which says nothing about the account itself being broken.</summary>
+    [JsonIgnore]
+    public bool IsRateLimited => RetryAt is not null;
 }

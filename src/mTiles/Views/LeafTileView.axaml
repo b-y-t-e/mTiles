@@ -154,6 +154,13 @@
                                                 </Style>
                                             </MenuItem.Styles>
                                         </MenuItem>
+                                        <!-- One switch for every agent tile's context bar
+                                             (AppSettings.ShowContextBar), offered from each of them. -->
+                                        <MenuItem Header="Show token bar"
+                                                  ToggleType="CheckBox"
+                                                  IsChecked="{Binding ShowContextBar, Mode=OneWay}"
+                                                  Command="{Binding ToggleContextBarCommand}"
+                                                  IsVisible="{Binding CanToggleContextBar}" />
                                         <!-- The content's own actions (ITileActions.Actions), under the
                                              tile's: the one route to an action a kind keeps out of its
                                              own view, such as deleting an Agent tile's conversation. A

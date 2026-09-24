@@ -94,7 +94,11 @@
              a terminal is text against an edge and wants the gap, while chrome runs to the card's edge
              and takes its corners from the clip. Inside the inset this bar was the same bar as the Agent
              tile's drawn 6px short on three sides, with its hairline stopping before the card did. -->
-        <Border DockPanel.Dock="Bottom" Classes="context-bar"
+        <!-- The outer panel is the user's switch (AppSettings.ShowContextBar, through App's
+             ShowContextBar resource), the inner border the tile's own answer: two writers for one
+             IsVisible would be whichever fired last. -->
+        <Panel DockPanel.Dock="Bottom" IsVisible="{DynamicResource ShowContextBar}">
+        <Border Classes="context-bar"
                 Margin="-6,0,-6,-6"
                 DataContext="{Binding ContextGauge}"
                 IsVisible="{Binding IsDrawn, FallbackValue=False}">
@@ -117,6 +121,7 @@
                             ToolTip.Tip="How much of the model's context window this conversation has used" />
             </DockPanel>
         </Border>
+        </Panel>
 
         <!-- TerminalControl created in code-behind for caching -->
         <ContentControl x:Name="TerminalHost" />

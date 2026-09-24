@@ -51,12 +51,28 @@ public static class ClaudeUsageReader
         string accessToken, DateTimeOffset measuredAt, string? accountKey = null,
         CancellationToken ct = default)
     {
-        var json = await FetchAsync(accessToken, ct);
+        var (json, retryAfter) = await FetchAsync(accessToken, ct);
 
-        return json is null
+        if (json is not null) return Parse(json, sourceId, sourceName, plan, measuredAt, accountKey);
+
+        return retryAfter is { } wait
             ? AiUsageReport.Failed(sourceId, sourceName,
-                "Anthropic did not answer the usage question for this account.", measuredAt)
-            : Parse(json, sourceId, sourceName, plan, measuredAt, accountKey);
+                $"Anthropic is rate-limiting the usage question for this account; asking again in {Math.Ceiling(wait.TotalMinutes)} min.",
+                measuredAt, measuredAt + wait)
+            : AiUsageReport.Failed(sourceId, sourceName,
+                "Anthropic did not answer the usage question for this account.", measuredAt);
+    }
+
+    /// <summary>How long a 429 without a usable <c>Retry-After</c> is honoured anyway.</summary>
+    /// <remarks>A rate limit that names no wait is still a rate limit, and the next three-minute tick
+    /// is exactly the pace that earned it.</remarks>
+    private static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromMinutes(10);
+
+    /// <summary>What a 429 asked for, from either form of <c>Retry-After</c>.</summary>
+    internal static TimeSpan RetryAfterOf(RetryConditionHeaderValue? header, DateTimeOffset now)
+    {
+        var wait = header?.Delta ?? (header?.Date is { } date ? date - now : null);
+        return wait is { } w && w > TimeSpan.Zero ? w : DefaultRetryAfter;
     }
 
     /// <summary>The two windows the answer describes.</summary>
@@ -109,8 +125,10 @@ public static class ClaudeUsageReader
             ResetsAt: UsageInstant.From(window, "resets_at"));
     }
 
-    /// <summary>The document, or null for every way of not getting one.</summary>
-    private static async Task<string?> FetchAsync(string accessToken, CancellationToken ct)
+    /// <summary>The document, or null for every way of not getting one — and, for a 429, how long the
+    /// service asked to be left alone.</summary>
+    private static async Task<(string? Json, TimeSpan? RetryAfter)> FetchAsync(string accessToken,
+        CancellationToken ct)
     {
         try
         {
@@ -129,15 +147,17 @@ public static class ClaudeUsageReader
                 // The status and never the body: an error page from an endpoint authenticated with a
                 // bearer token is not something to copy into a log file.
                 Trace.TraceWarning("The Claude usage endpoint answered {0}.", (int)response.StatusCode);
-                return null;
+                return response.StatusCode == System.Net.HttpStatusCode.TooManyRequests
+                    ? (null, RetryAfterOf(response.Headers.RetryAfter, DateTimeOffset.Now))
+                    : (null, null);
             }
 
-            return await response.Content.ReadAsStringAsync(ct);
+            return (await response.Content.ReadAsStringAsync(ct), null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             Trace.TraceWarning("Asking Anthropic for usage failed: {0}", ex.Message);
-            return null;
+            return (null, null);
         }
     }
 }

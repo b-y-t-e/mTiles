@@ -37,6 +37,13 @@
                        Foreground="{DynamicResource TextMuted}"
                        TextWrapping="Wrap" />
         </StackPanel>
+        <StackPanel x:Key="ContextBarCaption" x:Shared="False">
+            <TextBlock Text="Show the token bar under agent tiles" Classes="label" />
+            <TextBlock Text="How full the model's context is, under every agent conversation. Also in each agent tile's … menu"
+                       FontSize="{DynamicResource FontXs}"
+                       Foreground="{DynamicResource TextMuted}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
         <StackPanel x:Key="AgentFileSyncCaption" x:Shared="False">
             <TextBlock Text="Sync CLAUDE.md ⇄ AGENTS.md" Classes="label" />
             <TextBlock Text="Keeps the two instruction files identical, live, in workspaces that opt in — so every AI CLI reads the same instructions"
@@ -444,6 +451,17 @@
                                           VerticalAlignment="Center"
                                           OnContent="{StaticResource BlockedNotificationCaption}"
                                           OffContent="{StaticResource BlockedNotificationCaption}" />
+                        </DockPanel>
+                    </Border>
+
+                    <!-- The context bar under the agent tiles -->
+                    <Border Classes="settings-group">
+                        <DockPanel>
+                            <ToggleSwitch IsChecked="{Binding ShowContextBar}"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Center"
+                                          OnContent="{StaticResource ContextBarCaption}"
+                                          OffContent="{StaticResource ContextBarCaption}" />
                         </DockPanel>
                     </Border>
                 </StackPanel>

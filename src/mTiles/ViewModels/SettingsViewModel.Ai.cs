@@ -2013,6 +2013,7 @@ public partial class SettingsViewModel
         GitIgnoreWorkspaceDir = s.GitIgnoreWorkspaceDir;
         AgentFileSyncEnabled = s.AgentFileSyncEnabled;
         NotifyWhenTileBlocked = s.NotifyWhenTileBlocked;
+        ShowContextBar = s.ShowContextBar;
         GitPath = s.GitPath;
         LoadDefaultShell();
         LoadAiInstances();

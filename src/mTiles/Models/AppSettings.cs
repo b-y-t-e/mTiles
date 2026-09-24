@@ -243,6 +243,13 @@ public sealed class AppSettings
     public bool NotifyWhenTileBlocked { get; set; } = true;
 
     /// <summary>
+    /// Whether the agent tiles draw the strip under the conversation that says how full the model's
+    /// context is. One switch for every agent tile at once, applied live, from Settings or from any agent
+    /// tile's <c>…</c> menu.
+    /// </summary>
+    public bool ShowContextBar { get; set; } = true;
+
+    /// <summary>
     /// The setting this replaced, read from existing files so an explicit "off" is honoured.
     /// <para>Without it, renaming the property means every user starts again at the default — and this
     /// default writes to their repository. Somebody who turned the old switch off had said, as clearly

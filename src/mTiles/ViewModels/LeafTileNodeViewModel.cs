@@ -265,6 +265,30 @@ public partial class LeafTileNodeViewModel : TileNodeViewModel, IDisposable
 
         OnPropertyChanged(nameof(ContentActions));
         OnPropertyChanged(nameof(HasContentActions));
+        OnPropertyChanged(nameof(CanToggleContextBar));
+        OnPropertyChanged(nameof(ShowContextBar));
+    }
+
+    /// <summary>Whether the overflow menu offers the context bar switch — an agent tile of either kind,
+    /// the two that draw one.</summary>
+    public bool CanToggleContextBar => !_disposed && Content is IAgentTile && _context is not null;
+
+    /// <summary>Whether the agent tiles draw their context bar (<c>AppSettings.ShowContextBar</c>).</summary>
+    /// <remarks>Read when the menu opens, like the rest of it: the switch is one for every tile, so the
+    /// tick has to say what another tile's menu set a minute ago.</remarks>
+    public bool ShowContextBar => _context?.Settings.Settings.ShowContextBar ?? true;
+
+    /// <summary>Flips the context bar in every agent tile at once.</summary>
+    /// <remarks>A setting rather than this tile's state, because the user asked for one switch: every
+    /// open agent tile follows it through the resource <c>App</c> writes on <c>SettingsChanged</c>.</remarks>
+    [RelayCommand]
+    private void ToggleContextBar()
+    {
+        if (_context?.Settings is not { } settings) return;
+
+        settings.Settings.ShowContextBar = !settings.Settings.ShowContextBar;
+        settings.NotifyChanged();
+        OnPropertyChanged(nameof(ShowContextBar));
     }
 
     /// <summary>The header's <c>+</c>, when the content is a list something can be added to.</summary>
