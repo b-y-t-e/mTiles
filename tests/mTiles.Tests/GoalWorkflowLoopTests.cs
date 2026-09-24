@@ -1819,6 +1819,7 @@ public class GoalWorkflowLoopTests : GoalTileFixture
     }
 
     [Fact]
+    [Trait("Category", "Slow")] // the real reader is the point, so real git processes; 3 s on a Windows runner
     public void A_workspace_git_cannot_read_does_not_end_every_goal_after_one_attempt()
     {
         Ui.Run(async () =>
