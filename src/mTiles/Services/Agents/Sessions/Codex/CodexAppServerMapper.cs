@@ -100,6 +100,11 @@ public static class CodexAppServerMapper
         _ => ToolDetail.Empty,
     };
 
+    /// <summary>What a sub-agent is doing, in the words its tool's row would have: the item it has just
+    /// started, where that item is a tool call.</summary>
+    public static string? ProgressOf(JsonElement item) =>
+        Describe(item) is ({ }, _, { Length: > 0 } title) ? title : null;
+
     private static AgentEvent? Started(JsonElement item)
     {
         if (item.Str("id") is not { } id) return null;

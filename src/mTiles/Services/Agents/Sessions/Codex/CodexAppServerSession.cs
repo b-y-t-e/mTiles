@@ -20,6 +20,14 @@ namespace mTiles.Services.Agents.Sessions.Codex;
 /// terminal tile, which has to find it in a rollout file after the fact.</para>
 /// <para>A <c>turn/start</c> sent while a turn runs is queued by codex (t3code), so a second message is
 /// counted and becomes the next turn when the running one completes.</para>
+/// <para><b>A sub-agent is a thread of its own</b> (measured 2026-09-24 against codex-cli 0.156.1 with the
+/// default <c>multi_agent</c>, and matching t3code's capture of v2 from 0.145.0): the parent's thread
+/// announces it with a <c>subAgentActivity</c> item, and from then on it has its own <c>turn/started</c> and
+/// <c>turn/completed</c> under its own <c>threadId</c> — and it keeps working after the parent's turn has
+/// ended. Unlike Claude Code, codex does not wake the parent when it finishes: the parent hears of it at its
+/// next turn. Its notifications are not drawn (they are the inside
+/// of the parent's collab tool call) and must never end our turn; what they say is whether it is working,
+/// which is what <see cref="SubAgentStarted"/> and <see cref="SubAgentEnded"/> carry.</para>
 /// </remarks>
 public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent agent, IAgentEventSink sink)
     : IAgentSession, IProcessBackedSession, ICompactingSession
@@ -37,6 +45,8 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
     private string? _turnId;
     private string? _codexTurnId;
     private int _queuedTurns;
+
+    private readonly CodexSubAgentThreads _subAgents = new();
 
     /// <inheritdoc />
     public int? ChildProcessId => _peer?.Process.ProcessId;
@@ -222,6 +232,8 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
         }
     }
 
+    /// <summary>Stops the sub-agents' turns first and then ours — the order t3code keeps, so a parent that is
+    /// waiting on a sub-agent is not woken by its result on the way down.</summary>
     public async Task InterruptAsync(CancellationToken ct)
     {
         _approvals.AbandonAll(ApprovalDecision.Cancel);
@@ -233,15 +245,23 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
             _queuedTurns = 0;
         }
 
-        if (_peer is null || _threadId is null || codexTurn is null) return;
+        var children = _subAgents.WorkingTurns();
+
+        if (_peer is null || _threadId is null) return;
+        foreach (var (thread, turn) in children)
+            await InterruptTurnAsync(thread, turn, "a sub-agent", ct);
+        if (codexTurn is not null) await InterruptTurnAsync(_threadId, codexTurn, "the turn", ct);
+    }
+
+    private async Task InterruptTurnAsync(string threadId, string turnId, string what, CancellationToken ct)
+    {
         try
         {
-            await _peer.RequestAsync("turn/interrupt", new { threadId = _threadId, turnId = codexTurn }, ct,
-                TimeSpan.FromSeconds(15));
+            await _peer!.RequestAsync("turn/interrupt", new { threadId, turnId }, ct, TimeSpan.FromSeconds(15));
         }
         catch (Exception ex) when (ex is JsonRpcException or TimeoutException)
         {
-            sink.Emit(new NoticeRaised(NoticeLevel.Warning, $"codex did not stop the turn: {ex.Message}"));
+            sink.Emit(new NoticeRaised(NoticeLevel.Warning, $"codex did not stop {what}: {ex.Message}"));
         }
     }
 
@@ -285,16 +305,38 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
         _ => "workspaceWrite",
     };
 
-    private void OnNotification(string method, JsonElement parameters)
+    /// <summary>This conversation's thread, once codex has named it. Set by <see cref="StartAsync"/>; a test sets
+    /// it to read recorded notifications with no process behind them.</summary>
+    internal string? ThreadId
+    {
+        get => _threadId;
+        set => _threadId = value;
+    }
+
+    /// <summary>One notification from codex. Internal for the tests, which read recordings through it.</summary>
+    internal void OnNotification(string method, JsonElement parameters)
     {
         // Notifications of a sub-agent's own thread are the inside of one collab tool call: its turns must
-        // not end ours, and its thread must not become the id this conversation resumes.
-        if (IsAnotherThread(parameters)) return;
+        // not end ours, and its thread must not become the id this conversation resumes. What they do say is
+        // whether that sub-agent is working.
+        if (IsAnotherThread(parameters))
+        {
+            OnSubAgentThread(method, parameters);
+            return;
+        }
 
         switch (method)
         {
+            // A turn codex began without a turn/start of ours — the parent woken by a sub-agent that finished,
+            // or a message queued behind an interrupted turn — is opened here, or its work is drawn with no
+            // spinner and its turn/completed closes nothing.
             case "turn/started":
-                lock (_turnGate) _codexTurnId = parameters.Prop("turn").Str("id") ?? _codexTurnId;
+                lock (_turnGate)
+                {
+                    if (_turnId is null) BeginTurn();
+                    _codexTurnId = parameters.Prop("turn").Str("id") ?? _codexTurnId;
+                }
+
                 return;
             case "turn/completed":
                 var (outcome, error) = CodexAppServerMapper.OutcomeOf(parameters);
@@ -302,9 +344,115 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
                 return;
         }
 
+        if (method is "item/started" or "item/completed" && parameters.Prop("item") is { } item) NoteSubAgents(item);
+
         string? turnId;
         lock (_turnGate) turnId = _turnId;
         foreach (var e in CodexAppServerMapper.Map(method, parameters, turnId)) sink.Emit(e);
+    }
+
+    /// <summary>What our own thread's items say about the sub-agents: which were started, and by which call.
+    /// </summary>
+    /// <remarks>A <c>subAgentActivity</c> naming our own thread is a child reporting back to its parent
+    /// (<c>agentPath</c> <c>/root</c>) — registered as a child, our thread would be filtered as another's and
+    /// the conversation would stop being read. t3code shipped that bug and left a thread "working" for good.
+    /// </remarks>
+    private void NoteSubAgents(JsonElement item)
+    {
+        switch (item.Str("type"))
+        {
+            case "subAgentActivity" when item.Str("agentThreadId") is { } child && child != _threadId:
+                // Measured 2026-09-24 against codex-cli 0.156.1 (multi_agent, the default): "started" as it is
+                // spawned and "completed" on our thread as it finishes, a moment after its own turn/completed —
+                // so either ends it, whichever arrives.
+                switch (item.Str("kind"))
+                {
+                    case "started":
+                        Emit(_subAgents.Start(child, CodexSubAgentThreads.TitleOf(null, item.Str("agentPath"))));
+                        break;
+                    case "completed":
+                        Emit(_subAgents.End(child, SubAgentOutcome.Completed));
+                        break;
+                    case "interrupted":
+                        Emit(_subAgents.End(child, SubAgentOutcome.Stopped));
+                        break;
+                }
+
+                break;
+            case "collabAgentToolCall" when item.Str("id") is { } callId:
+                foreach (var receiver in item.Items("receiverThreadIds"))
+                {
+                    if (receiver.GetString() is { } child && child != _threadId)
+                        Emit(_subAgents.NoteSpawnCall(child, callId));
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>A notification of a sub-agent's own thread, read for whether it is working and nothing else.
+    /// </summary>
+    /// <remarks>Only threads this conversation spawned: a notification of a thread nobody announced is not
+    /// ours to read, and t3code refused to guess at them for the same reason.</remarks>
+    private void OnSubAgentThread(string method, JsonElement parameters)
+    {
+        var thread = parameters.Str("threadId") ?? parameters.Prop("thread").Str("id");
+        if (thread is null) return;
+
+        if (method == "thread/started")
+        {
+            var spawn = parameters.Prop("thread").Prop("source").Prop("subAgent").Prop("thread_spawn");
+            if (spawn is null || spawn.Str("parent_thread_id") is not { } parent) return;
+            if (parent == _threadId || _subAgents.Knows(parent))
+                _subAgents.Register(thread, CodexSubAgentThreads.TitleOf(spawn.Str("agent_nickname"), spawn.Str("agent_path")));
+            return;
+        }
+
+        if (!_subAgents.Knows(thread)) return;
+
+        switch (method)
+        {
+            case "turn/started":
+                _subAgents.NoteTurn(thread, parameters.Prop("turn").Str("id"));
+                Emit(_subAgents.Start(thread, null));
+                break;
+            case "turn/completed":
+                var (outcome, error) = CodexAppServerMapper.OutcomeOf(parameters);
+                Emit(_subAgents.End(thread, outcome switch
+                {
+                    TurnOutcome.Completed => SubAgentOutcome.Completed,
+                    TurnOutcome.Failed => SubAgentOutcome.Failed,
+                    _ => SubAgentOutcome.Stopped,
+                }, error));
+                break;
+            case "thread/status/changed" when parameters.Prop("status").Str("type") == "systemError":
+                Emit(_subAgents.End(thread, SubAgentOutcome.Failed));
+                break;
+            case "thread/closed":
+                Emit(_subAgents.End(thread, SubAgentOutcome.Stopped));
+                break;
+            case "item/started" when parameters.Prop("item") is { } item
+                                     && CodexAppServerMapper.ProgressOf(item) is { } progress:
+                sink.Emit(new SubAgentProgressed(thread, progress) { TurnId = CurrentTurn });
+                break;
+            case "item/completed" when parameters.Prop("item") is { } item && item.Str("type") == "agentMessage":
+                _subAgents.NoteMessage(thread, item.Str("text"));
+                break;
+        }
+    }
+
+    /// <summary>A sub-agent's news, stamped with the turn it arrived in; nothing when there is none.</summary>
+    private void Emit(AgentEvent? e)
+    {
+        if (e is not null) sink.Emit(e with { TurnId = CurrentTurn });
+    }
+
+    private string? CurrentTurn
+    {
+        get
+        {
+            lock (_turnGate) return _turnId;
+        }
     }
 
     /// <summary>
@@ -331,12 +479,12 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
     private async Task<object?> ApproveAsync(JsonElement parameters, ApprovalKind kind, string title, string? detail)
     {
         var requestId = $"approval-{Guid.NewGuid():N}";
-        string? turn;
-        lock (_turnGate) turn = _turnId;
+        var turn = CurrentTurn;
+        var subAgent = SubAgentAsking(parameters);
 
         // Waiting before it is announced: a viewer may answer from inside the announcement itself,
         // and an answer that finds nothing waiting is lost and the turn hangs.
-        var pending = _approvals.WaitAsync(requestId, CancellationToken.None);
+        var pending = _approvals.WaitAsync(requestId, CancellationToken.None, bySubAgent: subAgent is not null);
         sink.Emit(new ApprovalRequested(requestId, kind, title, string.IsNullOrWhiteSpace(detail) ? null : detail,
             parameters.Str("itemId"),
             [
@@ -344,8 +492,9 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
                 new ApprovalOption(ApprovalDecision.AcceptForSession, "Allow for this session"),
                 new ApprovalOption(ApprovalDecision.Decline, "Deny"),
                 new ApprovalOption(ApprovalDecision.Cancel, "Deny and stop"),
-            ]) { TurnId = turn });
+            ]) { TurnId = turn, SubAgentId = subAgent });
         var decision = await pending;
+
         sink.Emit(new ApprovalResolved(requestId, decision) { TurnId = turn });
 
         return new
@@ -372,13 +521,14 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
             AllowsCustomAnswer: q.Prop("isOther") is { ValueKind: JsonValueKind.True } || !q.Items("options").Any()))
             .ToList();
 
-        string? turn;
-        lock (_turnGate) turn = _turnId;
+        var turn = CurrentTurn;
+        var subAgent = SubAgentAsking(parameters);
         // Waiting before it is announced: a viewer may answer from inside the announcement itself,
         // and an answer that finds nothing waiting is lost and the turn hangs.
-        var pending = _questions.WaitAsync(requestId, CancellationToken.None);
-        sink.Emit(new QuestionsAsked(requestId, questions) { TurnId = turn });
+        var pending = _questions.WaitAsync(requestId, CancellationToken.None, bySubAgent: subAgent is not null);
+        sink.Emit(new QuestionsAsked(requestId, questions) { TurnId = turn, SubAgentId = subAgent });
         var answers = await pending;
+
         sink.Emit(new QuestionsAnswered(requestId, answers) { TurnId = turn });
 
         return new
@@ -387,6 +537,11 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
                 .ToDictionary(pair => pair.Key, pair => new { answers = pair.Value }),
         };
     }
+
+    /// <summary>The sub-agent's thread a request comes from, where it is not ours: the end of our turn leaves
+    /// such a request waiting, and the reducer keeps it on screen.</summary>
+    private string? SubAgentAsking(JsonElement parameters) =>
+        parameters.Str("threadId") is { } thread && thread != _threadId ? thread : null;
 
     private void BeginTurn()
     {
@@ -400,8 +555,8 @@ public sealed class CodexAppServerSession(AgentSessionLaunch launch, CodexAgent 
         lock (_turnGate)
         {
             if (_turnId is null) return;
-            _approvals.AbandonAll(ApprovalDecision.Cancel);
-            _questions.AbandonAll(null);
+            _approvals.AbandonTurn(ApprovalDecision.Cancel);
+            _questions.AbandonTurn(null);
             sink.Emit(new TurnCompleted(outcome, error) { TurnId = _turnId });
             _turnId = null;
             _codexTurnId = null;

@@ -18,7 +18,9 @@ namespace mTiles.AgentSessions.Conversation;
 /// <item><b>A turn that ends closes everything it opened</b> — a streaming message stops streaming, a
 /// running tool is abandoned, and approvals or questions nobody answered are dropped. A session whose
 /// process has gone does the same. Left open, a restarted tile would show a spinner and an Allow button
-/// for a request no process is waiting on.</item>
+/// for a request no process is waiting on. <b>A background sub-agent is the one exception</b>: it outlives the
+/// turn that launched it, so the end of that turn leaves it — and what it is asking — alone, and only its own
+/// end or the session's closes it.</item>
 /// <item><b>Events for things that do not exist are ignored</b>, never thrown on. An agent that reports a
 /// tool's end without its start, or a replay that starts mid-conversation, costs a line, not the view.
 /// </item>
@@ -96,6 +98,10 @@ public static class ConversationReducer
             NoticeRaised n => Append(Numbered(state, out var noticeId),
                 new NoticeEntry(noticeId, n.Level, n.Text) { TurnId = n.TurnId, At = n.At }),
             HandoverRecorded h => OnHandover(state, h),
+            SubAgentStarted s => OnSubAgentStarted(state, s),
+            SubAgentProgressed p => UpdateSubAgent(state, p.SubAgentId,
+                run => run.IsWorking ? run with { Progress = p.Progress } : run),
+            SubAgentEnded s => OnSubAgentEnded(state, s),
             _ => state,
         };
 
@@ -107,7 +113,8 @@ public static class ConversationReducer
         var next = state with { SessionState = s.State };
         if (s.State is not (AgentSessionState.Stopped or AgentSessionState.Failed)) return next;
 
-        next = CloseOpenWork(next with { ActiveTurnId = null });
+        // Every sub-agent went with the process, background or not.
+        next = CloseOpenWork(StopSubAgents(next with { ActiveTurnId = null }, _ => true, s.At), sessionEnded: true);
         return s.State == AgentSessionState.Failed && s.Detail is { Length: > 0 } detail
             ? Append(Numbered(next, out var id), new NoticeEntry(id, NoticeLevel.Error, detail) { At = s.At })
             : next;
@@ -115,13 +122,15 @@ public static class ConversationReducer
 
     private static ConversationState OnTurnCompleted(ConversationState state, TurnCompleted t)
     {
-        var next = CloseOpenWork(state with
+        // A foreground sub-agent cannot outlive its turn, whatever it failed to say about ending; a background
+        // one is exactly the one that does, and its approvals stay with it.
+        var next = CloseOpenWork(StopSubAgents(state with
         {
             ActiveTurnId = null,
             SessionState = state.SessionState == AgentSessionState.Running
                 ? AgentSessionState.Ready
                 : state.SessionState,
-        });
+        }, run => !run.Background, t.At), sessionEnded: false);
 
         var text = t.Outcome switch
         {
@@ -136,8 +145,17 @@ public static class ConversationReducer
     }
 
     /// <summary>What a turn or a session leaves behind when it ends, closed.</summary>
-    private static ConversationState CloseOpenWork(ConversationState state)
+    /// <remarks>Except, at a turn's end, what a sub-agent is asking: that request is not the turn's but the
+    /// sub-agent's, the session keeps waiting on it, and dropped from the screen it would wait for ever. The
+    /// rule is the session's own (<c>PendingReplies.AbandonTurn</c>) — a request marked as a sub-agent's stays
+    /// — so a sub-agent not announced yet keeps its request too; only one known to have ended loses it, and
+    /// the session's end drops everything.</remarks>
+    private static ConversationState CloseOpenWork(ConversationState state, bool sessionEnded)
     {
+        bool OutlivesTheTurn(string? subAgentId) =>
+            !sessionEnded && subAgentId is not null
+                          && !state.SubAgents.Any(s => s.Id == subAgentId && !s.IsWorking);
+
         var timeline = state.Timeline;
         for (var i = 0; i < timeline.Count; i++)
         {
@@ -157,8 +175,85 @@ public static class ConversationReducer
             }
         }
 
-        return state with { Timeline = timeline, PendingApprovals = [], PendingQuestions = [] };
+        return state with
+        {
+            Timeline = timeline,
+            PendingApprovals = state.PendingApprovals.RemoveAll(a => !OutlivesTheTurn(a.SubAgentId)),
+            PendingQuestions = state.PendingQuestions.RemoveAll(q => !OutlivesTheTurn(q.SubAgentId)),
+        };
     }
+
+    /// <summary>A sub-agent began working, or began again.</summary>
+    /// <remarks>A start for one already known is the same sub-agent woken up — codex keeps a finished one
+    /// and can hand it more work — so it is set working again rather than listed twice, and keeps whatever
+    /// the new start does not say.</remarks>
+    private static ConversationState OnSubAgentStarted(ConversationState state, SubAgentStarted s)
+    {
+        if (state.SubAgents.Any(run => run.Id == s.SubAgentId))
+            return UpdateSubAgent(state, s.SubAgentId, run => run with
+            {
+                Title = s.Title.Length > 0 ? s.Title : run.Title,
+                ToolCallId = s.ToolCallId ?? run.ToolCallId,
+                Background = s.Background || run.Background,
+                Status = SubAgentStatus.Working,
+                Result = null,
+                EndedAt = null,
+                TurnId = s.TurnId ?? run.TurnId,
+            });
+
+        var started = new SubAgentRun(s.SubAgentId, s.Title, s.ToolCallId, s.Background, SubAgentStatus.Working,
+            null, null, s.At, null) { TurnId = s.TurnId };
+        return Mirror(state with { SubAgents = state.SubAgents.Add(started) }, started);
+    }
+
+    /// <summary>A sub-agent stopped, and whatever it alone was waiting on goes with it.</summary>
+    private static ConversationState OnSubAgentEnded(ConversationState state, SubAgentEnded s)
+    {
+        var next = UpdateSubAgent(state, s.SubAgentId, run => run with
+        {
+            Status = s.Outcome switch
+            {
+                SubAgentOutcome.Completed => SubAgentStatus.Completed,
+                SubAgentOutcome.Failed => SubAgentStatus.Failed,
+                _ => SubAgentStatus.Stopped,
+            },
+            Progress = null,
+            Result = s.Result ?? run.Result,
+            EndedAt = run.EndedAt ?? s.At,
+        });
+
+        return next with
+        {
+            PendingApprovals = next.PendingApprovals.RemoveAll(a => a.SubAgentId == s.SubAgentId),
+            PendingQuestions = next.PendingQuestions.RemoveAll(q => q.SubAgentId == s.SubAgentId),
+        };
+    }
+
+    /// <summary>Every sub-agent still working that <paramref name="which"/> picks, stopped.</summary>
+    private static ConversationState StopSubAgents(ConversationState state, Func<SubAgentRun, bool> which,
+        DateTimeOffset at)
+    {
+        var next = state;
+        foreach (var run in state.SubAgents.Where(run => run.IsWorking && which(run)))
+            next = UpdateSubAgent(next, run.Id, r => r with { Status = SubAgentStatus.Stopped, Progress = null, EndedAt = at });
+        return next;
+    }
+
+    /// <summary>Changes one sub-agent, and the row of the call that launched it along with it.</summary>
+    private static ConversationState UpdateSubAgent(ConversationState state, string id, Func<SubAgentRun, SubAgentRun> change)
+    {
+        var index = state.SubAgents.FindIndex(run => run.Id == id);
+        if (index < 0) return state;
+
+        var changed = change(state.SubAgents[index]);
+        return Mirror(state with { SubAgents = state.SubAgents.SetItem(index, changed) }, changed);
+    }
+
+    /// <summary>Puts a sub-agent's state on the row of the call that launched it, where there is one.</summary>
+    private static ConversationState Mirror(ConversationState state, SubAgentRun run) =>
+        run.ToolCallId is { } toolCallId
+            ? UpdateTool(state, toolCallId, tool => tool with { SubAgent = run })
+            : state;
 
     private static ConversationState OnAssistantDelta(ConversationState state, AssistantTextDelta d)
     {
@@ -220,7 +315,12 @@ public static class ConversationReducer
 
         var (next, groupIndex) = CurrentGroup(state, t);
         var group = (WorkGroupEntry)next.Timeline[groupIndex];
-        var tool = new ToolCallItem(t.ToolCallId, t.Kind, t.Name, t.Title, t.Detail, "", ToolCallState.Running, t.At, null);
+        // A sub-agent can be announced before the call that launched it — codex names its child threads as they
+        // come up — and the row takes it over when it arrives.
+        var tool = new ToolCallItem(t.ToolCallId, t.Kind, t.Name, t.Title, t.Detail, "", ToolCallState.Running, t.At, null)
+        {
+            SubAgent = state.SubAgents.LastOrDefault(run => run.ToolCallId == t.ToolCallId),
+        };
         return next with { Timeline = next.Timeline.SetItem(groupIndex, group with { Items = group.Items.Add(tool) }) };
     }
 

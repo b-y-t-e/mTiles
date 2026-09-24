@@ -121,6 +121,9 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
     /// for tool results only, so none of it lands in the conversation either.</remarks>
     public Task CompactAsync(CancellationToken ct) => SendAsync(AgentTurnInput.FromText("/compact"), ct);
 
+    /// <remarks>Measured 2026-09-24 against 2.1.281: <c>interrupt</c> also stops every background sub-agent —
+    /// each answers <c>task_updated</c> "killed" and <c>task_notification</c> "stopped" — and does so with no
+    /// turn open, which is what Stop does while only sub-agents are working.</remarks>
     public async Task InterruptAsync(CancellationToken ct)
     {
         _approvals.AbandonAll(ApprovalDecision.Cancel);
@@ -273,7 +276,8 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
         if (failed is not null) await failed.DisposeAsync();
     }
 
-    private void OnLine(string line)
+    /// <summary>One line of the CLI's output. Internal for the tests, which read recordings through it.</summary>
+    internal void OnLine(string line)
     {
         JsonElement root;
         try
@@ -305,6 +309,19 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
                 return;
         }
 
+        // A turn nobody sent a message for: the agent woke by itself, which it does when a background sub-agent
+        // it launched finishes — measured against 2.1.281, the parent's `result` has long closed the turn by
+        // then, and the answer arrives as a fresh `system/init`, an assistant message and a `result` of its
+        // own. Unopened, all of it was drawn with no spinner and no Stop while the agent worked, and its
+        // `result` closed nothing — or closed the turn the user had opened by sending in the meantime, whose
+        // own answer then came in with nothing saying it was coming. `system/init` itself is not taken as the
+        // start: a settings change may say it again without a turn behind it, and a turn opened on that would
+        // never be closed.
+        if (ClaudeStreamMapper.OpensTurn(root))
+            lock (_turnGate)
+                if (_turnId is null)
+                    BeginTurn();
+
         string? turnId;
         lock (_turnGate) turnId = _turnId;
 
@@ -335,7 +352,7 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
         lock (_turnGate)
         {
             if (_turnId is null) return;
-            _approvals.AbandonAll(ApprovalDecision.Cancel);
+            _approvals.AbandonTurn(ApprovalDecision.Cancel);
             sink.Emit(new TurnCompleted(outcome, error) { TurnId = _turnId });
             _turnId = null;
         }
@@ -397,12 +414,14 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
     {
         var name = request.Str("tool_name") ?? "tool";
         var input = request.Prop("input") ?? default;
+        // Measured 2026-09-24 against 2.1.281: a sub-agent's request carries the task id it runs under.
+        var subAgent = request.Str("agent_id");
         var inputNode = input.ValueKind == JsonValueKind.Object ? JsonNode.Parse(input.GetRawText())! : new JsonObject();
 
         switch (name)
         {
             case "AskUserQuestion":
-                return await AskAsync(requestId, input, (JsonObject)inputNode);
+                return await AskAsync(requestId, input, (JsonObject)inputNode, subAgent);
             case "ExitPlanMode":
                 sink.Emit(new PlanProposed(input.Str("plan") ?? "") { TurnId = CurrentTurn });
                 return await ApproveAsync(requestId, ApprovalKind.Other, "Implement this plan?", null,
@@ -411,7 +430,7 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
                         new ApprovalOption(ApprovalDecision.Accept, "Implement"),
                         new ApprovalOption(ApprovalDecision.Decline, "Keep planning"),
                         new ApprovalOption(ApprovalDecision.Cancel, "Stop"),
-                    ], null, "The user wants to revise the plan. Wait for their feedback.");
+                    ], null, "The user wants to revise the plan. Wait for their feedback.", subAgent);
         }
 
         var detail = ClaudeTools.DetailOf(name, input);
@@ -426,19 +445,23 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
                 new ApprovalOption(ApprovalDecision.AcceptForSession, "Allow for this session"),
                 new ApprovalOption(ApprovalDecision.Decline, "Deny"),
                 new ApprovalOption(ApprovalDecision.Cancel, "Deny and stop"),
-            ], SessionRules(name, request), "The user declined this tool call.");
+            ], SessionRules(name, request), "The user declined this tool call.", subAgent);
     }
 
     private async Task<JsonNode> ApproveAsync(string requestId, ApprovalKind kind, string title, string? detail,
         string? toolUseId, JsonNode input, IReadOnlyList<ApprovalOption> options, JsonArray? sessionRules,
-        string declineMessage)
+        string declineMessage, string? subAgent)
     {
         var turn = CurrentTurn;
         // Waiting before it is announced: a viewer may answer from inside the announcement itself,
         // and an answer that finds nothing waiting is lost and the turn hangs.
-        var pending = _approvals.WaitAsync(requestId, CancellationToken.None);
-        sink.Emit(new ApprovalRequested(requestId, kind, title, detail, toolUseId, options) { TurnId = turn });
+        var pending = _approvals.WaitAsync(requestId, CancellationToken.None, bySubAgent: subAgent is not null);
+        sink.Emit(new ApprovalRequested(requestId, kind, title, detail, toolUseId, options)
+        {
+            TurnId = turn, SubAgentId = subAgent,
+        });
         var decision = await pending;
+
         sink.Emit(new ApprovalResolved(requestId, decision) { TurnId = turn });
 
         return decision switch
@@ -483,7 +506,7 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
         return rules;
     }
 
-    private async Task<JsonNode> AskAsync(string requestId, JsonElement input, JsonObject inputNode)
+    private async Task<JsonNode> AskAsync(string requestId, JsonElement input, JsonObject inputNode, string? subAgent)
     {
         var questions = input.Items("questions").Select(q => new UserQuestion(
             q.Str("question") ?? "",
@@ -497,7 +520,7 @@ public sealed class ClaudeStreamSession(AgentSessionLaunch launch, IAiAgent agen
         // Waiting before it is announced: a viewer may answer from inside the announcement itself,
         // and an answer that finds nothing waiting is lost and the turn hangs.
         var pending = _questions.WaitAsync(requestId, CancellationToken.None);
-        sink.Emit(new QuestionsAsked(requestId, questions) { TurnId = turn });
+        sink.Emit(new QuestionsAsked(requestId, questions) { TurnId = turn, SubAgentId = subAgent });
         var answers = await pending;
         sink.Emit(new QuestionsAnswered(requestId, answers) { TurnId = turn });
 

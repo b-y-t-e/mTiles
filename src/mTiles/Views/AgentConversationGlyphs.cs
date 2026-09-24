@@ -32,15 +32,6 @@ public static class AgentConversationGlyphs
         _ => MaterialIconKind.Wrench,
     });
 
-    /// <summary>A running tool says so in words; a finished one only when it did not go well.</summary>
-    public static readonly FuncValueConverter<ToolCallState, string> ToolState = new(state => state switch
-    {
-        ToolCallState.Running => "running…",
-        ToolCallState.Failed => "failed",
-        ToolCallState.Declined => "declined",
-        ToolCallState.Abandoned => "stopped",
-        _ => "",
-    });
 
     public static readonly FuncValueConverter<bool, MaterialIconKind> Decision =
         new(allowed => allowed ? MaterialIconKind.ShieldCheckOutline : MaterialIconKind.ShieldOffOutline);

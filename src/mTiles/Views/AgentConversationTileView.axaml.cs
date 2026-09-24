@@ -246,7 +246,7 @@ public partial class AgentConversationTileView : UserControl, IFocusTargetView
     /// swallows an Escape this tile has just declined to act on.</remarks>
     private void InputBox_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Escape || _subscribed is not { IsWorking: true } vm) return;
+        if (e.Key != Key.Escape || _subscribed is not { IsBusy: true } vm) return;
         if (!vm.InterruptCommand.CanExecute(null)) return;
         e.Handled = true;
         vm.InterruptCommand.Execute(null);

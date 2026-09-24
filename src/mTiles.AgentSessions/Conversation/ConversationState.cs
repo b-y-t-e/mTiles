@@ -73,11 +73,61 @@ public sealed record ConversationState
     /// <summary>A counter for the ids of entries that have none of their own.</summary>
     public long EntryCounter { get; init; }
 
+    /// <summary>Every sub-agent this conversation has launched, oldest first, as each now stands.</summary>
+    public ImmutableList<SubAgentRun> SubAgents { get; init; } = [];
+
+    /// <summary>Whether a turn is running. Not whether anything is: see <see cref="IsBusy"/>.</summary>
     [JsonIgnore]
     public bool IsWorking => ActiveTurnId is not null;
 
+    /// <summary>How many sub-agents are working now.</summary>
+    [JsonIgnore]
+    public int WorkingSubAgentCount => SubAgents.Count(s => s.IsWorking);
+
+    /// <summary>Whether anything is working: a turn, or a sub-agent that outlived the turn that launched it.
+    /// </summary>
+    /// <remarks>The question the spinner, the tile's activity and a restart all ask — a tile that answered it
+    /// with <see cref="IsWorking"/> alone went quiet the moment a background sub-agent was launched, and a
+    /// restart then killed it without a word.</remarks>
+    [JsonIgnore]
+    public bool IsBusy => IsWorking || SubAgents.Any(s => s.IsWorking);
+
     [JsonIgnore]
     public bool IsWaitingForUser => PendingApprovals.Count > 0 || PendingQuestions.Count > 0;
+}
+
+/// <summary>Where a sub-agent is.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SubAgentStatus>))]
+public enum SubAgentStatus
+{
+    Working,
+    Completed,
+    Failed,
+    Stopped,
+}
+
+/// <summary>One sub-agent, as it now stands.</summary>
+/// <param name="Id">The agent's own id for it.</param>
+/// <param name="ToolCallId">The call that launched it, where known.</param>
+/// <param name="Background">Whether it may work past the turn that launched it.</param>
+/// <param name="Progress">What it is doing now, as it last said — or null.</param>
+/// <param name="Result">What it came to, once it has ended and said.</param>
+public sealed record SubAgentRun(
+    string Id,
+    string Title,
+    string? ToolCallId,
+    bool Background,
+    SubAgentStatus Status,
+    string? Progress,
+    string? Result,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? EndedAt)
+{
+    /// <summary>The turn it was (last) started in.</summary>
+    public string? TurnId { get; init; }
+
+    [JsonIgnore]
+    public bool IsWorking => Status == SubAgentStatus.Working;
 }
 
 /// <summary>Who wrote a message.</summary>
@@ -185,7 +235,15 @@ public sealed record ToolCallItem(
     string Output,
     ToolCallState State,
     DateTimeOffset StartedAt,
-    DateTimeOffset? CompletedAt) : WorkItem(Id);
+    DateTimeOffset? CompletedAt) : WorkItem(Id)
+{
+    /// <summary>The sub-agent this call launched, as it now stands — or null for a call that launched none.
+    /// </summary>
+    /// <remarks>On the row because that is where the reader looks: a background <c>Agent</c> call is
+    /// finished the moment it is made, and a row saying "done" beside a sub-agent that has ten minutes of
+    /// work ahead of it is the silence this exists to end.</remarks>
+    public SubAgentRun? SubAgent { get; init; }
+}
 
 /// <summary>What the model thought, where the agent shows it.</summary>
 public sealed record ReasoningItem(string Id, string Text) : WorkItem(Id);

@@ -84,7 +84,27 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [ObservableProperty] private int _draftCaretIndex;
     [ObservableProperty] private string? _launchProblem;
     [ObservableProperty] private bool _isStarting;
-    [ObservableProperty] private bool _isWorking;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBusy))]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundWork))]
+    private bool _isWorking;
+
+    /// <summary>Whether a sub-agent is working, turn or no turn.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBusy))]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundWork))]
+    private bool _hasWorkingSubAgents;
+
+    /// <summary>Whether anything is working — a turn, or a sub-agent that outlived the turn that launched it
+    /// (<see cref="ConversationState.IsBusy"/>).</summary>
+    /// <remarks>What the spinner, the clock, Escape and the tile's activity follow. <see cref="IsWorking"/>
+    /// stays what it was — a turn is open — because that is what decides Send against Stop: a message sent
+    /// while only sub-agents work is an ordinary message, and the agent takes it.</remarks>
+    public bool IsBusy => IsWorking || HasWorkingSubAgents;
+
+    /// <summary>Whether sub-agents are working with no turn open — the one case the composer's Stop is not
+    /// there for, so the waiting row carries a Stop of its own.</summary>
+    public bool HasBackgroundWork => HasWorkingSubAgents && !IsWorking;
     [ObservableProperty] private string _statusText = "";
 
     /// <summary>Which colour the status word takes — decided with the word, so the two cannot disagree.</summary>
@@ -317,7 +337,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         // the skills directory as it starts, and a change that lands while it does is one the new process
         // may already have missed — see _startUnderWay.
         isRunning: _host is { HasSession: true } || _startUnderWay,
-        isBusy: IsWorking || PendingQuestions is not null || PendingApprovals.Count > 0,
+        isBusy: IsBusy || PendingQuestions is not null || PendingApprovals.Count > 0,
         hasUnsentWork: Draft.Trim().Length > 0 || Attachments.HasItems);
 
     private void Tell() => LaunchNotice = LaunchNotices.With(LaunchNotice, SkillChangePolicy.Notice);
@@ -577,7 +597,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
             case TileKey.Enter:
                 _ = SendAsync();
                 return true;
-            case TileKey.Escape when IsWorking && CanInterrupt:
+            case TileKey.Escape when IsBusy && CanInterrupt:
                 _ = InterruptAsync();
                 return true;
             default:
@@ -829,11 +849,21 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <summary>How long the current turn has been going, beside the waiting row's spinner — the Goal tile's clock.</summary>
     public ElapsedClock TurnClock { get; } = new();
 
+    // A turn starts the clock from zero; after that it runs for as long as anything is working, so a turn
+    // that hands over to a background sub-agent carries on counting rather than stopping mid-work.
     partial void OnIsWorkingChanged(bool value)
     {
         if (value) TurnClock.Start();
-        else TurnClock.Stop();
+        else FollowTheClock();
         CompactCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnHasWorkingSubAgentsChanged(bool value) => FollowTheClock();
+
+    private void FollowTheClock()
+    {
+        if (!IsBusy) TurnClock.Stop();
+        else if (!TurnClock.IsRunning) TurnClock.Start();
     }
 
     partial void OnCanCompactChanged(bool value)
@@ -1236,7 +1266,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     /// <summary>Whether something that replaces the session may end the turn in flight: restarting it ends the
     /// turn, so it asks the way Restart does. Nothing to interrupt is a yes; no dialog to ask in is a no.</summary>
     private async Task<bool> ConfirmInterruptingTurnAsync(string question) =>
-        !IsWorking || (ConfirmAction is not null && await ConfirmAction(question));
+        !IsBusy || (ConfirmAction is not null && await ConfirmAction(question));
 
     /// <summary>Whether the agent can be stopped right now.</summary>
     /// <remarks>False for half a second after a message is sent. Send and Stop are one slot — the
@@ -1334,7 +1364,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     [RelayCommand]
     private Task NewConversationAsync() => UnderSwitchGateAsync(async () =>
     {
-        var question = IsWorking
+        var question = IsBusy
             ? "Start a new conversation? The agent is working, and this stops what it is doing. " +
               "This one stays in the list of conversations."
             : "Start a new conversation? This one stays in the list of conversations.";
@@ -1947,6 +1977,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         }
 
         IsWorking = state.IsWorking;
+        HasWorkingSubAgents = state.WorkingSubAgentCount > 0;
         Model = state.Model ?? "";
         // The session that reported the options is the one that would do the compacting, so this goes down
         // with it: the options themselves survive a session ending, and a button offered over a stopped
@@ -1970,7 +2001,7 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
         (StatusText, StatusTone) = StatusOf(state);
         Activity = state.IsWaitingForUser
             ? TileActivity.Blocked
-            : state.IsWorking
+            : state.IsBusy
                 ? TileActivity.Working
                 : state.SessionState == AgentSessionState.Ready ? TileActivity.Idle : TileActivity.Unknown;
 
@@ -2148,6 +2179,8 @@ public sealed partial class AgentConversationTileViewModel : ObservableObject,
     {
         { IsWaitingForUser: true } => ("Waiting for you", AgentStatusTone.Waiting),
         { IsWorking: true } => ("Working", AgentStatusTone.Working),
+        { IsBusy: true } => (state.WorkingSubAgentCount == 1 ? "Sub-agent working" : "Sub-agents working",
+            AgentStatusTone.Working),
         { SessionState: AgentSessionState.Starting } => ("Starting", AgentStatusTone.Quiet),
         { SessionState: AgentSessionState.Ready } => ("Ready", AgentStatusTone.Ready),
         { SessionState: AgentSessionState.Failed } => ("Stopped with an error", AgentStatusTone.Failed),

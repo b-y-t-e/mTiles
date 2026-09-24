@@ -392,6 +392,49 @@ public class AgentConversationHostTests : IDisposable
         await host.DisposeAsync();
     }
 
+    /// <summary>A turn that launched a background sub-agent has ended, and the sub-agent is still writing.</summary>
+    private static void LeaveABackgroundSubAgentWorking(FakeSession session)
+    {
+        session.Say(new TurnStarted { TurnId = "t" });
+        session.Say(new SubAgentStarted("s", "writer", "call", Background: true) { TurnId = "t" });
+        session.Say(new TurnCompleted(TurnOutcome.Completed) { TurnId = "t" });
+    }
+
+    [Fact]
+    public async Task Files_are_not_restored_under_a_background_sub_agent_after_its_turn_has_ended()
+    {
+        var checkpoints = new FakeCheckpoints();
+        var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), checkpoints);
+        var session = new FakeSession();
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
+        LeaveABackgroundSubAgentWorking(session);
+
+        await host.ExecuteAsync(new RestoreCheckpoint("cp-0"), CancellationToken.None);
+
+        Assert.False(host.State.IsWorking);
+        Assert.Equal(0, checkpoints.Restored);
+        Assert.Contains(host.State.Timeline, e => e is NoticeEntry { Level: NoticeLevel.Warning });
+        await host.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task No_restart_is_asked_for_under_a_background_sub_agent_after_its_turn_has_ended()
+    {
+        var session = new FakeSession { SettingsOutcome = SettingsChangeOutcome.NeedsRestart };
+        await using var host = new AgentConversationHost(Record(), new SqliteConversationStore(_path), null);
+        List<SessionSettings> restarts = [];
+        host.RestartRequested += restarts.Add;
+        await host.StartAsync(sink => session.Bind(sink), null, CancellationToken.None);
+        LeaveABackgroundSubAgentWorking(session);
+
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings(Effort: "Max")), CancellationToken.None);
+        Assert.Empty(restarts);
+
+        session.Say(new SubAgentEnded("s", SubAgentOutcome.Completed));
+        await host.ExecuteAsync(new ChangeSessionSettings(new SessionSettings(Effort: "Max")), CancellationToken.None);
+        Assert.Single(restarts);
+    }
+
     [Fact]
     public async Task Files_are_not_restored_while_a_turns_baseline_is_being_taken()
     {

@@ -681,7 +681,14 @@
                                                         <mi:MaterialIcon DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,6,0"
                                                                          Kind="{Binding Kind, Converter={x:Static v:AgentConversationGlyphs.Tool}}" />
                                                         <TextBlock DockPanel.Dock="Right" Classes="work work-muted" Margin="8,0,0,0"
-                                                                   Text="{Binding State, Converter={x:Static v:AgentConversationGlyphs.ToolState}}" />
+                                                                   Text="{Binding StateText}" />
+                                                        <!-- A sub-agent at work turns beside its call, which has
+                                                             usually finished long before it has. The class is
+                                                             bound, so a hidden arc does not animate. -->
+                                                        <Arc DockPanel.Dock="Right" Classes="busy-arc"
+                                                             Classes.spinning="{Binding IsSubAgentWorking}"
+                                                             IsVisible="{Binding IsSubAgentWorking}"
+                                                             Width="10" Height="10" Margin="8,0,0,0" />
                                                         <TextBlock Classes="work"
                                                                    Classes.work-failed="{Binding IsFailed}"
                                                                    Classes.work-declined="{Binding IsDeclined}"
@@ -689,6 +696,13 @@
                                                                    ToolTip.Tip="{Binding Name}" />
                                                     </DockPanel>
                                                 </Button>
+                                                <!-- What the sub-agent this call launched is doing, or what
+                                                     it came to: its own work is not drawn in the conversation,
+                                                     and this line is the whole of what surfaces of it. -->
+                                                <TextBlock Classes="work work-muted" Margin="36,0,0,2"
+                                                           Text="{Binding SubAgentLine}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           IsVisible="{Binding SubAgentLine, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                 <Border Classes="detail" IsVisible="{Binding IsExpanded}">
                                                     <DockPanel>
                                                         <!-- The same rail a file's patch carries: what
@@ -1079,9 +1093,21 @@
                 <!-- The spinner says the turn is alive; the stage beside it says what it is doing, which is
                      the question anybody watching this row actually has. Read from the conversation and
                      not from a CLI, so every agent fills it — see TurnStage. -->
-                <v:WaitingRow IsVisible="{Binding IsWorking}"
-                              Stage="{Binding TurnStageText}"
-                              Elapsed="{Binding TurnClock.Text}" />
+                <!-- Busy, not working: a background sub-agent goes on after the turn that launched it has
+                     ended, and the row stays up for it - with a Stop of its own, because the composer's
+                     slot is Send again by then (a message sent now is an ordinary message) and Escape
+                     is a keystroke nobody can see. -->
+                <DockPanel IsVisible="{Binding IsBusy}">
+                    <Button DockPanel.Dock="Right" Classes="chat-action" VerticalAlignment="Top"
+                            Margin="0,2,10,0"
+                            IsVisible="{Binding HasBackgroundWork}"
+                            Command="{Binding InterruptCommand}"
+                            ToolTip.Tip="Stop the sub-agents (Esc)">
+                        <TextBlock Text="Stop" />
+                    </Button>
+                    <v:WaitingRow Stage="{Binding TurnStageText}"
+                                  Elapsed="{Binding TurnClock.Text}" />
+                </DockPanel>
             </StackPanel>
         </ScrollViewer>
         <v:JumpToBottom x:Name="JumpToBottom" />

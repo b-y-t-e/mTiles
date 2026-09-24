@@ -237,7 +237,8 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
 
     private void RequestRestart(SessionSettings settings)
     {
-        if (State.IsWorking)
+        // Busy rather than working: a restart ends the process, and a background sub-agent goes with it.
+        if (State.IsBusy)
         {
             Emit(new NoticeRaised(NoticeLevel.Warning,
                 "This agent cannot switch while it works. Stop the turn, or change it again once the turn is over."));
@@ -556,6 +557,15 @@ public sealed class AgentConversationHost : IAgentEventSink, IAsyncDisposable
             if (HasOpenTurn)
             {
                 Emit(new NoticeRaised(NoticeLevel.Warning, "Files cannot be restored while the agent is working."));
+                return;
+            }
+
+            // A background sub-agent writes into the same tree with no turn open, and would go on writing
+            // over the files as they are put back.
+            if (State.WorkingSubAgentCount > 0)
+            {
+                Emit(new NoticeRaised(NoticeLevel.Warning,
+                    "Files cannot be restored while a sub-agent is working. Stop it, or wait until it is done."));
                 return;
             }
 

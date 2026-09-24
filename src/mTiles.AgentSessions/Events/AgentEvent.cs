@@ -44,6 +44,9 @@ namespace mTiles.AgentSessions.Events;
 [JsonDerivedType(typeof(CheckpointRestored), "checkpoint.restored")]
 [JsonDerivedType(typeof(NoticeRaised), "notice")]
 [JsonDerivedType(typeof(HandoverRecorded), "handover")]
+[JsonDerivedType(typeof(SubAgentStarted), "subagent.started")]
+[JsonDerivedType(typeof(SubAgentProgressed), "subagent.progressed")]
+[JsonDerivedType(typeof(SubAgentEnded), "subagent.ended")]
 public abstract record AgentEvent
 {
     /// <summary>Position in the conversation, from 1, assigned by the store. Zero until appended.</summary>
@@ -224,13 +227,24 @@ public sealed record ApprovalRequested(
     string Title,
     string? Detail,
     string? ToolCallId,
-    IReadOnlyList<ApprovalOption> Options) : AgentEvent;
+    IReadOnlyList<ApprovalOption> Options) : AgentEvent
+{
+    /// <summary>The sub-agent asking, where it is one rather than the agent itself.</summary>
+    /// <remarks>What keeps the request on screen after the turn that launched a background sub-agent has
+    /// ended: that turn's end closes what <i>it</i> left open, and a sub-agent still working is waiting on
+    /// this answer. See <see cref="SubAgentStarted"/>.</remarks>
+    public string? SubAgentId { get; init; }
+}
 
 /// <summary>An approval was answered — by the user, by a rule, or by the session ending.</summary>
 public sealed record ApprovalResolved(string RequestId, ApprovalDecision Decision) : AgentEvent;
 
 /// <summary>The agent asked the user one or more questions and waits for the answers.</summary>
-public sealed record QuestionsAsked(string RequestId, IReadOnlyList<UserQuestion> Questions) : AgentEvent;
+public sealed record QuestionsAsked(string RequestId, IReadOnlyList<UserQuestion> Questions) : AgentEvent
+{
+    /// <summary>The sub-agent asking, where it is one — see <see cref="ApprovalRequested.SubAgentId"/>.</summary>
+    public string? SubAgentId { get; init; }
+}
 
 /// <summary>The questions were answered, or dismissed (<paramref name="Answers"/> null).</summary>
 /// <param name="Answers">Per question id, the chosen labels or the text typed.</param>
@@ -289,3 +303,43 @@ public sealed record NoticeRaised(NoticeLevel Level, string Text) : AgentEvent;
 /// <param name="Brief">What the next agent was told, verbatim — <see cref="Conversation.ConversationHandover"/>
 /// folds it out of what this application recorded, and anything the outgoing agent added is in it too.</param>
 public sealed record HandoverRecorded(SessionAccount? From, SessionAccount To, string Brief) : AgentEvent;
+
+/// <summary>
+/// A sub-agent the agent launched began working — or, where the agent keeps it, began working again.
+/// </summary>
+/// <remarks>
+/// <para><b>Why a sub-agent is not only a tool call.</b> A sub-agent run in the foreground is: its tool call
+/// is open for as long as it works, the turn is open with it, and the spinner says so. One run in the
+/// background is not — Claude Code answers the <c>Agent</c> call with "launched" at once and ends the turn
+/// while the sub-agent goes on for minutes, and a codex sub-agent is a thread of its own that outlives the
+/// turn that spawned it. Measured against Claude Code 2.1.281 (2026-09-24): the tile went quiet, Stop turned
+/// back into Send, and the agent then woke on its own when the sub-agent finished, with nothing on screen
+/// saying any of it. This is what says it — the tile is busy while any sub-agent is working, whether or not
+/// a turn is open.</para>
+/// <para><b>What a sub-agent does is not drawn in the conversation</b>, the rule t3code keeps too: its
+/// messages and tool calls are the inside of one piece of the agent's work, and interleaved with the
+/// agent's own they would read as the agent's. What surfaces is one line of progress
+/// (<see cref="SubAgentProgressed"/>) and the result it ended with.</para>
+/// </remarks>
+/// <param name="SubAgentId">The agent's own id for it — a Claude Code task id, a codex thread id. Stable
+/// across its start, its progress and its end.</param>
+/// <param name="Title">What it was launched to do, readable.</param>
+/// <param name="ToolCallId">The tool call that launched it, where known, so the row of that call can say
+/// how the sub-agent is getting on after the call itself has finished.</param>
+/// <param name="Background">Whether it works past the turn that launched it. A foreground one cannot, so
+/// the end of that turn ends it; a background one ends only when it says so, or with the session.</param>
+public sealed record SubAgentStarted(string SubAgentId, string Title, string? ToolCallId = null, bool Background = false)
+    : AgentEvent;
+
+/// <summary>What a working sub-agent is doing now — one line, replacing the last.</summary>
+/// <remarks>Never stored: it is the running session's news, the sub-agent's end carries what it came to, and a
+/// sub-agent busy for ten minutes would otherwise write a row into the conversation for every tool it ran.
+/// </remarks>
+public sealed record SubAgentProgressed(string SubAgentId, string Progress) : AgentEvent
+{
+    public override bool IsTransient => true;
+}
+
+/// <summary>A sub-agent stopped working: it finished, failed, or was stopped.</summary>
+/// <param name="Result">What it said it came to, where the agent reports it.</param>
+public sealed record SubAgentEnded(string SubAgentId, SubAgentOutcome Outcome, string? Result = null) : AgentEvent;

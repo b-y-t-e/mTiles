@@ -906,6 +906,15 @@ cleared, because the arriving session could resume nothing — it used to start 
 model had never seen, with a warning (`ConfirmLeavingTheAccountAsync`, now asked only before anything has
 been said, where there is no work to brief) as the whole of the answer.
 
+**A sub-agent working is work, turn or no turn** (`SubAgentStarted`/`SubAgentProgressed`/`SubAgentEnded`,
+`ConversationState.IsBusy`). A background sub-agent outlives the turn that launched it — Claude Code answers
+the `Agent` call "launched" at once and ends the turn, a codex sub-agent is a thread of its own — and the
+tile used to go quiet with it: no spinner, Stop turned back into Send, and the agent's own answer later
+arrived in a turn nothing had opened. `IsWorking` is still "a turn is open" and decides Send against Stop;
+`IsBusy` is what the spinner, Escape, the tile's activity and every restart follow, and a turn's end leaves
+a background sub-agent and what it is asking alone. A turn the agent opens by itself is opened for it. The
+measurements are in [`docs/AGENT-CONVERSATIONS.md`](docs/AGENT-CONVERSATIONS.md) → *Sub-agents*.
+
 **The context bar carries the one act there is about the figure on it** (`ICompactingSession`,
 `CompactContext`, `SessionOptionsReported.CanCompact`). Compact asks the agent to summarise what has been
 said and carry on from the summary; nothing this application holds is touched, but it **asks first and

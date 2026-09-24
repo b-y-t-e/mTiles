@@ -29,6 +29,14 @@ public static class TurnStage
     public const int MaxLength = 38;
 
     /// <summary>The running tool's title, or empty when nothing names itself.</summary>
+    /// <remarks>
+    /// <para>A tool that launched a sub-agent says what the sub-agent is doing rather than what it was launched
+    /// to do: the title is on the row already, and the progress is the only news.</para>
+    /// <para><b>Sub-agents with no tool running are still something to say.</b> A background sub-agent keeps
+    /// the row up after the turn has ended (<see cref="ConversationState.IsBusy"/>), and a row with a spinner
+    /// and nothing beside it is the silence this replaced: one names what it is doing, several say how many.
+    /// </para>
+    /// </remarks>
     public static string For(ConversationState? state)
     {
         if (state is null) return "";
@@ -37,8 +45,18 @@ public static class TurnStage
             .OfType<WorkGroupEntry>()
             .SelectMany(group => group.Items.OfType<ToolCallItem>())
             .LastOrDefault(tool => tool.State == ToolCallState.Running);
+        if (running is not null)
+            return Cut(running.SubAgent is { IsWorking: true, Progress: { Length: > 0 } progress }
+                ? progress.Trim()
+                : running.Title.Trim());
 
-        return running is null ? "" : Cut(running.Title.Trim());
+        var working = state.SubAgents.Where(s => s.IsWorking).ToList();
+        return working.Count switch
+        {
+            0 => "",
+            1 => Cut((working[0].Progress ?? working[0].Title).Trim()),
+            _ => $"{working.Count} sub-agents working",
+        };
     }
 
     private static string Cut(string title)

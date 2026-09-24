@@ -163,14 +163,20 @@ public sealed partial class WorkGroupItemViewModel : TimelineItemViewModel
     }
 
     /// <summary>What the agent is doing now: the last tool this group has started and not finished.</summary>
-    /// <remarks>The <b>last</b> one, because an agent that runs several at once has started them in that
+    /// <remarks><para>The <b>last</b> one, because an agent that runs several at once has started them in that
     /// order and the newest is the one that has just changed. Nothing at all once the turn is over, however
     /// the tools were left — a group replayed out of the store holds whatever state its last draw wrote,
-    /// and a tool reported as running for ever would leave a finished turn claiming to be at work.</remarks>
-    private void RefreshRunning(WorkGroupEntry? group) =>
-        Running = _isTheLiveTurnsWork
-            ? group?.Items.OfType<ToolCallItem>().LastOrDefault(t => t.State is ToolCallState.Running)?.Title
-            : null;
+    /// and a tool reported as running for ever would leave a finished turn claiming to be at work.</para>
+    /// <para>A sub-agent still working is the exception, turn or no turn: a background one outlives the turn
+    /// that launched it, and the call that launched it has long finished — so the tally would say "1 other
+    /// tool" over work that is going on right now.</para></remarks>
+    private void RefreshRunning(WorkGroupEntry? group)
+    {
+        var tools = group?.Items.OfType<ToolCallItem>().ToList() ?? [];
+        var running = _isTheLiveTurnsWork ? tools.LastOrDefault(t => t.State is ToolCallState.Running) : null;
+        running ??= tools.LastOrDefault(t => t.SubAgent is { IsWorking: true });
+        Running = running is null ? null : ToolCallItemViewModel.DescribeWork(running);
+    }
 
     [RelayCommand]
     private void Toggle() => IsExpanded = !IsExpanded;
@@ -234,7 +240,52 @@ public sealed partial class ToolCallItemViewModel : WorkItemViewModel
 
     [ObservableProperty] private bool _isExpanded;
 
+    /// <summary>What the state column says: the call's own state, or the sub-agent's where it launched one.
+    /// </summary>
+    [ObservableProperty] private string _stateText = "";
+
+    /// <summary>Whether the sub-agent this call launched is working now — which turns the row's arc.</summary>
+    [ObservableProperty] private bool _isSubAgentWorking;
+
+    /// <summary>What the sub-agent is doing, or what it came to — one line under the row, or null.</summary>
+    [ObservableProperty] private string? _subAgentLine;
+
     public ToolCallItemViewModel(ToolCallItem tool) => Update(tool);
+
+    /// <summary>A call as the folded line and the waiting row say it: its title, and what the sub-agent it
+    /// launched is doing, where it launched one that is working.</summary>
+    public static string DescribeWork(ToolCallItem tool) =>
+        tool.SubAgent is { IsWorking: true, Progress: { Length: > 0 } progress }
+            ? $"{tool.Title} · {progress}"
+            : tool.Title;
+
+    /// <summary>The state column's words: a running tool says so, a finished one only when it did not go well
+    /// — and a call that launched a sub-agent says the sub-agent's, because a background one's call is done the
+    /// moment it is made.</summary>
+    internal static string StateOf(ToolCallItem tool) => tool.SubAgent?.Status switch
+    {
+        SubAgentStatus.Working => "working…",
+        SubAgentStatus.Failed => "failed",
+        SubAgentStatus.Stopped => "stopped",
+        SubAgentStatus.Completed => "",
+        _ => tool.State switch
+        {
+            ToolCallState.Running => "running…",
+            ToolCallState.Failed => "failed",
+            ToolCallState.Declined => "declined",
+            ToolCallState.Abandoned => "stopped",
+            _ => "",
+        },
+    };
+
+    /// <summary>The line under the row: what a working sub-agent is doing, or the first line of what it came
+    /// to.</summary>
+    internal static string? SubAgentLineOf(ToolCallItem tool) => tool.SubAgent switch
+    {
+        { IsWorking: true, Progress: { Length: > 0 } progress } => progress.Trim(),
+        { IsWorking: false, Result: { Length: > 0 } result } => result.Trim().Split('\n', 2)[0].Trim(),
+        _ => null,
+    };
 
     /// <summary>The patch as the viewer that draws every message here reads it.</summary>
     public string DiffMarkdown => AgentConversation.DiffMarkdown.For(Diff);
@@ -264,6 +315,9 @@ public sealed partial class ToolCallItemViewModel : WorkItemViewModel
         Input = tool.Detail.Input;
         Output = tool.Output.Length > OutputTail ? "…" + tool.Output[^OutputTail..] : tool.Output;
         if (!ReferenceEquals(previous?.Detail.Diff, tool.Detail.Diff)) Diff = DiffLines.Parse(tool.Detail.Diff);
+        StateText = StateOf(tool);
+        IsSubAgentWorking = tool.SubAgent is { IsWorking: true };
+        SubAgentLine = SubAgentLineOf(tool);
 
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(IsFailed));

@@ -199,8 +199,183 @@ public class LiveAgentConversationTests(ITestOutputHelper output)
         if (agentId != "agy") Assert.Matches(@"(?i)\bred\b", reply);
     }
 
+    /// <summary>
+    /// A sub-agent launched in the background keeps the conversation busy after the turn that launched it has
+    /// ended — and Claude Code answering it by itself afterwards is a turn of its own. codex does not wake when
+    /// its sub-agent finishes (measured, 0.156.1), so there the sub-agent's end is the end of the test.
+    /// </summary>
+    [LiveAgentTheory]
+    [InlineData("claude")]
+    [InlineData("codex")]
+    public async Task A_background_sub_agent_is_work_after_its_turn(string agentId)
+    {
+        var wanted = (Environment.GetEnvironmentVariable("MTILES_LIVE_AGENTS") ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (!wanted.Contains(agentId, StringComparer.OrdinalIgnoreCase))
+        {
+            output.WriteLine($"Skipped: MTILES_LIVE_AGENTS does not name {agentId}.");
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), $"mtiles-live-sub-{agentId}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        Git(root, "init -q");
+        File.WriteAllText(Path.Combine(root, "README.md"),
+            string.Concat(Enumerable.Range(1, 40).Select(i => $"## Heading {i}\ntext {i}\n")));
+        Git(root, "add -A");
+        Git(root, "-c user.name=t -c user.email=t@t commit -q -m init");
+
+        var agent = AiAgentCatalog.Find(agentId)!;
+        var instance = AiAgentCatalog.SeedInstanceFor(agent);
+        instance.DefaultBehaviour = AiBehaviour.BypassPermissions;
+        instance.DefaultEffort = AiEffort.Low;
+        foreach (var pair in (Environment.GetEnvironmentVariable("MTILES_LIVE_MODELS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+            if (pair.Split('=', 2) is [var id, var model] && id.Equals(agentId, StringComparison.OrdinalIgnoreCase))
+                instance.Model = model;
+
+        var (launch, problem) = await AgentSessionLauncher.PrepareAsync(new AppSettings(), agent, instance, root,
+            Guid.NewGuid().ToString(), null, CancellationToken.None);
+        Assert.True(launch is not null, problem);
+        var executable = mTiles.Services.ExecutableFinder.Anywhere(agent.BinaryName);
+        Assert.True(executable is not null, $"{agent.BinaryName} is not installed.");
+        launch = launch! with { ExecutablePath = executable! };
+
+        var store = new SqliteConversationStore(Path.Combine(root, "..", $"{Path.GetFileName(root)}.db"));
+        var host = new AgentConversationHost(
+            new ConversationRecord(Guid.NewGuid().ToString(), agent.Id, root, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+            store, new GitTurnCheckpoints(root));
+
+        var wakesUp = agentId == "claude";
+        var busyWithNoTurn = false;
+        var turnsEnded = 0;
+        var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.Changed += (state, e) =>
+        {
+            output.WriteLine($"{e.GetType().Name}: {Describe(e)}");
+            if (state is { IsWorking: false, IsBusy: true }) busyWithNoTurn = true;
+            if (e is TurnCompleted) Interlocked.Increment(ref turnsEnded);
+            if (e is TurnCompleted or SubAgentEnded && turnsEnded >= (wakesUp ? 2 : 1) && !state.IsBusy
+                && state.SubAgents.Count > 0) answered.TrySetResult();
+        };
+
+        try
+        {
+            await host.StartAsync(sink => AgentSessionLauncher.Create(agent, launch!, sink), null, CancellationToken.None);
+            var launching = wakesUp
+                ? "Use the Agent tool with run_in_background set to true (subagent_type general-purpose) to have a " +
+                  "background agent read README.md and count the lines starting with '## '."
+                : "Spawn one sub-agent (use your spawn_agent tool) and ask it to read README.md and count the " +
+                  "lines starting with '## '.";
+            await host.ExecuteAsync(new SendMessage(launching +
+                " Do not wait for it: right after launching, reply with just the word LAUNCHED and end your turn. " +
+                "When the background agent finishes, tell me its count in one sentence."), CancellationToken.None);
+
+            await answered.Task.WaitAsync(TimeSpan.FromMinutes(5));
+            var final = host.State;
+            Assert.True(busyWithNoTurn, "The conversation was never busy with no turn open.");
+            var subAgent = Assert.Single(final.SubAgents);
+            Assert.Equal(SubAgentStatus.Completed, subAgent.Status);
+            if (wakesUp)
+                Assert.Contains(final.Timeline, e => e is MessageEntry { Role: MessageRole.Assistant } m && m.Text.Contains("40"));
+            else
+                Assert.Contains("40", subAgent.Result);
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// What a sub-agent asks reaches the tile.
+    /// </summary>
+    /// <remarks>opencode runs a sub-agent as a child session, whose request was filtered as another session's
+    /// and never answered — the sub-agent waited for ever under a <c>task</c> row saying "running". Driven
+    /// against a config that asks before every edit. Claude Code's sub-agents ask through the one control
+    /// channel and need nothing.</remarks>
+    [LiveAgentTheory]
+    [InlineData("opencode")]
+    public async Task A_sub_agent_asks_and_the_tile_hears_it(string agentId)
+    {
+        var wanted = (Environment.GetEnvironmentVariable("MTILES_LIVE_AGENTS") ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (!wanted.Contains(agentId, StringComparer.OrdinalIgnoreCase))
+        {
+            output.WriteLine($"Skipped: MTILES_LIVE_AGENTS does not name {agentId}.");
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), $"mtiles-live-ask-{agentId}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        Git(root, "init -q");
+        File.WriteAllText(Path.Combine(root, "README.md"), "live test\n");
+        Git(root, "add -A");
+        Git(root, "-c user.name=t -c user.email=t@t commit -q -m init");
+
+        var agent = AiAgentCatalog.Find(agentId)!;
+        var instance = AiAgentCatalog.SeedInstanceFor(agent);
+        instance.DefaultBehaviour = AiBehaviour.ToolDefault;
+        instance.DefaultEffort = AiEffort.Low;
+        foreach (var pair in (Environment.GetEnvironmentVariable("MTILES_LIVE_MODELS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+            if (pair.Split('=', 2) is [var id, var model] && id.Equals(agentId, StringComparison.OrdinalIgnoreCase))
+                instance.Model = model;
+
+        var (launch, problem) = await AgentSessionLauncher.PrepareAsync(new AppSettings(), agent, instance, root,
+            Guid.NewGuid().ToString(), null, CancellationToken.None);
+        Assert.True(launch is not null, problem);
+        var executable = mTiles.Services.ExecutableFinder.Anywhere(agent.BinaryName);
+        Assert.True(executable is not null, $"{agent.BinaryName} is not installed.");
+        var config = Path.Combine(root, "..", $"{Path.GetFileName(root)}.opencode.json");
+        File.WriteAllText(config, """{"permission":{"edit":"ask","bash":"ask"}}""");
+        launch = launch! with
+        {
+            ExecutablePath = executable!,
+            Environment = new Dictionary<string, string?>(launch.Environment) { ["OPENCODE_CONFIG"] = config },
+        };
+
+        var store = new SqliteConversationStore(Path.Combine(root, "..", $"{Path.GetFileName(root)}.db"));
+        var host = new AgentConversationHost(
+            new ConversationRecord(Guid.NewGuid().ToString(), agent.Id, root, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+            store, new GitTurnCheckpoints(root));
+
+        var asked = new List<string>();
+        var turnDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.Changed += (_, e) =>
+        {
+            output.WriteLine($"{e.GetType().Name}: {Describe(e)}");
+            if (e is ApprovalRequested approval)
+            {
+                lock (asked) asked.Add($"{approval.Title} {approval.Detail}");
+                host.ExecuteAsync(new RespondToApproval(approval.RequestId, ApprovalDecision.Accept), CancellationToken.None)
+                    .ContinueWith(t => output.WriteLine($"answer failed: {t.Exception}"), TaskContinuationOptions.OnlyOnFaulted);
+            }
+
+            if (e is TurnCompleted) turnDone.TrySetResult();
+        };
+
+        try
+        {
+            await host.StartAsync(sink => AgentSessionLauncher.Create(agent, launch!, sink), null, CancellationToken.None);
+            await host.ExecuteAsync(new SendMessage(
+                "Use the task tool to delegate to a general subagent the job of creating the file sub.txt in the " +
+                "current directory containing exactly the word hi (it must use its edit or write tool). Wait for it, " +
+                "then reply DONE."), CancellationToken.None);
+
+            await turnDone.Task.WaitAsync(TimeSpan.FromMinutes(5));
+            Assert.True(File.Exists(Path.Combine(root, "sub.txt")), "The sub-agent did not write sub.txt.");
+            lock (asked) Assert.Contains(asked, title => title.Contains("sub.txt"));
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
+    }
+
     private static string Describe(AgentEvent e) => e switch
     {
+        SubAgentStarted s => $"{s.SubAgentId} {s.Title} background={s.Background}",
+        SubAgentProgressed p => $"{p.SubAgentId} {p.Progress}",
+        SubAgentEnded s => $"{s.SubAgentId} {s.Outcome} {s.Result}",
         AssistantTextDelta d => d.Delta.Replace("\n", "⏎"),
         AssistantMessageCompleted m => m.Text.Replace("\n", "⏎"),
         ToolStarted t => $"{t.Kind} {t.Title}",

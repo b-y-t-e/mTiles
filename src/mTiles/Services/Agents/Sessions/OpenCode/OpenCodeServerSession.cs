@@ -45,6 +45,9 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
     private bool _abortRequested;
     private bool _turnWasBusy;
 
+    // Which sessions are this conversation's: ours, and each `task` tool's sub-agent opened under it.
+    private OpenCodeSessionFamily? _family;
+
     // What the next prompt runs as: opencode takes the model and the plan agent on every prompt, and the
     // permission rules are the session's, patched in place — nothing here needs a restart.
     private string? _model;
@@ -79,6 +82,7 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
         _ = WatchExitAsync(_process);
 
         _sessionId = await OpenSessionAsync(ct);
+        _family = new OpenCodeSessionFamily(ParentOfAsync) { Root = _sessionId };
         _mapper = new OpenCodeEventMapper(_sessionId);
         _ = ListenAsync(_lifetime.Token);
 
@@ -488,7 +492,15 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
 
         var type = root.Str("type") ?? "";
         var properties = root.Prop("properties") ?? default;
-        if (_mapper is null || !_mapper.Concerns(properties)) return;
+        if (_mapper is null) return;
+        if (type is "session.created" or "session.updated") NoteChildSession(properties.Prop("info"));
+        if (!_mapper.Concerns(properties))
+        {
+            // A sub-agent's session asks in its own name, and that request is still somebody's to answer:
+            // dropped, the sub-agent waited for ever while the `task` row above it said "running".
+            if (type is "permission.asked" or "question.asked") _ = OnChildRequestAsync(type, properties);
+            return;
+        }
 
         switch (type)
         {
@@ -519,6 +531,69 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
         string? turnId;
         lock (_turnGate) turnId = _turnId;
         foreach (var e in _mapper.Map(type, properties, turnId)) sink.Emit(e);
+    }
+
+    /// <summary>A session opened under ours, noted as ours as it is announced.</summary>
+    /// <remarks>
+    /// <para>opencode's session record carries a <c>parentID</c>; a sub-agent's sub-agent names its parent,
+    /// which is why a known child counts as a parent too.</para>
+    /// <para><b>A sub-agent does not work under this conversation's rules</b>, and nothing here can make it.
+    /// Measured 2026-09-24 against 1.18.18: the child session is created with rules of its own
+    /// (<c>external_directory</c> allow, <c>task</c> deny), then works under the user's config — with
+    /// <c>edit: ask</c> there it asks even when this conversation is on bypass. A <c>PATCH</c> of the child's
+    /// <c>permission</c> the moment it is announced is taken (the rules are appended to its list, three seconds
+    /// before its first tool) and changes nothing: it still asks. What this can do is make sure the question
+    /// reaches the tile.</para>
+    /// </remarks>
+    private void NoteChildSession(JsonElement? info)
+    {
+        if (info.Str("id") is { } id && info.Str("parentID") is { } parent) _family?.Note(id, parent);
+    }
+
+    /// <summary>A request from a session that is not ours, answered if that session is one of ours underneath.
+    /// </summary>
+    private async Task OnChildRequestAsync(string type, JsonElement request)
+    {
+        if (request.Str("sessionID") is not { } session || _family is null || !await IsOurSessionAsync(_family, session))
+            return;
+        if (type == "permission.asked") await ApproveAsync(request);
+        else await AskAsync(request);
+    }
+
+    /// <summary>Whether a session asking is ours, asking the server again while it cannot say.</summary>
+    /// <remarks>Nothing else retries this request: given up on after one failed lookup, the sub-agent waits for
+    /// ever under a <c>task</c> row saying "running".</remarks>
+    private async Task<bool> IsOurSessionAsync(OpenCodeSessionFamily family, string session)
+    {
+        var delay = TimeSpan.FromSeconds(1);
+        for (var attempt = 0; attempt < ChildLookupAttempts; attempt++)
+        {
+            if (await family.WhoseAsync(session) is { } ours) return ours;
+            try { await Task.Delay(delay, _lifetime.Token); }
+            catch (OperationCanceledException) { return false; }
+            delay *= 2;
+        }
+        return false;
+    }
+
+    private const int ChildLookupAttempts = 6;
+
+    private async Task<SessionParent?> ParentOfAsync(string session)
+    {
+        if (_http is null) return null;
+        try
+        {
+            using var deadline = Deadline(_lifetime.Token, TimeSpan.FromSeconds(10));
+            using var response = await _http.GetAsync($"session/{session}", deadline.Token);
+            if (!response.IsSuccessStatusCode) return null;
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(deadline.Token),
+                cancellationToken: deadline.Token);
+            return new SessionParent(document.RootElement.Str("parentID"));
+        }
+        catch (Exception ex) when (SessionIsGone(ex) || ex is JsonException)
+        {
+            return null;
+        }
     }
 
     private async Task ApproveAsync(JsonElement request)
@@ -556,8 +631,9 @@ public sealed partial class OpenCodeServerSession(AgentSessionLaunch launch, Ope
         {
             using var response = await _http!.PostAsJsonAsync($"permission/{requestId}/reply", new { reply },
                 _lifetime.Token);
+            // The older route names the session asking, which for a sub-agent is its own and not ours.
             if (response.StatusCode == HttpStatusCode.NotFound)
-                using (await _http.PostAsJsonAsync($"session/{_sessionId}/permissions/{requestId}",
+                using (await _http.PostAsJsonAsync($"session/{request.Str("sessionID") ?? _sessionId}/permissions/{requestId}",
                            new { response = reply }, _lifetime.Token)) { }
             if (decision == ApprovalDecision.Cancel) await InterruptAsync(CancellationToken.None);
         }

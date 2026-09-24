@@ -22,12 +22,17 @@ namespace mTiles.Services.Agents.Sessions.Claude;
 /// Reading only the stream loses a block when partial messages are off in somebody's extra arguments;
 /// reading only the whole messages loses the typing.</para>
 /// <para>Messages from a sub-agent (<c>parent_tool_use_id</c> set) are not drawn: they are the inside of
-/// one <c>Task</c> tool call, whose result says what came of it — the rule t3code follows too.</para>
+/// one <c>Task</c> tool call, whose result says what came of it — the rule t3code follows too. What is
+/// read instead is the <c>system</c> line Claude Code writes about each task — <c>task_started</c>,
+/// <c>task_progress</c>, <c>task_updated</c>, <c>task_notification</c> (measured 2026-09-24 against
+/// 2.1.281) — because a sub-agent run in the background outlives the turn that launched it, and without
+/// them nothing on screen says it is working.</para>
 /// </remarks>
 public sealed class ClaudeStreamMapper
 {
     private readonly Dictionary<int, BlockState> _blocks = new();
     private readonly Dictionary<string, JsonElement> _toolInputs = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _subAgents = new(StringComparer.Ordinal);
     private string _messageId = "message";
     private long? _lastContextTokens;
 
@@ -43,7 +48,7 @@ public sealed class ClaudeStreamMapper
     public IReadOnlyList<AgentEvent> Map(JsonElement line, string? turnId)
     {
         var events = new List<AgentEvent>();
-        if (line.Str("parent_tool_use_id") is not null) return events;
+        if (IsSubAgentLine(line)) return events;
 
         switch (line.Str("type"))
         {
@@ -77,6 +82,12 @@ public sealed class ClaudeStreamMapper
     public static bool EndsTurn(JsonElement line) =>
         line.Str("type") == "result" && line.Str("parent_tool_use_id") is null;
 
+    /// <summary>Whether this line is the agent at work — a line that opens a turn when none is open.</summary>
+    /// <remarks>The agent's own reply, streamed or whole; never a sub-agent's, whose lines arrive while the
+    /// agent itself is idle.</remarks>
+    public static bool OpensTurn(JsonElement line) =>
+        !IsSubAgentLine(line) && line.Str("type") is "assistant" or "stream_event";
+
     /// <summary>How a turn's <c>result</c> line ended the turn.</summary>
     public static (TurnOutcome Outcome, string? Error) OutcomeOf(JsonElement result)
     {
@@ -106,8 +117,54 @@ public sealed class ClaudeStreamMapper
             case "compact_boundary":
                 events.Add(new NoticeRaised(NoticeLevel.Info, "The conversation was compacted to fit the context."));
                 break;
+            case "task_started" when line.Str("task_id") is { } taskId && IsSubAgent(line):
+                _subAgents.Add(taskId);
+                events.Add(new SubAgentStarted(taskId, line.Str("description") ?? line.Str("subagent_type") ?? "Sub-agent",
+                    line.Str("tool_use_id"), line.Prop("is_backgrounded") is { ValueKind: JsonValueKind.True }));
+                break;
+            case "task_progress" when line.Str("task_id") is { } taskId && _subAgents.Contains(taskId)
+                                      && (line.Str("summary") ?? line.Str("description")) is { Length: > 0 } progress:
+                events.Add(new SubAgentProgressed(taskId, progress));
+                break;
+            // task_updated says "killed" a moment before task_notification says "stopped", and only the
+            // notification carries the result — but a kill whose notification never came must still end it.
+            case "task_updated" when line.Str("task_id") is { } taskId && _subAgents.Contains(taskId)
+                                     && line.Prop("patch").Str("status") is "completed" or "failed" or "killed":
+                events.Add(new SubAgentEnded(taskId, OutcomeOfTask(line.Prop("patch").Str("status"))));
+                break;
+            case "task_notification" when line.Str("task_id") is { } taskId && _subAgents.Remove(taskId):
+                events.Add(new SubAgentEnded(taskId, OutcomeOfTask(line.Str("status")), line.Str("summary")));
+                break;
         }
     }
+
+    /// <summary>
+    /// Whether a <c>task_started</c> is a sub-agent rather than one of the other things Claude Code runs as a
+    /// task.
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured 2026-09-24 against 2.1.281: an <c>Agent</c> call is <c>task_type: local_agent</c>, and the
+    /// shell a sub-agent itself runs is a task too — <c>local_bash</c>, marked <c>owned_by_subagent</c>. A
+    /// shell the agent leaves running in the background (a dev server, a watcher) is <c>local_bash</c> as
+    /// well, and may run for the rest of the session: counted as work, it would keep the tile "working" for
+    /// good.</para>
+    /// <para>A list of what is <i>not</i> a sub-agent rather than of what is, the way t3code classifies it:
+    /// the kinds of agent Claude Code grows (remote agents, workflows) should be shown working, and the
+    /// shells and monitors are the kinds already known.</para>
+    /// </remarks>
+    private static bool IsSubAgent(JsonElement line) =>
+        line.Prop("owned_by_subagent") is not { ValueKind: JsonValueKind.True }
+        && line.Str("task_type") is not ("local_bash" or "shell" or "monitor" or "monitor_mcp" or "plan" or "dream");
+
+    private static SubAgentOutcome OutcomeOfTask(string? status) => status switch
+    {
+        "completed" => SubAgentOutcome.Completed,
+        "failed" => SubAgentOutcome.Failed,
+        _ => SubAgentOutcome.Stopped,
+    };
+
+    /// <summary>Whether a line comes from a sub-agent's own conversation — the inside of one task.</summary>
+    public static bool IsSubAgentLine(JsonElement line) => line.Str("parent_tool_use_id") is not null;
 
     private void MapStreamEvent(JsonElement e, List<AgentEvent> events)
     {

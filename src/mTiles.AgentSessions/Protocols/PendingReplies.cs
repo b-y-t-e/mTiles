@@ -15,11 +15,15 @@ namespace mTiles.AgentSessions.Protocols;
 public sealed class PendingReplies<T>
 {
     private readonly ConcurrentDictionary<string, TaskCompletionSource<T>> _open = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _heldBySubAgents = new(StringComparer.Ordinal);
 
     /// <summary>Registers a request and waits for its answer.</summary>
-    public async Task<T> WaitAsync(string requestId, CancellationToken ct)
+    /// <param name="bySubAgent">Whether a sub-agent asked rather than the agent — such a request outlives the
+    /// turn, see <see cref="AbandonTurn"/>.</param>
+    public async Task<T> WaitAsync(string requestId, CancellationToken ct, bool bySubAgent = false)
     {
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (bySubAgent) _heldBySubAgents[requestId] = 0;
         _open[requestId] = completion;
         try
         {
@@ -28,6 +32,7 @@ public sealed class PendingReplies<T>
         finally
         {
             _open.TryRemove(requestId, out _);
+            _heldBySubAgents.TryRemove(requestId, out _);
         }
     }
 
@@ -39,5 +44,14 @@ public sealed class PendingReplies<T>
     public void AbandonAll(T answer)
     {
         foreach (var id in _open.Keys) Resolve(id, answer);
+    }
+
+    /// <summary>Answers every open request the agent itself made with <paramref name="answer"/>.</summary>
+    /// <remarks>For the end of a turn: the turn's own requests go, a sub-agent's — which a background one is
+    /// still waiting on — stay, and the reducer keeps them on screen by the same rule.</remarks>
+    public void AbandonTurn(T answer)
+    {
+        foreach (var id in _open.Keys)
+            if (!_heldBySubAgents.ContainsKey(id)) Resolve(id, answer);
     }
 }

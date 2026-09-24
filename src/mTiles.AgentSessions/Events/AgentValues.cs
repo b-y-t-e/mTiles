@@ -23,6 +23,17 @@ public enum TurnOutcome
     Failed,
 }
 
+/// <summary>How a sub-agent stopped working.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SubAgentOutcome>))]
+public enum SubAgentOutcome
+{
+    Completed,
+    Failed,
+
+    /// <summary>Stopped by the user, or ended with the turn or the session that was running it.</summary>
+    Stopped,
+}
+
 /// <summary>
 /// What a tool call is, so it can be drawn the right way — never how the agent names it.
 /// </summary>

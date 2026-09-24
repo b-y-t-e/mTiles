@@ -114,6 +114,80 @@ runs one real turn per agent through launcher, session, host and checkpoint.
 - **A process the session stopped is `Stopped`, not `Failed`** (`AgentProcess.StoppedByUs`): a process
   killed on the way out exits -1, which is not the agent failing.
 
+## Sub-agents: busy is not the same as a turn
+
+A sub-agent run in the foreground was always drawn: its tool call is open for as long as it works, the
+turn is open with it, and the spinner turns. **One run in the background was not**, and that is what this
+section is about. Measured 2026-09-24 against Claude Code 2.1.281, driven by a recording script with a
+background `Agent` call:
+
+- The `Agent` call is answered `Async agent launched successfully` at once, the agent replies, and the
+  turn's `result` arrives — while the sub-agent has its whole job ahead of it.
+- Everything the sub-agent says comes with `parent_tool_use_id` set and is not drawn (the inside of one
+  task, t3code's rule too). What *is* written about it is a `system` line per task: `task_started`
+  (`task_id`, `tool_use_id`, `description`, `is_backgrounded`, `task_type: local_agent`), `task_progress`
+  (`description` is the progress line, `last_tool_name`), `task_updated` (`patch.status`: `completed`,
+  `failed`, `killed`) and `task_notification` (`status`, `summary` — the result). A shell the sub-agent
+  runs is a task too, `local_bash` with `owned_by_subagent`, and is **not** a sub-agent; nor is a shell the
+  agent leaves running in the background, which can run for the rest of the session.
+- When the sub-agent finishes, **the agent wakes by itself**: a fresh `system/init`, an assistant message
+  and a `result` of its own, with no message from anybody.
+- `interrupt` sent with no turn open stops every background sub-agent (`task_updated` "killed", then
+  `task_notification` "stopped"), and no `result` follows.
+- A sub-agent's permission request is an ordinary `can_use_tool` carrying `agent_id` — the task id.
+
+What was wrong, all of it silent: the spinner, the clock and Stop went away with the first `result`; the
+agent's own answer later arrived with no turn open, so it was drawn with no spinner and no way to stop it,
+and its `result` either closed nothing or closed the turn the user had opened meanwhile; ending that turn
+answered a background sub-agent's pending permission with *cancel*; and a restart killed it without a word.
+
+**The contract:** `SubAgentStarted` (id, title, launching call, background), `SubAgentProgressed`
+(transient — the running session's news, not worth a row per tool) and `SubAgentEnded` (outcome, result);
+`ApprovalRequested`/`QuestionsAsked` carry a `SubAgentId`. The reducer keeps every sub-agent in
+`ConversationState.SubAgents` and mirrors each onto the row of the call that launched it. **`IsBusy` is
+the question and `IsWorking` is not**: `IsWorking` is still "a turn is open", which is what decides Send
+against Stop (a message sent while only sub-agents work is an ordinary message), and `IsBusy` adds any
+sub-agent still working — the spinner, the clock, Escape, the tile's activity, the skill-change restart and
+the switch confirmations follow it, and the host refuses Undo and a restart under it. A turn's end stops the
+foreground sub-agents and leaves the background ones — and what they are asking — alone; the session's end
+stops them all, which is also what a conversation reopened from the store starts with.
+
+**A turn nobody sent a message for is still a turn.** Claude Code's session opens one on a top-level
+`assistant` or `stream_event` line when none is open (`ClaudeStreamMapper.OpensTurn`) — not on
+`system/init`, which a settings change may repeat with no turn behind it. codex's session does the same on
+its own thread's `turn/started`.
+
+**Per agent:**
+
+- **codex** runs a sub-agent as a thread of its own. Measured 2026-09-24 against codex-cli 0.156.1 with the
+  default `multi_agent` (v1; `multi_agent_v2` is off by default), and matching t3code's capture of v2: the
+  parent's thread announces it with a `subAgentActivity` item (`kind: started`, `agentThreadId`,
+  `agentPath`) and says `kind: completed` when it is done; in between the child has its own
+  `turn/started`/`turn/completed` under its own `threadId`, and the parent's turn ends long before. There is
+  no `thread/started` for the child and no `collabAgentToolCall` item in v1. A `subAgentActivity` naming
+  *our* thread is a child reporting back (v2) and must not be registered, or our own thread would be
+  filtered as another's. **codex does not wake when its sub-agent finishes**, unlike Claude Code — three
+  minutes of silence after the child's `completed`; the parent hears of it at its next turn. Stop
+  interrupts the children's turns before the parent's; a request from a child thread carries the child's
+  `threadId` and outlives our turn.
+- **opencode** runs a sub-agent as a child session, and its `task` call stays running until the child is
+  done, so the turn stays open by itself. Measured 2026-09-24 against 1.18.18: the child is announced by
+  `session.created` with a `parentID`, and asks by `permission.asked` under its **own** `sessionID` —
+  which was filtered as another session's, so the child waited for ever under a `task` row saying
+  "running". A session is now ours if its `parentID` chain reaches ours (noted from `session.created`/
+  `session.updated`, or asked of `GET session/{id}` for one opened before the stream saw it), and
+  `permission/{id}/reply` answers it. **The child does not work under this conversation's rules**: it is
+  created with its own (`external_directory` allow, `task` deny) and then follows the user's config, so on
+  bypass it still asks where that config says ask. A `PATCH` of the child's `permission` the moment it is
+  announced is accepted — the rules are appended — and changes nothing; it was measured and taken back out.
+  What this can guarantee is that the question reaches the tile.
+- **ACP, pi and agy** have no sub-agent events; nothing changed for them.
+
+On screen: the waiting row stays up while anything is busy — with a Stop of its own when no turn is open,
+because the composer's slot is Send again — and says what the sub-agent is doing, or how many are working.
+The row of the call that launched one turns an arc and says `working…`, with the progress, or later the
+first line of the result, under it; the folded group's line names it, turn or no turn.
+
 ## Storage
 
 `%APPDATA%/mTiles/agent-conversations/conversations.db` (Linux: `~/.config/mTiles/…`), in a directory
