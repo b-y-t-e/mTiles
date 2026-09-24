@@ -138,6 +138,7 @@ public class WorktreeScopeTests(WorktreeScopeTests.History history) : IClassFixt
     }
 
     [Fact]
+    [Trait("Category", "Slow")] // two full reads against a failing git, each several processes; 2.2 s on a Windows runner
     public async Task A_whole_tree_read_that_cannot_be_taken_answers_as_the_ordinary_one_does()
     {
         // No repository at all, so there is no HEAD to write a tree against. The point is that this
