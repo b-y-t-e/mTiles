@@ -76,6 +76,7 @@ public class GoalCommitterPathspecTests
     }
 
     [Fact]
+    [Trait("Category", "Slow")] // real git processes, like the rest of this class; 2 s on a Windows runner
     public async Task A_failed_commit_leaves_the_users_own_staging_where_it_was()
     {
         using var repo = new GitTestRepo(prefix: "pathspec");

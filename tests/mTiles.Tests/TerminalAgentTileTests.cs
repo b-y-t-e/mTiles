@@ -25,8 +25,8 @@ public class TerminalAgentTileTests
     [Fact]
     public void A_new_tile_is_named_Terminal_agent_and_counts_past_the_names_already_there()
     {
-        using var settings = new TempSettings();
-        var kind = TestTiles.Catalog(settings.Service).Entries.Single(e => e.Kind.Id == TileKindIds.TerminalAgent).Kind;
+        // The kind alone: the whole catalog opens a conversation store, and naming a tile needs none of it.
+        ITileKind kind = new TerminalAgentTileKind();
 
         Assert.Equal("Terminal agent#1", kind.NameFor(new HashSet<string>()));
         Assert.Equal("Terminal agent#4", kind.NameFor(new HashSet<string> { "Agent#3", "Terminal#1" }));
