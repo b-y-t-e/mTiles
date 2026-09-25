@@ -34,13 +34,24 @@ public sealed partial class GitService(string workingDirectory, string gitPath =
         if (checkResult.Trim() != "true")
             return new GitStatusResult { IsGitRepo = false };
 
-        var branch = (await _git.RunAsync("rev-parse --abbrev-ref HEAD", ct)).Trim();
+        // A repository with no commits yet is still a repository, and the one somebody has just made
+        // is exactly that. Its HEAD names a branch that does not exist, so `rev-parse --abbrev-ref HEAD`
+        // and `log` both exit 128 — which used to throw out of here and have the tile report that there
+        // was no repository at all. `branch --show-current` reads the ref HEAD names whether or not
+        // anything is on it (the rule ReadBranchNameAsync already follows) and is empty only on a
+        // detached HEAD, which keeps its old spelling for GetUnpushedHashesAsync.
+        var hasCommits = (await _git.RunAsync("rev-parse --verify --quiet HEAD", throwOnError: false, ct))
+            .Trim().Length > 0;
+        var branch = (await _git.RunAsync("branch --show-current", ct)).Trim();
+        if (branch.Length == 0) branch = "HEAD";
 
         var statusTask = _git.RunAsync("-c core.quotePath=false status --porcelain -uall", ct);
-        var logTask = _git.RunAsync("log --oneline -30", ct);
+        var logTask = hasCommits ? _git.RunAsync("log --oneline -30", ct) : Task.FromResult("");
         var stashTask = _git.RunAsync("stash list", ct);
         var tagsTask = GetTagsMapInternalAsync(ct);
-        var unpushedTask = GetUnpushedHashesAsync(branch, ct);
+        var unpushedTask = hasCommits
+            ? GetUnpushedHashesAsync(branch, ct)
+            : Task.FromResult(new UnpushedResult([], false));
 
         await Task.WhenAll(statusTask, logTask, stashTask, tagsTask, unpushedTask);
         ct.ThrowIfCancellationRequested();
