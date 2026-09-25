@@ -89,23 +89,30 @@ public sealed class GoalPromptBuilder
     /// argument as the out-of-scope sentence in <see cref="QualityRules"/>: a tool told the tests must
     /// pass, in front of a suite that was already red, goes and fixes somebody else's tests with the
     /// attempts meant for the goal. It is told to report them instead.</para>
+    /// <para>A check switched off is said out loud rather than left out (<see cref="SkippedChecks"/>):
+    /// silence is not an instruction, and an agent builds and runs the suite by reflex after a change —
+    /// which is exactly the time and the tokens the user unticked the box to save.</para>
     /// </remarks>
     /// <param name="review">Whether this is the reviewer being asked to establish it, rather than the
     /// implementer being asked to leave it true.</param>
     private string HealthRules(bool review)
     {
         var criteria = _criteria();
-        if (!criteria.RequireBuild && !criteria.RequireTestsPass) return "";
+        var build = criteria.RequireBuild;
+        var tests = criteria.RequireTestsPass;
+        var skipped = SkippedChecks(build, tests);
+        if (!build && !tests) return skipped + "\n";
 
         var text = new StringBuilder(review
-            ? "Establish these yourself, by running this project's own commands — neither of them " +
-              "can be read off a diff:\n"
+            ? "Establish these yourself, by running this project's own commands — none of it can be " +
+              "read off a diff:\n"
             : "When you are finished these MUST be true, and checking them is part of the work — use " +
               "this project's own commands, worked out from the repository:\n");
 
-        if (criteria.RequireBuild) text.Append("- the project builds\n");
-        if (criteria.RequireTestsPass) text.Append("- the project's tests pass\n");
+        if (build) text.Append("- the project builds\n");
+        if (tests) text.Append("- the project's tests pass\n");
 
+        var running = build && tests ? "the build and the tests" : build ? "the build" : "the tests";
         text.Append(review
             ? "A failure these changes caused is an error finding. One that was already failing before " +
               "them is not: say so in your reasoning and leave it out of the findings.\n" +
@@ -113,13 +120,25 @@ public sealed class GoalPromptBuilder
               // commands, because a build writes and a read-only sandbox would fail the very
               // check this asks for. This sentence is what stands in for the sandbox that was
               // withdrawn: it may compile and test, it may not edit.
-              "Running the build and the tests is the only change you may make: do not edit, " +
+              $"Running {running} is the only change you may make: do not edit, " +
               "create or delete any file, and do not commit.\n"
             : "A failure that was already there before you started is not yours to fix: say so in your " +
               "closing line rather than working around it.\n");
 
-        return text.Append('\n').ToString();
+        return text.Append(skipped).Append('\n').ToString();
     }
+
+    /// <summary>
+    /// The sentence that says which of the two checks the user switched off, or nothing.
+    /// </summary>
+    /// <remarks>Tests on with the build off asks for nothing here: a suite cannot run without building
+    /// what it tests, so forbidding the build would forbid the one check still asked for.</remarks>
+    private static string SkippedChecks(bool build, bool tests) => (build, tests) switch
+    {
+        (false, false) => "Do not build the project or run its tests: neither is part of this goal's checks.\n",
+        (true, false) => "Do not run the project's tests: they are not part of this goal's checks.\n",
+        _ => "",
+    };
 
     /// <summary>How a violation of these rules is described where the review is told what a warning is.
     /// SOLID is left out of that sentence when none of it applies, so the one place the reviewer is
@@ -837,6 +856,11 @@ public sealed class GoalPromptBuilder
             prompt += $"This is attempt {c.Attempt} of {c.Attempts}.\n\n";
 
         prompt += "Follow the approved plan. Make the necessary code changes. Be precise and minimal.\n" +
+                  // The review reads `git diff HEAD` and the commit plan divides what changed since the
+                  // goal's baseline: a commit made here takes the work out of the first and hands the
+                  // second nothing to divide. Said whatever the "commit when done" box says, because
+                  // that box decides what the tile does afterwards, never what the tool may do now.
+                  "Do not commit: what becomes of the work in git is decided once the goal is finished.\n" +
                   OtherPeoplesWork +
                   "Finish with one line saying what you changed, then one line starting \"Rejected:\" " +
                   "naming anything you tried or considered and did not do, and why.\n\n" +

@@ -168,6 +168,49 @@ public class GoalPromptBuilderTests
     }
 
     /// <summary>
+    /// A check switched off is forbidden in words, not merely left unmentioned.
+    /// </summary>
+    /// <remarks>An agent builds and runs the suite by reflex after a change, so a prompt that is only
+    /// silent about the tests has them run anyway — the time and the tokens unticking the box was
+    /// meant to save. Tests without the build forbid nothing: a suite cannot run unbuilt.</remarks>
+    [Theory]
+    [InlineData(true, true, null, "the build and the tests")]
+    [InlineData(true, false, "Do not run the project's tests", "Running the build is")]
+    [InlineData(false, true, null, "Running the tests is")]
+    [InlineData(false, false, "Do not build the project or run its tests", null)]
+    public void A_check_switched_off_is_forbidden_in_words(
+        bool build, bool tests, string? forbidden, string? reviewRuns)
+    {
+        var builder = new GoalPromptBuilder(
+            () => new GoalCompletionCriteria { RequireBuild = build, RequireTestsPass = tests });
+        var implement = builder.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal"));
+        var review = builder.BuildReview("a goal", null);
+
+        foreach (var prompt in (string[])[implement, review])
+        {
+            if (forbidden is null) Assert.DoesNotContain("Do not build", prompt);
+            if (forbidden is null) Assert.DoesNotContain("Do not run the project's tests", prompt);
+            else Assert.Contains(forbidden, prompt);
+        }
+
+        if (reviewRuns is null) Assert.DoesNotContain("is the only change you may make", review);
+        else Assert.Contains(reviewRuns, review);
+    }
+
+    /// <summary>The implementer is told not to commit, whatever the "commit when done" box says: the
+    /// review reads <c>git diff HEAD</c>, and a commit made mid-goal takes the work out of it.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void The_implementer_is_told_not_to_commit(bool commitWhenDone)
+    {
+        var builder = new GoalPromptBuilder(() => new GoalCompletionCriteria { CommitWhenDone = commitWhenDone });
+
+        Assert.Contains("Do not commit",
+            builder.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal")));
+    }
+
+    /// <summary>
     /// The reviewer is warned that the working tree is not all one change — but only where that block
     /// really is everything uncommitted.
     /// </summary>
