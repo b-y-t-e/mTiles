@@ -126,6 +126,9 @@ public partial class GoalTileViewModel
     /// <summary>Set at the start of <see cref="Dispose"/>. The workflow keeps unwinding after the
     /// tile is closed and the store must not be asked for anything more.</summary>
     private bool _disposed;
+    /// <summary>Whether <c>LastReview</c> came from a step that ran the tests. Not persisted: after a
+    /// restart it reads false, so the tests are owed once more rather than skipped.</summary>
+    private bool _lastReviewRanTests;
 
     /// <summary>The agents this machine can run, as of the last scan. Rebuilt rather than kept in step:
     /// the scan itself is cached for half a minute in <c>AiAgentCatalog.Locate</c>.</summary>
@@ -2936,12 +2939,16 @@ public partial class GoalTileViewModel
                     }
                 }
 
+                // Asked once for the lap, so the prompt, the sandbox and the test run below all hear the
+                // same answer.
+                var reviewRunsTests = _engine.ReviewRunsTests;
                 var reviewRun = await RunLoopPhaseAsync(
                     GoalPhase.Review,
                     "AI is reviewing changes...",
                     // `isScoped` rather than `scoped`: the latter is a C# modifier keyword in a lambda
                     // parameter list and will not compile there.
-                    (tree, isScoped) => _engine.BuildReviewPrompt(tree, isScoped, PromptBudget()),
+                    (tree, isScoped) => _engine.BuildReviewPrompt(
+                        tree, isScoped, PromptBudget(), runTests: reviewRunsTests),
                     // What the tree is measured from decides what the prompt may call it, so both come
                     // from DiffBase and neither is tracked separately. A local flag set from
                     // startAtReview said the same thing for one lap of one call: it was right on the
@@ -2954,7 +2961,8 @@ public partial class GoalTileViewModel
                     // The raw answer is not what goes in the transcript. It is read first and written
                     // back as a list of findings, because the prose around a JSON block says the same
                     // things at greater length and printing both means reading every review twice.
-                    addMessage: false);
+                    addMessage: false,
+                    runsTests: reviewRunsTests);
 
                 if (reviewRun is not { } reviewed) return;
 
@@ -2971,6 +2979,7 @@ public partial class GoalTileViewModel
                 // Kept whole, so a tick moved after the run has stopped can rebuild the feedback from
                 // it — see RebuildReviewFeedback.
                 _engine.LastReview = review;
+                _lastReviewRanTests = reviewRunsTests;
 
                 // What the criteria, the feedback and the no-progress stop all judge: the review less
                 // whatever the user has said is not to be fixed. Asked for once and used by all four,
@@ -2978,6 +2987,14 @@ public partial class GoalTileViewModel
                 // dismissed error kept out of the prompt, so nothing ever touches it, and counted by
                 // the criteria, so the goal is refused for it on every lap until the budget is gone.
                 var accepted = _engine.Accepted(review);
+
+                // The tests a deferred timing kept back, owed now that the review has accepted the
+                // work. What they answer takes the review's place for everything below — the
+                // criteria, the gate, the feedback and the no-progress stop — so a failure is a
+                // finding like any other and sends the run round again, where the next acceptance
+                // owes the tests again.
+                if (await SettleOwedTestsAsync(review, accepted, reviewRunsTests) is not { } settled) return;
+                (review, accepted) = settled;
 
                 if (_engine.IsMet(accepted))
                 {
@@ -3029,6 +3046,17 @@ public partial class GoalTileViewModel
                     // FinishedAtTheGateAsync the moment Resume is pressed — which is that press, so
                     // the run ends there rather than spending an implementation on an empty list.
                     accepted = _engine.Accepted(review);
+
+                    // Unticking the last error accepts the work here rather than above, so the tests
+                    // a deferred timing kept back are owed here too. Their answer is judged in place
+                    // and not gated again: a failure goes back as feedback like any other finding.
+                    if (gateCarriedOn)
+                    {
+                        if (await SettleOwedTestsAsync(review, accepted, _lastReviewRanTests)
+                            is not { } settledAtGate) return;
+                        (review, accepted) = settledAtGate;
+                    }
+
                     if (gateCarriedOn && _engine.IsMet(accepted))
                     {
                         ClosePicks();
@@ -3161,7 +3189,7 @@ public partial class GoalTileViewModel
             $"GOAL     started - max {criteria.MaxIterations} attempts, "
             + $"errors <= {criteria.MaxErrors}, warnings <= {criteria.MaxWarnings}, "
             + $"goal met {criteria.RequireGoalMet}, build {criteria.RequireBuild}, "
-            + $"tests {criteria.RequireTestsPass}, commit when done {criteria.CommitWhenDone}, "
+            + $"tests {criteria.RequireTestsPass} ({GoalTestPolicy.Label(criteria.TestTiming)}), commit when done {criteria.CommitWhenDone}, "
             + $"SOLID {criteria.Solid}"
             + (_engine.ScopePaths.Count > 0
                 ? $" - scoped to {string.Join(", ", _engine.ScopePaths)}"
@@ -3378,6 +3406,38 @@ public partial class GoalTileViewModel
         if (!_engine.IsMet(_engine.Accepted(review))) return false;
 
         StepBackToTheGate();
+        if (GoalTestPolicy.OwesTestRun(_engine.Criteria, _lastReviewRanTests))
+            return await SettleOwedTestsAtTheGateAsync();
+
+        return await FinishMetAtTheGateAsync();
+    }
+
+    /// <summary>
+    /// Runs the tests a deferred timing still owes over work the gate has just accepted — the tests
+    /// alone, never a second review, which could reopen a goal the user had just accepted.
+    /// </summary>
+    /// <returns>True when the run ended here (met, paused or out of budget); false when the tests
+    /// failed and the run has been moved onto the implementation that fixes them.</returns>
+    private async Task<bool> SettleOwedTestsAtTheGateAsync()
+    {
+        GoalReviewResult? tested = null;
+        await WorkingAsync(async () => tested = await RunTestsAsync());
+        if (tested is null) return true;
+
+        var accepted = _engine.Accepted(tested);
+        if (_engine.IsMet(accepted)) return await FinishMetAtTheGateAsync();
+
+        ClosePicks();
+        _engine.RecordReviewFeedback(_engine.FeedbackFor(accepted));
+        if (MoveToNextImplementation()) return false;
+
+        await WorkingAsync(() => ShowSummaryAsync(GoalStopReason.BudgetSpent, _engine.WhyNotMet(accepted)));
+        SaveStateNow();
+        return true;
+    }
+
+    private async Task<bool> FinishMetAtTheGateAsync()
+    {
         ClosePicks();
         _engine.ClearReviewFeedback();
         await WorkingAsync(() => ShowSummaryAsync(GoalStopReason.Met));
@@ -3930,6 +3990,77 @@ public partial class GoalTileViewModel
             await CommitWorkAsync();
     }
 
+    // ── The tests, once the work is accepted ──────────────────────────
+
+    /// <summary>
+    /// The tests a deferred timing kept back, run once a review has accepted the work. What they answer
+    /// takes the review's place for everything after it — the criteria, the gate, the feedback and the
+    /// no-progress stop — so a failure is a finding like any other and sends the run round again.
+    /// </summary>
+    /// <returns>The review and its accepted findings, unchanged when nothing was owed, or null when the
+    /// test run paused.</returns>
+    private async Task<(GoalReviewResult Review, GoalReviewResult Accepted)?> SettleOwedTestsAsync(
+        GoalReviewResult review, GoalReviewResult accepted, bool reviewRanTests, bool? scoped = null)
+    {
+        if (!_engine.IsMet(accepted) || !GoalTestPolicy.OwesTestRun(_engine.Criteria, reviewRanTests))
+            return (review, accepted);
+        if (await RunTestsAsync(scoped) is not { } tested) return null;
+        return (tested, _engine.Accepted(tested));
+    }
+
+    /// <summary>
+    /// Runs the tests a deferred timing kept back, over work a review has just accepted, and answers
+    /// what they found in the review's own shape. Null means the run was paused, and the caller leaves
+    /// the pause standing — the contract the loop's own review runs under.
+    /// </summary>
+    /// <remarks>
+    /// <para>Deliberately a prompt of its own rather than the review asked again with the tests in it:
+    /// a reviewer run twice rarely says the same thing twice, so a goal already accepted would be
+    /// reopened over a remark rather than over a failing test. See
+    /// <see cref="GoalPromptBuilder.BuildTestRun"/>.</para>
+    /// <para>A pause during it leaves the phase at Review, so Resume reviews again and — accepted —
+    /// owes the tests again. One review more than strictly needed, against a flag in the saved state
+    /// for a window a few minutes long.</para>
+    /// <para>A structured answer counts as the goal met whatever it says about it: the goal was the
+    /// review's question, and a test run that answered it would be a second opinion nobody asked for.
+    /// Prose is left as it came — its <c>VERDICT: FAIL</c> is the only thing a failed run in prose
+    /// has to say.</para>
+    /// </remarks>
+    /// <param name="scoped">Whether the tree is read against the goal's baseline, as the review before
+    /// it was. Null takes the loop's own answer.</param>
+    private async Task<GoalReviewResult?> RunTestsAsync(bool? scoped = null)
+    {
+        var run = await RunLoopPhaseAsync(
+            GoalPhase.Review,
+            "AI is running the tests...",
+            (tree, isScoped) => _engine.BuildTestRunPrompt(tree, isScoped, PromptBudget()),
+            addMessage: false,
+            scoped: scoped ?? DiffBase != null,
+            runsTests: true);
+
+        if (run is not { } answered) return null;
+
+        var result = await SalvagedAsync(GoalResponseParser.ParseReview(answered.Text),
+            GoalResponseParser.ParseReview, "test run", answered.Transcript);
+        if (result.WasStructured)
+        {
+            result.GoalMet = true;
+            result.SaidNothingAboutTheGoal = false;
+        }
+
+        ShowFindings(result);
+        await AddMessageAsync(GoalMessageRole.Assistant,
+            GoalTranscript.TestRunHead(result), GoalPhase.Review,
+            findings: GoalTranscript.InOrder(result.Findings));
+
+        // Kept whole, as a review is, so a tick moved after the run has stopped rebuilds the feedback
+        // from what is actually on screen — but only when it failed. A passing run says nothing the
+        // accepted review did not, and taking its place would lose that review's suggestions.
+        if (!_engine.IsMet(_engine.Accepted(result))) _engine.LastReview = result;
+        _lastReviewRanTests = true;
+        return result;
+    }
+
     // ── One review, on its own ──────────────────────────
 
     /// <summary>
@@ -3946,12 +4077,15 @@ public partial class GoalTileViewModel
     private async Task<(GoalStopReason Reason, string? Outstanding)?> ReviewUnchangedTreeAsync(
         GoalCompletionCriteria criteria)
     {
+        var reviewRunsTests = _engine.ReviewRunsTests;
         var reviewRun = await RunLoopPhaseAsync(
             GoalPhase.Review,
             "AI is reviewing the working tree...",
-            (tree, isScoped) => _engine.BuildReviewPrompt(tree, isScoped, PromptBudget()),
+            (tree, isScoped) => _engine.BuildReviewPrompt(
+                tree, isScoped, PromptBudget(), runTests: reviewRunsTests),
             addMessage: false,
-            scoped: false);
+            scoped: false,
+            runsTests: reviewRunsTests);
 
         if (reviewRun is not { } reviewed) return null;
 
@@ -3964,12 +4098,19 @@ public partial class GoalTileViewModel
 
         // Kept whole, so a tick moved after the run has stopped can rebuild the feedback from it.
         _engine.LastReview = review;
+        _lastReviewRanTests = reviewRunsTests;
 
         // The same subtraction the loop makes, for the same reason: what the user has said is not to
         // be fixed must not be counted by the criteria, named in the summary or handed back as
         // feedback. A review reached from outside the loop is still a review of dismissals already
         // taken, and the reviewer, which is run from scratch, phrases them afresh every time.
         var accepted = _engine.Accepted(review);
+
+        // A stop here is a finished goal like any other, so it owes the tests the same way — read
+        // unscoped like the review above it, since the work predates the attempt that wrote nothing.
+        if (await SettleOwedTestsAsync(review, accepted, reviewRunsTests, scoped: false)
+            is not { } settled) return null;
+        (review, accepted) = settled;
 
         if (_engine.IsMet(accepted))
             return (GoalStopReason.Met, null);
@@ -4534,7 +4675,18 @@ public partial class GoalTileViewModel
     /// </remarks>
     private AiUsage CurrentUsage =>
         AiUsage.Headless(CurrentPhase,
-            _engine.Criteria.RequireBuild || _engine.Criteria.RequireTestsPass);
+            _engine.Criteria.RequireBuild || (_engine.Criteria.RequireTestsPass && _runsTestsNow));
+
+    /// <summary>
+    /// Whether the call in flight is the one that runs the tests, where the criteria ask for them —
+    /// set by <see cref="RunLoopPhaseAsync"/> for the call it starts, and read by
+    /// <see cref="CurrentUsage"/> for it and for the salvage round that may follow it.
+    /// </summary>
+    /// <remarks>A field beside the usage rather than a parameter of <see cref="RunAiAsync"/>, because
+    /// the usage is asked for twice per call — once to launch, once to blame a refused flag — and the
+    /// two must not disagree. It matters only for a review with the build switched off: one whose
+    /// tests are deferred then runs nothing and can be held to reading.</remarks>
+    private bool _runsTestsNow = true;
 
     /// <summary>
     /// The agent's environment, after whatever it needs on disk has been made.
@@ -4837,12 +4989,15 @@ public partial class GoalTileViewModel
     /// the same twenty lines twice. Which mattered: the NoTool case was added to both by hand, and the
     /// cancelled case was fixed in one of them first.</para>
     /// </summary>
+    /// <param name="runsTests">Whether this call is the one that runs the tests — see
+    /// <see cref="_runsTestsNow"/>.</param>
     private async Task<LoopAnswer?> RunLoopPhaseAsync(
         GoalPhase phase, string runningLabel, Func<string?, bool, string> buildPrompt,
         bool addMessage = true, bool scoped = true,
-        IReadOnlyList<string>? onlyPaths = null)
+        IReadOnlyList<string>? onlyPaths = null, bool runsTests = true)
     {
         if (PauseRequested) return Stopped();
+        _runsTestsNow = runsTests;
 
         _engine.CurrentPhase = phase;
         SyncFromEngine();

@@ -30,17 +30,7 @@ internal static class GoalTranscript
 
         var sb = new StringBuilder();
         sb.Append(review.GoalMet ? "Goal met" : "Goal not met");
-
-        var counts = new[]
-            {
-                GoalSeverity.Blocker, GoalSeverity.Error, GoalSeverity.Warning, GoalSeverity.Suggestion,
-            }
-            .Select(s => (Severity: s, Count: review.Count(s)))
-            .Where(x => x.Count > 0)
-            .Select(x => $"{x.Count} {x.Severity.ToString().ToLowerInvariant()}{(x.Count == 1 ? "" : "s")}")
-            .ToList();
-
-        sb.Append(counts.Count > 0 ? $" · {string.Join(" · ", counts)}" : " · nothing found");
+        sb.Append(Counts(review) is { Length: > 0 } counts ? $" · {counts}" : " · nothing found");
 
         // Not when the goal is being counted as met anyway. A structured review that omits goalMet
         // still falls back to the prose verdict, so it can perfectly well end up met — and the note
@@ -55,6 +45,34 @@ internal static class GoalTranscript
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// The head of the test run a deferred timing owes an accepted review: whether the tests passed,
+    /// and the counts. Not <see cref="ReviewHead"/>, whose first words are about the goal — a
+    /// question the test run is not asked, and "Goal met · 2 errors" over two failing tests reads as
+    /// the review contradicting itself.
+    /// </summary>
+    public static string TestRunHead(GoalReviewResult result)
+    {
+        if (!result.WasStructured)
+            return result.RawText.Trim();
+
+        var sb = new StringBuilder(result.Findings.Count == 0
+            ? "Tests pass"
+            : $"Tests failed · {Counts(result)}");
+
+        if (result.Findings.Count == 0 && Prose(result.RawText) is { Length: > 0 } why)
+            sb.Append('\n').Append('\n').Append(why);
+
+        return sb.ToString();
+    }
+
+    /// <summary>The findings counted by severity, worst first — "2 errors · 1 warning" — or empty.</summary>
+    private static string Counts(GoalReviewResult review) => string.Join(" · ",
+        new[] { GoalSeverity.Blocker, GoalSeverity.Error, GoalSeverity.Warning, GoalSeverity.Suggestion }
+            .Select(s => (Severity: s, Count: review.Count(s)))
+            .Where(x => x.Count > 0)
+            .Select(x => $"{x.Count} {x.Severity.ToString().ToLowerInvariant()}{(x.Count == 1 ? "" : "s")}"));
 
     /// <summary>
     /// The findings as text: a bracketed severity and a place on one line, then the title, then the

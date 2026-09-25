@@ -108,6 +108,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
             : null;
         PermissionModePicker.OptionSelector = item => item is string label ? SettingPickerRows.Mode(label) : null;
         GateModePicker.OptionSelector = item => item is string label ? SettingPickerRows.GateMode(label) : null;
+        TestTimingPicker.OptionSelector = item => item is string label ? SettingPickerRows.TestTiming(label) : null;
         EffortPicker.OptionSelector = item => item is string label ? SettingPickerRows.EffortPreset(label) : null;
         PlanningAgentPicker.OptionSelector = item => item is GoalAgentSlotChoice planner
             ? new PickerOption { Id = planner.InstanceId, Title = planner.Label }
@@ -117,6 +118,7 @@ public partial class GoalTileView : UserControl, IFocusTargetView
         ReviewAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.ReviewAgentInstanceId = e.Option.Id);
         PermissionModePicker.SelectionRequested += (_, e) => WithVm(vm => vm.PermissionModeLabel = e.Option.Id);
         GateModePicker.SelectionRequested += (_, e) => WithVm(vm => vm.GateModeLabel = e.Option.Id);
+        TestTimingPicker.SelectionRequested += (_, e) => WithVm(vm => vm.Criteria.TestTimingLabel = e.Option.Id);
         EffortPicker.SelectionRequested += (_, e) => WithVm(vm => vm.EffortPresetLabel = e.Option.Id);
         PlanningAgentPicker.SelectionRequested += (_, e) => WithVm(vm => vm.PlanningAgentInstanceId = e.Option.Id);
     }

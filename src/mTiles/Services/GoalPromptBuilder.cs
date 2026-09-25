@@ -95,12 +95,17 @@ public sealed class GoalPromptBuilder
     /// </remarks>
     /// <param name="review">Whether this is the reviewer being asked to establish it, rather than the
     /// implementer being asked to leave it true.</param>
-    private string HealthRules(bool review)
+    /// <param name="testsNow">Whether this step is the one that runs the tests, where the criteria ask
+    /// for them — see <see cref="GoalTestPolicy"/>. False defers them rather than dropping them: the
+    /// sentence then says when they are run instead.</param>
+    private string HealthRules(bool review, bool testsNow = true)
     {
         var criteria = _criteria();
         var build = criteria.RequireBuild;
-        var tests = criteria.RequireTestsPass;
-        var skipped = SkippedChecks(build, tests);
+        var tests = criteria.RequireTestsPass && testsNow;
+        var skipped = criteria.RequireTestsPass && !testsNow
+            ? DeferredTests(build, review)
+            : SkippedChecks(build, tests);
         if (!build && !tests) return skipped + "\n";
 
         var text = new StringBuilder(review
@@ -139,6 +144,81 @@ public sealed class GoalPromptBuilder
         (true, false) => "Do not run the project's tests: they are not part of this goal's checks.\n",
         _ => "",
     };
+
+    /// <summary>
+    /// The sentence for tests the criteria ask for and a later step runs.
+    /// </summary>
+    /// <remarks>The implementer keeps the tests a finding names, because the lap after a failed test
+    /// run is spent fixing exactly those, and a fix nobody may check is a guess. The reviewer keeps
+    /// nothing: with the build off as well it is read-only, and a build it was told to avoid is the
+    /// one command that would have written.</remarks>
+    private static string DeferredTests(bool build, bool review) => review
+        ? build
+            ? "Do not run the project's tests: they are run on their own once a review accepts the work.\n"
+            : "Do not build the project or run its tests: the tests are run on their own once a review " +
+              "accepts the work.\n"
+        : "Do not run the whole test suite: it is run on its own once a review accepts the work. " +
+          "Running only the tests a finding below names, to check your fix, is fine.\n";
+
+    /// <summary>
+    /// The one check a review that has accepted the work may still owe: run the tests and report what
+    /// these changes broke, in the review's own answer format.
+    /// </summary>
+    /// <remarks>
+    /// <para>Not a second review. A full review asked again finds something new more often than not —
+    /// it is written from scratch and phrases the world afresh — so a goal already accepted would be
+    /// reopened over a remark rather than over a failing test, and the deferred timings would buy a
+    /// review twice where they meant to buy the suite once. So this is told the code is judged, and
+    /// that anything but a failing test belongs in its reasoning.</para>
+    /// <para>Same schema as a review, so the same parser, the same salvage round and the same gate
+    /// read it, and a failure goes back to the implementer as a finding like any other. goalMet is
+    /// asked for as true: the goal was the review's question and it has answered it.</para>
+    /// </remarks>
+    public string BuildTestRun(string goal, string? gitDiff, bool scoped = false, int? budget = null) =>
+        Fit(cap => ComposeTestRun(goal, gitDiff, scoped, cap), budget);
+
+    private string ComposeTestRun(string goal, string? gitDiff, bool scoped, int cap)
+    {
+        var prompt = "The changes below were made in this project for the goal that follows, and a " +
+                     "review has accepted them. One check is left: the project's tests.\n\n"
+                     + Block("The original goal was", goal, GoalCap(cap));
+
+        if (gitDiff != null)
+            prompt += Block("Current state of the working tree", gitDiff, Math.Max(TreeFloor, cap));
+
+        if (!scoped) prompt += OtherPeoplesWorkInReview;
+
+        prompt += "Run this project's own test suite, worked out from the repository. Running the " +
+                  "tests (and the build they need) is the only change you may make: do not edit, " +
+                  "create or delete any file, and do not commit.\n" +
+                  "A failing test these changes caused is an error finding: the test in `title`, what " +
+                  "it expected and what it got in `detail`, and the file and line of the code that " +
+                  "broke it where you can tell. A test that was already failing before these changes " +
+                  "is not: say so in your reasoning and leave it out of the findings.\n" +
+                  "Do not review the code otherwise. Anything else you notice belongs in your " +
+                  "reasoning, not in the findings. Set goalMet to true.\n\n" +
+                  AnswerLanguage +
+                  TestRunExample +
+                  "\n" + JsonEscaping +
+                  "If you cannot produce the json block, end your reply with the line " +
+                  "VERDICT: PASS or VERDICT: FAIL instead.\n" +
+                  "Only your final message is read. If you write anything after the json block, " +
+                  "repeat the block at the end of that message too.";
+        return prompt;
+    }
+
+    /// <summary>The review's own shape, with a failing test in it: the review's example says
+    /// <c>goalMet: false</c> over a code defect, which is the one answer this prompt does not want
+    /// copied.</summary>
+    private const string TestRunExample =
+        "Answer with your reasoning first, then one fenced json block as the last thing in your reply.\n\n" +
+        "Example:\n" +
+        "```json\n" +
+        "{\"goalMet\":true,\"findings\":[" +
+        "{\"severity\":\"error\",\"category\":\"tests\",\"file\":\"src/Cart.cs\",\"line\":42," +
+        "\"title\":\"CartTests.Discount_applies_before_total fails\",\"detail\":\"Expected 90, got " +
+        "100: Sum() now runs before ApplyDiscount().\"}]}\n" +
+        "```";
 
     /// <summary>How a violation of these rules is described where the review is told what a warning is.
     /// SOLID is left out of that sentence when none of it applies, so the one place the reviewer is
@@ -808,7 +888,8 @@ public sealed class GoalPromptBuilder
         string? GitDiff = null,
         IReadOnlyList<string>? AttemptLog = null,
         int Attempt = 0,
-        int Attempts = 0);
+        int Attempts = 0,
+        bool RunTests = true);
 
     public string BuildImplement(ImplementContext context, int? budget = null) =>
         Fit(cap => ComposeImplement(context, cap), budget);
@@ -820,7 +901,7 @@ public sealed class GoalPromptBuilder
         if (!string.IsNullOrEmpty(c.ApprovedPlan))
             prompt += Block("Approved implementation plan", c.ApprovedPlan, Cap(cap));
         prompt += QualityRules();
-        prompt += HealthRules(review: false);
+        prompt += HealthRules(review: false, c.RunTests);
         // The first thing dropped when the prompt will not fit, and this is a reversal of what was
         // written here before. The old rule kept the diff to the last rung and dropped the attempt notes
         // first, on the grounds that the diff is the state of the work. It is — and the tool can read
@@ -901,9 +982,12 @@ public sealed class GoalPromptBuilder
     /// <see cref="GoalDismissals.PromptBlock"/> writes it, or empty when there is nothing. Carried into
     /// the prompt rather than filtered out of the answer, because only the reviewer can tell a finding
     /// somebody dismissed from a differently worded one about the same line.</param>
+    /// <param name="runTests">Whether this review is the step that runs the tests, where the criteria
+    /// ask for them — see <see cref="GoalTestPolicy.InReview"/>. A review asked for on its own, outside
+    /// the loop, leaves it at true: it is the only look the tree gets.</param>
     public string BuildReview(string goal, string? gitDiff, bool scoped = false, int? budget = null,
-        string? guideline = null, string? dismissed = null) =>
-        Fit(cap => ComposeReview(goal, gitDiff, scoped, cap, guideline, dismissed), budget);
+        string? guideline = null, string? dismissed = null, bool runTests = true) =>
+        Fit(cap => ComposeReview(goal, gitDiff, scoped, cap, guideline, dismissed, runTests), budget);
 
     /// <summary>
     /// The findings a person has already looked at and let stand.
@@ -1083,14 +1167,14 @@ public sealed class GoalPromptBuilder
         "goal; do not report their unrelated changes as a finding.\n\n";
 
     private string ComposeReview(string goal, string? gitDiff, bool scoped, int cap,
-        string? guideline = null, string? dismissed = null)
+        string? guideline = null, string? dismissed = null, bool runTests = true)
     {
         var prompt = "Review the code changes that were just made in this project.\n\n"
                      + Block("The original goal was", goal, GoalCap(cap))
                      + ReviewSubject(guideline, cap)
                      + Images(cap);
         prompt += QualityRules();
-        prompt += HealthRules(review: true);
+        prompt += HealthRules(review: true, runTests);
         // The fitting step itself, with no ceiling over it — see the note in ComposeImplement —
         // and with a floor under it, for the same reason the goal has one.
         //

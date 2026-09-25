@@ -1356,6 +1356,7 @@ public class GoalCompletionCriteriaTests
         type == typeof(int) ? 37
         : type == typeof(bool) ? false
         : type == typeof(string) ? "a distinctive value"
+        : type == typeof(GoalTestTiming) ? GoalTestTiming.FirstReviewAndWhenMet
         // Every switch off, which is the opposite of the default in all five places at once. It is a
         // record, so this is compared by value — a Copy that shared the instance would pass here and is
         // caught in SolidPrinciplesTests instead.

@@ -161,6 +161,17 @@ internal sealed class TolerantGoalReviewGateModeConverter : TolerantEnumOrDefaul
     protected override GoalReviewGateMode Fallback => GoalReviewGateMode.Countdown;
 }
 
+/// <summary>
+/// A test timing this build has never heard of reads as <see cref="GoalTestTiming.EveryReview"/> — the
+/// default, and what a goal file that predates the field means as well.
+/// </summary>
+/// <remarks>The most thorough of the answers rather than the cheapest: an unreadable setting may cost
+/// a test run nobody asked for, and must never quietly skip one somebody did.</remarks>
+internal sealed class TolerantGoalTestTimingConverter : TolerantEnumOrDefaultConverter<GoalTestTiming>
+{
+    protected override GoalTestTiming Fallback => GoalTestTiming.EveryReview;
+}
+
 /// <summary>An effort level this build has never heard of reads as <see cref="AiEffort.High"/> — the
 /// default — rather than costing the whole settings file, which also holds the profiles, the tool paths
 /// and the encrypted database passwords.</summary>

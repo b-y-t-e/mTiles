@@ -435,17 +435,28 @@ public sealed partial class GoalWorkflowEngine
                 gitDiff,
                 AttemptLog,
                 IterationCount,
-                MaxIter),
+                MaxIter,
+                GoalTestPolicy.InImplement(Criteria)),
             budget);
 
     /// <inheritdoc cref="BuildClarifyPrompt"/>
+    /// <param name="runTests">Whether this review runs the tests — see
+    /// <see cref="GoalTestPolicy.InReview"/>. The loop asks the policy; a review on its own does not.</param>
     public string BuildReviewPrompt(string? gitDiff, bool scoped = false, int? budget = null,
-        string? guideline = null) =>
+        string? guideline = null, bool runTests = true) =>
         // The dismissals are read here rather than passed in, so no caller can build a review prompt
         // that forgets them — which is a reviewer raising, in fresh words, the finding the user
         // unticked a minute ago, and an attempt spent undoing their decision.
         _promptBuilder.BuildReview(OriginalGoal, gitDiff, scoped, budget, guideline,
-            GoalDismissals.PromptBlock(Dismissed));
+            GoalDismissals.PromptBlock(Dismissed), runTests);
+
+    /// <summary>Whether this lap's review runs the tests, as <see cref="GoalTestPolicy.InReview"/>
+    /// answers it for the attempt in hand.</summary>
+    public bool ReviewRunsTests => GoalTestPolicy.InReview(Criteria, IterationCount);
+
+    /// <inheritdoc cref="BuildClarifyPrompt"/>
+    public string BuildTestRunPrompt(string? gitDiff, bool scoped = false, int? budget = null) =>
+        _promptBuilder.BuildTestRun(OriginalGoal, gitDiff, scoped, budget);
 
     /// <summary>Asks the tool to re-send a review block it wrote as invalid JSON. The answer travels
     /// alone — the salvage round repairs what the tool wrote, it does not re-run the phase.</summary>

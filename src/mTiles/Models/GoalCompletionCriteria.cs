@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using mTiles.Services;
+
 namespace mTiles.Models;
 
 /// <summary>
@@ -49,6 +52,18 @@ public sealed class GoalCompletionCriteria
     /// a red suite nobody has got to yet still has to compile, and asking for green tests there is
     /// asking for work the user did not want.</remarks>
     public bool RequireTestsPass { get; set; } = true;
+
+    /// <summary>
+    /// When the tests are run, where <see cref="RequireTestsPass"/> asks for them at all. Every review
+    /// unless the user says otherwise — what this tile did before the choice existed.
+    /// </summary>
+    /// <remarks>A second field rather than a four-way replacement of the switch above, so a goal file
+    /// written before it reads exactly as it did (absent is <see cref="GoalTestTiming.EveryReview"/>)
+    /// and one written after it still reads in a build rolled back past it: that build ignores the key
+    /// and runs the tests every review, which is the more thorough of the answers, never the less.
+    /// What each timing does is <c>GoalTestPolicy</c>.</remarks>
+    [JsonConverter(typeof(TolerantGoalTestTimingConverter))]
+    public GoalTestTiming TestTiming { get; set; }
 
     /// <summary>
     /// Whether a finished run commits its own work, rather than offering a button and waiting.
@@ -120,6 +135,8 @@ public sealed class GoalCompletionCriteria
         MaxIterations = MaxIterations,
         RequireBuild = RequireBuild,
         RequireTestsPass = RequireTestsPass,
+        TestTiming = TestTiming,
+        CommitWhenDone = CommitWhenDone,
         // Copied, not shared. Copy() exists so a caller can hold the criteria as they were; handing it
         // the same instance would let a later edit reach back into the snapshot.
         Solid = Solid.Copy(),

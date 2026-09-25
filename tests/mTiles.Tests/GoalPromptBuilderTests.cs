@@ -211,6 +211,63 @@ public class GoalPromptBuilderTests
     }
 
     /// <summary>
+    /// Tests a later step runs are deferred in words, not dropped: the step is told when they run,
+    /// and the implementer keeps the tests a finding names, which is what the lap after a failed test
+    /// run is for.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Deferred_tests_are_said_to_be_run_later(bool build)
+    {
+        var builder = new GoalPromptBuilder(
+            () => new GoalCompletionCriteria { RequireBuild = build, TestTiming = GoalTestTiming.WhenMet });
+
+        var implement = builder.BuildImplement(new GoalPromptBuilder.ImplementContext("a goal", RunTests: false));
+        var review = builder.BuildReview("a goal", null, runTests: false);
+
+        foreach (var prompt in (string[])[implement, review])
+        {
+            Assert.DoesNotContain("the project's tests pass", prompt);
+            Assert.DoesNotContain("not part of this goal's checks", prompt);
+            Assert.Contains("once a review accepts the work", prompt);
+        }
+
+        Assert.Contains("Running only the tests a finding below names", implement);
+        Assert.DoesNotContain("Running only the tests", review);
+        if (!build) Assert.Contains("Do not build the project or run its tests", review);
+        else Assert.Contains("Running the build is the only change you may make", review);
+    }
+
+    /// <summary>The test run owed to an accepted review runs the suite, asks for failures in the
+    /// review's own shape, and is not a second review.</summary>
+    [Fact]
+    public void The_test_run_asks_for_failures_and_nothing_else()
+    {
+        var prompt = new GoalPromptBuilder().BuildTestRun("add cart discounts", "diff --git a/x b/x");
+
+        Assert.Contains("add cart discounts", prompt);
+        Assert.Contains("diff --git a/x b/x", prompt);
+        Assert.Contains("Run this project's own test suite", prompt);
+        Assert.Contains("A failing test these changes caused is an error finding", prompt);
+        Assert.Contains("already failing", prompt);
+        Assert.Contains("Do not review the code otherwise", prompt);
+        Assert.Contains("do not edit, create or delete any file", prompt);
+        Assert.Contains("\"goalMet\":true", prompt);
+        Assert.Contains("VERDICT: PASS", prompt);
+
+        // Not the review's sweep: a second look for defects is what reopens an accepted goal.
+        Assert.DoesNotContain("Work through these", prompt);
+
+        // And under a command-line budget the tree gives way and the instruction stays whole.
+        var tree = new string('x', 50_000);
+        var whole = new GoalPromptBuilder().BuildTestRun("add cart discounts", tree);
+        var fitted = new GoalPromptBuilder().BuildTestRun("add cart discounts", tree, budget: 4000);
+        Assert.True(fitted.Length < whole.Length);
+        Assert.Contains("Run this project's own test suite", fitted);
+    }
+
+    /// <summary>
     /// The reviewer is warned that the working tree is not all one change — but only where that block
     /// really is everything uncommitted.
     /// </summary>

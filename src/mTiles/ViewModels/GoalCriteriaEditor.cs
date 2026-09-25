@@ -53,7 +53,25 @@ public partial class GoalCriteriaEditor : ObservableObject
 
     /// <summary>Whether the finished work has to leave the tests passing. See
     /// <see cref="GoalCompletionCriteria.RequireTestsPass"/>.</summary>
-    [ObservableProperty] private bool _requireTestsPass = true;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TestTimingLabel))]
+    private bool _requireTestsPass = true;
+
+    /// <summary>When the tests are run, where they are asked for. See
+    /// <see cref="GoalCompletionCriteria.TestTiming"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TestTimingLabel))]
+    private GoalTestTiming _testTiming;
+
+    /// <summary>The timings the picker beside the tests switch offers.</summary>
+    public IReadOnlyList<string> AvailableTestTimings => GoalTestPolicy.Labels;
+
+    /// <summary><see cref="TestTiming"/> as the picker shows it and writes it back.</summary>
+    public string TestTimingLabel
+    {
+        get => GoalTestPolicy.Label(TestTiming);
+        set => TestTiming = GoalTestPolicy.FromLabel(value);
+    }
 
     /// <summary>
     /// Whether a finished run commits its own work by itself. See
@@ -93,6 +111,7 @@ public partial class GoalCriteriaEditor : ObservableObject
             RequireGoalMet = c.RequireGoalMet;
             RequireBuild = c.RequireBuild;
             RequireTestsPass = c.RequireTestsPass;
+            TestTiming = c.TestTiming;
             CommitWhenDone = c.CommitWhenDone;
             foreach (var chip in Solid) chip.Fill(c.Solid);
         }
@@ -131,6 +150,7 @@ public partial class GoalCriteriaEditor : ObservableObject
     partial void OnRequireGoalMetChanged(bool value) => Changed();
     partial void OnRequireBuildChanged(bool value) => Changed();
     partial void OnRequireTestsPassChanged(bool value) => Changed();
+    partial void OnTestTimingChanged(GoalTestTiming value) => Changed();
     partial void OnCommitWhenDoneChanged(bool value) => Changed();
 
     /// <summary>
@@ -152,6 +172,7 @@ public partial class GoalCriteriaEditor : ObservableObject
             RequireGoalMet = RequireGoalMet,
             RequireBuild = RequireBuild,
             RequireTestsPass = RequireTestsPass,
+            TestTiming = TestTiming,
             CommitWhenDone = CommitWhenDone,
             Solid = SolidFromToggles(),
         });

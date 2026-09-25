@@ -608,9 +608,23 @@
                 <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireBuild}"
                           Content="the project still builds"
                           ToolTip.Tip="The tool is told to check this itself with this project's own build command, and to fix what it broke." />
-                <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireTestsPass}"
-                          Content="the tests still pass"
-                          ToolTip.Tip="The tool is told to run this project's own tests. Failures that were already there are reported, not fixed — turn this off in a repository whose suite is red on purpose." />
+                <!-- When the tests are run sits beside whether they are, and only while they are: the
+                     suite is the dearest part of a lap, and the deferred timings spend it on work a
+                     review has already accepted rather than on every attempt. See GoalTestPolicy. -->
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <CheckBox Classes="crit-check" IsChecked="{Binding Criteria.RequireTestsPass}"
+                              Content="the tests still pass"
+                              ToolTip.Tip="The tool is told to run this project's own tests. Failures that were already there are reported, not fixed — turn this off in a repository whose suite is red on purpose." />
+                    <p:Picker x:Name="TestTimingPicker"
+                              Classes="strip-picker" MinWidth="110"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding Criteria.RequireTestsPass}"
+                              Options="{Binding Criteria.AvailableTestTimings}"
+                              SelectedId="{Binding Criteria.TestTimingLabel, Mode=OneWay}"
+                              Text="{Binding Criteria.TestTimingLabel}"
+                              DropDownWidth="320"
+                              ToolTip.Tip="When the tests are run: every review; only once a review accepts the work, where a failure sends the run round again; or on the first review as well, to catch an early break." />
+                </StackPanel>
                 <!-- The only switch on this panel that starts off, and the only one that writes to the
                      user's history. Off does not mean the feature is unavailable — the same conditions
                      put a Commit button in the summary — so this says who starts it, never whether it
