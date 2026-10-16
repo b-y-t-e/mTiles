@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<!-- Scripts, styles and fonts from this origin only; sockets only to this origin and to the relays.
+     An injected script on this origin would be a shell on the paired computer — see the README. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' wss://*.ipn.dev wss://*.tailscale.com; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#121220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>mTiles</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-256.png">
+<link rel="apple-touch-icon" href="icon-256.png">
+<link rel="stylesheet" href="style.css">
+<!-- tweetnacl 1.0.3, vendored: the one primitive WebCrypto lacks. It sets the global the link reads. -->
+<script src="vendor/tweetnacl/nacl-fast.min.js"></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div id="app"></div>
+</body>
+</html>
